@@ -20,14 +20,54 @@ public struct ReportWriter: Sendable {
         }
     }
     
+    // MARK: - Google Sheets / CSV Report Generator
+    
+    /// Generates a simple, Google Sheets compatible CSV document listing every file, lines found, timecodes, and locations
+    public static func generateCSVReport(
+        results: [VideoQCResult]
+    ) -> String {
+        var csv = "File Name,Lines Found,Timecode,Location,Duration,Detected Color\n"
+        
+        func escapeCSV(_ str: String) -> String {
+            if str.contains(",") || str.contains("\"") || str.contains("\n") {
+                let escaped = str.replacingOccurrences(of: "\"", with: "\"\"")
+                return "\"\(escaped)\""
+            }
+            return str
+        }
+        
+        for result in results {
+            let fileName = result.fileName
+            if !result.isFlagged || result.glitchSegments.isEmpty {
+                // Clean file
+                csv += "\(escapeCSV(fileName)),No,--,--,--,--\n"
+            } else {
+                let segments = result.glitchSegments
+                for (idx, seg) in segments.enumerated() {
+                    let displayName = segments.count > 1 ? "\(fileName) (Segment \(idx + 1))" : fileName
+                    let linesFound = "Yes (\(segments.count) total)"
+                    let timecode = seg.startTimecode == seg.endTimecode ? seg.startTimecode : "\(seg.startTimecode) -> \(seg.endTimecode)"
+                    let location = "\(seg.edge.rawValue.capitalized) Edge (\(seg.avgThickness)px)"
+                    let duration = seg.frameCount == 1 ? "1 frame (0.04s)" : "\(seg.frameCount) frames (\(String(format: "%.2f", seg.durationSeconds))s)"
+                    let color = seg.detectedColor.hexString.uppercased()
+                    
+                    csv += "\(escapeCSV(displayName)),\(escapeCSV(linesFound)),\(escapeCSV(timecode)),\(escapeCSV(location)),\(escapeCSV(duration)),\(escapeCSV(color))\n"
+                }
+            }
+        }
+        
+        return csv
+    }
+    
     // MARK: - Minimalist Studio HTML Report Generator
     
-    /// Generates a sleek, minimal, Helvetica-styled Swiss/editorial QC report with Light & Dark theme support
+    /// Generates a sleek, minimal, Helvetica-styled Swiss/editorial QC report with Light & Dark theme support and direct Google Sheets CSV integration
     public static func generateHTMLReport(
         folderURL: URL,
         config: QCConfig,
         results: [VideoQCResult],
-        scanDate: Date = Date()
+        scanDate: Date = Date(),
+        csvFileName: String? = nil
     ) -> String {
         let dateFormatter = DateFormatter()
         dateFormatter.dateFormat = "yyyy.MM.dd // HH:mm:ss"
@@ -39,6 +79,9 @@ public struct ReportWriter: Sendable {
         
         let targetHex = config.targetHex.uppercased()
         let tolPercent = Int(config.tolerance * 100)
+        
+        let rawCSV = generateCSVReport(results: results)
+        let directCSVLink = csvFileName ?? "QC_Report.csv"
         
         var html = """
         <!DOCTYPE html>
@@ -122,10 +165,11 @@ public struct ReportWriter: Sendable {
                 .header-actions {
                     display: flex;
                     align-items: center;
-                    gap: 12px;
+                    gap: 10px;
+                    flex-wrap: wrap;
                 }
 
-                .theme-btn {
+                .action-btn {
                     background: var(--panel);
                     color: var(--text);
                     border: 1px solid var(--border-strong);
@@ -135,14 +179,27 @@ public struct ReportWriter: Sendable {
                     font-weight: 700;
                     cursor: pointer;
                     text-transform: uppercase;
-                    letter-spacing: 0.1em;
+                    letter-spacing: 0.08em;
+                    text-decoration: none;
+                    display: inline-flex;
+                    align-items: center;
+                    gap: 6px;
                 }
-                .theme-btn:hover {
+                .action-btn:hover {
                     background: var(--border);
                 }
 
+                .action-btn-primary {
+                    background: var(--text);
+                    color: var(--bg);
+                    border-color: var(--text);
+                }
+                .action-btn-primary:hover {
+                    opacity: 0.85;
+                }
+
                 .status-badge {
-                    font-size: 16px;
+                    font-size: 15px;
                     font-weight: 800;
                     letter-spacing: 0.1em;
                     padding: 8px 16px;
@@ -367,6 +424,22 @@ public struct ReportWriter: Sendable {
                     font-size: 11px;
                 }
 
+                /* Notification Toast */
+                #toast {
+                    position: fixed;
+                    bottom: 24px;
+                    right: 24px;
+                    background: var(--text);
+                    color: var(--bg);
+                    padding: 12px 20px;
+                    font-family: var(--font-mono);
+                    font-size: 12px;
+                    font-weight: 700;
+                    display: none;
+                    border: 1px solid var(--border-strong);
+                    z-index: 1000;
+                }
+
                 /* Footer */
                 footer {
                     border-top: 1px solid var(--border);
@@ -389,7 +462,9 @@ public struct ReportWriter: Sendable {
                         <div class="subtitle">DELIVERY QC AUDIT // \(folderURL.lastPathComponent.uppercased())</div>
                     </div>
                     <div class="header-actions">
-                        <button class="theme-btn" onclick="toggleTheme()">[THEME: <span id="theme-text">DARK</span>]</button>
+                        <button class="action-btn action-btn-primary" onclick="openGoogleSheets()">[ OPEN GOOGLE SHEETS ]</button>
+                        <button class="action-btn" onclick="downloadCSV()">[ DOWNLOAD CSV ]</button>
+                        <button class="action-btn" onclick="toggleTheme()">[ THEME: <span id="theme-text">DARK</span> ]</button>
                         \(flaggedVideos.isEmpty ? "<div class='status-badge status-passed'>STATUS // PASSED</div>" : "<div class='status-badge status-flagged'>STATUS // \(flaggedVideos.count) FLAGGED</div>")
                     </div>
                 </div>
@@ -529,12 +604,47 @@ public struct ReportWriter: Sendable {
                 </footer>
             </div>
 
+            <div id="toast"></div>
+
             <script>
+                const csvData = `\(rawCSV.replacingOccurrences(of: "`", with: "\\`").replacingOccurrences(of: "${", with: "\\${"))`;
+                const csvFilename = "\(directCSVLink)";
+
                 function toggleTheme() {
                     const current = document.documentElement.getAttribute('data-theme') || 'dark';
                     const next = current === 'dark' ? 'light' : 'dark';
                     document.documentElement.setAttribute('data-theme', next);
                     document.getElementById('theme-text').innerText = next.toUpperCase();
+                }
+
+                function showToast(msg) {
+                    const t = document.getElementById('toast');
+                    t.innerText = msg;
+                    t.style.display = 'block';
+                    setTimeout(() => { t.style.display = 'none'; }, 4000);
+                }
+
+                function downloadCSV() {
+                    const blob = new Blob([csvData], { type: 'text/csv;charset=utf-8;' });
+                    const link = document.createElement('a');
+                    link.href = URL.createObjectURL(blob);
+                    link.download = csvFilename;
+                    document.body.appendChild(link);
+                    link.click();
+                    document.body.removeChild(link);
+                    showToast('CSV DOWNLOADED // ' + csvFilename);
+                }
+
+                function openGoogleSheets() {
+                    // Copy CSV table to clipboard and open Google Sheets in new tab for instant paste / import
+                    navigator.clipboard.writeText(csvData).then(() => {
+                        window.open('https://sheets.new', '_blank');
+                        showToast('CSV COPIED TO CLIPBOARD // OPENING GOOGLE SHEETS (PASTE WITH CMD+V)');
+                    }).catch(() => {
+                        // Fallback: download CSV and open sheets
+                        downloadCSV();
+                        window.open('https://sheets.new', '_blank');
+                    });
                 }
             </script>
         </body>
@@ -622,45 +732,6 @@ public struct ReportWriter: Sendable {
         return report
     }
     
-    // MARK: - Google Sheets / CSV Report Generator
-    
-    /// Generates a simple, Google Sheets compatible CSV document listing every file, lines found, timecodes, and locations
-    public static func generateCSVReport(
-        results: [VideoQCResult]
-    ) -> String {
-        var csv = "File Name,Lines Found,Timecode,Location,Duration,Detected Color\n"
-        
-        func escapeCSV(_ str: String) -> String {
-            if str.contains(",") || str.contains("\"") || str.contains("\n") {
-                let escaped = str.replacingOccurrences(of: "\"", with: "\"\"")
-                return "\"\(escaped)\""
-            }
-            return str
-        }
-        
-        for result in results {
-            let fileName = result.fileName
-            if !result.isFlagged || result.glitchSegments.isEmpty {
-                // Clean file
-                csv += "\(escapeCSV(fileName)),No,--,--,--,--\n"
-            } else {
-                let segments = result.glitchSegments
-                for (idx, seg) in segments.enumerated() {
-                    let displayName = segments.count > 1 ? "\(fileName) (Segment \(idx + 1))" : fileName
-                    let linesFound = "Yes (\(segments.count) total)"
-                    let timecode = seg.startTimecode == seg.endTimecode ? seg.startTimecode : "\(seg.startTimecode) -> \(seg.endTimecode)"
-                    let location = "\(seg.edge.rawValue.capitalized) Edge (\(seg.avgThickness)px)"
-                    let duration = seg.frameCount == 1 ? "1 frame (0.04s)" : "\(seg.frameCount) frames (\(String(format: "%.2f", seg.durationSeconds))s)"
-                    let color = seg.detectedColor.hexString.uppercased()
-                    
-                    csv += "\(escapeCSV(displayName)),\(escapeCSV(linesFound)),\(escapeCSV(timecode)),\(escapeCSV(location)),\(escapeCSV(duration)),\(escapeCSV(color))\n"
-                }
-            }
-        }
-        
-        return csv
-    }
-    
     // MARK: - Save Reports
     
     /// Saves .html, .csv (Google Sheets compatible), and .txt reports and applies Red Finder tags to flagged videos
@@ -676,16 +747,16 @@ public struct ReportWriter: Sendable {
         let fileDateFormatter = DateFormatter()
         fileDateFormatter.dateFormat = "yyyyMMdd_HHmmss"
         let timestamp = fileDateFormatter.string(from: Date())
+        let csvFileName = "QC_Report_\(timestamp).csv"
         
-        // 2. Save HTML Report (Primary Swiss/Editorial Report with Light/Dark Theme)
-        let htmlReportText = generateHTMLReport(folderURL: folderURL, config: config, results: results)
+        // 2. Save HTML Report (with embedded Google Sheets launcher and CSV downloader)
+        let htmlReportText = generateHTMLReport(folderURL: folderURL, config: config, results: results, csvFileName: csvFileName)
         let htmlFileName = "QC_Report_\(timestamp).html"
         let htmlFileURL = folderURL.appendingPathComponent(htmlFileName)
         try? htmlReportText.write(to: htmlFileURL, atomically: true, encoding: .utf8)
         
         // 3. Save CSV Document (Google Sheets / Excel / Numbers compatible)
         let csvReportText = generateCSVReport(results: results)
-        let csvFileName = "QC_Report_\(timestamp).csv"
         let csvFileURL = folderURL.appendingPathComponent(csvFileName)
         try? csvReportText.write(to: csvFileURL, atomically: true, encoding: .utf8)
         
@@ -698,4 +769,3 @@ public struct ReportWriter: Sendable {
         return (htmlFileURL, csvFileURL, txtFileURL)
     }
 }
-
