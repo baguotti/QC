@@ -2,13 +2,28 @@ import SwiftUI
 import UniformTypeIdentifiers
 import VideoQCLib
 
+enum AppTab: Int, CaseIterable, Identifiable {
+    case lineScanner = 0
+    case deliverables = 1
+    
+    var id: Int { rawValue }
+    var title: String {
+        switch self {
+        case .lineScanner: return "01 // LINE SCANNER"
+        case .deliverables: return "02 // DELIVERABLES MANIFEST"
+        }
+    }
+}
+
 struct ContentView: View {
     @AppStorage("isLightMode") private var isLightMode: Bool = false
+    @State private var selectedTab: AppTab = .lineScanner
     
+    // Shared Folder
     @State private var folderURL: URL? = nil
     @State private var videoFiles: [URL] = []
     
-    // Configuration
+    // MARK: - Tab 1: Line Scanner State
     @State private var hexCode: String = "#FF00B4"
     @State private var tolerancePercentage: Double = 15.0
     @State private var edgeDepth: Int = 12
@@ -17,13 +32,10 @@ struct ContentView: View {
     @State private var checkBottom: Bool = true
     @State private var checkLeft: Bool = true
     @State private var checkRight: Bool = true
-    
-    // Enhanced Black Line Controls
     @State private var enableExposureBoost: Bool = true
     @State private var exposureMultiplier: Double = 10.0
     @State private var ignoreFullBlackFrames: Bool = true
     
-    // Execution State
     @State private var isScanning: Bool = false
     @State private var progressInfo: VideoScanner.ScanProgress? = nil
     @State private var scanResults: [VideoQCResult] = []
@@ -31,12 +43,18 @@ struct ContentView: View {
     @State private var generatedCSVURL: URL? = nil
     @State private var scannerActor: VideoScanner? = nil
     
+    // MARK: - Tab 2: Deliverables Manifest State
+    @State private var deliverableFiles: [URL] = []
+    @State private var deliverableAssets: [DeliverableAsset] = []
+    @State private var isInspectingDeliverables: Bool = false
+    @State private var manifestCSVURL: URL? = nil
+    @State private var manifestHTMLURL: URL? = nil
+    
     var isTargetBlack: Bool {
         guard let rgb = RGBColor(hex: hexCode) else { return false }
         return rgb.r <= 15 && rgb.g <= 15 && rgb.b <= 15
     }
     
-    // Presets
     let colorPresets = [
         ("MAGENTA", "#FF00B4", 15.0),
         ("CYAN", "#00FFFF", 15.0),
@@ -63,67 +81,68 @@ struct ContentView: View {
     
     var body: some View {
         VStack(spacing: 0) {
-            // Header Masthead
+            // Header Masthead with Tab Switcher
             headerView
             
             Rectangle()
                 .fill(borderLine)
                 .frame(height: 1)
             
-            // Main Content Layout
-            HSplitView {
-                // Left Panel: Configuration
-                VStack(alignment: .leading, spacing: 18) {
-                    folderPickerSection
-                    colorSettingsSection
-                    if isTargetBlack {
-                        blackLineModeSection
-                    }
-                    edgeSettingsSection
-                    actionSection
-                    Spacer(minLength: 0)
-                }
-                .padding(22)
-                .frame(minWidth: 360, idealWidth: 400, maxWidth: 440)
-                .background(bgPanel)
-                
-                // Right Panel: Results / Live Progress / Empty State
-                VStack(alignment: .leading, spacing: 0) {
-                    if isScanning {
-                        activeScanProgressView
-                    } else if !scanResults.isEmpty {
-                        resultsSummaryView
-                    } else {
-                        emptyStateView
-                    }
-                }
-                .frame(minWidth: 540)
-                .background(bgMain)
+            // Tab Content
+            if selectedTab == .lineScanner {
+                lineScannerTabView
+            } else {
+                deliverablesTabView
             }
         }
-        .frame(minWidth: 940, minHeight: 680)
+        .frame(minWidth: 980, minHeight: 700)
         .background(bgMain)
         .foregroundColor(textMain)
     }
     
-    // MARK: - Header
+    // MARK: - Header & Tab Navigation
     
     private var headerView: some View {
-        HStack(alignment: .center) {
+        HStack(alignment: .center, spacing: 20) {
+            // Brand Title
             VStack(alignment: .leading, spacing: 2) {
-                Text("THE LINEFINDER 5000 // DELIVERY AUDIT")
+                Text("THE LINEFINDER 5000")
                     .font(.system(size: 16, weight: .black, design: .default))
                     .foregroundColor(textMain)
                     .tracking(1.5)
-                Text("THE LINEFINDER 5000 // POST-PRODUCTION EDGE ARTIFACT AUDITOR")
+                Text("DELIVERY AUDIT & ASSET MANIFEST // APPLE SILICON")
                     .font(.system(size: 9, weight: .bold, design: .monospaced))
                     .foregroundColor(textMuted)
                     .tracking(0.5)
             }
+            
             Spacer()
             
+            // Tab Selector
+            HStack(spacing: 0) {
+                ForEach(AppTab.allCases) { tab in
+                    Button(action: {
+                        selectedTab = tab
+                        if tab == .deliverables && deliverableAssets.isEmpty && !videoFiles.isEmpty {
+                            inspectDeliverablesBatch(urls: videoFiles)
+                        }
+                    }) {
+                        Text(tab.title)
+                            .font(.system(size: 11, weight: .bold, design: .monospaced))
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 7)
+                            .background(selectedTab == tab ? primaryBtnBg : bgSubtle)
+                            .foregroundColor(selectedTab == tab ? primaryBtnFg : textSubtle)
+                            .border(borderLine, width: 1)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            
+            Spacer()
+            
+            // Right Controls
             HStack(spacing: 10) {
-                // Theme Toggle Button
                 Button(action: { isLightMode.toggle() }) {
                     Text(isLightMode ? "[THEME: LIGHT]" : "[THEME: DARK]")
                         .font(.system(size: 10, weight: .bold, design: .monospaced))
@@ -135,12 +154,11 @@ struct ContentView: View {
                 }
                 .buttonStyle(.plain)
                 
-                // Status Indicator
                 HStack(spacing: 6) {
                     Circle()
-                        .fill(isScanning ? Color.orange : (scanResults.isEmpty ? textMuted : (scanResults.contains(where: \.isFlagged) ? alertRed : textMain)))
+                        .fill(isScanning || isInspectingDeliverables ? Color.orange : (scanResults.isEmpty && deliverableAssets.isEmpty ? textMuted : textMain))
                         .frame(width: 7, height: 7)
-                    Text(isScanning ? "SCANNING" : (scanResults.isEmpty ? "IDLE" : "COMPLETED"))
+                    Text(isScanning || isInspectingDeliverables ? "BUSY" : "READY")
                         .font(.system(size: 10, weight: .bold, design: .monospaced))
                         .foregroundColor(textSubtle)
                         .tracking(1.0)
@@ -152,11 +170,43 @@ struct ContentView: View {
             }
         }
         .padding(.horizontal, 24)
-        .padding(.vertical, 14)
+        .padding(.vertical, 12)
         .background(bgPanel)
     }
     
-    // MARK: - Section 1: Folder Picker
+    // MARK: ==================== TAB 1: LINE SCANNER ====================
+    
+    private var lineScannerTabView: some View {
+        HSplitView {
+            // Left Panel: Configuration
+            VStack(alignment: .leading, spacing: 18) {
+                folderPickerSection
+                colorSettingsSection
+                if isTargetBlack {
+                    blackLineModeSection
+                }
+                edgeSettingsSection
+                actionSection
+                Spacer(minLength: 0)
+            }
+            .padding(22)
+            .frame(minWidth: 360, idealWidth: 400, maxWidth: 440)
+            .background(bgPanel)
+            
+            // Right Panel: Results / Live Progress / Empty State
+            VStack(alignment: .leading, spacing: 0) {
+                if isScanning {
+                    activeScanProgressView
+                } else if !scanResults.isEmpty {
+                    resultsSummaryView
+                } else {
+                    emptyStateView
+                }
+            }
+            .frame(minWidth: 540)
+            .background(bgMain)
+        }
+    }
     
     private var folderPickerSection: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -214,14 +264,11 @@ struct ContentView: View {
         }
     }
     
-    // MARK: - Section 2: Color Target
-    
     private var colorSettingsSection: some View {
         VStack(alignment: .leading, spacing: 10) {
             sectionHeader(num: "02", title: "TARGET ERROR COLOR")
             
             HStack(spacing: 10) {
-                // Color preview square
                 if let rgb = RGBColor(hex: hexCode) {
                     Rectangle()
                         .fill(Color(red: Double(rgb.r)/255.0, green: Double(rgb.g)/255.0, blue: Double(rgb.b)/255.0))
@@ -246,7 +293,6 @@ struct ContentView: View {
                     .foregroundColor(textSubtle)
             }
             
-            // Preset pills
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 5) {
                     ForEach(colorPresets, id: \.1) { name, code, defaultTol in
@@ -268,7 +314,6 @@ struct ContentView: View {
                 }
             }
             
-            // Tolerance Slider
             VStack(alignment: .leading, spacing: 4) {
                 HStack {
                     Text("TOLERANCE THRESHOLD")
@@ -285,8 +330,6 @@ struct ContentView: View {
             }
         }
     }
-    
-    // MARK: - Black Line Mode Section
     
     private var blackLineModeSection: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -316,8 +359,6 @@ struct ContentView: View {
         .border(borderStrong, width: 1)
     }
     
-    // MARK: - Section 3: Edge Bounds
-    
     private var edgeSettingsSection: some View {
         VStack(alignment: .leading, spacing: 10) {
             sectionHeader(num: "03", title: "EDGE BOUNDS")
@@ -345,8 +386,6 @@ struct ContentView: View {
             .foregroundColor(textMain)
         }
     }
-    
-    // MARK: - Section 4: Action Buttons
     
     private var actionSection: some View {
         VStack(spacing: 8) {
@@ -379,8 +418,6 @@ struct ContentView: View {
         }
     }
     
-    // MARK: - Active Scan Progress View
-    
     private var activeScanProgressView: some View {
         VStack(alignment: .leading, spacing: 24) {
             HStack {
@@ -398,7 +435,6 @@ struct ContentView: View {
             
             if let p = progressInfo {
                 VStack(alignment: .leading, spacing: 16) {
-                    // Current File
                     VStack(alignment: .leading, spacing: 4) {
                         Text("CURRENT ASSET")
                             .font(.system(size: 10, weight: .bold, design: .monospaced))
@@ -409,7 +445,6 @@ struct ContentView: View {
                             .lineLimit(1)
                     }
                     
-                    // Stats Grid
                     HStack(spacing: 20) {
                         statItem(label: "BATCH PROGRESS", val: "FILE \(String(format: "%02d", p.currentFileIndex)) / \(String(format: "%02d", p.totalFiles))")
                         statItem(label: "FRAME INDEX", val: "\(p.currentFrame) / \(p.totalFramesInFile)")
@@ -417,7 +452,6 @@ struct ContentView: View {
                         statItem(label: "FLAGGED", val: "\(p.flaggedVideosCount)", isAlert: p.flaggedVideosCount > 0)
                     }
                     
-                    // Minimal Hairline Progress Bar
                     GeometryReader { geo in
                         ZStack(alignment: .leading) {
                             Rectangle()
@@ -436,13 +470,10 @@ struct ContentView: View {
                 .background(bgPanel)
                 .border(borderLine, width: 1)
             }
-            
             Spacer()
         }
         .padding(28)
     }
-    
-    // MARK: - Results Summary View
     
     private var resultsSummaryView: some View {
         let flagged = scanResults.filter { $0.isFlagged }
@@ -450,7 +481,6 @@ struct ContentView: View {
         let totalSegments = flagged.reduce(0) { $0 + $1.glitchSegments.count }
         
         return VStack(alignment: .leading, spacing: 20) {
-            // Masthead
             HStack(alignment: .center) {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("AUDIT COMPLETE")
@@ -504,7 +534,6 @@ struct ContentView: View {
                 }
             }
             
-            // 4-Column Stats Strip
             HStack(spacing: 12) {
                 statBox(title: "TOTAL SCANNED", val: String(format: "%02d", scanResults.count))
                 statBox(title: "FLAGGED FILES", val: String(format: "%02d", flagged.count), isRed: !flagged.isEmpty)
@@ -512,7 +541,6 @@ struct ContentView: View {
                 statBox(title: "GLITCH SEGMENTS", val: String(format: "%02d", totalSegments), isRed: totalSegments > 0)
             }
             
-            // List of Flagged Files & Glitch Segments
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
                     if flagged.isEmpty {
@@ -532,7 +560,6 @@ struct ContentView: View {
                         ForEach(flagged) { result in
                             let segments = result.glitchSegments
                             VStack(alignment: .leading, spacing: 0) {
-                                // Card Header
                                 HStack {
                                     VStack(alignment: .leading, spacing: 3) {
                                         Text(result.fileName.uppercased())
@@ -558,21 +585,14 @@ struct ContentView: View {
                                 
                                 Rectangle().fill(borderLine).frame(height: 1)
                                 
-                                // Table Header
                                 HStack(spacing: 8) {
-                                    Text("#")
-                                        .frame(width: 25, alignment: .leading)
-                                    Text("LOCATION")
-                                        .frame(width: 120, alignment: .leading)
-                                    Text("TIMECODE RANGE")
-                                        .frame(width: 170, alignment: .leading)
-                                    Text("DURATION")
-                                        .frame(width: 140, alignment: .leading)
-                                    Text("FRAMES")
-                                        .frame(width: 80, alignment: .leading)
+                                    Text("#").frame(width: 25, alignment: .leading)
+                                    Text("LOCATION").frame(width: 120, alignment: .leading)
+                                    Text("TIMECODE RANGE").frame(width: 170, alignment: .leading)
+                                    Text("DURATION").frame(width: 140, alignment: .leading)
+                                    Text("FRAMES").frame(width: 80, alignment: .leading)
                                     Spacer()
-                                    Text("COLOR")
-                                        .frame(width: 80, alignment: .trailing)
+                                    Text("COLOR").frame(width: 80, alignment: .trailing)
                                 }
                                 .font(.system(size: 9, weight: .bold, design: .monospaced))
                                 .foregroundColor(textMuted)
@@ -582,7 +602,6 @@ struct ContentView: View {
                                 
                                 Rectangle().fill(borderLine).frame(height: 1)
                                 
-                                // Table Rows
                                 ForEach(Array(segments.enumerated()), id: \.offset) { idx, seg in
                                     HStack(spacing: 8) {
                                         Text(String(format: "%02d", idx + 1))
@@ -645,8 +664,6 @@ struct ContentView: View {
         .padding(28)
     }
     
-    // MARK: - Empty State View
-    
     private var emptyStateView: some View {
         VStack(alignment: .leading, spacing: 18) {
             Spacer()
@@ -678,6 +695,373 @@ struct ContentView: View {
         .padding(40)
     }
     
+    // MARK: ==================== TAB 2: DELIVERABLES MANIFEST ====================
+    
+    private var deliverablesTabView: some View {
+        HSplitView {
+            // Left Control Panel
+            VStack(alignment: .leading, spacing: 18) {
+                // Folder / Files Picker
+                VStack(alignment: .leading, spacing: 10) {
+                    sectionHeader(num: "01", title: "DELIVERABLE ASSETS")
+                    
+                    VStack(alignment: .leading, spacing: 8) {
+                        Button(action: selectDeliverablesFolder) {
+                            HStack {
+                                Text("SELECT FOLDER...")
+                                    .font(.system(size: 11, weight: .bold, design: .monospaced))
+                                    .foregroundColor(textMain)
+                                Spacer()
+                                Text("[FOLDER]")
+                                    .font(.system(size: 10, weight: .bold, design: .monospaced))
+                                    .foregroundColor(textSubtle)
+                            }
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 8)
+                            .background(bgSubtle)
+                            .border(borderLine, width: 1)
+                        }
+                        .buttonStyle(.plain)
+                        
+                        Button(action: selectIndividualFiles) {
+                            HStack {
+                                Text("SELECT FILE(S)...")
+                                    .font(.system(size: 11, weight: .bold, design: .monospaced))
+                                    .foregroundColor(textMain)
+                                Spacer()
+                                Text("[FILES]")
+                                    .font(.system(size: 10, weight: .bold, design: .monospaced))
+                                    .foregroundColor(textSubtle)
+                            }
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 8)
+                            .background(bgSubtle)
+                            .border(borderLine, width: 1)
+                        }
+                        .buttonStyle(.plain)
+                        
+                        if !deliverableAssets.isEmpty {
+                            VStack(alignment: .leading, spacing: 3) {
+                                Text("\(deliverableAssets.count) ASSETS LOADED")
+                                    .font(.system(size: 12, weight: .bold, design: .monospaced))
+                                    .foregroundColor(textMain)
+                                
+                                let totalBytes = deliverableAssets.reduce(Int64(0)) { $0 + $1.fileSizeBytes }
+                                Text("TOTAL: \(DeliverablesInspector.formatFileSize(bytes: totalBytes))")
+                                    .font(.system(size: 10, weight: .semibold, design: .monospaced))
+                                    .foregroundColor(textSubtle)
+                            }
+                            .padding(10)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .background(bgCardSubtle)
+                            .border(borderLine, width: 1)
+                        } else {
+                            Text("DRAG & DROP FOLDER OR VIDEO FILES HERE")
+                                .font(.system(size: 10, weight: .medium, design: .monospaced))
+                                .foregroundColor(textMuted)
+                                .frame(maxWidth: .infinity, alignment: .center)
+                                .padding(.vertical, 14)
+                                .background(bgCardSubtle)
+                                .border(borderLine, width: 1)
+                        }
+                    }
+                }
+                .onDrop(of: [UTType.fileURL.identifier], isTargeted: nil) { providers in
+                    handleDeliverablesDrop(providers: providers)
+                }
+                
+                // Actions
+                VStack(alignment: .leading, spacing: 10) {
+                    sectionHeader(num: "02", title: "MANIFEST ACTIONS")
+                    
+                    Button(action: {
+                        if !deliverableAssets.isEmpty {
+                            exportDeliverablesManifest()
+                        }
+                    }) {
+                        Text("[ EXPORT GOOGLE SHEETS / CSV ]")
+                            .font(.system(size: 11, weight: .black, design: .monospaced))
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 10)
+                            .background(deliverableAssets.isEmpty ? bgSubtle : primaryBtnBg)
+                            .foregroundColor(deliverableAssets.isEmpty ? textMuted : primaryBtnFg)
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(deliverableAssets.isEmpty)
+                    
+                    Button(action: {
+                        if !deliverableAssets.isEmpty {
+                            openManifestHTML()
+                        }
+                    }) {
+                        Text("[ OPEN HTML MANIFEST ]")
+                            .font(.system(size: 11, weight: .bold, design: .monospaced))
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 9)
+                            .background(bgSubtle)
+                            .foregroundColor(deliverableAssets.isEmpty ? textMuted : textMain)
+                            .border(borderLine, width: 1)
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(deliverableAssets.isEmpty)
+                    
+                    if let firstURL = deliverableAssets.first?.fileURL {
+                        Button(action: {
+                            NSWorkspace.shared.activateFileViewerSelecting([firstURL])
+                        }) {
+                            Text("[ REVEAL IN FINDER ]")
+                                .font(.system(size: 11, weight: .bold, design: .monospaced))
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 9)
+                                .background(bgSubtle)
+                                .foregroundColor(textMain)
+                                .border(borderLine, width: 1)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                    
+                    if !deliverableAssets.isEmpty {
+                        Button(action: {
+                            deliverableAssets = []
+                        }) {
+                            Text("[ CLEAR LIST ]")
+                                .font(.system(size: 10, weight: .bold, design: .monospaced))
+                                .foregroundColor(textMuted)
+                                .frame(maxWidth: .infinity, alignment: .center)
+                                .padding(.top, 6)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+                
+                Spacer(minLength: 0)
+            }
+            .padding(22)
+            .frame(minWidth: 360, idealWidth: 400, maxWidth: 440)
+            .background(bgPanel)
+            
+            // Right Panel: Manifest Table / Stats
+            VStack(alignment: .leading, spacing: 20) {
+                if isInspectingDeliverables {
+                    VStack(alignment: .center, spacing: 12) {
+                        Spacer()
+                        Text("INSPECTING DELIVERABLES METADATA...")
+                            .font(.system(size: 18, weight: .heavy, design: .monospaced))
+                        ProgressView()
+                            .scaleEffect(1.2)
+                        Spacer()
+                    }
+                    .frame(maxWidth: .infinity)
+                } else if deliverableAssets.isEmpty {
+                    VStack(alignment: .leading, spacing: 18) {
+                        Spacer()
+                        Text("STATUS // READY TO INSPECT DELIVERABLES")
+                            .font(.system(size: 32, weight: .black, design: .default))
+                            .foregroundColor(textMain)
+                            .tracking(1.0)
+                        
+                        Text("DROP A DELIVERY FOLDER OR VIDEO FILES TO INSTANTLY GENERATE AN ASSET MANIFEST.\nDISPLAYS EXACT TIMECODE LENGTHS, ASPECT RATIOS, RESOLUTIONS, FRAMERATES, AND SIZES.")
+                            .font(.system(size: 12, weight: .medium, design: .monospaced))
+                            .foregroundColor(textMuted)
+                            .lineSpacing(4)
+                        
+                        Rectangle().fill(borderLine).frame(height: 1)
+                        
+                        HStack(spacing: 16) {
+                            formatTag("16:9 • 9:16 • 4:5 • 1:1")
+                            formatTag("SMPTE TIMECODES")
+                            formatTag("FILE SIZES")
+                            formatTag("CODEC PARSER")
+                        }
+                        Spacer()
+                    }
+                    .padding(40)
+                } else {
+                    // Quick Stats Strip
+                    let totalBytes = deliverableAssets.reduce(Int64(0)) { $0 + $1.fileSizeBytes }
+                    let totalSeconds = deliverableAssets.reduce(0.0) { $0 + $1.durationSeconds }
+                    let uniqueRatios = Array(Set(deliverableAssets.map { $0.aspectRatioString })).sorted().joined(separator: ", ")
+                    
+                    HStack(spacing: 12) {
+                        statBox(title: "TOTAL ASSETS", val: String(format: "%02d", deliverableAssets.count))
+                        statBox(title: "TOTAL RUNTIME", val: TimecodeFormatter.format(frameIndex: Int(round(totalSeconds * 25.0)), fps: 25.0))
+                        statBox(title: "ASPECT RATIOS", val: uniqueRatios.isEmpty ? "--" : uniqueRatios)
+                        statBox(title: "TOTAL BATCH SIZE", val: DeliverablesInspector.formatFileSize(bytes: totalBytes))
+                    }
+                    
+                    // Table
+                    VStack(alignment: .leading, spacing: 0) {
+                        // Table Header
+                        HStack(spacing: 8) {
+                            Text("#").frame(width: 25, alignment: .leading)
+                            Text("FILE NAME").frame(minWidth: 180, maxWidth: .infinity, alignment: .leading)
+                            Text("LENGTH / TC").frame(width: 140, alignment: .leading)
+                            Text("RATIO & SIZE").frame(width: 140, alignment: .leading)
+                            Text("FPS").frame(width: 75, alignment: .leading)
+                            Text("FILE SIZE").frame(width: 80, alignment: .leading)
+                            Text("CODEC").frame(width: 100, alignment: .leading)
+                        }
+                        .font(.system(size: 9, weight: .bold, design: .monospaced))
+                        .foregroundColor(textMuted)
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 9)
+                        .background(bgCardHeader)
+                        
+                        Rectangle().fill(borderLine).frame(height: 1)
+                        
+                        // Table Rows
+                        ScrollView {
+                            VStack(spacing: 0) {
+                                ForEach(Array(deliverableAssets.enumerated()), id: \.element.id) { idx, asset in
+                                    HStack(spacing: 8) {
+                                        Text(String(format: "%02d", idx + 1))
+                                            .frame(width: 25, alignment: .leading)
+                                            .foregroundColor(textMuted)
+                                        
+                                        Text(asset.fileName.uppercased())
+                                            .frame(minWidth: 180, maxWidth: .infinity, alignment: .leading)
+                                            .fontWeight(.bold)
+                                            .lineLimit(1)
+                                            .truncationMode(.middle)
+                                            .help(asset.fileName)
+                                        
+                                        Text("\(asset.timecode) (\(asset.formattedDuration))")
+                                            .frame(width: 140, alignment: .leading)
+                                            .foregroundColor(textSubtle)
+                                        
+                                        HStack(spacing: 4) {
+                                            Text(asset.aspectRatioString)
+                                                .padding(.horizontal, 4)
+                                                .padding(.vertical, 2)
+                                                .background(bgSubtle)
+                                                .border(borderLine, width: 1)
+                                            Text(asset.resolutionString)
+                                                .foregroundColor(textSubtle)
+                                        }
+                                        .frame(width: 140, alignment: .leading)
+                                        
+                                        Text(String(format: "%.2f", asset.fps))
+                                            .frame(width: 75, alignment: .leading)
+                                            .foregroundColor(textSubtle)
+                                        
+                                        Text(asset.formattedFileSize)
+                                            .frame(width: 80, alignment: .leading)
+                                            .fontWeight(.semibold)
+                                        
+                                        Text(asset.videoCodec)
+                                            .frame(width: 100, alignment: .leading)
+                                            .foregroundColor(textMuted)
+                                            .lineLimit(1)
+                                    }
+                                    .font(.system(size: 11, design: .monospaced))
+                                    .padding(.horizontal, 14)
+                                    .padding(.vertical, 10)
+                                    .background(idx % 2 == 0 ? bgPanel : bgCardSubtle)
+                                    
+                                    if idx < deliverableAssets.count - 1 {
+                                        Rectangle().fill(borderLine.opacity(0.4)).frame(height: 1)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    .background(bgPanel)
+                    .border(borderLine, width: 1)
+                }
+            }
+            .padding(28)
+            .frame(minWidth: 540)
+            .background(bgMain)
+        }
+    }
+    
+    // MARK: - Deliverables Handlers
+    
+    private func selectDeliverablesFolder() {
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = false
+        panel.canChooseDirectories = true
+        panel.allowsMultipleSelection = false
+        panel.prompt = "Select Deliverables Folder"
+        
+        if panel.runModal() == .OK, let selectedURL = panel.url {
+            let files = VideoScanner.findVideoFiles(in: selectedURL)
+            inspectDeliverablesBatch(urls: files)
+        }
+    }
+    
+    private func selectIndividualFiles() {
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = false
+        panel.allowsMultipleSelection = true
+        panel.allowedContentTypes = [UTType.movie, UTType.video, UTType.quickTimeMovie, UTType.mpeg4Movie]
+        panel.prompt = "Select Videos"
+        
+        if panel.runModal() == .OK {
+            inspectDeliverablesBatch(urls: panel.urls)
+        }
+    }
+    
+    private func handleDeliverablesDrop(providers: [NSItemProvider]) -> Bool {
+        guard let provider = providers.first else { return false }
+        _ = provider.loadObject(ofClass: URL.self) { url, _ in
+            guard let url = url else { return }
+            var isDir: ObjCBool = false
+            if FileManager.default.fileExists(atPath: url.path, isDirectory: &isDir) {
+                if isDir.boolValue {
+                    let files = VideoScanner.findVideoFiles(in: url)
+                    Task { @MainActor in
+                        self.inspectDeliverablesBatch(urls: files)
+                    }
+                } else {
+                    Task { @MainActor in
+                        self.inspectDeliverablesBatch(urls: [url])
+                    }
+                }
+            }
+        }
+        return true
+    }
+    
+    private func inspectDeliverablesBatch(urls: [URL]) {
+        guard !urls.isEmpty else { return }
+        isInspectingDeliverables = true
+        
+        Task {
+            let assets = await DeliverablesInspector.inspectBatch(urls: urls)
+            DispatchQueue.main.async {
+                self.deliverableAssets = assets
+                self.isInspectingDeliverables = false
+            }
+        }
+    }
+    
+    private func exportDeliverablesManifest() {
+        guard !deliverableAssets.isEmpty else { return }
+        
+        let csvString = DeliverablesInspector.generateManifestCSV(assets: deliverableAssets)
+        let savePanel = NSSavePanel()
+        savePanel.allowedContentTypes = [UTType.commaSeparatedText]
+        savePanel.nameFieldStringValue = "Deliverables_Manifest_\(Date().timeIntervalSince1970).csv"
+        
+        if savePanel.runModal() == .OK, let url = savePanel.url {
+            try? csvString.write(to: url, atomically: true, encoding: .utf8)
+            NSWorkspace.shared.activateFileViewerSelecting([url])
+        }
+    }
+    
+    private func openManifestHTML() {
+        guard !deliverableAssets.isEmpty else { return }
+        
+        let folderName = folderURL?.lastPathComponent ?? "Deliverables"
+        let htmlString = DeliverablesInspector.generateManifestHTML(assets: deliverableAssets, folderName: folderName)
+        
+        let tempURL = FileManager.default.temporaryDirectory.appendingPathComponent("Deliverables_Manifest_\(Int(Date().timeIntervalSince1970)).html")
+        try? htmlString.write(to: tempURL, atomically: true, encoding: .utf8)
+        NSWorkspace.shared.open(tempURL)
+    }
+    
     // MARK: - Helper UI Builders
     
     private func sectionHeader(num: String, title: String) -> some View {
@@ -702,8 +1086,9 @@ struct ContentView: View {
                 .foregroundColor(textMuted)
                 .tracking(0.5)
             Text(val)
-                .font(.system(size: 24, weight: .black, design: .monospaced))
+                .font(.system(size: 20, weight: .black, design: .monospaced))
                 .foregroundColor(isRed ? alertRed : textMain)
+                .lineLimit(1)
         }
         .padding(12)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -745,6 +1130,10 @@ struct ContentView: View {
             self.videoFiles = VideoScanner.findVideoFiles(in: selectedURL)
             self.scanResults = []
             self.generatedReportURL = nil
+            self.generatedCSVURL = nil
+            
+            // Auto-populate deliverables tab with metadata
+            inspectDeliverablesBatch(urls: self.videoFiles)
         }
     }
     
@@ -759,6 +1148,8 @@ struct ContentView: View {
                     self.videoFiles = VideoScanner.findVideoFiles(in: url)
                     self.scanResults = []
                     self.generatedReportURL = nil
+                    self.generatedCSVURL = nil
+                    self.inspectDeliverablesBatch(urls: self.videoFiles)
                 }
             }
         }
@@ -785,6 +1176,7 @@ struct ContentView: View {
         isScanning = true
         scanResults = []
         generatedReportURL = nil
+        generatedCSVURL = nil
         
         let scanner = VideoScanner()
         self.scannerActor = scanner
@@ -796,7 +1188,6 @@ struct ContentView: View {
                 }
             }
             
-            // Save report text, CSV (Google Sheets compatible), and HTML files + tag flagged in Finder
             let reports = ReportWriter.saveReport(folderURL: folder, config: config, results: results)
             
             DispatchQueue.main.async {
