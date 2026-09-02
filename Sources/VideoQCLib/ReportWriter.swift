@@ -334,6 +334,8 @@ public struct ReportWriter: Sendable {
                     font-size: 20px;
                     font-weight: 800;
                     letter-spacing: 0.02em;
+                    word-break: break-word;
+                    overflow-wrap: anywhere;
                 }
 
                 .card-header .meta {
@@ -400,11 +402,12 @@ public struct ReportWriter: Sendable {
                 /* Clean Grid */
                 .clean-grid {
                     display: grid;
-                    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+                    grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
                     gap: 1px;
                     background: var(--border);
                     border: 1px solid var(--border);
                     margin-bottom: 48px;
+                    overflow: hidden;
                 }
 
                 .clean-cell {
@@ -413,15 +416,29 @@ public struct ReportWriter: Sendable {
                     display: flex;
                     justify-content: space-between;
                     align-items: center;
-                    font-size: 13px;
+                    gap: 12px;
+                    min-width: 0;
+                    overflow: hidden;
+                }
+
+                .clean-cell .clean-name {
+                    font-size: 12px;
                     font-weight: 700;
                     letter-spacing: 0.02em;
+                    white-space: nowrap;
+                    overflow: hidden;
+                    text-overflow: ellipsis;
+                    min-width: 0;
+                    flex: 1;
                 }
 
                 .clean-cell .check {
                     color: var(--text-muted);
                     font-family: var(--font-mono);
                     font-size: 11px;
+                    font-weight: 700;
+                    white-space: nowrap;
+                    flex-shrink: 0;
                 }
 
                 /* Notification Toast */
@@ -587,8 +604,8 @@ public struct ReportWriter: Sendable {
         } else {
             for clean in cleanVideos {
                 html += """
-                <div class="clean-cell">
-                    <span>\(clean.fileName.uppercased())</span>
+                <div class="clean-cell" title="\(clean.fileName.uppercased())">
+                    <span class="clean-name">\(clean.fileName.uppercased())</span>
                     <span class="check">[PASSED]</span>
                 </div>
                 """
