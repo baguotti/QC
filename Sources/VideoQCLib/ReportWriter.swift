@@ -22,7 +22,7 @@ public struct ReportWriter: Sendable {
     
     // MARK: - Minimalist Studio HTML Report Generator
     
-    /// Generates a sleek, minimal, Helvetica-styled Swiss/editorial QC report (no emojis, stark palette)
+    /// Generates a sleek, minimal, Helvetica-styled Swiss/editorial QC report with Light & Dark theme support
     public static func generateHTMLReport(
         folderURL: URL,
         config: QCConfig,
@@ -42,7 +42,7 @@ public struct ReportWriter: Sendable {
         
         var html = """
         <!DOCTYPE html>
-        <html lang="en">
+        <html lang="en" data-theme="dark">
         <head>
             <meta charset="UTF-8">
             <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -53,16 +53,27 @@ public struct ReportWriter: Sendable {
                 :root {
                     --bg: #0a0a0a;
                     --panel: #111111;
-                    --panel-hover: #161616;
                     --border: #222222;
                     --border-strong: #333333;
                     --text: #ffffff;
                     --text-secondary: #888888;
                     --text-muted: #555555;
                     --red: #ff3333;
-                    --red-muted: rgba(255, 51, 51, 0.12);
+                    --table-th-bg: #0d0d0d;
                     --font-heading: 'Barlow Condensed', 'Helvetica Neue', 'Helvetica', -apple-system, sans-serif;
                     --font-mono: 'JetBrains Mono', 'SF Mono', 'Menlo', monospace;
+                }
+
+                [data-theme="light"] {
+                    --bg: #f8f8f8;
+                    --panel: #ffffff;
+                    --border: #e0e0e0;
+                    --border-strong: #cccccc;
+                    --text: #0a0a0a;
+                    --text-secondary: #555555;
+                    --text-muted: #888888;
+                    --red: #d32f2f;
+                    --table-th-bg: #f0f0f0;
                 }
 
                 * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -74,6 +85,7 @@ public struct ReportWriter: Sendable {
                     text-transform: uppercase;
                     padding: 48px 32px;
                     line-height: 1.2;
+                    transition: background-color 0.15s ease, color 0.15s ease;
                     -webkit-font-smoothing: antialiased;
                 }
 
@@ -107,6 +119,28 @@ public struct ReportWriter: Sendable {
                     margin-top: 8px;
                 }
 
+                .header-actions {
+                    display: flex;
+                    align-items: center;
+                    gap: 12px;
+                }
+
+                .theme-btn {
+                    background: var(--panel);
+                    color: var(--text);
+                    border: 1px solid var(--border-strong);
+                    padding: 8px 14px;
+                    font-family: var(--font-mono);
+                    font-size: 11px;
+                    font-weight: 700;
+                    cursor: pointer;
+                    text-transform: uppercase;
+                    letter-spacing: 0.1em;
+                }
+                .theme-btn:hover {
+                    background: var(--border);
+                }
+
                 .status-badge {
                     font-size: 16px;
                     font-weight: 800;
@@ -117,13 +151,13 @@ public struct ReportWriter: Sendable {
 
                 .status-flagged {
                     background: var(--red);
-                    color: #000000;
+                    color: #ffffff;
                     border-color: var(--red);
                 }
 
                 .status-passed {
                     background: var(--text);
-                    color: #000000;
+                    color: var(--bg);
                     border-color: var(--text);
                 }
 
@@ -164,7 +198,7 @@ public struct ReportWriter: Sendable {
                     display: inline-block;
                     width: 12px;
                     height: 12px;
-                    border: 1px solid rgba(255,255,255,0.4);
+                    border: 1px solid var(--border-strong);
                 }
 
                 /* Numbers Summary */
@@ -270,7 +304,7 @@ public struct ReportWriter: Sendable {
                 }
 
                 th {
-                    background: #0d0d0d;
+                    background: var(--table-th-bg);
                     color: var(--text-muted);
                     font-size: 11px;
                     font-weight: 700;
@@ -354,7 +388,8 @@ public struct ReportWriter: Sendable {
                         <h1>DELIVERY QC REPORT</h1>
                         <div class="subtitle">EDGE LINE DETECTION AUDIT // \(folderURL.lastPathComponent.uppercased())</div>
                     </div>
-                    <div>
+                    <div class="header-actions">
+                        <button class="theme-btn" onclick="toggleTheme()">[THEME: <span id="theme-text">DARK</span>]</button>
                         \(flaggedVideos.isEmpty ? "<div class='status-badge status-passed'>STATUS // PASSED</div>" : "<div class='status-badge status-flagged'>STATUS // \(flaggedVideos.count) FLAGGED</div>")
                     </div>
                 </div>
@@ -493,6 +528,15 @@ public struct ReportWriter: Sendable {
                     <div>AUTOMATED POST-PRODUCTION AUDIT</div>
                 </footer>
             </div>
+
+            <script>
+                function toggleTheme() {
+                    const current = document.documentElement.getAttribute('data-theme') || 'dark';
+                    const next = current === 'dark' ? 'light' : 'dark';
+                    document.documentElement.setAttribute('data-theme', next);
+                    document.getElementById('theme-text').innerText = next.toUpperCase();
+                }
+            </script>
         </body>
         </html>
         """
@@ -594,7 +638,7 @@ public struct ReportWriter: Sendable {
         fileDateFormatter.dateFormat = "yyyyMMdd_HHmmss"
         let timestamp = fileDateFormatter.string(from: Date())
         
-        // 2. Save HTML Report (Primary Swiss/Editorial Report)
+        // 2. Save HTML Report (Primary Swiss/Editorial Report with Light/Dark Theme)
         let htmlReportText = generateHTMLReport(folderURL: folderURL, config: config, results: results)
         let htmlFileName = "QC_Report_\(timestamp).html"
         let htmlFileURL = folderURL.appendingPathComponent(htmlFileName)

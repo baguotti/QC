@@ -3,6 +3,8 @@ import UniformTypeIdentifiers
 import VideoQCLib
 
 struct ContentView: View {
+    @AppStorage("isLightMode") private var isLightMode: Bool = false
+    
     @State private var folderURL: URL? = nil
     @State private var videoFiles: [URL] = []
     
@@ -43,13 +45,20 @@ struct ContentView: View {
         ("BLACK (10X)", "#000000", 3.0)
     ]
     
-    // Studio Palette
-    let bgDark = Color(red: 0.04, green: 0.04, blue: 0.04)
-    let panelDark = Color(red: 0.07, green: 0.07, blue: 0.07)
-    let borderLine = Color(white: 0.16)
-    let textMuted = Color(white: 0.45)
-    let textSubtle = Color(white: 0.65)
-    let alertRed = Color(red: 1.0, green: 0.22, blue: 0.22)
+    // Dynamic Studio Theme Palette
+    var bgMain: Color { isLightMode ? Color(white: 0.96) : Color(red: 0.04, green: 0.04, blue: 0.04) }
+    var bgPanel: Color { isLightMode ? Color.white : Color(red: 0.07, green: 0.07, blue: 0.07) }
+    var bgSubtle: Color { isLightMode ? Color(white: 0.92) : Color(white: 0.12) }
+    var bgCardHeader: Color { isLightMode ? Color(white: 0.94) : Color(white: 0.08) }
+    var bgCardSubtle: Color { isLightMode ? Color(white: 0.97) : Color(white: 0.05) }
+    var borderLine: Color { isLightMode ? Color(white: 0.82) : Color(white: 0.16) }
+    var borderStrong: Color { isLightMode ? Color(white: 0.65) : Color(white: 0.35) }
+    var textMain: Color { isLightMode ? Color(white: 0.06) : Color.white }
+    var textMuted: Color { isLightMode ? Color(white: 0.45) : Color(white: 0.45) }
+    var textSubtle: Color { isLightMode ? Color(white: 0.30) : Color(white: 0.65) }
+    var alertRed: Color { isLightMode ? Color(red: 0.88, green: 0.12, blue: 0.12) : Color(red: 1.0, green: 0.22, blue: 0.22) }
+    var primaryBtnBg: Color { isLightMode ? Color.black : Color.white }
+    var primaryBtnFg: Color { isLightMode ? Color.white : Color.black }
     
     var body: some View {
         VStack(spacing: 0) {
@@ -75,7 +84,7 @@ struct ContentView: View {
                 }
                 .padding(22)
                 .frame(minWidth: 360, idealWidth: 400, maxWidth: 440)
-                .background(panelDark)
+                .background(bgPanel)
                 
                 // Right Panel: Results / Live Progress / Empty State
                 VStack(alignment: .leading, spacing: 0) {
@@ -88,12 +97,12 @@ struct ContentView: View {
                     }
                 }
                 .frame(minWidth: 540)
-                .background(bgDark)
+                .background(bgMain)
             }
         }
         .frame(minWidth: 940, minHeight: 680)
-        .background(bgDark)
-        .foregroundColor(.white)
+        .background(bgMain)
+        .foregroundColor(textMain)
     }
     
     // MARK: - Header
@@ -103,6 +112,7 @@ struct ContentView: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text("QC // VIDEO DELIVERY AUDIT")
                     .font(.system(size: 16, weight: .black, design: .default))
+                    .foregroundColor(textMain)
                     .tracking(1.5)
                 Text("POST-PRODUCTION EDGE ARTIFACT AUDITOR // APPLE SILICON")
                     .font(.system(size: 9, weight: .bold, design: .monospaced))
@@ -111,23 +121,38 @@ struct ContentView: View {
             }
             Spacer()
             
-            HStack(spacing: 6) {
-                Circle()
-                    .fill(isScanning ? Color.orange : (scanResults.isEmpty ? Color(white: 0.3) : (scanResults.contains(where: \.isFlagged) ? alertRed : Color.white)))
-                    .frame(width: 7, height: 7)
-                Text(isScanning ? "SCANNING" : (scanResults.isEmpty ? "IDLE" : "COMPLETED"))
-                    .font(.system(size: 10, weight: .bold, design: .monospaced))
-                    .foregroundColor(textSubtle)
-                    .tracking(1.0)
+            HStack(spacing: 10) {
+                // Theme Toggle Button
+                Button(action: { isLightMode.toggle() }) {
+                    Text(isLightMode ? "[THEME: LIGHT]" : "[THEME: DARK]")
+                        .font(.system(size: 10, weight: .bold, design: .monospaced))
+                        .padding(.horizontal, 9)
+                        .padding(.vertical, 5)
+                        .background(bgSubtle)
+                        .foregroundColor(textMain)
+                        .border(borderLine, width: 1)
+                }
+                .buttonStyle(.plain)
+                
+                // Status Indicator
+                HStack(spacing: 6) {
+                    Circle()
+                        .fill(isScanning ? Color.orange : (scanResults.isEmpty ? textMuted : (scanResults.contains(where: \.isFlagged) ? alertRed : textMain)))
+                        .frame(width: 7, height: 7)
+                    Text(isScanning ? "SCANNING" : (scanResults.isEmpty ? "IDLE" : "COMPLETED"))
+                        .font(.system(size: 10, weight: .bold, design: .monospaced))
+                        .foregroundColor(textSubtle)
+                        .tracking(1.0)
+                }
+                .padding(.horizontal, 10)
+                .padding(.vertical, 5)
+                .background(bgSubtle)
+                .border(borderLine, width: 1)
             }
-            .padding(.horizontal, 10)
-            .padding(.vertical, 5)
-            .background(Color(white: 0.1))
-            .border(borderLine, width: 1)
         }
         .padding(.horizontal, 24)
         .padding(.vertical, 14)
-        .background(panelDark)
+        .background(bgPanel)
     }
     
     // MARK: - Section 1: Folder Picker
@@ -141,6 +166,7 @@ struct ContentView: View {
                     HStack {
                         Text(folderURL == nil ? "SELECT FOLDER..." : "CHANGE FOLDER...")
                             .font(.system(size: 11, weight: .bold, design: .monospaced))
+                            .foregroundColor(textMain)
                             .tracking(0.5)
                         Spacer()
                         Text("[BROWSE]")
@@ -149,7 +175,7 @@ struct ContentView: View {
                     }
                     .padding(.horizontal, 12)
                     .padding(.vertical, 8)
-                    .background(Color(white: 0.12))
+                    .background(bgSubtle)
                     .border(borderLine, width: 1)
                 }
                 .buttonStyle(.plain)
@@ -159,16 +185,17 @@ struct ContentView: View {
                     VStack(alignment: .leading, spacing: 3) {
                         Text(folder.lastPathComponent.uppercased())
                             .font(.system(size: 12, weight: .bold, design: .monospaced))
+                            .foregroundColor(textMain)
                             .lineLimit(1)
                             .truncationMode(.middle)
                         
                         Text("\(videoFiles.count) VIDEO FILES DETECTED")
                             .font(.system(size: 10, weight: .semibold, design: .monospaced))
-                            .foregroundColor(videoFiles.isEmpty ? alertRed : Color.white)
+                            .foregroundColor(videoFiles.isEmpty ? alertRed : textSubtle)
                     }
                     .padding(10)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(Color(white: 0.05))
+                    .background(bgCardSubtle)
                     .border(borderLine, width: 1)
                 } else {
                     Text("DRAG & DROP FOLDER HERE OR BROWSE")
@@ -176,7 +203,7 @@ struct ContentView: View {
                         .foregroundColor(textMuted)
                         .frame(maxWidth: .infinity, alignment: .center)
                         .padding(.vertical, 10)
-                        .background(Color(white: 0.03))
+                        .background(bgCardSubtle)
                         .border(borderLine, width: 1)
                 }
             }
@@ -198,14 +225,15 @@ struct ContentView: View {
                     Rectangle()
                         .fill(Color(red: Double(rgb.r)/255.0, green: Double(rgb.g)/255.0, blue: Double(rgb.b)/255.0))
                         .frame(width: 32, height: 32)
-                        .border(Color(white: 0.3), width: 1)
+                        .border(borderStrong, width: 1)
                 }
                 
                 TextField("#HEX", text: $hexCode)
                     .textFieldStyle(.plain)
                     .font(.system(size: 13, weight: .bold, design: .monospaced))
+                    .foregroundColor(textMain)
                     .padding(7)
-                    .background(Color(white: 0.12))
+                    .background(bgSubtle)
                     .border(borderLine, width: 1)
                     .frame(width: 110)
                     .disabled(isScanning)
@@ -229,8 +257,8 @@ struct ContentView: View {
                                 .font(.system(size: 9, weight: .bold, design: .monospaced))
                                 .padding(.horizontal, 7)
                                 .padding(.vertical, 4)
-                                .background(hexCode.uppercased() == code ? Color.white : Color(white: 0.1))
-                                .foregroundColor(hexCode.uppercased() == code ? .black : .white)
+                                .background(hexCode.uppercased() == code ? primaryBtnBg : bgSubtle)
+                                .foregroundColor(hexCode.uppercased() == code ? primaryBtnFg : textMain)
                                 .border(borderLine, width: 1)
                         }
                         .buttonStyle(.plain)
@@ -248,9 +276,10 @@ struct ContentView: View {
                     Spacer()
                     Text("\(Int(tolerancePercentage))%")
                         .font(.system(size: 10, weight: .bold, design: .monospaced))
+                        .foregroundColor(textMain)
                 }
                 Slider(value: $tolerancePercentage, in: isTargetBlack ? 1...15 : 5...35, step: 1)
-                    .tint(.white)
+                    .tint(primaryBtnBg)
                     .disabled(isScanning)
             }
         }
@@ -263,26 +292,27 @@ struct ContentView: View {
             HStack {
                 Text("DARK SCENE OPTIMIZATION")
                     .font(.system(size: 10, weight: .heavy, design: .monospaced))
+                    .foregroundColor(textMain)
                     .tracking(0.5)
                 Spacer()
                 Text("[ACTIVE]")
                     .font(.system(size: 9, weight: .bold, design: .monospaced))
-                    .foregroundColor(.white)
+                    .foregroundColor(textMain)
             }
             
             Toggle("10X EXPOSURE BOOST MULTIPLIER", isOn: $enableExposureBoost)
                 .font(.system(size: 10, weight: .bold, design: .monospaced))
-                .toggleStyle(StudioToggleStyle())
+                .toggleStyle(StudioToggleStyle(isLight: isLightMode))
                 .disabled(isScanning)
             
             Toggle("IGNORE FULL-FRAME BLACK SLATES", isOn: $ignoreFullBlackFrames)
                 .font(.system(size: 10, weight: .bold, design: .monospaced))
-                .toggleStyle(StudioToggleStyle())
+                .toggleStyle(StudioToggleStyle(isLight: isLightMode))
                 .disabled(isScanning)
         }
         .padding(10)
-        .background(Color(white: 0.05))
-        .border(Color(white: 0.3), width: 1)
+        .background(bgCardSubtle)
+        .border(borderStrong, width: 1)
     }
     
     // MARK: - Section 3: Edge Bounds
@@ -298,18 +328,20 @@ struct ContentView: View {
                 Spacer()
                 Text("\(edgeDepth) PX")
                     .font(.system(size: 11, weight: .bold, design: .monospaced))
+                    .foregroundColor(textMain)
                 Stepper("", value: $edgeDepth, in: 2...40)
                     .labelsHidden()
                     .disabled(isScanning)
             }
             
             HStack(spacing: 12) {
-                Toggle("TOP", isOn: $checkTop).toggleStyle(StudioToggleStyle()).disabled(isScanning)
-                Toggle("BOT", isOn: $checkBottom).toggleStyle(StudioToggleStyle()).disabled(isScanning)
-                Toggle("LFT", isOn: $checkLeft).toggleStyle(StudioToggleStyle()).disabled(isScanning)
-                Toggle("RGT", isOn: $checkRight).toggleStyle(StudioToggleStyle()).disabled(isScanning)
+                Toggle("TOP", isOn: $checkTop).toggleStyle(StudioToggleStyle(isLight: isLightMode)).disabled(isScanning)
+                Toggle("BOT", isOn: $checkBottom).toggleStyle(StudioToggleStyle(isLight: isLightMode)).disabled(isScanning)
+                Toggle("LFT", isOn: $checkLeft).toggleStyle(StudioToggleStyle(isLight: isLightMode)).disabled(isScanning)
+                Toggle("RGT", isOn: $checkRight).toggleStyle(StudioToggleStyle(isLight: isLightMode)).disabled(isScanning)
             }
             .font(.system(size: 10, weight: .bold, design: .monospaced))
+            .foregroundColor(textMain)
         }
     }
     
@@ -327,7 +359,7 @@ struct ContentView: View {
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 12)
                         .background(alertRed)
-                        .foregroundColor(.black)
+                        .foregroundColor(.white)
                 }
                 .buttonStyle(.plain)
             } else {
@@ -337,8 +369,8 @@ struct ContentView: View {
                         .tracking(1.0)
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 12)
-                        .background(videoFiles.isEmpty ? Color(white: 0.2) : Color.white)
-                        .foregroundColor(videoFiles.isEmpty ? Color(white: 0.5) : Color.black)
+                        .background(videoFiles.isEmpty ? bgSubtle : primaryBtnBg)
+                        .foregroundColor(videoFiles.isEmpty ? textMuted : primaryBtnFg)
                 }
                 .buttonStyle(.plain)
                 .disabled(videoFiles.isEmpty || RGBColor(hex: hexCode) == nil)
@@ -353,10 +385,12 @@ struct ContentView: View {
             HStack {
                 Text("SCANNING IN PROGRESS")
                     .font(.system(size: 28, weight: .black, design: .default))
+                    .foregroundColor(textMain)
                     .tracking(1.0)
                 Spacer()
                 Text("[PROCESSING]")
                     .font(.system(size: 11, weight: .bold, design: .monospaced))
+                    .foregroundColor(textMain)
                     .padding(6)
                     .border(borderLine, width: 1)
             }
@@ -370,6 +404,7 @@ struct ContentView: View {
                             .foregroundColor(textMuted)
                         Text(p.currentFileName.uppercased())
                             .font(.system(size: 18, weight: .heavy, design: .monospaced))
+                            .foregroundColor(textMain)
                             .lineLimit(1)
                     }
                     
@@ -385,19 +420,19 @@ struct ContentView: View {
                     GeometryReader { geo in
                         ZStack(alignment: .leading) {
                             Rectangle()
-                                .fill(Color(white: 0.15))
+                                .fill(borderLine)
                                 .frame(height: 4)
                             
                             let ratio = (Double(p.currentFileIndex - 1) + (Double(p.currentFrame) / Double(max(1, p.totalFramesInFile)))) / Double(max(1, p.totalFiles))
                             Rectangle()
-                                .fill(Color.white)
+                                .fill(primaryBtnBg)
                                 .frame(width: geo.size.width * CGFloat(min(1.0, max(0.0, ratio))), height: 4)
                         }
                     }
                     .frame(height: 4)
                 }
                 .padding(24)
-                .background(panelDark)
+                .background(bgPanel)
                 .border(borderLine, width: 1)
             }
             
@@ -419,6 +454,7 @@ struct ContentView: View {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("AUDIT COMPLETE")
                         .font(.system(size: 28, weight: .black, design: .default))
+                        .foregroundColor(textMain)
                         .tracking(1.0)
                     Text("\(scanResults.count) ASSETS ANALYZED")
                         .font(.system(size: 11, weight: .bold, design: .monospaced))
@@ -433,8 +469,8 @@ struct ContentView: View {
                                 .font(.system(size: 11, weight: .bold, design: .monospaced))
                                 .padding(.horizontal, 14)
                                 .padding(.vertical, 8)
-                                .background(Color.white)
-                                .foregroundColor(.black)
+                                .background(primaryBtnBg)
+                                .foregroundColor(primaryBtnFg)
                         }
                         .buttonStyle(.plain)
                         
@@ -443,8 +479,8 @@ struct ContentView: View {
                                 .font(.system(size: 11, weight: .bold, design: .monospaced))
                                 .padding(.horizontal, 14)
                                 .padding(.vertical, 8)
-                                .background(Color(white: 0.15))
-                                .foregroundColor(.white)
+                                .background(bgSubtle)
+                                .foregroundColor(textMain)
                                 .border(borderLine, width: 1)
                         }
                         .buttonStyle(.plain)
@@ -467,13 +503,14 @@ struct ContentView: View {
                         VStack(spacing: 8) {
                             Text("STATUS // ALL DELIVERIES PASSED")
                                 .font(.system(size: 16, weight: .black, design: .monospaced))
+                                .foregroundColor(textMain)
                             Text("NO COLORED EDGE LINES OR MATTE ARTIFACTS DETECTED.")
                                 .font(.system(size: 11, weight: .medium, design: .monospaced))
                                 .foregroundColor(textMuted)
                         }
                         .frame(maxWidth: .infinity)
                         .padding(40)
-                        .background(panelDark)
+                        .background(bgPanel)
                         .border(borderLine, width: 1)
                     } else {
                         ForEach(flagged) { result in
@@ -484,6 +521,7 @@ struct ContentView: View {
                                     VStack(alignment: .leading, spacing: 3) {
                                         Text(result.fileName.uppercased())
                                             .font(.system(size: 14, weight: .heavy, design: .monospaced))
+                                            .foregroundColor(textMain)
                                         Text("\(result.resolution) // \(String(format: "%.2f", result.fps)) FPS // \(result.totalFrames) FRAMES")
                                             .font(.system(size: 10, weight: .bold, design: .monospaced))
                                             .foregroundColor(textMuted)
@@ -500,7 +538,7 @@ struct ContentView: View {
                                     }
                                 }
                                 .padding(14)
-                                .background(Color(white: 0.08))
+                                .background(bgCardHeader)
                                 
                                 Rectangle().fill(borderLine).frame(height: 1)
                                 
@@ -524,7 +562,7 @@ struct ContentView: View {
                                 .foregroundColor(textMuted)
                                 .padding(.horizontal, 14)
                                 .padding(.vertical, 8)
-                                .background(Color(white: 0.05))
+                                .background(bgCardSubtle)
                                 
                                 Rectangle().fill(borderLine).frame(height: 1)
                                 
@@ -538,10 +576,12 @@ struct ContentView: View {
                                         Text("\(seg.edge.rawValue.uppercased()) (\(seg.avgThickness)PX)")
                                             .frame(width: 120, alignment: .leading)
                                             .fontWeight(.bold)
+                                            .foregroundColor(textMain)
                                         
                                         Text(seg.startTimecode == seg.endTimecode ? seg.startTimecode : "\(seg.startTimecode) -> \(seg.endTimecode)")
                                             .frame(width: 170, alignment: .leading)
                                             .fontWeight(.heavy)
+                                            .foregroundColor(textMain)
                                         
                                         Text(seg.frameCount == 1 ? "1 FRAME (0.04S)" : "\(seg.frameCount) FRAMES (\(String(format: "%.2f", seg.durationSeconds))S)")
                                             .frame(width: 140, alignment: .leading)
@@ -557,9 +597,10 @@ struct ContentView: View {
                                             Rectangle()
                                                 .fill(Color(red: Double(seg.detectedColor.r)/255, green: Double(seg.detectedColor.g)/255, blue: Double(seg.detectedColor.b)/255))
                                                 .frame(width: 10, height: 10)
-                                                .border(Color(white: 0.4), width: 1)
+                                                .border(borderStrong, width: 1)
                                             Text(seg.detectedColor.hexString.uppercased())
                                                 .font(.system(size: 10, weight: .bold, design: .monospaced))
+                                                .foregroundColor(textMain)
                                         }
                                         .frame(width: 80, alignment: .trailing)
                                     }
@@ -568,11 +609,11 @@ struct ContentView: View {
                                     .padding(.vertical, 9)
                                     
                                     if idx < segments.count - 1 {
-                                        Rectangle().fill(Color(white: 0.1)).frame(height: 1)
+                                        Rectangle().fill(borderLine.opacity(0.6)).frame(height: 1)
                                     }
                                 }
                             }
-                            .background(panelDark)
+                            .background(bgPanel)
                             .border(borderLine, width: 1)
                             .overlay(
                                 Rectangle()
@@ -596,6 +637,7 @@ struct ContentView: View {
             
             Text("STATUS // READY TO AUDIT")
                 .font(.system(size: 32, weight: .black, design: .default))
+                .foregroundColor(textMain)
                 .tracking(1.0)
             
             Text("CHOOSE A DELIVERY FOLDER ON THE LEFT TO BEGIN FRAME-BY-FRAME ANALYSIS.\nDETECTS MATTE MISALIGNMENTS, LETTERBOX ARTIFACTS, AND COLORED EDGE LINES.")
@@ -632,6 +674,7 @@ struct ContentView: View {
                 .foregroundColor(textMuted)
             Text(title)
                 .font(.system(size: 11, weight: .black, design: .monospaced))
+                .foregroundColor(textMain)
                 .tracking(1.0)
         }
     }
@@ -644,11 +687,11 @@ struct ContentView: View {
                 .tracking(0.5)
             Text(val)
                 .font(.system(size: 24, weight: .black, design: .monospaced))
-                .foregroundColor(isRed ? alertRed : .white)
+                .foregroundColor(isRed ? alertRed : textMain)
         }
         .padding(12)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(panelDark)
+        .background(bgPanel)
         .border(borderLine, width: 1)
     }
     
@@ -659,7 +702,7 @@ struct ContentView: View {
                 .foregroundColor(textMuted)
             Text(val)
                 .font(.system(size: 13, weight: .heavy, design: .monospaced))
-                .foregroundColor(isAlert ? alertRed : .white)
+                .foregroundColor(isAlert ? alertRed : textMain)
         }
     }
     
@@ -762,13 +805,15 @@ struct ContentView: View {
 
 // MARK: - Custom Minimalist Toggle Style
 struct StudioToggleStyle: ToggleStyle {
+    var isLight: Bool = false
+    
     func makeBody(configuration: Configuration) -> some View {
         Button(action: { configuration.isOn.toggle() }) {
-            HStack(spacing: 4) {
+            HStack(spacing: 5) {
                 Rectangle()
-                    .fill(configuration.isOn ? Color.white : Color.clear)
+                    .fill(configuration.isOn ? (isLight ? Color.black : Color.white) : Color.clear)
                     .frame(width: 8, height: 8)
-                    .border(Color(white: 0.4), width: 1)
+                    .border(isLight ? Color(white: 0.6) : Color(white: 0.4), width: 1)
                 configuration.label
             }
         }
