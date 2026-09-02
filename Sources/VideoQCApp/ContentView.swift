@@ -35,25 +35,35 @@ struct ContentView: View {
     
     // Presets
     let colorPresets = [
-        ("Magenta", "#FF00B4", 15.0),
-        ("Cyan", "#00FFFF", 15.0),
-        ("Green", "#00FF00", 15.0),
-        ("Red", "#FF0000", 15.0),
-        ("White", "#FFFFFF", 15.0),
-        ("Black (Auto 10x)", "#000000", 3.0)
+        ("MAGENTA", "#FF00B4", 15.0),
+        ("CYAN", "#00FFFF", 15.0),
+        ("GREEN", "#00FF00", 15.0),
+        ("RED", "#FF0000", 15.0),
+        ("WHITE", "#FFFFFF", 15.0),
+        ("BLACK (10X)", "#000000", 3.0)
     ]
+    
+    // Studio Palette
+    let bgDark = Color(red: 0.04, green: 0.04, blue: 0.04)
+    let panelDark = Color(red: 0.07, green: 0.07, blue: 0.07)
+    let borderLine = Color(white: 0.16)
+    let textMuted = Color(white: 0.45)
+    let textSubtle = Color(white: 0.65)
+    let alertRed = Color(red: 1.0, green: 0.22, blue: 0.22)
     
     var body: some View {
         VStack(spacing: 0) {
-            // Header
+            // Header Masthead
             headerView
             
-            Divider()
+            Rectangle()
+                .fill(borderLine)
+                .frame(height: 1)
             
-            // Main content layout
+            // Main Content Layout
             HSplitView {
-                // Left Panel: Configuration & Folder Picker
-                VStack(alignment: .leading, spacing: 16) {
+                // Left Panel: Configuration
+                VStack(alignment: .leading, spacing: 18) {
                     folderPickerSection
                     colorSettingsSection
                     if isTargetBlack {
@@ -63,12 +73,12 @@ struct ContentView: View {
                     actionSection
                     Spacer(minLength: 0)
                 }
-                .padding(20)
-                .frame(minWidth: 350, idealWidth: 390, maxWidth: 430)
-                .background(Color(NSColor.controlBackgroundColor))
+                .padding(22)
+                .frame(minWidth: 360, idealWidth: 400, maxWidth: 440)
+                .background(panelDark)
                 
-                // Right Panel: Progress & Results
-                VStack(alignment: .leading, spacing: 16) {
+                // Right Panel: Results / Live Progress / Empty State
+                VStack(alignment: .leading, spacing: 0) {
                     if isScanning {
                         activeScanProgressView
                     } else if !scanResults.isEmpty {
@@ -77,116 +87,153 @@ struct ContentView: View {
                         emptyStateView
                     }
                 }
-                .padding(20)
-                .frame(minWidth: 460)
-                .background(Color(NSColor.windowBackgroundColor))
+                .frame(minWidth: 540)
+                .background(bgDark)
             }
         }
-        .frame(minWidth: 840, minHeight: 620)
+        .frame(minWidth: 940, minHeight: 680)
+        .background(bgDark)
+        .foregroundColor(.white)
     }
     
     // MARK: - Header
     
     private var headerView: some View {
-        HStack {
-            Image(systemName: "film.stack.fill")
-                .font(.system(size: 20))
-                .foregroundColor(.accentColor)
+        HStack(alignment: .center) {
             VStack(alignment: .leading, spacing: 2) {
-                Text("Video Edge QC")
-                    .font(.headline)
-                    .fontWeight(.bold)
-                Text("Frame-by-frame batch colored line detection")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
+                Text("QC // VIDEO DELIVERY AUDIT")
+                    .font(.system(size: 16, weight: .black, design: .default))
+                    .tracking(1.5)
+                Text("POST-PRODUCTION EDGE ARTIFACT AUDITOR // APPLE SILICON")
+                    .font(.system(size: 9, weight: .bold, design: .monospaced))
+                    .foregroundColor(textMuted)
+                    .tracking(0.5)
             }
             Spacer()
+            
+            HStack(spacing: 6) {
+                Circle()
+                    .fill(isScanning ? Color.orange : (scanResults.isEmpty ? Color(white: 0.3) : (scanResults.contains(where: \.isFlagged) ? alertRed : Color.white)))
+                    .frame(width: 7, height: 7)
+                Text(isScanning ? "SCANNING" : (scanResults.isEmpty ? "IDLE" : "COMPLETED"))
+                    .font(.system(size: 10, weight: .bold, design: .monospaced))
+                    .foregroundColor(textSubtle)
+                    .tracking(1.0)
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 5)
+            .background(Color(white: 0.1))
+            .border(borderLine, width: 1)
         }
-        .padding(.horizontal, 20)
-        .padding(.vertical, 12)
-        .background(Color(NSColor.windowBackgroundColor))
+        .padding(.horizontal, 24)
+        .padding(.vertical, 14)
+        .background(panelDark)
     }
     
-    // MARK: - Folder Picker Section
+    // MARK: - Section 1: Folder Picker
     
     private var folderPickerSection: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Label("1. Video Delivery Folder", systemImage: "folder.badge.gearshape")
-                .font(.subheadline)
-                .fontWeight(.semibold)
+        VStack(alignment: .leading, spacing: 10) {
+            sectionHeader(num: "01", title: "DELIVERY FOLDER")
             
-            HStack {
+            VStack(alignment: .leading, spacing: 8) {
                 Button(action: selectFolder) {
-                    Label("Choose Folder...", systemImage: "folder")
+                    HStack {
+                        Text(folderURL == nil ? "SELECT FOLDER..." : "CHANGE FOLDER...")
+                            .font(.system(size: 11, weight: .bold, design: .monospaced))
+                            .tracking(0.5)
+                        Spacer()
+                        Text("[BROWSE]")
+                            .font(.system(size: 10, weight: .bold, design: .monospaced))
+                            .foregroundColor(textSubtle)
+                    }
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 8)
+                    .background(Color(white: 0.12))
+                    .border(borderLine, width: 1)
                 }
+                .buttonStyle(.plain)
                 .disabled(isScanning)
                 
                 if let folder = folderURL {
-                    Text(folder.lastPathComponent)
-                        .font(.callout)
-                        .fontWeight(.medium)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                        .help(folder.path)
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(folder.lastPathComponent.uppercased())
+                            .font(.system(size: 12, weight: .bold, design: .monospaced))
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                        
+                        Text("\(videoFiles.count) VIDEO FILES DETECTED")
+                            .font(.system(size: 10, weight: .semibold, design: .monospaced))
+                            .foregroundColor(videoFiles.isEmpty ? alertRed : Color.white)
+                    }
+                    .padding(10)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(Color(white: 0.05))
+                    .border(borderLine, width: 1)
                 } else {
-                    Text("No folder selected")
-                        .font(.callout)
-                        .foregroundColor(.secondary)
+                    Text("DRAG & DROP FOLDER HERE OR BROWSE")
+                        .font(.system(size: 10, weight: .medium, design: .monospaced))
+                        .foregroundColor(textMuted)
+                        .frame(maxWidth: .infinity, alignment: .center)
+                        .padding(.vertical, 10)
+                        .background(Color(white: 0.03))
+                        .border(borderLine, width: 1)
                 }
             }
-            
-            if !videoFiles.isEmpty {
-                Text("\(videoFiles.count) video files found")
-                    .font(.caption)
-                    .foregroundColor(.accentColor)
-            }
         }
-        .padding(12)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color(NSColor.textBackgroundColor))
-        .cornerRadius(8)
         .onDrop(of: [UTType.fileURL.identifier], isTargeted: nil) { providers in
             handleDrop(providers: providers)
         }
     }
     
-    // MARK: - Color Settings Section
+    // MARK: - Section 2: Color Target
     
     private var colorSettingsSection: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Label("2. Target Error Color", systemImage: "eyedropper.halffull")
-                .font(.subheadline)
-                .fontWeight(.semibold)
+            sectionHeader(num: "02", title: "TARGET ERROR COLOR")
             
-            HStack(spacing: 12) {
-                // Color preview swatch
+            HStack(spacing: 10) {
+                // Color preview square
                 if let rgb = RGBColor(hex: hexCode) {
-                    RoundedRectangle(cornerRadius: 6)
+                    Rectangle()
                         .fill(Color(red: Double(rgb.r)/255.0, green: Double(rgb.g)/255.0, blue: Double(rgb.b)/255.0))
                         .frame(width: 32, height: 32)
-                        .overlay(RoundedRectangle(cornerRadius: 6).stroke(Color.secondary.opacity(0.4), lineWidth: 1))
+                        .border(Color(white: 0.3), width: 1)
                 }
                 
                 TextField("#HEX", text: $hexCode)
-                    .textFieldStyle(.roundedBorder)
-                    .frame(width: 100)
-                    .font(.system(.body, design: .monospaced))
+                    .textFieldStyle(.plain)
+                    .font(.system(size: 13, weight: .bold, design: .monospaced))
+                    .padding(7)
+                    .background(Color(white: 0.12))
+                    .border(borderLine, width: 1)
+                    .frame(width: 110)
                     .disabled(isScanning)
+                
+                Spacer()
+                
+                Text("\(Int(tolerancePercentage))% TOL")
+                    .font(.system(size: 11, weight: .bold, design: .monospaced))
+                    .foregroundColor(textSubtle)
             }
             
             // Preset pills
             ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 6) {
+                HStack(spacing: 5) {
                     ForEach(colorPresets, id: \.1) { name, code, defaultTol in
                         Button(action: {
                             hexCode = code
                             tolerancePercentage = defaultTol
                         }) {
                             Text(name)
-                                .font(.caption2)
+                                .font(.system(size: 9, weight: .bold, design: .monospaced))
+                                .padding(.horizontal, 7)
+                                .padding(.vertical, 4)
+                                .background(hexCode.uppercased() == code ? Color.white : Color(white: 0.1))
+                                .foregroundColor(hexCode.uppercased() == code ? .black : .white)
+                                .border(borderLine, width: 1)
                         }
-                        .buttonStyle(.bordered)
-                        .controlSize(.mini)
+                        .buttonStyle(.plain)
                         .disabled(isScanning)
                     }
                 }
@@ -195,117 +242,105 @@ struct ContentView: View {
             // Tolerance Slider
             VStack(alignment: .leading, spacing: 4) {
                 HStack {
-                    Text("Color Tolerance:")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
+                    Text("TOLERANCE THRESHOLD")
+                        .font(.system(size: 9, weight: .bold, design: .monospaced))
+                        .foregroundColor(textMuted)
                     Spacer()
                     Text("\(Int(tolerancePercentage))%")
-                        .font(.caption)
-                        .fontWeight(.bold)
+                        .font(.system(size: 10, weight: .bold, design: .monospaced))
                 }
                 Slider(value: $tolerancePercentage, in: isTargetBlack ? 1...15 : 5...35, step: 1)
+                    .tint(.white)
                     .disabled(isScanning)
             }
         }
-        .padding(12)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color(NSColor.textBackgroundColor))
-        .cornerRadius(8)
     }
     
     // MARK: - Black Line Mode Section
     
     private var blackLineModeSection: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: 8) {
             HStack {
-                Label("Dark Scene Optimization", systemImage: "sparkles")
-                    .font(.subheadline)
-                    .fontWeight(.semibold)
-                    .foregroundColor(.yellow)
+                Text("DARK SCENE OPTIMIZATION")
+                    .font(.system(size: 10, weight: .heavy, design: .monospaced))
+                    .tracking(0.5)
                 Spacer()
-                Text("Active")
-                    .font(.caption2)
-                    .fontWeight(.bold)
-                    .padding(.horizontal, 6)
-                    .padding(.vertical, 2)
-                    .background(Color.yellow.opacity(0.2))
-                    .foregroundColor(.yellow)
-                    .cornerRadius(4)
+                Text("[ACTIVE]")
+                    .font(.system(size: 9, weight: .bold, design: .monospaced))
+                    .foregroundColor(.white)
             }
             
-            Toggle("Extreme Exposure Boost (\(Int(exposureMultiplier))x)", isOn: $enableExposureBoost)
-                .font(.caption)
+            Toggle("10X EXPOSURE BOOST MULTIPLIER", isOn: $enableExposureBoost)
+                .font(.system(size: 10, weight: .bold, design: .monospaced))
+                .toggleStyle(StudioToggleStyle())
                 .disabled(isScanning)
             
-            Toggle("Ignore Full-Black Frames (Fades & Slates)", isOn: $ignoreFullBlackFrames)
-                .font(.caption)
+            Toggle("IGNORE FULL-FRAME BLACK SLATES", isOn: $ignoreFullBlackFrames)
+                .font(.system(size: 10, weight: .bold, design: .monospaced))
+                .toggleStyle(StudioToggleStyle())
                 .disabled(isScanning)
-                
-            Text("Separates genuine digital black render gaps from camera shadows/grain using extreme gain multiplier.")
-                .font(.caption2)
-                .foregroundColor(.secondary)
         }
-        .padding(12)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color.yellow.opacity(0.08))
-        .cornerRadius(8)
-        .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.yellow.opacity(0.3), lineWidth: 1))
+        .padding(10)
+        .background(Color(white: 0.05))
+        .border(Color(white: 0.3), width: 1)
     }
     
-    // MARK: - Edge Settings Section
+    // MARK: - Section 3: Edge Bounds
     
     private var edgeSettingsSection: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Label("3. Edge Margin & Scan Area", systemImage: "square.dashed")
-                .font(.subheadline)
-                .fontWeight(.semibold)
+            sectionHeader(num: "03", title: "EDGE BOUNDS")
             
             HStack {
-                Text("Edge Depth:")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
+                Text("EDGE SCAN DEPTH:")
+                    .font(.system(size: 10, weight: .bold, design: .monospaced))
+                    .foregroundColor(textMuted)
                 Spacer()
-                Text("\(edgeDepth) px")
-                    .font(.caption)
-                    .fontWeight(.bold)
+                Text("\(edgeDepth) PX")
+                    .font(.system(size: 11, weight: .bold, design: .monospaced))
                 Stepper("", value: $edgeDepth, in: 2...40)
                     .labelsHidden()
                     .disabled(isScanning)
             }
             
             HStack(spacing: 12) {
-                Toggle("Top", isOn: $checkTop).disabled(isScanning)
-                Toggle("Bottom", isOn: $checkBottom).disabled(isScanning)
-                Toggle("Left", isOn: $checkLeft).disabled(isScanning)
-                Toggle("Right", isOn: $checkRight).disabled(isScanning)
+                Toggle("TOP", isOn: $checkTop).toggleStyle(StudioToggleStyle()).disabled(isScanning)
+                Toggle("BOT", isOn: $checkBottom).toggleStyle(StudioToggleStyle()).disabled(isScanning)
+                Toggle("LFT", isOn: $checkLeft).toggleStyle(StudioToggleStyle()).disabled(isScanning)
+                Toggle("RGT", isOn: $checkRight).toggleStyle(StudioToggleStyle()).disabled(isScanning)
             }
-            .font(.caption)
+            .font(.system(size: 10, weight: .bold, design: .monospaced))
         }
-        .padding(12)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color(NSColor.textBackgroundColor))
-        .cornerRadius(8)
     }
     
-    // MARK: - Action Section
+    // MARK: - Section 4: Action Buttons
     
     private var actionSection: some View {
         VStack(spacing: 8) {
+            sectionHeader(num: "04", title: "EXECUTION")
+            
             if isScanning {
-                Button(role: .destructive, action: cancelScan) {
-                    Label("Cancel QC Scan", systemImage: "stop.fill")
+                Button(action: cancelScan) {
+                    Text("[ CANCEL AUDIT ]")
+                        .font(.system(size: 12, weight: .black, design: .monospaced))
+                        .tracking(1.0)
                         .frame(maxWidth: .infinity)
+                        .padding(.vertical, 12)
+                        .background(alertRed)
+                        .foregroundColor(.black)
                 }
-                .controlSize(.large)
-                .buttonStyle(.borderedProminent)
-                .tint(.red)
+                .buttonStyle(.plain)
             } else {
                 Button(action: startScan) {
-                    Label("Start QC Batch Scan", systemImage: "play.fill")
+                    Text("[ START QC AUDIT ]")
+                        .font(.system(size: 12, weight: .black, design: .monospaced))
+                        .tracking(1.0)
                         .frame(maxWidth: .infinity)
+                        .padding(.vertical, 12)
+                        .background(videoFiles.isEmpty ? Color(white: 0.2) : Color.white)
+                        .foregroundColor(videoFiles.isEmpty ? Color(white: 0.5) : Color.black)
                 }
-                .controlSize(.large)
-                .buttonStyle(.borderedProminent)
+                .buttonStyle(.plain)
                 .disabled(videoFiles.isEmpty || RGBColor(hex: hexCode) == nil)
             }
         }
@@ -314,57 +349,61 @@ struct ContentView: View {
     // MARK: - Active Scan Progress View
     
     private var activeScanProgressView: some View {
-        VStack(alignment: .leading, spacing: 18) {
-            Label("QC Scan in Progress...", systemImage: "hourglass")
-                .font(.title3)
-                .fontWeight(.bold)
+        VStack(alignment: .leading, spacing: 24) {
+            HStack {
+                Text("SCANNING IN PROGRESS")
+                    .font(.system(size: 28, weight: .black, design: .default))
+                    .tracking(1.0)
+                Spacer()
+                Text("[PROCESSING]")
+                    .font(.system(size: 11, weight: .bold, design: .monospaced))
+                    .padding(6)
+                    .border(borderLine, width: 1)
+            }
             
             if let p = progressInfo {
-                VStack(alignment: .leading, spacing: 8) {
-                    HStack {
-                        Text("Batch Progress:")
-                            .font(.headline)
-                        Spacer()
-                        Text("File \(p.currentFileIndex) of \(p.totalFiles)")
-                            .font(.headline)
-                            .foregroundColor(.accentColor)
+                VStack(alignment: .leading, spacing: 16) {
+                    // Current File
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("CURRENT ASSET")
+                            .font(.system(size: 10, weight: .bold, design: .monospaced))
+                            .foregroundColor(textMuted)
+                        Text(p.currentFileName.uppercased())
+                            .font(.system(size: 18, weight: .heavy, design: .monospaced))
+                            .lineLimit(1)
                     }
                     
-                    ProgressView(value: Double(p.currentFileIndex - 1) + (Double(p.currentFrame) / Double(max(1, p.totalFramesInFile))), total: Double(p.totalFiles))
-                        .progressViewStyle(.linear)
-                    
-                    Text("Scanning: \(p.currentFileName)")
-                        .font(.subheadline)
-                        .fontWeight(.medium)
-                        .lineLimit(1)
-                    
-                    HStack {
-                        Text("Frame: \(p.currentFrame) / \(p.totalFramesInFile)")
-                        Spacer()
-                        Text(String(format: "Speed: %.0f FPS", p.fps))
+                    // Stats Grid
+                    HStack(spacing: 20) {
+                        statItem(label: "BATCH PROGRESS", val: "FILE \(String(format: "%02d", p.currentFileIndex)) / \(String(format: "%02d", p.totalFiles))")
+                        statItem(label: "FRAME INDEX", val: "\(p.currentFrame) / \(p.totalFramesInFile)")
+                        statItem(label: "SPEED", val: "\(String(format: "%.0f", p.fps)) FPS")
+                        statItem(label: "FLAGGED", val: "\(p.flaggedVideosCount)", isAlert: p.flaggedVideosCount > 0)
                     }
-                    .font(.caption)
-                    .foregroundColor(.secondary)
                     
-                    if p.flaggedVideosCount > 0 {
-                        HStack {
-                            Image(systemName: "exclamationmark.triangle.fill")
-                                .foregroundColor(.red)
-                            Text("\(p.flaggedVideosCount) file(s) flagged with colored lines so far")
-                                .font(.caption)
-                                .foregroundColor(.red)
-                                .fontWeight(.semibold)
+                    // Minimal Hairline Progress Bar
+                    GeometryReader { geo in
+                        ZStack(alignment: .leading) {
+                            Rectangle()
+                                .fill(Color(white: 0.15))
+                                .frame(height: 4)
+                            
+                            let ratio = (Double(p.currentFileIndex - 1) + (Double(p.currentFrame) / Double(max(1, p.totalFramesInFile)))) / Double(max(1, p.totalFiles))
+                            Rectangle()
+                                .fill(Color.white)
+                                .frame(width: geo.size.width * CGFloat(min(1.0, max(0.0, ratio))), height: 4)
                         }
-                        .padding(.top, 4)
                     }
+                    .frame(height: 4)
                 }
-                .padding(16)
-                .background(Color(NSColor.textBackgroundColor))
-                .cornerRadius(10)
+                .padding(24)
+                .background(panelDark)
+                .border(borderLine, width: 1)
             }
             
             Spacer()
         }
+        .padding(28)
     }
     
     // MARK: - Results Summary View
@@ -372,188 +411,275 @@ struct ContentView: View {
     private var resultsSummaryView: some View {
         let flagged = scanResults.filter { $0.isFlagged }
         let clean = scanResults.filter { !$0.isFlagged }
+        let totalSegments = flagged.reduce(0) { $0 + $1.glitchSegments.count }
         
-        return VStack(alignment: .leading, spacing: 14) {
-            HStack {
+        return VStack(alignment: .leading, spacing: 20) {
+            // Masthead
+            HStack(alignment: .center) {
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("QC Scan Complete")
-                        .font(.title3)
-                        .fontWeight(.bold)
-                    Text("Scanned \(scanResults.count) video files")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
+                    Text("AUDIT COMPLETE")
+                        .font(.system(size: 28, weight: .black, design: .default))
+                        .tracking(1.0)
+                    Text("\(scanResults.count) ASSETS ANALYZED")
+                        .font(.system(size: 11, weight: .bold, design: .monospaced))
+                        .foregroundColor(textMuted)
                 }
                 Spacer()
                 
                 if let reportURL = generatedReportURL {
-                    Button(action: { NSWorkspace.shared.open(reportURL) }) {
-                        Label("Open HTML Report", systemImage: "safari")
+                    HStack(spacing: 8) {
+                        Button(action: { NSWorkspace.shared.open(reportURL) }) {
+                            Text("[ OPEN HTML REPORT ]")
+                                .font(.system(size: 11, weight: .bold, design: .monospaced))
+                                .padding(.horizontal, 14)
+                                .padding(.vertical, 8)
+                                .background(Color.white)
+                                .foregroundColor(.black)
+                        }
+                        .buttonStyle(.plain)
+                        
+                        Button(action: { NSWorkspace.shared.activateFileViewerSelecting([reportURL]) }) {
+                            Text("[ FINDER ]")
+                                .font(.system(size: 11, weight: .bold, design: .monospaced))
+                                .padding(.horizontal, 14)
+                                .padding(.vertical, 8)
+                                .background(Color(white: 0.15))
+                                .foregroundColor(.white)
+                                .border(borderLine, width: 1)
+                        }
+                        .buttonStyle(.plain)
                     }
-                    .controlSize(.small)
-                    .buttonStyle(.borderedProminent)
-                    
-                    Button(action: { NSWorkspace.shared.activateFileViewerSelecting([reportURL]) }) {
-                        Label("Finder", systemImage: "folder")
-                    }
-                    .controlSize(.small)
                 }
             }
             
-            // Summary Badges
+            // 4-Column Stats Strip
             HStack(spacing: 12) {
-                HStack {
-                    Image(systemName: flagged.isEmpty ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
-                        .foregroundColor(flagged.isEmpty ? .green : .red)
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("\(flagged.count) Flagged")
-                            .fontWeight(.bold)
-                        if !flagged.isEmpty {
-                            Text("Tagged RED in Finder")
-                                .font(.system(size: 9))
-                                .foregroundColor(.red.opacity(0.9))
-                        }
-                    }
-                }
-                .padding(10)
-                .frame(maxWidth: .infinity)
-                .background(flagged.isEmpty ? Color.green.opacity(0.15) : Color.red.opacity(0.15))
-                .cornerRadius(8)
-                
-                HStack {
-                    Image(systemName: "checkmark.seal.fill")
-                        .foregroundColor(.green)
-                    Text("\(clean.count) Passed")
-                        .fontWeight(.bold)
-                }
-                .padding(10)
-                .frame(maxWidth: .infinity)
-                .background(Color.green.opacity(0.15))
-                .cornerRadius(8)
+                statBox(title: "TOTAL SCANNED", val: String(format: "%02d", scanResults.count))
+                statBox(title: "FLAGGED FILES", val: String(format: "%02d", flagged.count), isRed: !flagged.isEmpty)
+                statBox(title: "PASSED FILES", val: String(format: "%02d", clean.count))
+                statBox(title: "GLITCH SEGMENTS", val: String(format: "%02d", totalSegments), isRed: totalSegments > 0)
             }
             
             // List of Flagged Files & Glitch Segments
-            Text("Glitch Occurrences & Durations:")
-                .font(.subheadline)
-                .fontWeight(.semibold)
-            
             ScrollView {
-                VStack(spacing: 10) {
+                VStack(alignment: .leading, spacing: 16) {
                     if flagged.isEmpty {
-                        HStack {
-                            Image(systemName: "checkmark.circle")
-                                .foregroundColor(.green)
-                            Text("All files passed QC! No colored edge lines found.")
-                                .font(.callout)
+                        VStack(spacing: 8) {
+                            Text("STATUS // ALL DELIVERIES PASSED")
+                                .font(.system(size: 16, weight: .black, design: .monospaced))
+                            Text("NO COLORED EDGE LINES OR MATTE ARTIFACTS DETECTED.")
+                                .font(.system(size: 11, weight: .medium, design: .monospaced))
+                                .foregroundColor(textMuted)
                         }
-                        .padding(20)
+                        .frame(maxWidth: .infinity)
+                        .padding(40)
+                        .background(panelDark)
+                        .border(borderLine, width: 1)
                     } else {
                         ForEach(flagged) { result in
                             let segments = result.glitchSegments
-                            VStack(alignment: .leading, spacing: 8) {
+                            VStack(alignment: .leading, spacing: 0) {
+                                // Card Header
                                 HStack {
-                                    Image(systemName: "xmark.octagon.fill")
-                                        .foregroundColor(.red)
-                                    Text(result.fileName)
-                                        .font(.callout)
-                                        .fontWeight(.bold)
+                                    VStack(alignment: .leading, spacing: 3) {
+                                        Text(result.fileName.uppercased())
+                                            .font(.system(size: 14, weight: .heavy, design: .monospaced))
+                                        Text("\(result.resolution) // \(String(format: "%.2f", result.fps)) FPS // \(result.totalFrames) FRAMES")
+                                            .font(.system(size: 10, weight: .bold, design: .monospaced))
+                                            .foregroundColor(textMuted)
+                                    }
                                     Spacer()
-                                    Text("\(segments.count) occurrence(s) • \(result.errorFrames.count) frames")
-                                        .font(.caption)
-                                        .foregroundColor(.red)
-                                        .padding(.horizontal, 6)
-                                        .padding(.vertical, 2)
-                                        .background(Color.red.opacity(0.15))
-                                        .cornerRadius(4)
+                                    
+                                    VStack(alignment: .trailing, spacing: 3) {
+                                        Text("[\(segments.count) OCCURRENCE(S) // \(result.errorFrames.count) FRAMES]")
+                                            .font(.system(size: 10, weight: .bold, design: .monospaced))
+                                            .foregroundColor(alertRed)
+                                        Text("FINDER RED TAG APPLIED")
+                                            .font(.system(size: 8, weight: .bold, design: .monospaced))
+                                            .foregroundColor(textMuted)
+                                    }
                                 }
+                                .padding(14)
+                                .background(Color(white: 0.08))
                                 
-                                HStack {
-                                    Text("\(result.resolution) • \(String(format: "%.2f", result.fps)) fps")
+                                Rectangle().fill(borderLine).frame(height: 1)
+                                
+                                // Table Header
+                                HStack(spacing: 8) {
+                                    Text("#")
+                                        .frame(width: 25, alignment: .leading)
+                                    Text("LOCATION")
+                                        .frame(width: 120, alignment: .leading)
+                                    Text("TIMECODE RANGE")
+                                        .frame(width: 170, alignment: .leading)
+                                    Text("DURATION")
+                                        .frame(width: 140, alignment: .leading)
+                                    Text("FRAMES")
+                                        .frame(width: 80, alignment: .leading)
                                     Spacer()
-                                    Label("Red Tagged in Finder", systemImage: "tag.fill")
-                                        .foregroundColor(.red)
+                                    Text("COLOR")
+                                        .frame(width: 80, alignment: .trailing)
                                 }
-                                .font(.caption2)
-                                .foregroundColor(.secondary)
+                                .font(.system(size: 9, weight: .bold, design: .monospaced))
+                                .foregroundColor(textMuted)
+                                .padding(.horizontal, 14)
+                                .padding(.vertical, 8)
+                                .background(Color(white: 0.05))
                                 
-                                Divider()
+                                Rectangle().fill(borderLine).frame(height: 1)
                                 
-                                // Clean list of continuous glitch segments
-                                ForEach(segments.prefix(10)) { seg in
+                                // Table Rows
+                                ForEach(Array(segments.enumerated()), id: \.offset) { idx, seg in
                                     HStack(spacing: 8) {
-                                        Text(seg.startTimecode == seg.endTimecode ? seg.startTimecode : "\(seg.startTimecode) → \(seg.endTimecode)")
-                                            .font(.system(.caption, design: .monospaced))
-                                            .fontWeight(.bold)
-                                            .padding(.horizontal, 6)
-                                            .padding(.vertical, 2)
-                                            .background(Color.secondary.opacity(0.15))
-                                            .cornerRadius(4)
+                                        Text(String(format: "%02d", idx + 1))
+                                            .frame(width: 25, alignment: .leading)
+                                            .foregroundColor(textMuted)
                                         
-                                        Text(seg.frameCount == 1 ? "1 frame" : "\(seg.frameCount) frames (\(String(format: "%.2f", seg.durationSeconds))s)")
-                                            .font(.caption)
-                                            .fontWeight(.medium)
+                                        Text("\(seg.edge.rawValue.uppercased()) (\(seg.avgThickness)PX)")
+                                            .frame(width: 120, alignment: .leading)
+                                            .fontWeight(.bold)
+                                        
+                                        Text(seg.startTimecode == seg.endTimecode ? seg.startTimecode : "\(seg.startTimecode) -> \(seg.endTimecode)")
+                                            .frame(width: 170, alignment: .leading)
+                                            .fontWeight(.heavy)
+                                        
+                                        Text(seg.frameCount == 1 ? "1 FRAME (0.04S)" : "\(seg.frameCount) FRAMES (\(String(format: "%.2f", seg.durationSeconds))S)")
+                                            .frame(width: 140, alignment: .leading)
+                                            .foregroundColor(textSubtle)
+                                        
+                                        Text("[\(seg.startFrame == seg.endFrame ? "\(seg.startFrame)" : "\(seg.startFrame)-\(seg.endFrame)")]")
+                                            .frame(width: 80, alignment: .leading)
+                                            .foregroundColor(textMuted)
                                         
                                         Spacer()
                                         
-                                        Text("\(seg.edge.rawValue) edge (\(seg.avgThickness)px)")
-                                            .font(.caption)
-                                            .foregroundColor(.orange)
-                                        
-                                        HStack(spacing: 3) {
-                                            Circle()
+                                        HStack(spacing: 5) {
+                                            Rectangle()
                                                 .fill(Color(red: Double(seg.detectedColor.r)/255, green: Double(seg.detectedColor.g)/255, blue: Double(seg.detectedColor.b)/255))
-                                                .frame(width: 8, height: 8)
-                                            Text(seg.detectedColor.hexString)
-                                                .font(.system(.caption2, design: .monospaced))
-                                                .foregroundColor(.secondary)
+                                                .frame(width: 10, height: 10)
+                                                .border(Color(white: 0.4), width: 1)
+                                            Text(seg.detectedColor.hexString.uppercased())
+                                                .font(.system(size: 10, weight: .bold, design: .monospaced))
                                         }
+                                        .frame(width: 80, alignment: .trailing)
+                                    }
+                                    .font(.system(size: 11, design: .monospaced))
+                                    .padding(.horizontal, 14)
+                                    .padding(.vertical, 9)
+                                    
+                                    if idx < segments.count - 1 {
+                                        Rectangle().fill(Color(white: 0.1)).frame(height: 1)
                                     }
                                 }
-                                
-                                if segments.count > 10 {
-                                    Text("+ \(segments.count - 10) more occurrences (see full HTML report)")
-                                        .font(.caption2)
-                                        .foregroundColor(.secondary)
-                                }
                             }
-                            .padding(12)
-                            .background(Color(NSColor.textBackgroundColor))
-                            .cornerRadius(8)
-                            .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.red.opacity(0.3), lineWidth: 1))
+                            .background(panelDark)
+                            .border(borderLine, width: 1)
+                            .overlay(
+                                Rectangle()
+                                    .fill(alertRed)
+                                    .frame(width: 3),
+                                alignment: .leading
+                            )
                         }
                     }
                 }
             }
         }
+        .padding(28)
     }
     
-    // MARK: - Empty State
+    // MARK: - Empty State View
     
     private var emptyStateView: some View {
-        VStack(spacing: 12) {
+        VStack(alignment: .leading, spacing: 18) {
             Spacer()
-            Image(systemName: "film")
-                .font(.system(size: 48))
-                .foregroundColor(.secondary.opacity(0.6))
-            Text("Ready to Scan")
-                .font(.title3)
-                .fontWeight(.bold)
-            Text("Select a delivery folder containing video files\nand configure your target hex color to begin QC.")
-                .font(.callout)
-                .foregroundColor(.secondary)
-                .multilineTextAlignment(.center)
+            
+            Text("STATUS // READY TO AUDIT")
+                .font(.system(size: 32, weight: .black, design: .default))
+                .tracking(1.0)
+            
+            Text("CHOOSE A DELIVERY FOLDER ON THE LEFT TO BEGIN FRAME-BY-FRAME ANALYSIS.\nDETECTS MATTE MISALIGNMENTS, LETTERBOX ARTIFACTS, AND COLORED EDGE LINES.")
+                .font(.system(size: 12, weight: .medium, design: .monospaced))
+                .foregroundColor(textMuted)
+                .lineSpacing(4)
+            
+            Rectangle()
+                .fill(borderLine)
+                .frame(height: 1)
+            
+            HStack(spacing: 16) {
+                formatTag("PRORES 422/4444")
+                formatTag("H.264")
+                formatTag("H.265/HEVC")
+                formatTag("QUICKTIME MOV")
+                formatTag("MP4")
+            }
+            
             Spacer()
         }
-        .frame(maxWidth: .infinity)
+        .padding(40)
     }
     
-    // MARK: - Handlers
+    // MARK: - Helper UI Builders
+    
+    private func sectionHeader(num: String, title: String) -> some View {
+        HStack(spacing: 6) {
+            Text(num)
+                .font(.system(size: 10, weight: .bold, design: .monospaced))
+                .foregroundColor(textMuted)
+            Text("//")
+                .font(.system(size: 10, weight: .bold, design: .monospaced))
+                .foregroundColor(textMuted)
+            Text(title)
+                .font(.system(size: 11, weight: .black, design: .monospaced))
+                .tracking(1.0)
+        }
+    }
+    
+    private func statBox(title: String, val: String, isRed: Bool = false) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(title)
+                .font(.system(size: 9, weight: .bold, design: .monospaced))
+                .foregroundColor(textMuted)
+                .tracking(0.5)
+            Text(val)
+                .font(.system(size: 24, weight: .black, design: .monospaced))
+                .foregroundColor(isRed ? alertRed : .white)
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(panelDark)
+        .border(borderLine, width: 1)
+    }
+    
+    private func statItem(label: String, val: String, isAlert: Bool = false) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(label)
+                .font(.system(size: 9, weight: .bold, design: .monospaced))
+                .foregroundColor(textMuted)
+            Text(val)
+                .font(.system(size: 13, weight: .heavy, design: .monospaced))
+                .foregroundColor(isAlert ? alertRed : .white)
+        }
+    }
+    
+    private func formatTag(_ text: String) -> some View {
+        Text(text)
+            .font(.system(size: 9, weight: .bold, design: .monospaced))
+            .foregroundColor(textMuted)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+            .border(borderLine, width: 1)
+    }
+    
+    // MARK: - Logic Handlers
     
     private func selectFolder() {
         let panel = NSOpenPanel()
         panel.canChooseFiles = false
         panel.canChooseDirectories = true
         panel.allowsMultipleSelection = false
-        panel.prompt = "Select Folder"
+        panel.prompt = "Select Delivery Folder"
         
         if panel.runModal() == .OK, let selectedURL = panel.url {
             self.folderURL = selectedURL
@@ -611,7 +737,7 @@ struct ContentView: View {
                 }
             }
             
-            // Save report text file
+            // Save report text & HTML files + tag flagged in Finder
             let reportURL = ReportWriter.saveReport(folderURL: folder, config: config, results: results)
             
             DispatchQueue.main.async {
@@ -631,5 +757,21 @@ struct ContentView: View {
                 self.scannerActor = nil
             }
         }
+    }
+}
+
+// MARK: - Custom Minimalist Toggle Style
+struct StudioToggleStyle: ToggleStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        Button(action: { configuration.isOn.toggle() }) {
+            HStack(spacing: 4) {
+                Rectangle()
+                    .fill(configuration.isOn ? Color.white : Color.clear)
+                    .frame(width: 8, height: 8)
+                    .border(Color(white: 0.4), width: 1)
+                configuration.label
+            }
+        }
+        .buttonStyle(.plain)
     }
 }
