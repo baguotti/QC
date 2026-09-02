@@ -244,8 +244,9 @@ public struct EdgeDetector: Sendable {
         let tb = Int(targetRGB.b)
         let maxDistSq = maxDist * maxDist
         
-        var intensities: [Double] = []
-        if isBlack { intensities.reserveCapacity(width) }
+        var blackCount = 0
+        var blackMean = 0.0
+        var blackM2 = 0.0
         
         for x in 0..<width {
             let offset = x * 4
@@ -274,7 +275,12 @@ public struct EdgeDetector: Sendable {
                 sumG += UInt64(originalG)
                 sumB += UInt64(originalB)
                 if isBlack {
-                    intensities.append(Double(originalR + originalG + originalB) / 3.0)
+                    let intensity = Double(originalR + originalG + originalB) / 3.0
+                    blackCount += 1
+                    let delta = intensity - blackMean
+                    blackMean += delta / Double(blackCount)
+                    let delta2 = intensity - blackMean
+                    blackM2 += delta * delta2
                 }
             }
         }
@@ -283,10 +289,9 @@ public struct EdgeDetector: Sendable {
         guard ratio >= config.minSpanRatio, matchCount > 0 else { return nil }
         
         // In black detection mode, enforce strict uniformity (render blanking has ~0 variance)
-        if isBlack && intensities.count > 10 {
-            let mean = intensities.reduce(0.0, +) / Double(intensities.count)
-            let variance = intensities.reduce(0.0) { $0 + pow($1 - mean, 2) } / Double(intensities.count)
-            let stdDev = sqrt(variance)
+        if isBlack && blackCount > 10 {
+            let variance = blackM2 / Double(blackCount)
+            let stdDev = sqrt(max(0.0, variance))
             if stdDev > config.maxBlackVariance {
                 // Natural camera texture/grain present -> not a flat digital matte line
                 return nil
@@ -323,8 +328,9 @@ public struct EdgeDetector: Sendable {
         let tb = Int(targetRGB.b)
         let maxDistSq = maxDist * maxDist
         
-        var intensities: [Double] = []
-        if isBlack { intensities.reserveCapacity(height) }
+        var blackCount = 0
+        var blackMean = 0.0
+        var blackM2 = 0.0
         
         for y in 0..<height {
             let rowOffset = y * bytesPerRow + (x * 4)
@@ -353,7 +359,12 @@ public struct EdgeDetector: Sendable {
                 sumG += UInt64(originalG)
                 sumB += UInt64(originalB)
                 if isBlack {
-                    intensities.append(Double(originalR + originalG + originalB) / 3.0)
+                    let intensity = Double(originalR + originalG + originalB) / 3.0
+                    blackCount += 1
+                    let delta = intensity - blackMean
+                    blackMean += delta / Double(blackCount)
+                    let delta2 = intensity - blackMean
+                    blackM2 += delta * delta2
                 }
             }
         }
@@ -361,10 +372,9 @@ public struct EdgeDetector: Sendable {
         let ratio = Double(matchCount) / Double(height)
         guard ratio >= config.minSpanRatio, matchCount > 0 else { return nil }
         
-        if isBlack && intensities.count > 10 {
-            let mean = intensities.reduce(0.0, +) / Double(intensities.count)
-            let variance = intensities.reduce(0.0) { $0 + pow($1 - mean, 2) } / Double(intensities.count)
-            let stdDev = sqrt(variance)
+        if isBlack && blackCount > 10 {
+            let variance = blackM2 / Double(blackCount)
+            let stdDev = sqrt(max(0.0, variance))
             if stdDev > config.maxBlackVariance {
                 return nil
             }
@@ -449,8 +459,9 @@ public struct EdgeDetector: Sendable {
         let tb = Int(targetRGB.b)
         let maxDistSq = maxDist * maxDist
         
-        var intensities: [Double] = []
-        if isBlack { intensities.reserveCapacity(width) }
+        var blackCount = 0
+        var blackMean = 0.0
+        var blackM2 = 0.0
         
         for x in 0..<width {
             let offset = x * 4
@@ -479,7 +490,12 @@ public struct EdgeDetector: Sendable {
                 sumG += UInt64(originalG)
                 sumB += UInt64(originalB)
                 if isBlack {
-                    intensities.append(Double(originalR + originalG + originalB) / 3.0)
+                    let intensity = Double(originalR + originalG + originalB) / 3.0
+                    blackCount += 1
+                    let delta = intensity - blackMean
+                    blackMean += delta / Double(blackCount)
+                    let delta2 = intensity - blackMean
+                    blackM2 += delta * delta2
                 }
             }
         }
@@ -487,10 +503,9 @@ public struct EdgeDetector: Sendable {
         let ratio = Double(matchCount) / Double(width)
         guard ratio >= config.minSpanRatio, matchCount > 0 else { return nil }
         
-        if isBlack && intensities.count > 10 {
-            let mean = intensities.reduce(0.0, +) / Double(intensities.count)
-            let variance = intensities.reduce(0.0) { $0 + pow($1 - mean, 2) } / Double(intensities.count)
-            let stdDev = sqrt(variance)
+        if isBlack && blackCount > 10 {
+            let variance = blackM2 / Double(blackCount)
+            let stdDev = sqrt(max(0.0, variance))
             if stdDev > config.maxBlackVariance {
                 return nil
             }

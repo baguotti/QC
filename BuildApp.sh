@@ -19,8 +19,13 @@ BIN_DIR=$(swift build -c release --show-bin-path)
 rm -rf "${APP_BUNDLE}"
 mkdir -p "${MACOS}" "${RESOURCES}"
 
-# 3. Copy executable
+# 3. Copy executable & resources
 cp "${BIN_DIR}/${BIN_NAME}" "${MACOS}/${BIN_NAME}"
+
+if [ -f "Resources/AppIcon.icns" ]; then
+    echo "🎨 Bundling application icon (AppIcon.icns)..."
+    cp "Resources/AppIcon.icns" "${RESOURCES}/AppIcon.icns"
+fi
 
 # 4. Create Info.plist
 cat << EOF > "${CONTENTS}/Info.plist"
@@ -32,6 +37,8 @@ cat << EOF > "${CONTENTS}/Info.plist"
     <string>en</string>
     <key>CFBundleExecutable</key>
     <string>${BIN_NAME}</string>
+    <key>CFBundleIconFile</key>
+    <string>AppIcon</string>
     <key>CFBundleIdentifier</key>
     <string>com.studio.linefinder5000</string>
     <key>CFBundleInfoDictionaryVersion</key>
@@ -56,6 +63,10 @@ EOF
 
 # 5. Create PkgInfo
 echo -n "APPL????" > "${CONTENTS}/PkgInfo"
+
+# 6. Ad-Hoc Code Signing
+echo "🔐 Ad-hoc code signing app bundle..."
+codesign --force --deep --sign - "${APP_BUNDLE}"
 
 echo "✅ Successfully built: ${APP_BUNDLE}"
 echo "📦 You can now double-click or drag '${APP_NAME}.app' to /Applications or any Silicon Mac!"

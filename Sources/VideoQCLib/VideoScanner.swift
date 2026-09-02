@@ -153,16 +153,25 @@ public actor VideoScanner {
         let startTime = CFAbsoluteTimeGetCurrent()
         
         while reader.status == .reading && !isCancelled {
-            guard let sampleBuffer = trackOutput.copyNextSampleBuffer() else {
-                break
+            var shouldBreak = false
+            
+            autoreleasepool {
+                guard let sampleBuffer = trackOutput.copyNextSampleBuffer() else {
+                    shouldBreak = true
+                    return
+                }
+                
+                if let imageBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) {
+                    let detections = detector.scanPixelBuffer(imageBuffer, config: config)
+                    if !detections.isEmpty {
+                        let timecode = TimecodeFormatter.format(frameIndex: frameCount, fps: fps)
+                        errorFrames.append(FrameError(frameIndex: frameCount, timecode: timecode, detections: detections))
+                    }
+                }
             }
             
-            if let imageBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) {
-                let detections = detector.scanPixelBuffer(imageBuffer, config: config)
-                if !detections.isEmpty {
-                    let timecode = TimecodeFormatter.format(frameIndex: frameCount, fps: fps)
-                    errorFrames.append(FrameError(frameIndex: frameCount, timecode: timecode, detections: detections))
-                }
+            if shouldBreak {
+                break
             }
             
             frameCount += 1

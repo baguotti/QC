@@ -89,15 +89,30 @@ public struct DeliverablesInspector: Sendable {
         }
     }
     
-    /// Inspects a batch of video files in parallel
+    /// Inspects a batch of video files in parallel using structured concurrency
     public static func inspectBatch(urls: [URL]) async -> [DeliverableAsset] {
-        var assets: [DeliverableAsset] = []
-        for url in urls {
-            if let asset = await inspectFile(url: url) {
-                assets.append(asset)
+        guard !urls.isEmpty else { return [] }
+        
+        return await withTaskGroup(of: (Int, DeliverableAsset?).self) { group in
+            for (index, url) in urls.enumerated() {
+                group.addTask {
+                    let asset = await inspectFile(url: url)
+                    return (index, asset)
+                }
             }
+            
+            var indexedAssets: [(Int, DeliverableAsset)] = []
+            indexedAssets.reserveCapacity(urls.count)
+            
+            for await (index, maybeAsset) in group {
+                if let asset = maybeAsset {
+                    indexedAssets.append((index, asset))
+                }
+            }
+            
+            // Preserve original input ordering
+            return indexedAssets.sorted { $0.0 < $1.0 }.map { $0.1 }
         }
-        return assets
     }
     
     // MARK: - Cross-Reference Validation

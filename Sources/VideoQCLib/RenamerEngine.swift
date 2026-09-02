@@ -128,7 +128,8 @@ public struct RenamerEngine: Sendable {
             
             // Check filesystem collision (if file exists and is not the current file)
             let destinationURL = item.targetURL
-            if destinationURL.path != item.originalURL.path && FileManager.default.fileExists(atPath: destinationURL.path) {
+            let isCaseOnlyChange = destinationURL.path.caseInsensitiveCompare(item.originalURL.path) == .orderedSame
+            if !isCaseOnlyChange && FileManager.default.fileExists(atPath: destinationURL.path) {
                 updated.status = .collision("File Exists on Disk")
                 updated.collisionDetail = "A file already exists with name: \(proposedFull)"
                 return updated
@@ -291,9 +292,17 @@ public struct RenamerEngine: Sendable {
             
             let sourceURL = item.originalURL
             let targetURL = item.targetURL
+            let isCaseOnly = sourceURL.path.caseInsensitiveCompare(targetURL.path) == .orderedSame && sourceURL.path != targetURL.path
             
             do {
-                try FileManager.default.moveItem(at: sourceURL, to: targetURL)
+                if isCaseOnly {
+                    // APFS case-insensitive workaround: use a temporary UUID hop
+                    let tempURL = sourceURL.deletingLastPathComponent().appendingPathComponent(".tmp_\(UUID().uuidString)_\(sourceURL.lastPathComponent)")
+                    try FileManager.default.moveItem(at: sourceURL, to: tempURL)
+                    try FileManager.default.moveItem(at: tempURL, to: targetURL)
+                } else {
+                    try FileManager.default.moveItem(at: sourceURL, to: targetURL)
+                }
                 successEntries.append((oldURL: sourceURL, newURL: targetURL))
             } catch {
                 failed += 1
@@ -311,10 +320,17 @@ public struct RenamerEngine: Sendable {
         for entry in transaction.entries.reversed() {
             let currentURL = entry.newURL
             let originalURL = entry.oldURL
+            let isCaseOnly = currentURL.path.caseInsensitiveCompare(originalURL.path) == .orderedSame && currentURL.path != originalURL.path
             
             if FileManager.default.fileExists(atPath: currentURL.path) {
                 do {
-                    try FileManager.default.moveItem(at: currentURL, to: originalURL)
+                    if isCaseOnly {
+                        let tempURL = currentURL.deletingLastPathComponent().appendingPathComponent(".tmp_\(UUID().uuidString)_\(currentURL.lastPathComponent)")
+                        try FileManager.default.moveItem(at: currentURL, to: tempURL)
+                        try FileManager.default.moveItem(at: tempURL, to: originalURL)
+                    } else {
+                        try FileManager.default.moveItem(at: currentURL, to: originalURL)
+                    }
                     reverted += 1
                 } catch {
                     failed += 1
