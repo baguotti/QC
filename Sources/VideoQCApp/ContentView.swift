@@ -110,11 +110,11 @@ struct ContentView: View {
     private var headerView: some View {
         HStack(alignment: .center) {
             VStack(alignment: .leading, spacing: 2) {
-                Text("QC // VIDEO DELIVERY AUDIT")
+                Text("THE LINEFINDER 5000 // DELIVERY AUDIT")
                     .font(.system(size: 16, weight: .black, design: .default))
                     .foregroundColor(textMain)
                     .tracking(1.5)
-                Text("POST-PRODUCTION EDGE ARTIFACT AUDITOR // APPLE SILICON")
+                Text("THE LINEFINDER 5000 // POST-PRODUCTION EDGE ARTIFACT AUDITOR")
                     .font(.system(size: 9, weight: .bold, design: .monospaced))
                     .foregroundColor(textMuted)
                     .tracking(0.5)

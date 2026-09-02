@@ -1,9 +1,9 @@
 import SwiftUI
 
 @main
-struct VideoQCApp: App {
+struct LineFinder5000App: App {
     var body: some Scene {
-        WindowGroup {
+        WindowGroup("THE LINEFINDER 5000") {
             ContentView()
         }
         .windowStyle(.titleBar)

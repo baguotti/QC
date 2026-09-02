@@ -46,7 +46,7 @@ public struct ReportWriter: Sendable {
         <head>
             <meta charset="UTF-8">
             <meta name="viewport" content="width=device-width, initial-scale=1.0">
-            <title>QC // \(folderURL.lastPathComponent.uppercased())</title>
+            <title>THE LINEFINDER 5000 // \(folderURL.lastPathComponent.uppercased())</title>
             <style>
                 @import url('https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@400;600;700;800;900&family=JetBrains+Mono:wght@400;500;700&display=swap');
 
@@ -385,8 +385,8 @@ public struct ReportWriter: Sendable {
                 <!-- Masthead -->
                 <div class="masthead">
                     <div class="title-block">
-                        <h1>DELIVERY QC REPORT</h1>
-                        <div class="subtitle">EDGE LINE DETECTION AUDIT // \(folderURL.lastPathComponent.uppercased())</div>
+                        <h1>THE LINEFINDER 5000</h1>
+                        <div class="subtitle">DELIVERY QC AUDIT // \(folderURL.lastPathComponent.uppercased())</div>
                     </div>
                     <div class="header-actions">
                         <button class="theme-btn" onclick="toggleTheme()">[THEME: <span id="theme-text">DARK</span>]</button>
@@ -524,7 +524,7 @@ public struct ReportWriter: Sendable {
                 </div>
 
                 <footer>
-                    <div>VIDEO QC ENGINE // APPLE SILICON NATIVE</div>
+                    <div>THE LINEFINDER 5000 // APPLE SILICON NATIVE</div>
                     <div>AUTOMATED POST-PRODUCTION AUDIT</div>
                 </footer>
             </div>
@@ -562,7 +562,7 @@ public struct ReportWriter: Sendable {
         
         var report = ""
         report += "================================================================================\n"
-        report += "QC // DELIVERY REPORT\n"
+        report += "THE LINEFINDER 5000 // DELIVERY REPORT\n"
         report += "================================================================================\n"
         report += "DATE: \(dateString)\n"
         var configDetails = "TARGET COLOR: \(config.targetHex.uppercased()) (TOLERANCE: \(Int(config.tolerance * 100))% | MARGIN: \(config.edgeDepth)PX"

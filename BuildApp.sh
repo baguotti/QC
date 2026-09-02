@@ -1,9 +1,10 @@
 #!/bin/bash
 set -e
 
-echo "🔨 Building Video QC for Apple Silicon (Release mode)..."
+echo "🔨 Building THE LINEFINDER 5000 for Apple Silicon (Release mode)..."
 
-APP_NAME="VideoQC"
+BIN_NAME="LineFinder5000"
+APP_NAME="THE LINEFINDER 5000"
 BUILD_DIR="$(pwd)/build"
 APP_BUNDLE="${BUILD_DIR}/${APP_NAME}.app"
 CONTENTS="${APP_BUNDLE}/Contents"
@@ -19,10 +20,10 @@ rm -rf "${APP_BUNDLE}"
 mkdir -p "${MACOS}" "${RESOURCES}"
 
 # 3. Copy executable
-cp "${BIN_DIR}/${APP_NAME}" "${MACOS}/${APP_NAME}"
+cp "${BIN_DIR}/${BIN_NAME}" "${MACOS}/${BIN_NAME}"
 
 # 4. Create Info.plist
-cat << 'EOF' > "${CONTENTS}/Info.plist"
+cat << EOF > "${CONTENTS}/Info.plist"
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -30,19 +31,19 @@ cat << 'EOF' > "${CONTENTS}/Info.plist"
     <key>CFBundleDevelopmentRegion</key>
     <string>en</string>
     <key>CFBundleExecutable</key>
-    <string>VideoQC</string>
+    <string>${BIN_NAME}</string>
     <key>CFBundleIdentifier</key>
-    <string>com.studio.videoqc</string>
+    <string>com.studio.linefinder5000</string>
     <key>CFBundleInfoDictionaryVersion</key>
     <string>6.0</string>
     <key>CFBundleName</key>
-    <string>Video QC</string>
+    <string>${APP_NAME}</string>
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleShortVersionString</key>
-    <string>1.0.0</string>
+    <string>5.0.0</string>
     <key>CFBundleVersion</key>
-    <string>1</string>
+    <string>5000</string>
     <key>LSMinimumSystemVersion</key>
     <string>14.0</string>
     <key>NSHighResolutionCapable</key>
@@ -57,4 +58,4 @@ EOF
 echo -n "APPL????" > "${CONTENTS}/PkgInfo"
 
 echo "✅ Successfully built: ${APP_BUNDLE}"
-echo "📦 You can now double-click or drag ${APP_NAME}.app to /Applications or any Silicon Mac!"
+echo "📦 You can now double-click or drag '${APP_NAME}.app' to /Applications or any Silicon Mac!"
