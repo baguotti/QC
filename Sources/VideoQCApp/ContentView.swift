@@ -20,6 +20,7 @@ enum AppTab: Int, CaseIterable, Identifiable {
 struct ContentView: View {
     @AppStorage("isLightMode") private var isLightMode: Bool = false
     @State private var selectedTab: AppTab = .lineScanner
+    @State private var showUserGuide: Bool = false
     
     // Shared Folder & Video Files
     @State private var folderURL: URL? = nil
@@ -114,33 +115,39 @@ struct ContentView: View {
     var primaryBtnFg: Color { isLightMode ? Color.white : Color.black }
     
     var body: some View {
-        VStack(spacing: 0) {
-            // 1. Top Masthead
-            headerView
+        ZStack {
+            VStack(spacing: 0) {
+                // 1. Top Masthead
+                headerView
+                
+                Rectangle()
+                    .fill(borderLine)
+                    .frame(height: 1)
+                
+                // 2. Dedicated Prominent Tab Navigation Bar
+                tabBarStrip
+                
+                Rectangle()
+                    .fill(borderLine)
+                    .frame(height: 1)
+                
+                // 3. Main Tab Content
+                if selectedTab == .lineScanner {
+                    lineScannerTabView
+                } else if selectedTab == .deliverables {
+                    deliverablesTabView
+                } else {
+                    batchRenamerTabView
+                }
+            }
+            .frame(minWidth: 1000, minHeight: 720)
+            .background(bgMain)
+            .foregroundColor(textMain)
             
-            Rectangle()
-                .fill(borderLine)
-                .frame(height: 1)
-            
-            // 2. Dedicated Prominent Tab Navigation Bar
-            tabBarStrip
-            
-            Rectangle()
-                .fill(borderLine)
-                .frame(height: 1)
-            
-            // 3. Main Tab Content
-            if selectedTab == .lineScanner {
-                lineScannerTabView
-            } else if selectedTab == .deliverables {
-                deliverablesTabView
-            } else {
-                batchRenamerTabView
+            if showUserGuide {
+                UserGuideView(isPresented: $showUserGuide)
             }
         }
-        .frame(minWidth: 1000, minHeight: 720)
-        .background(bgMain)
-        .foregroundColor(textMain)
     }
     
     // MARK: - Header
@@ -163,6 +170,24 @@ struct ContentView: View {
             
             // Controls
             HStack(spacing: 10) {
+                // Info / Manual Button
+                Button(action: { showUserGuide = true }) {
+                    HStack(spacing: 5) {
+                        Image(systemName: "info.circle.fill")
+                            .font(.system(size: 11))
+                            .foregroundColor(isLightMode ? Color.blue : Color.cyan)
+                        Text("[ ℹ INFO / GUIDE ]")
+                            .font(.system(size: 10, weight: .bold, design: .monospaced))
+                    }
+                    .padding(.horizontal, 9)
+                    .padding(.vertical, 5)
+                    .background(bgSubtle)
+                    .foregroundColor(textMain)
+                    .border(borderLine, width: 1)
+                }
+                .buttonStyle(.plain)
+                .help("Detailed operational guide and instructions for all tabs")
+                
                 Button(action: { isLightMode.toggle() }) {
                     Text(isLightMode ? "[THEME: LIGHT]" : "[THEME: DARK]")
                         .font(.system(size: 10, weight: .bold, design: .monospaced))

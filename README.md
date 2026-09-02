@@ -1,37 +1,90 @@
-# THE LINEFINDER 5000 (macOS Apple Silicon)
+# THE LINEFINDER 5000
 
-A fast, lightweight, native macOS application designed to quality-control online video deliveries frame-by-frame. It scans entire folders of videos (MP4, H.264, H.265/HEVC, ProRes 422/4444, MOV) for colored line glitches/matte errors along the edges and generates a clean, timecode-accurate Swiss-styled HTML & TXT report.
+Video QC, metadata inspection, and batch renaming for macOS (Apple Silicon).
 
 ---
 
 ## 🚀 How to Run
 
-### Option 1: Direct Double-Click (Stand-alone App)
-You can directly launch or copy the app bundle to `/Applications` or any other Apple Silicon Mac:
-- Open [`build/THE LINEFINDER 5000.app`](file:///Users/wildmacstudio25/Documents/QC/build/THE%20LINEFINDER%205000.app)
-
-### Option 2: Double-Click Launcher
-- Double-click [`Start_LineFinder.command`](file:///Users/wildmacstudio25/Documents/QC/Start_LineFinder.command) or [`Start_QC.command`](file:///Users/wildmacstudio25/Documents/QC/Start_QC.command)
+- **Standalone App:** Open [`build/THE LINEFINDER 5000.app`](file:///Users/wildmacstudio25/Documents/QC/build/THE%20LINEFINDER%205000.app)
+- **Terminal Launcher:** Double-click [`Start_LineFinder.command`](file:///Users/wildmacstudio25/Documents/QC/Start_LineFinder.command)
 
 ---
 
-## ✨ Key Features
-- **3-Tab Post-Production Suite:**
-  - **Tab 1 (`01 // LINE SCANNER`):** Frame-by-frame edge artifact and colored matte line detection with automatic Finder Red Tagging.
-  - **Tab 2 (`02 // DELIVERABLES SPECS`):** Instant metadata specification auditor that outputs exact durations, SMPTE timecodes, aspect ratios (16:9, 9:16, 4:5, 1:1), resolutions, frame rates, file sizes (MB/GB), video codecs (ProRes, H.264, HEVC), audio track configurations with bitrates, cross-reference name vs specs validation, and 1-click folder rescanning.
-  - **Tab 3 (`03 // BATCH RENAMER`):** Granular token-based batch renaming engine that reads video stream metadata (`{NAME}`, `{DUR}sec`, `{RATIO}`, `{TAG}`, `{RES}`, `{FPS}`, `{CODEC}`, `{AUDIO}`, `{INDEX}`, `{DATE}`). Features live real-time diff preview, duplicate/collision safety protection, and 1-click atomic Undo/Revert.
-- **Fast Frame-by-Frame Edge Inspection:** Scans only outer edge margins (Top, Bottom, Left, Right) with zero-copy hardware memory access.
-- **Enhanced Black Line Detection:** Features 10x exposure boost multiplier, row uniformity variance checks, and full-black slate suppression.
-- **Google Sheets & CSV Export:** Automatically generates clean `.csv` spreadsheet documents for both line glitch reports and deliverable specs.
-- **User-Friendly HTML Report:** Interactive presentation with Dark & Light theme toggles and instant 1-click Google Sheets launcher.
-- **Automatic Finder Red Tagging:** Flagged video files are automatically labeled with a **Red tag** in macOS Finder for instant visual identification.
-- **Batch Processing:** Drop or select folders with up to 100+ delivery videos or individual video files.
+## What Each Tab Does
+
+### 01 // LINE SCANNER
+Scans video frames for edge line glitches, matte slips, and blanking errors.
+- **[ + CHOOSE FOLDER / FILES ]:** Selects or drags in video files or folders to scan.
+- **Color Picker & Hex:** Sets the RGB target color for edge line detection.
+- **Color Presets:** One-click targets: Magenta, Cyan, Green, Red, White, Black.
+- **Tolerance Slider:** Sets color match threshold (0–100%).
+- **Head Skip:** Skips the first X seconds of video (ignores slates/countdowns).
+- **Edge Depth:** Number of pixels inward from frame edge to check (1–32px).
+- **Top / Bottom / Left / Right:** Toggles which edges to inspect.
+- **10X Exposure Boost:** Brightens shadows during black scans to prevent dark scenes from being flagged.
+- **Ignore Full Black Frames:** Skips full black frames (fades, commercial breaks).
+- **[ START QC SCAN ]:** Starts frame-by-frame analysis.
+- **Finder Red Tagging:** Automatically applies a macOS Red Tag to flagged video files in Finder.
+- **Glitch List & Frame Viewer:** Click any detected error to view the exact frame, timecode, and red bounding box.
+- **Save HTML / Export CSV:** Exports scan results as an interactive HTML page or CSV table.
 
 ---
 
-## 🔨 Rebuilding the Standalone App
-To recompile the release bundle at any time:
+### 02 // DELIVERABLES SPECS
+Reads container metadata across multiple files without decoding video frames.
+- **[ + SELECT DELIVERY FOLDER / FILES ]:** Loads files or folders for inspection.
+- **File Name:** Name of the file.
+- **Resolution & Aspect Ratio:** Pixel dimensions (e.g. 1920x1080) and ratio (16:9, 9:16, 1:1, 4:5).
+- **Duration & Timecode:** Total duration in seconds and SMPTE timecode (HH:MM:SS:FF).
+- **FPS:** Video track frame rate.
+- **Video Codec:** Compression format (ProRes, H.264, HEVC) and profile.
+- **Audio Configuration:** Channel layout (Stereo, 5.1, Mono), sample rate, and bit depth.
+- **File Size:** File size in MB or GB.
+- **Mismatch Warnings:** Highlights files where filename tags (e.g. 16x9, 1080p, 15s) conflict with actual stream metadata.
+- **[ EXPORT CSV ]:** Exports the specs table to a CSV file.
+- **[ OPEN IN GOOGLE SHEETS ]:** Copies tab-separated data to clipboard and opens Google Sheets.
+- **[ EXPORT HTML SPECS SHEET ]:** Exports a styled HTML report.
+
+---
+
+### 03 // BATCH RENAMER
+Renames files using inspected video metadata.
+- **Renaming Modes:**
+  - **Template:** Builds new names using text and metadata tokens.
+  - **Find & Replace:** Finds and replaces text in filenames.
+  - **Prefix / Suffix:** Adds text to the start or end of filenames.
+- **Project / Asset Name ({NAME}):** Text field to replace the `{NAME}` token. Defaults to original filename if left blank.
+- **Metadata Tokens:**
+  - `{NAME}`: Value from the Project Name field.
+  - `{ORIGINAL}`: Original filename without extension.
+  - `{DUR}`: Duration rounded to integer seconds.
+  - `{RATIO}`: Aspect ratio tag (16x9, 9x16, 1x1, 4x5).
+  - `{TAG}`: Orientation tag (HORIZONTAL, VERTICAL, SQUARE).
+  - `{RES}`: Resolution label (1080p, 4K, 720p).
+  - `{DIMS}`: Exact pixel dimensions (e.g. 1920x1080).
+  - `{FPS}`: Frame rate label (e.g. 25fps).
+  - `{CODEC}`: Video codec name (e.g. ProRes422HQ, H264).
+  - `{AUDIO}`: Audio layout (Stereo, 5.1, Mono).
+  - `{INDEX}`: Sequential counter with custom padding.
+  - `{DATE}`: Current date in YYYYMMDD format.
+- **Casing:** Sets name to Preserve, UPPERCASE, lowercase, or Title Case.
+- **Index Settings:** Configures start number and digit padding (01 vs 001).
+- **Select All / Deselect All:** Toggles selection for all files.
+- **File Checkboxes:** Click any row to include or exclude a file. Excluded files are not renamed on disk.
+- **Status Badges:**
+  - `PENDING`: Ready to rename.
+  - `UNCHANGED`: New name matches current name.
+  - `EXCLUDED`: File bypassed by user.
+  - `COLLISION`: Warning: Multiple files would share the same name.
+  - `OVERWRITE`: Warning: Target name already exists on disk.
+- **[ RENAME SELECTED FILE(S) ]:** Executes renaming on disk.
+- **[ ⎌ UNDO / REVERT ]:** Reverses the last rename operation on disk.
+
+---
+
+## 🔨 Rebuild
+
 ```bash
 ./BuildApp.sh
 ```
-This produces `build/THE LINEFINDER 5000.app` (~700 KB).
