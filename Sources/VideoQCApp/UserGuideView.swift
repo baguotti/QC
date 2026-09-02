@@ -37,6 +37,24 @@ struct UserGuideView: View {
                         Text("USER GUIDE // THE LINEFINDER 5000")
                             .font(.system(size: 12, weight: .black, design: .monospaced))
                             .foregroundColor(textMain)
+                        
+                        Link(destination: AppVersionInfo.commitURL) {
+                            HStack(spacing: 4) {
+                                Text("v\(AppVersionInfo.version)")
+                                    .fontWeight(.heavy)
+                                Text("(\(AppVersionInfo.gitCommit))")
+                                Image(systemName: "arrow.up.right.square")
+                                    .font(.system(size: 8))
+                            }
+                            .font(.system(size: 9, design: .monospaced))
+                            .foregroundColor(accentCyan)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 2)
+                            .background(bgSubtle)
+                            .border(borderLine, width: 1)
+                        }
+                        .buttonStyle(.plain)
+                        .help("View commit on GitHub")
                     }
                     Spacer()
                     Button(action: { isPresented = false }) {

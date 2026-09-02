@@ -273,73 +273,117 @@ public struct RenamerEngine: Sendable {
         return formatter.string(from: Date())
     }
     
-    // MARK: - Batch Execution & Undo
+    // MARK: - Batch Execution & Undo (Two-Phase Staging for Swap & Cycle Safety)
     
     public static func executeBatchRename(
         items: [RenameItem],
         selectedIDs: Set<UUID>? = nil
     ) -> (successCount: Int, failedCount: Int, transaction: RenameTransaction?) {
-        var successEntries: [(oldURL: URL, newURL: URL)] = []
-        var failed = 0
-        
-        for item in items {
-            // Check if specifically selected if selectedIDs is provided
+        let activeItems = items.filter { item in
             if let sel = selectedIDs, !sel.contains(item.asset.id) {
-                continue
+                return false
             }
-            
-            guard item.status == .pending else { continue }
-            
+            return item.status == .pending
+        }
+        
+        guard !activeItems.isEmpty else { return (0, 0, nil) }
+        
+        // Phase 1: Move each active source file to a temporary staged URL
+        // This frees all original paths and completely eliminates cyclic / swap collisions (e.g. A <-> B)
+        var staged: [(originalURL: URL, stageURL: URL, targetURL: URL)] = []
+        var stagingFailed = false
+        
+        for item in activeItems {
             let sourceURL = item.originalURL
             let targetURL = item.targetURL
-            let isCaseOnly = sourceURL.path.caseInsensitiveCompare(targetURL.path) == .orderedSame && sourceURL.path != targetURL.path
+            let stageURL = sourceURL.deletingLastPathComponent()
+                .appendingPathComponent(".tmp_stage_\(UUID().uuidString)_\(sourceURL.lastPathComponent)")
             
             do {
-                if isCaseOnly {
-                    // APFS case-insensitive workaround: use a temporary UUID hop
-                    let tempURL = sourceURL.deletingLastPathComponent().appendingPathComponent(".tmp_\(UUID().uuidString)_\(sourceURL.lastPathComponent)")
-                    try FileManager.default.moveItem(at: sourceURL, to: tempURL)
-                    try FileManager.default.moveItem(at: tempURL, to: targetURL)
-                } else {
-                    try FileManager.default.moveItem(at: sourceURL, to: targetURL)
-                }
-                successEntries.append((oldURL: sourceURL, newURL: targetURL))
+                try FileManager.default.moveItem(at: sourceURL, to: stageURL)
+                staged.append((originalURL: sourceURL, stageURL: stageURL, targetURL: targetURL))
             } catch {
-                failed += 1
+                stagingFailed = true
+                break
+            }
+        }
+        
+        // If Phase 1 failed, immediately rollback any staged files to preserve original disk state
+        if stagingFailed {
+            for entry in staged {
+                try? FileManager.default.moveItem(at: entry.stageURL, to: entry.originalURL)
+            }
+            return (0, activeItems.count, nil)
+        }
+        
+        // Phase 2: Move each staged file to its final destination
+        var successEntries: [(oldURL: URL, newURL: URL)] = []
+        var failedCount = 0
+        
+        for entry in staged {
+            do {
+                try FileManager.default.moveItem(at: entry.stageURL, to: entry.targetURL)
+                successEntries.append((oldURL: entry.originalURL, newURL: entry.targetURL))
+            } catch {
+                // If a final commit fails, restore back to original name
+                try? FileManager.default.moveItem(at: entry.stageURL, to: entry.originalURL)
+                failedCount += 1
             }
         }
         
         let transaction = successEntries.isEmpty ? nil : RenameTransaction(entries: successEntries)
-        return (successEntries.count, failed, transaction)
+        return (successEntries.count, failedCount, transaction)
     }
     
     public static func undoRenameTransaction(_ transaction: RenameTransaction) -> (revertedCount: Int, failedCount: Int) {
-        var reverted = 0
-        var failed = 0
+        guard !transaction.entries.isEmpty else { return (0, 0) }
+        
+        // Phase 1: Move all current files to temporary undo URLs
+        var stagedUndo: [(currentURL: URL, stageURL: URL, originalURL: URL)] = []
+        var stagingFailed = false
         
         for entry in transaction.entries.reversed() {
             let currentURL = entry.newURL
             let originalURL = entry.oldURL
-            let isCaseOnly = currentURL.path.caseInsensitiveCompare(originalURL.path) == .orderedSame && currentURL.path != originalURL.path
             
-            if FileManager.default.fileExists(atPath: currentURL.path) {
-                do {
-                    if isCaseOnly {
-                        let tempURL = currentURL.deletingLastPathComponent().appendingPathComponent(".tmp_\(UUID().uuidString)_\(currentURL.lastPathComponent)")
-                        try FileManager.default.moveItem(at: currentURL, to: tempURL)
-                        try FileManager.default.moveItem(at: tempURL, to: originalURL)
-                    } else {
-                        try FileManager.default.moveItem(at: currentURL, to: originalURL)
-                    }
-                    reverted += 1
-                } catch {
-                    failed += 1
-                }
-            } else {
-                failed += 1
+            guard FileManager.default.fileExists(atPath: currentURL.path) else {
+                continue
+            }
+            
+            let stageURL = currentURL.deletingLastPathComponent()
+                .appendingPathComponent(".tmp_undo_\(UUID().uuidString)_\(currentURL.lastPathComponent)")
+            
+            do {
+                try FileManager.default.moveItem(at: currentURL, to: stageURL)
+                stagedUndo.append((currentURL: currentURL, stageURL: stageURL, originalURL: originalURL))
+            } catch {
+                stagingFailed = true
+                break
             }
         }
         
-        return (reverted, failed)
+        if stagingFailed {
+            // Rollback any staged undo files
+            for entry in stagedUndo {
+                try? FileManager.default.moveItem(at: entry.stageURL, to: entry.currentURL)
+            }
+            return (0, transaction.entries.count)
+        }
+        
+        // Phase 2: Move staged undo files back to original URLs
+        var revertedCount = 0
+        var failedCount = 0
+        
+        for entry in stagedUndo {
+            do {
+                try FileManager.default.moveItem(at: entry.stageURL, to: entry.originalURL)
+                revertedCount += 1
+            } catch {
+                try? FileManager.default.moveItem(at: entry.stageURL, to: entry.currentURL)
+                failedCount += 1
+            }
+        }
+        
+        return (revertedCount, failedCount)
     }
 }

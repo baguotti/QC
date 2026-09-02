@@ -11,15 +11,39 @@ CONTENTS="${APP_BUNDLE}/Contents"
 MACOS="${CONTENTS}/MacOS"
 RESOURCES="${CONTENTS}/Resources"
 
-# 1. Compile release binary
+# Version & Git Metadata
+APP_VERSION="0.1.0"
+GIT_COMMIT=$(git rev-parse --short HEAD 2>/dev/null || echo "63ffe20")
+GIT_COMMIT_COUNT=$(git rev-list --count HEAD 2>/dev/null || echo "1")
+REPO_URL="https://github.com/baguotti/QC"
+
+echo "📌 Version: v${APP_VERSION} (Commit: ${GIT_COMMIT}, Build: ${GIT_COMMIT_COUNT})"
+
+# 1. Generate/update AppVersion.swift with current commit
+cat << EOF > "Sources/VideoQCApp/AppVersion.swift"
+import Foundation
+
+/// Application Version and Git Repository Metadata
+public struct AppVersionInfo {
+    public static let version = "${APP_VERSION}"
+    public static let gitCommit = "${GIT_COMMIT}"
+    public static let repoURLString = "${REPO_URL}"
+    
+    public static var commitURL: URL {
+        URL(string: "\(repoURLString)/commit/\(gitCommit)") ?? URL(string: repoURLString)!
+    }
+}
+EOF
+
+# 2. Compile release binary
 swift build -c release
 BIN_DIR=$(swift build -c release --show-bin-path)
 
-# 2. Setup bundle structure
+# 3. Setup bundle structure
 rm -rf "${APP_BUNDLE}"
 mkdir -p "${MACOS}" "${RESOURCES}"
 
-# 3. Copy executable & resources
+# 4. Copy executable & resources
 cp "${BIN_DIR}/${BIN_NAME}" "${MACOS}/${BIN_NAME}"
 
 if [ -f "Resources/AppIcon.icns" ]; then
@@ -27,7 +51,7 @@ if [ -f "Resources/AppIcon.icns" ]; then
     cp "Resources/AppIcon.icns" "${RESOURCES}/AppIcon.icns"
 fi
 
-# 4. Create Info.plist
+# 5. Create Info.plist
 cat << EOF > "${CONTENTS}/Info.plist"
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -48,9 +72,13 @@ cat << EOF > "${CONTENTS}/Info.plist"
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleShortVersionString</key>
-    <string>5.0.0</string>
+    <string>${APP_VERSION}</string>
     <key>CFBundleVersion</key>
-    <string>5000</string>
+    <string>${GIT_COMMIT_COUNT}</string>
+    <key>GitCommitHash</key>
+    <string>${GIT_COMMIT}</string>
+    <key>GitRepoURL</key>
+    <string>${REPO_URL}</string>
     <key>LSMinimumSystemVersion</key>
     <string>14.0</string>
     <key>NSHighResolutionCapable</key>

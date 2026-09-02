@@ -3,14 +3,41 @@ import Foundation
 import CoreMedia
 import CoreVideo
 
+final class CancellationState: @unchecked Sendable {
+    private let lock = NSLock()
+    private var flag = false
+    
+    var isCancelled: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return flag
+    }
+    
+    func cancel() {
+        lock.lock()
+        flag = true
+        lock.unlock()
+    }
+    
+    func reset() {
+        lock.lock()
+        flag = false
+        lock.unlock()
+    }
+}
+
 public actor VideoScanner {
     private let detector = EdgeDetector()
-    private var isCancelled = false
+    private let cancellationState = CancellationState()
+    
+    public nonisolated var isCancelled: Bool {
+        cancellationState.isCancelled
+    }
     
     public init() {}
     
-    public func cancel() {
-        isCancelled = true
+    public nonisolated func cancel() {
+        cancellationState.cancel()
     }
     
     public struct ScanProgress: Sendable {
@@ -47,41 +74,73 @@ public actor VideoScanner {
         return videoURLs.sorted { $0.lastPathComponent.localizedStandardCompare($1.lastPathComponent) == .orderedAscending }
     }
     
-    /// Scans a batch of video files
+    /// Scans a batch of video files with bounded parallel hardware concurrency
     public func scanBatch(
         videoURLs: [URL],
         config: QCConfig,
+        maxConcurrentScanners: Int = 2,
         progressHandler: @escaping @Sendable (ScanProgress) -> Void
     ) async -> [VideoQCResult] {
-        isCancelled = false
-        var results: [VideoQCResult] = []
-        var flaggedCount = 0
+        cancellationState.reset()
+        
+        guard !videoURLs.isEmpty else { return [] }
+        
         let totalFiles = videoURLs.count
+        let concurrency = max(1, min(maxConcurrentScanners, 4))
         
-        for (index, videoURL) in videoURLs.enumerated() {
-            if isCancelled { break }
+        // Use structured concurrency with bounded parallelism
+        return await withTaskGroup(of: (Int, VideoQCResult).self) { group in
+            var submitted = 0
+            var results: [(Int, VideoQCResult)] = []
+            results.reserveCapacity(totalFiles)
             
-            let fileIndex = index + 1
-            let result = await scanSingleVideo(
-                url: videoURL,
-                config: config,
-                fileIndex: fileIndex,
-                totalFiles: totalFiles,
-                flaggedSoFar: flaggedCount,
-                progressHandler: progressHandler
-            )
-            
-            results.append(result)
-            if result.isFlagged {
-                flaggedCount += 1
+            // Seed initial worker pool
+            let initialCount = min(concurrency, totalFiles)
+            for _ in 0..<initialCount {
+                let idx = submitted
+                let url = videoURLs[idx]
+                submitted += 1
+                group.addTask {
+                    let result = await self.scanSingleVideo(
+                        url: url,
+                        config: config,
+                        fileIndex: idx + 1,
+                        totalFiles: totalFiles,
+                        flaggedSoFar: 0,
+                        progressHandler: progressHandler
+                    )
+                    return (idx, result)
+                }
             }
+            
+            // As each video finishes, submit the next one
+            for await (idx, result) in group {
+                results.append((idx, result))
+                
+                if submitted < totalFiles && !self.isCancelled {
+                    let nextIdx = submitted
+                    let nextURL = videoURLs[nextIdx]
+                    submitted += 1
+                    group.addTask {
+                        let res = await self.scanSingleVideo(
+                            url: nextURL,
+                            config: config,
+                            fileIndex: nextIdx + 1,
+                            totalFiles: totalFiles,
+                            flaggedSoFar: 0,
+                            progressHandler: progressHandler
+                        )
+                        return (nextIdx, res)
+                    }
+                }
+            }
+            
+            return results.sorted { $0.0 < $1.0 }.map { $0.1 }
         }
-        
-        return results
     }
     
-    /// Scans a single video file frame-by-frame using AVFoundation
-    public func scanSingleVideo(
+    /// Scans a single video file frame-by-frame using AVFoundation (nonisolated for parallel execution)
+    public nonisolated func scanSingleVideo(
         url: URL,
         config: QCConfig,
         fileIndex: Int,

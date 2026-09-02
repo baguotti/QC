@@ -1,13 +1,15 @@
 # THE LINEFINDER 5000
+**Version 0.1.0** • [GitHub Repository](https://github.com/baguotti/QC)
 
 Video QC, metadata inspection, and batch renaming for macOS (Apple Silicon).
 
 ---
 
-## 🚀 How to Run
+## 🚀 How to Install & Run
 
-- **Standalone App:** Open [`build/THE LINEFINDER 5000.app`](file:///Users/wildmacstudio25/Documents/QC/build/THE%20LINEFINDER%205000.app)
-- **Terminal Launcher:** Double-click [`Start_LineFinder.command`](file:///Users/wildmacstudio25/Documents/QC/Start_LineFinder.command)
+- **Disk Image Installer (.dmg):** Open [`build/THE_LINEFINDER_5000.dmg`](file:///Users/wildmacstudio25/Documents/QC/build/THE_LINEFINDER_5000.dmg) and drag `THE LINEFINDER 5000` to `/Applications`.
+- **Standalone App (.app):** Open [`build/THE LINEFINDER 5000.app`](file:///Users/wildmacstudio25/Documents/QC/build/THE%20LINEFINDER%205000.app) directly.
+- **Terminal Launcher:** Double-click [`Start_LineFinder.command`](file:///Users/wildmacstudio25/Documents/QC/Start_LineFinder.command).
 
 ---
 
@@ -83,8 +85,12 @@ Renames files using inspected video metadata.
 
 ---
 
-## 🔨 Rebuild
-
-```bash
-./BuildApp.sh
-```
+## 🔨 Rebuild & Package
+- **Compile Application (.app):**
+  ```bash
+  ./BuildApp.sh
+  ```
+- **Create Installer Disk Image (.dmg):**
+  ```bash
+  ./CreateDMG.sh
+  ```
