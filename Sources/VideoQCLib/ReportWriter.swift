@@ -622,15 +622,54 @@ public struct ReportWriter: Sendable {
         return report
     }
     
+    // MARK: - Google Sheets / CSV Report Generator
+    
+    /// Generates a simple, Google Sheets compatible CSV document listing every file, lines found, timecodes, and locations
+    public static func generateCSVReport(
+        results: [VideoQCResult]
+    ) -> String {
+        var csv = "File Name,Lines Found,Timecode,Location,Duration,Detected Color\n"
+        
+        func escapeCSV(_ str: String) -> String {
+            if str.contains(",") || str.contains("\"") || str.contains("\n") {
+                let escaped = str.replacingOccurrences(of: "\"", with: "\"\"")
+                return "\"\(escaped)\""
+            }
+            return str
+        }
+        
+        for result in results {
+            let fileName = result.fileName
+            if !result.isFlagged || result.glitchSegments.isEmpty {
+                // Clean file
+                csv += "\(escapeCSV(fileName)),No,--,--,--,--\n"
+            } else {
+                let segments = result.glitchSegments
+                for (idx, seg) in segments.enumerated() {
+                    let displayName = segments.count > 1 ? "\(fileName) (Segment \(idx + 1))" : fileName
+                    let linesFound = "Yes (\(segments.count) total)"
+                    let timecode = seg.startTimecode == seg.endTimecode ? seg.startTimecode : "\(seg.startTimecode) -> \(seg.endTimecode)"
+                    let location = "\(seg.edge.rawValue.capitalized) Edge (\(seg.avgThickness)px)"
+                    let duration = seg.frameCount == 1 ? "1 frame (0.04s)" : "\(seg.frameCount) frames (\(String(format: "%.2f", seg.durationSeconds))s)"
+                    let color = seg.detectedColor.hexString.uppercased()
+                    
+                    csv += "\(escapeCSV(displayName)),\(escapeCSV(linesFound)),\(escapeCSV(timecode)),\(escapeCSV(location)),\(escapeCSV(duration)),\(escapeCSV(color))\n"
+                }
+            }
+        }
+        
+        return csv
+    }
+    
     // MARK: - Save Reports
     
-    /// Saves both .html and .txt reports and applies Red Finder tags to flagged videos
+    /// Saves .html, .csv (Google Sheets compatible), and .txt reports and applies Red Finder tags to flagged videos
     @discardableResult
     public static func saveReport(
         folderURL: URL,
         config: QCConfig,
         results: [VideoQCResult]
-    ) -> URL? {
+    ) -> (htmlURL: URL?, csvURL: URL?, txtURL: URL?) {
         // 1. Tag flagged files with Red label in Finder
         tagFlaggedFilesInFinder(results: results)
         
@@ -644,12 +683,19 @@ public struct ReportWriter: Sendable {
         let htmlFileURL = folderURL.appendingPathComponent(htmlFileName)
         try? htmlReportText.write(to: htmlFileURL, atomically: true, encoding: .utf8)
         
-        // 3. Save TXT Report
+        // 3. Save CSV Document (Google Sheets / Excel / Numbers compatible)
+        let csvReportText = generateCSVReport(results: results)
+        let csvFileName = "QC_Report_\(timestamp).csv"
+        let csvFileURL = folderURL.appendingPathComponent(csvFileName)
+        try? csvReportText.write(to: csvFileURL, atomically: true, encoding: .utf8)
+        
+        // 4. Save TXT Report
         let txtReportText = generateTextReport(folderURL: folderURL, config: config, results: results)
         let txtFileName = "QC_Report_\(timestamp).txt"
         let txtFileURL = folderURL.appendingPathComponent(txtFileName)
         try? txtReportText.write(to: txtFileURL, atomically: true, encoding: .utf8)
         
-        return htmlFileURL
+        return (htmlFileURL, csvFileURL, txtFileURL)
     }
 }
+

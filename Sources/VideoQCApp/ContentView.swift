@@ -28,6 +28,7 @@ struct ContentView: View {
     @State private var progressInfo: VideoScanner.ScanProgress? = nil
     @State private var scanResults: [VideoQCResult] = []
     @State private var generatedReportURL: URL? = nil
+    @State private var generatedCSVURL: URL? = nil
     @State private var scannerActor: VideoScanner? = nil
     
     var isTargetBlack: Bool {
@@ -462,8 +463,8 @@ struct ContentView: View {
                 }
                 Spacer()
                 
-                if let reportURL = generatedReportURL {
-                    HStack(spacing: 8) {
+                HStack(spacing: 8) {
+                    if let reportURL = generatedReportURL {
                         Button(action: { NSWorkspace.shared.open(reportURL) }) {
                             Text("[ OPEN HTML REPORT ]")
                                 .font(.system(size: 11, weight: .bold, design: .monospaced))
@@ -473,7 +474,22 @@ struct ContentView: View {
                                 .foregroundColor(primaryBtnFg)
                         }
                         .buttonStyle(.plain)
-                        
+                    }
+                    
+                    if let csvURL = generatedCSVURL {
+                        Button(action: { NSWorkspace.shared.open(csvURL) }) {
+                            Text("[ GOOGLE SHEETS / CSV ]")
+                                .font(.system(size: 11, weight: .bold, design: .monospaced))
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 8)
+                                .background(bgSubtle)
+                                .foregroundColor(textMain)
+                                .border(borderLine, width: 1)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                    
+                    if let reportURL = generatedReportURL {
                         Button(action: { NSWorkspace.shared.activateFileViewerSelecting([reportURL]) }) {
                             Text("[ FINDER ]")
                                 .font(.system(size: 11, weight: .bold, design: .monospaced))
@@ -780,12 +796,13 @@ struct ContentView: View {
                 }
             }
             
-            // Save report text & HTML files + tag flagged in Finder
-            let reportURL = ReportWriter.saveReport(folderURL: folder, config: config, results: results)
+            // Save report text, CSV (Google Sheets compatible), and HTML files + tag flagged in Finder
+            let reports = ReportWriter.saveReport(folderURL: folder, config: config, results: results)
             
             DispatchQueue.main.async {
                 self.scanResults = results
-                self.generatedReportURL = reportURL
+                self.generatedReportURL = reports.htmlURL
+                self.generatedCSVURL = reports.csvURL
                 self.isScanning = false
                 self.scannerActor = nil
             }
