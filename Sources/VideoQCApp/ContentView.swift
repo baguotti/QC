@@ -81,36 +81,43 @@ struct ContentView: View {
     
     var body: some View {
         VStack(spacing: 0) {
-            // Header Masthead with Tab Switcher
+            // 1. Top Masthead
             headerView
             
             Rectangle()
                 .fill(borderLine)
                 .frame(height: 1)
             
-            // Tab Content
+            // 2. Dedicated Prominent Tab Navigation Bar
+            tabBarStrip
+            
+            Rectangle()
+                .fill(borderLine)
+                .frame(height: 1)
+            
+            // 3. Main Tab Content
             if selectedTab == .lineScanner {
                 lineScannerTabView
             } else {
                 deliverablesTabView
             }
         }
-        .frame(minWidth: 980, minHeight: 700)
+        .frame(minWidth: 1000, minHeight: 720)
         .background(bgMain)
         .foregroundColor(textMain)
     }
     
-    // MARK: - Header & Tab Navigation
+    // MARK: - Header
     
     private var headerView: some View {
-        HStack(alignment: .center, spacing: 20) {
+        HStack(alignment: .center) {
             // Brand Title
             VStack(alignment: .leading, spacing: 2) {
                 Text("THE LINEFINDER 5000")
                     .font(.system(size: 16, weight: .black, design: .default))
                     .foregroundColor(textMain)
                     .tracking(1.5)
-                Text("DELIVERY AUDIT & ASSET MANIFEST // APPLE SILICON")
+                Text("POST-PRODUCTION QC & ASSET MANIFEST AUDITOR // APPLE SILICON")
                     .font(.system(size: 9, weight: .bold, design: .monospaced))
                     .foregroundColor(textMuted)
                     .tracking(0.5)
@@ -118,30 +125,7 @@ struct ContentView: View {
             
             Spacer()
             
-            // Tab Selector
-            HStack(spacing: 0) {
-                ForEach(AppTab.allCases) { tab in
-                    Button(action: {
-                        selectedTab = tab
-                        if tab == .deliverables && deliverableAssets.isEmpty && !videoFiles.isEmpty {
-                            inspectDeliverablesBatch(urls: videoFiles)
-                        }
-                    }) {
-                        Text(tab.title)
-                            .font(.system(size: 11, weight: .bold, design: .monospaced))
-                            .padding(.horizontal, 14)
-                            .padding(.vertical, 7)
-                            .background(selectedTab == tab ? primaryBtnBg : bgSubtle)
-                            .foregroundColor(selectedTab == tab ? primaryBtnFg : textSubtle)
-                            .border(borderLine, width: 1)
-                    }
-                    .buttonStyle(.plain)
-                }
-            }
-            
-            Spacer()
-            
-            // Right Controls
+            // Controls
             HStack(spacing: 10) {
                 Button(action: { isLightMode.toggle() }) {
                     Text(isLightMode ? "[THEME: LIGHT]" : "[THEME: DARK]")
@@ -172,6 +156,58 @@ struct ContentView: View {
         .padding(.horizontal, 24)
         .padding(.vertical, 12)
         .background(bgPanel)
+    }
+    
+    // MARK: - Dedicated Tab Bar Strip
+    
+    private var tabBarStrip: some View {
+        HStack(spacing: 12) {
+            ForEach(AppTab.allCases) { tab in
+                Button(action: {
+                    selectedTab = tab
+                    if tab == .deliverables && deliverableAssets.isEmpty && !videoFiles.isEmpty {
+                        inspectDeliverablesBatch(urls: videoFiles)
+                    }
+                }) {
+                    HStack(spacing: 8) {
+                        Rectangle()
+                            .fill(selectedTab == tab ? alertRed : textMuted)
+                            .frame(width: 4, height: 16)
+                        
+                        Text(tab.title)
+                            .font(.system(size: 12, weight: .black, design: .monospaced))
+                            .tracking(1.0)
+                        
+                        if tab == .deliverables && !deliverableAssets.isEmpty {
+                            Text("[\(deliverableAssets.count)]")
+                                .font(.system(size: 10, weight: .bold, design: .monospaced))
+                                .foregroundColor(selectedTab == tab ? primaryBtnFg : textSubtle)
+                        } else if tab == .lineScanner && !scanResults.isEmpty {
+                            let flaggedCount = scanResults.filter { $0.isFlagged }.count
+                            Text(flaggedCount > 0 ? "[\(flaggedCount) FLAGGED]" : "[PASSED]")
+                                .font(.system(size: 10, weight: .bold, design: .monospaced))
+                                .foregroundColor(flaggedCount > 0 ? alertRed : textSubtle)
+                        }
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 10)
+                    .background(selectedTab == tab ? primaryBtnBg : bgSubtle)
+                    .foregroundColor(selectedTab == tab ? primaryBtnFg : textSubtle)
+                    .border(selectedTab == tab ? primaryBtnBg : borderLine, width: 1)
+                }
+                .buttonStyle(.plain)
+            }
+            
+            Spacer()
+            
+            Text(selectedTab == .lineScanner ? "MODE // FRAME-BY-FRAME EDGE ARTIFACT SCANNER" : "MODE // INSTANT ASSET MANIFEST & SPEC AUDITOR")
+                .font(.system(size: 10, weight: .bold, design: .monospaced))
+                .foregroundColor(textMuted)
+                .tracking(0.5)
+        }
+        .padding(.horizontal, 24)
+        .padding(.vertical, 10)
+        .background(bgCardHeader)
     }
     
     // MARK: ==================== TAB 1: LINE SCANNER ====================
