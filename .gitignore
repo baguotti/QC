@@ -1,0 +1,10 @@
+.build/
+build/
+__TEST/
+*.mp4
+*.mov
+*.m4v
+*.mkv
+.DS_Store
+*.swp
+*~
