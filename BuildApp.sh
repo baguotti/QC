@@ -11,27 +11,19 @@ CONTENTS="${APP_BUNDLE}/Contents"
 MACOS="${CONTENTS}/MacOS"
 RESOURCES="${CONTENTS}/Resources"
 
-# Version & Git Metadata
+# Version & Metadata
 APP_VERSION="0.1.0"
-GIT_COMMIT=$(git rev-parse --short HEAD 2>/dev/null || echo "63ffe20")
 GIT_COMMIT_COUNT=$(git rev-list --count HEAD 2>/dev/null || echo "1")
-REPO_URL="https://github.com/baguotti/QC"
 
-echo "📌 Version: v${APP_VERSION} (Commit: ${GIT_COMMIT}, Build: ${GIT_COMMIT_COUNT})"
+echo "📌 Version: v${APP_VERSION} (Build: ${GIT_COMMIT_COUNT})"
 
-# 1. Generate/update AppVersion.swift with current commit
+# 1. Generate/update AppVersion.swift
 cat << EOF > "Sources/VideoQCApp/AppVersion.swift"
 import Foundation
 
-/// Application Version and Git Repository Metadata
+/// Application Version Metadata
 public struct AppVersionInfo {
     public static let version = "${APP_VERSION}"
-    public static let gitCommit = "${GIT_COMMIT}"
-    public static let repoURLString = "${REPO_URL}"
-    
-    public static var commitURL: URL {
-        URL(string: "\(repoURLString)/commit/\(gitCommit)") ?? URL(string: repoURLString)!
-    }
 }
 EOF
 
@@ -75,10 +67,6 @@ cat << EOF > "${CONTENTS}/Info.plist"
     <string>${APP_VERSION}</string>
     <key>CFBundleVersion</key>
     <string>${GIT_COMMIT_COUNT}</string>
-    <key>GitCommitHash</key>
-    <string>${GIT_COMMIT}</string>
-    <key>GitRepoURL</key>
-    <string>${REPO_URL}</string>
     <key>LSMinimumSystemVersion</key>
     <string>14.0</string>
     <key>NSHighResolutionCapable</key>

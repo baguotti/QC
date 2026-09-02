@@ -60,6 +60,10 @@ public struct DeliverableAsset: Identifiable, Sendable {
     public let audioFormatDetail: String
     public let audioConfig: String
     public let container: String
+    public let creationDate: Date?
+    public let formattedCreationDate: String
+    public let hasSubtitles: Bool
+    public let subtitlesInfo: String
     public let validation: DeliverableValidation
     
     public var hasAudio: Bool {
@@ -87,6 +91,10 @@ public struct DeliverableAsset: Identifiable, Sendable {
         audioFormatDetail: String = "",
         audioConfig: String,
         container: String,
+        creationDate: Date? = nil,
+        formattedCreationDate: String = "--",
+        hasSubtitles: Bool = false,
+        subtitlesInfo: String = "NONE",
         validation: DeliverableValidation = DeliverableValidation()
     ) {
         self.id = id
@@ -109,6 +117,10 @@ public struct DeliverableAsset: Identifiable, Sendable {
         self.audioFormatDetail = audioFormatDetail
         self.audioConfig = audioConfig
         self.container = container
+        self.creationDate = creationDate
+        self.formattedCreationDate = formattedCreationDate
+        self.hasSubtitles = hasSubtitles
+        self.subtitlesInfo = subtitlesInfo
         self.validation = validation
     }
 }

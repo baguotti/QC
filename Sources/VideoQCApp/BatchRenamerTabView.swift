@@ -96,19 +96,47 @@ extension ContentView {
                                 }
                             }
                             
-                            HStack(spacing: 10) {
+                            HStack(spacing: 8) {
                                 VStack(alignment: .leading, spacing: 4) {
-                                    Text("CUSTOM TAG {TAG}:")
+                                    Text("TAG 1 {TAG1}:")
                                         .font(.system(size: 9, weight: .bold, design: .monospaced))
                                         .foregroundColor(textMuted)
-                                    TextField("TAG", text: $customTag)
+                                    TextField("e.g. CLEAN", text: $customTag1)
                                         .textFieldStyle(.plain)
                                         .font(.system(size: 11, weight: .bold, design: .monospaced))
                                         .foregroundColor(textMain)
                                         .padding(6)
                                         .background(bgSubtle)
                                         .border(borderLine, width: 1)
-                                        .explain("Custom text to replace the {TAG} token.", binding: $hoverExplanation)
+                                        .explain("Tag 1 token {TAG1} / {TAG}. Added to filename when typed.", binding: $hoverExplanation)
+                                }
+                                
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text("TAG 2 {TAG2}:")
+                                        .font(.system(size: 9, weight: .bold, design: .monospaced))
+                                        .foregroundColor(textMuted)
+                                    TextField("e.g. SUBS", text: $customTag2)
+                                        .textFieldStyle(.plain)
+                                        .font(.system(size: 11, weight: .bold, design: .monospaced))
+                                        .foregroundColor(textMain)
+                                        .padding(6)
+                                        .background(bgSubtle)
+                                        .border(borderLine, width: 1)
+                                        .explain("Tag 2 token {TAG2}. Added to filename when typed.", binding: $hoverExplanation)
+                                }
+                                
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text("TAG 3 {TAG3}:")
+                                        .font(.system(size: 9, weight: .bold, design: .monospaced))
+                                        .foregroundColor(textMuted)
+                                    TextField("e.g. V01", text: $customTag3)
+                                        .textFieldStyle(.plain)
+                                        .font(.system(size: 11, weight: .bold, design: .monospaced))
+                                        .foregroundColor(textMain)
+                                        .padding(6)
+                                        .background(bgSubtle)
+                                        .border(borderLine, width: 1)
+                                        .explain("Tag 3 token {TAG3}. Added to filename when typed.", binding: $hoverExplanation)
                                 }
                                 
                                 VStack(alignment: .leading, spacing: 4) {
@@ -438,20 +466,39 @@ extension ContentView {
                                     .lineLimit(1)
                                 
                                 // Status Badge
+                                let badgeBg: Color = {
+                                    if !isSelected { return bgSubtle.opacity(0.5) }
+                                    if isCollision { return alertRed }
+                                    if item.status == .renamed { return accentPositive }
+                                    if isUnchanged { return bgSubtle }
+                                    return primaryBtnBg
+                                }()
+                                let badgeFg: Color = {
+                                    if !isSelected { return textMuted.opacity(0.6) }
+                                    if isCollision || item.status == .renamed { return .white }
+                                    if isUnchanged { return textMuted }
+                                    return primaryBtnFg
+                                }()
+                                let badgeBorder: Color = {
+                                    if isCollision { return alertRed }
+                                    if item.status == .renamed { return accentPositive }
+                                    return borderLine
+                                }()
+                                
                                 Text(isSelected ? item.status.badgeText : "EXCLUDED")
                                     .font(.system(size: 8, weight: .black, design: .monospaced))
                                     .padding(.horizontal, 6)
                                     .padding(.vertical, 2)
-                                    .background(!isSelected ? bgSubtle.opacity(0.5) : (isCollision ? alertRed : (isUnchanged ? bgSubtle : primaryBtnBg)))
-                                    .foregroundColor(!isSelected ? textMuted.opacity(0.6) : (isCollision ? .white : (isUnchanged ? textMuted : primaryBtnFg)))
-                                    .border(isCollision ? alertRed : borderLine, width: 1)
+                                    .background(badgeBg)
+                                    .foregroundColor(badgeFg)
+                                    .border(badgeBorder, width: 1)
                                     .frame(width: 110, alignment: .trailing)
                             }
                             .font(.system(size: 11, design: .monospaced))
                             .padding(.horizontal, 14)
                             .padding(.vertical, 9)
                             .background(
-                                isCollision ? (isLightMode ? Color.red.opacity(0.08) : Color.red.opacity(0.12)) :
+                                isCollision ? alertRed.opacity(0.12) :
                                 (isSelected ? (idx % 2 == 0 ? bgPanel : bgCardSubtle) : (isLightMode ? Color(white: 0.94) : Color(white: 0.04)))
                             )
                             .contentShape(Rectangle())

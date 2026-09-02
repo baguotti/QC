@@ -8,7 +8,10 @@ public struct RenamerEngine: Sendable {
         ("{DUR}sec", "Duration sec", "15sec"),
         ("{DUR_S}", "Duration s", "15s"),
         ("{RATIO}", "Aspect Ratio", "16x9"),
-        ("{TAG}", "Custom Tag", "CLEAN"),
+        ("{TAG1}", "Custom Tag 1", "CLEAN"),
+        ("{TAG2}", "Custom Tag 2", "SUBS"),
+        ("{TAG3}", "Custom Tag 3", "V01"),
+        ("{TAG}", "Custom Tag 1", "CLEAN"),
         ("{RES}", "Standard Res", "1080p"),
         ("{DIMS}", "Dimensions", "1920x1080"),
         ("{FPS}", "Framerate", "25fps"),
@@ -16,6 +19,8 @@ public struct RenamerEngine: Sendable {
         ("{AUDIO}", "Audio Spec", "Stereo"),
         ("{TC}", "SMPTE Timecode", "00-00-15-00"),
         ("{INDEX}", "Sequence Index", "01"),
+        ("{SUBS}", "Subtitles Present", "SUBS"),
+        ("{CREATED}", "File Creation Date", "20260902"),
         ("{DATE}", "Date Stamp", "20260902")
     ]
     
@@ -30,7 +35,9 @@ public struct RenamerEngine: Sendable {
         replaceString: String,
         prefixString: String,
         suffixString: String,
-        customTag: String,
+        customTag: String = "",
+        customTag2: String = "",
+        customTag3: String = "",
         caseOption: TextCaseOption,
         indexStart: Int = 1,
         indexPadding: Int = 2,
@@ -61,6 +68,8 @@ public struct RenamerEngine: Sendable {
                         baseName: baseName,
                         customName: customName,
                         customTag: customTag,
+                        customTag2: customTag2,
+                        customTag3: customTag3,
                         indexString: paddedIndex,
                         dateString: dateFormatted
                     )
@@ -164,7 +173,9 @@ public struct RenamerEngine: Sendable {
         asset: DeliverableAsset,
         baseName: String,
         customName: String,
-        customTag: String,
+        customTag: String = "",
+        customTag2: String = "",
+        customTag3: String = "",
         indexString: String,
         dateString: String
     ) -> String {
@@ -234,7 +245,53 @@ public struct RenamerEngine: Sendable {
         result = result.replacingOccurrences(of: "{AR}", with: ratioClean)
         result = result.replacingOccurrences(of: "{RATIO_COLON}", with: asset.aspectRatioString)
         
-        result = result.replacingOccurrences(of: "{TAG}", with: customTag.isEmpty ? "CLEAN" : customTag)
+        let tag1Trimmed = customTag.trimmingCharacters(in: .whitespacesAndNewlines)
+        let tag2Trimmed = customTag2.trimmingCharacters(in: .whitespacesAndNewlines)
+        let tag3Trimmed = customTag3.trimmingCharacters(in: .whitespacesAndNewlines)
+        
+        let hasTag1Token = result.contains("{TAG1}") || result.contains("{TAG}")
+        let hasTag2Token = result.contains("{TAG2}")
+        let hasTag3Token = result.contains("{TAG3}")
+        
+        if !tag1Trimmed.isEmpty {
+            result = result.replacingOccurrences(of: "{TAG1}", with: tag1Trimmed)
+            result = result.replacingOccurrences(of: "{TAG}", with: tag1Trimmed)
+        } else {
+            result = result.replacingOccurrences(of: "_{TAG1}", with: "")
+            result = result.replacingOccurrences(of: "{TAG1}_", with: "")
+            result = result.replacingOccurrences(of: "{TAG1}", with: "")
+            result = result.replacingOccurrences(of: "_{TAG}", with: "")
+            result = result.replacingOccurrences(of: "{TAG}_", with: "")
+            result = result.replacingOccurrences(of: "{TAG}", with: "")
+        }
+        
+        if !tag2Trimmed.isEmpty {
+            result = result.replacingOccurrences(of: "{TAG2}", with: tag2Trimmed)
+        } else {
+            result = result.replacingOccurrences(of: "_{TAG2}", with: "")
+            result = result.replacingOccurrences(of: "{TAG2}_", with: "")
+            result = result.replacingOccurrences(of: "{TAG2}", with: "")
+        }
+        
+        if !tag3Trimmed.isEmpty {
+            result = result.replacingOccurrences(of: "{TAG3}", with: tag3Trimmed)
+        } else {
+            result = result.replacingOccurrences(of: "_{TAG3}", with: "")
+            result = result.replacingOccurrences(of: "{TAG3}_", with: "")
+            result = result.replacingOccurrences(of: "{TAG3}", with: "")
+        }
+        
+        // Auto-append tags if user typed in them and they weren't explicitly in the template
+        if !tag1Trimmed.isEmpty && !hasTag1Token {
+            result += "_\(tag1Trimmed)"
+        }
+        if !tag2Trimmed.isEmpty && !hasTag2Token {
+            result += "_\(tag2Trimmed)"
+        }
+        if !tag3Trimmed.isEmpty && !hasTag3Token {
+            result += "_\(tag3Trimmed)"
+        }
+        
         result = result.replacingOccurrences(of: "{RES}", with: standardRes)
         result = result.replacingOccurrences(of: "{DIMS}", with: "\(asset.width)x\(asset.height)")
         result = result.replacingOccurrences(of: "{RESOLUTION}", with: "\(asset.width)x\(asset.height)")
@@ -246,7 +303,20 @@ public struct RenamerEngine: Sendable {
         result = result.replacingOccurrences(of: "{TIMECODE}", with: safeTimecode)
         result = result.replacingOccurrences(of: "{INDEX}", with: indexString)
         result = result.replacingOccurrences(of: "{COUNTER}", with: indexString)
+        result = result.replacingOccurrences(of: "{SUBS}", with: asset.hasSubtitles ? "SUBS" : "NOSUBS")
+        let createdClean = asset.formattedCreationDate.replacingOccurrences(of: "-", with: "").replacingOccurrences(of: " ", with: "_").replacingOccurrences(of: ":", with: "")
+        result = result.replacingOccurrences(of: "{CREATED}", with: createdClean)
         result = result.replacingOccurrences(of: "{DATE}", with: dateString)
+        
+        while result.contains("__") {
+            result = result.replacingOccurrences(of: "__", with: "_")
+        }
+        if result.hasPrefix("_") {
+            result.removeFirst()
+        }
+        if result.hasSuffix("_") {
+            result.removeLast()
+        }
         
         return result
     }

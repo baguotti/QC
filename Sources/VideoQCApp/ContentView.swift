@@ -1,4 +1,6 @@
 import SwiftUI
+import AppKit
+import Combine
 import Foundation
 import UniformTypeIdentifiers
 import VideoQCLib
@@ -14,7 +16,7 @@ struct ContentView: View {
     @State var videoFiles: [URL] = []
     
     // MARK: - Tab 1: Line Scanner State
-    @State var hexCode: String = "#FF00B4"
+    @State var hexCode: String = "#00FF00"
     @State var tolerancePercentage: Double = 15.0
     @State var edgeDepth: Int = 12
     @State var minSpanPercentage: Double = 70.0
@@ -42,12 +44,18 @@ struct ContentView: View {
     // MARK: - Tab 3: Batch Renamer State
     @State var renameMode: RenameMode = .template
     @State var customNameText: String = ""
-    @State var templateText: String = "{NAME}_{DUR}sec_{RATIO}_{TAG}"
+    @State var templateText: String = "{NAME}_{DUR}sec_{RATIO}"
     @State var findText: String = ""
     @State var replaceText: String = ""
     @State var prefixText: String = ""
     @State var suffixText: String = ""
-    @State var customTag: String = "CLEAN"
+    @State var customTag1: String = ""
+    @State var customTag2: String = ""
+    @State var customTag3: String = ""
+    var customTag: String {
+        get { customTag1 }
+        set { customTag1 = newValue }
+    }
     @State var textCase: TextCaseOption = .uppercase
     @State var indexStart: Int = 1
     @State var indexPadding: Int = 2
@@ -64,7 +72,9 @@ struct ContentView: View {
             replaceString: replaceText,
             prefixString: prefixText,
             suffixString: suffixText,
-            customTag: customTag,
+            customTag: customTag1,
+            customTag2: customTag2,
+            customTag3: customTag3,
             caseOption: textCase,
             indexStart: indexStart,
             indexPadding: indexPadding,
@@ -78,13 +88,31 @@ struct ContentView: View {
     }
     
     let colorPresets = [
-        ("MAGENTA", "#FF00B4", 15.0),
-        ("CYAN", "#00FFFF", 15.0),
         ("GREEN", "#00FF00", 15.0),
-        ("RED", "#FF0000", 15.0),
-        ("WHITE", "#FFFFFF", 15.0),
-        ("BLACK (10X)", "#000000", 3.0)
+        ("MAGENTA", "#FF00B4", 15.0),
+        ("BLACK", "#000000", 3.0)
     ]
+    
+    var isCustomColor: Bool {
+        !colorPresets.contains { $0.1.uppercased() == hexCode.uppercased() }
+    }
+    
+    func openColorPanel() {
+        NSColorPanel.setPickerMask(.wheelModeMask)
+        NSColorPanel.setPickerMode(.wheel)
+        let panel = NSColorPanel.shared
+        panel.showsAlpha = false
+        if let rgb = RGBColor(hex: hexCode) {
+            panel.color = NSColor(srgbRed: CGFloat(rgb.r) / 255.0, green: CGFloat(rgb.g) / 255.0, blue: CGFloat(rgb.b) / 255.0, alpha: 1.0)
+        }
+        panel.isContinuous = true
+        panel.orderFront(nil)
+    }
+    
+    func colorFromHex(_ hex: String) -> Color {
+        guard let rgb = RGBColor(hex: hex) else { return Color.clear }
+        return Color(red: Double(rgb.r) / 255.0, green: Double(rgb.g) / 255.0, blue: Double(rgb.b) / 255.0)
+    }
     
     // Dynamic Studio Theme Palette
     var bgMain: Color { StudioTheme.bgMain(isLightMode) }
@@ -97,7 +125,9 @@ struct ContentView: View {
     var textMain: Color { StudioTheme.textMain(isLightMode) }
     var textMuted: Color { StudioTheme.textMuted(isLightMode) }
     var textSubtle: Color { StudioTheme.textSubtle(isLightMode) }
-    var alertRed: Color { StudioTheme.alertRed(isLightMode) }
+    var alertRed: Color { StudioTheme.negative }
+    var accentPositive: Color { StudioTheme.positive }
+    var accentNegative: Color { StudioTheme.negative }
     var primaryBtnBg: Color { StudioTheme.primaryBtnBg(isLightMode) }
     var primaryBtnFg: Color { StudioTheme.primaryBtnFg(isLightMode) }
     
@@ -136,10 +166,10 @@ struct ContentView: View {
                     HStack(spacing: 5) {
                         Image(systemName: "cursorarrow.rays")
                             .font(.system(size: 9))
-                            .foregroundColor(hoverExplanation.isEmpty ? textMuted : alertRed)
+                            .foregroundColor(hoverExplanation.isEmpty ? textMuted : textMain)
                         Text("INFO //")
                             .font(.system(size: 9, weight: .black, design: .monospaced))
-                            .foregroundColor(hoverExplanation.isEmpty ? textMuted : alertRed)
+                            .foregroundColor(hoverExplanation.isEmpty ? textMuted : textMain)
                     }
                     
                     Text(hoverExplanation.isEmpty ? "Hover over any button, field, or control for function details." : hoverExplanation)
@@ -169,6 +199,26 @@ struct ContentView: View {
             }
         }
         .animation(.easeInOut(duration: 0.15), value: showUserGuide)
+        .onReceive(NotificationCenter.default.publisher(for: NSColorPanel.colorDidChangeNotification)) { _ in
+            guard NSColorPanel.shared.isVisible else { return }
+            if let srgb = NSColorPanel.shared.color.usingColorSpace(.sRGB) {
+                let r = Int(round(srgb.redComponent * 255.0))
+                let g = Int(round(srgb.greenComponent * 255.0))
+                let b = Int(round(srgb.blueComponent * 255.0))
+                let newHex = String(format: "#%02X%02X%02X", max(0, min(255, r)), max(0, min(255, g)), max(0, min(255, b)))
+                if hexCode.uppercased() != newHex {
+                    hexCode = newHex
+                }
+            }
+        }
+        .onChange(of: hexCode) { _, newHex in
+            if NSColorPanel.shared.isVisible, let rgb = RGBColor(hex: newHex) {
+                let newColor = NSColor(srgbRed: CGFloat(rgb.r) / 255.0, green: CGFloat(rgb.g) / 255.0, blue: CGFloat(rgb.b) / 255.0, alpha: 1.0)
+                if NSColorPanel.shared.color != newColor {
+                    NSColorPanel.shared.color = newColor
+                }
+            }
+        }
     }
     
     // MARK: - Header & Navigation
@@ -177,7 +227,7 @@ struct ContentView: View {
         HStack(alignment: .center) {
             HStack(spacing: 12) {
                 Rectangle()
-                    .fill(alertRed)
+                    .fill(textMain)
                     .frame(width: 4, height: 26)
                 
                 VStack(alignment: .leading, spacing: 2) {
@@ -196,32 +246,20 @@ struct ContentView: View {
             Spacer()
             
             HStack(spacing: 10) {
-                // Version & GitHub Commit Link Badge
-                Link(destination: AppVersionInfo.commitURL) {
-                    HStack(spacing: 5) {
-                        Circle()
-                            .fill(Color.green)
-                            .frame(width: 5, height: 5)
-                        Text("v\(AppVersionInfo.version)")
-                            .font(.system(size: 10, weight: .black, design: .monospaced))
-                        Text("//")
-                            .font(.system(size: 9, weight: .bold, design: .monospaced))
-                            .foregroundColor(textMuted)
-                        Text(AppVersionInfo.gitCommit)
-                            .font(.system(size: 10, weight: .bold, design: .monospaced))
-                            .foregroundColor(textSubtle)
-                        Image(systemName: "arrow.up.right.square")
-                            .font(.system(size: 8))
-                            .foregroundColor(textMuted)
-                    }
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 5)
-                    .background(bgSubtle)
-                    .foregroundColor(textMain)
-                    .border(borderLine, width: 1)
+                // Version Badge
+                HStack(spacing: 5) {
+                    Circle()
+                        .fill(accentPositive)
+                        .frame(width: 5, height: 5)
+                    Text("v\(AppVersionInfo.version)")
+                        .font(.system(size: 10, weight: .black, design: .monospaced))
                 }
-                .buttonStyle(.plain)
-                .explain("Opens commit \(AppVersionInfo.gitCommit) on GitHub repository.", binding: $hoverExplanation)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 5)
+                .background(bgSubtle)
+                .foregroundColor(textMain)
+                .border(borderLine, width: 1)
+                .explain("Application version: v\(AppVersionInfo.version)", binding: $hoverExplanation)
                 
                 // Info / User Guide Modal Button
                 Button(action: { showUserGuide.toggle() }) {
@@ -259,11 +297,11 @@ struct ContentView: View {
                 
                 HStack(spacing: 6) {
                     Circle()
-                        .fill(isScanning || isInspectingDeliverables ? Color.orange : (scanResults.isEmpty && deliverableAssets.isEmpty ? textMuted : textMain))
+                        .fill(isScanning || isInspectingDeliverables ? textMain : accentPositive)
                         .frame(width: 7, height: 7)
                     Text(isScanning || isInspectingDeliverables ? "BUSY" : "READY")
                         .font(.system(size: 10, weight: .bold, design: .monospaced))
-                        .foregroundColor(textSubtle)
+                        .foregroundColor(isScanning || isInspectingDeliverables ? textSubtle : accentPositive)
                         .tracking(1.0)
                 }
                 .padding(.horizontal, 10)
@@ -289,7 +327,7 @@ struct ContentView: View {
                 }) {
                     HStack(spacing: 8) {
                         Rectangle()
-                            .fill(selectedTab == tab ? alertRed : textMuted)
+                            .fill(selectedTab == tab ? accentPositive : Color.clear)
                             .frame(width: 4, height: 16)
                         
                         Text(tab.title)
@@ -304,7 +342,7 @@ struct ContentView: View {
                             let flaggedCount = scanResults.filter { $0.isFlagged }.count
                             Text(flaggedCount > 0 ? "[\(flaggedCount) FLAGGED]" : "[PASSED]")
                                 .font(.system(size: 10, weight: .bold, design: .monospaced))
-                                .foregroundColor(flaggedCount > 0 ? alertRed : textSubtle)
+                                .foregroundColor(flaggedCount > 0 ? alertRed : accentPositive)
                         }
                     }
                     .padding(.horizontal, 16)
@@ -663,7 +701,7 @@ struct ContentView: View {
         HStack(spacing: 6) {
             Text(num)
                 .font(.system(size: 9, weight: .black, design: .monospaced))
-                .foregroundColor(alertRed)
+                .foregroundColor(textMain)
             Text("// \(title)")
                 .font(.system(size: 9, weight: .bold, design: .monospaced))
                 .foregroundColor(textMuted)
@@ -671,14 +709,14 @@ struct ContentView: View {
         }
     }
     
-    func statBox(title: String, val: String, isRed: Bool = false) -> some View {
+    func statBox(title: String, val: String, isRed: Bool = false, isPositive: Bool = false) -> some View {
         VStack(alignment: .leading, spacing: 4) {
             Text(title)
                 .font(.system(size: 8, weight: .bold, design: .monospaced))
                 .foregroundColor(textMuted)
             Text(val)
                 .font(.system(size: 16, weight: .black, design: .monospaced))
-                .foregroundColor(isRed ? alertRed : textMain)
+                .foregroundColor(isRed ? alertRed : (isPositive ? accentPositive : textMain))
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 8)
@@ -686,14 +724,14 @@ struct ContentView: View {
         .border(borderLine, width: 1)
     }
     
-    func statItem(label: String, val: String, isAlert: Bool = false) -> some View {
+    func statItem(label: String, val: String, isAlert: Bool = false, isPositive: Bool = false) -> some View {
         VStack(alignment: .leading, spacing: 2) {
             Text(label)
                 .font(.system(size: 8, weight: .bold, design: .monospaced))
                 .foregroundColor(textMuted)
             Text(val)
                 .font(.system(size: 13, weight: .bold, design: .monospaced))
-                .foregroundColor(isAlert ? alertRed : textMain)
+                .foregroundColor(isAlert ? alertRed : (isPositive ? accentPositive : textMain))
         }
     }
     

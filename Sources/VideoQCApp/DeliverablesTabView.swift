@@ -237,7 +237,7 @@ extension ContentView {
             // Quick Stats Strip
             HStack(spacing: 12) {
                 statBox(title: "TOTAL ASSETS", val: String(format: "%02d", deliverableAssets.count))
-                statBox(title: "NAME MISMATCHES", val: String(format: "%02d", mismatchCount), isRed: mismatchCount > 0)
+                statBox(title: "NAME MISMATCHES", val: String(format: "%02d", mismatchCount), isRed: mismatchCount > 0, isPositive: mismatchCount == 0 && !deliverableAssets.isEmpty)
                 statBox(title: "TOTAL RUNTIME", val: TimecodeFormatter.format(frameIndex: Int(round(totalSeconds * 25.0)), fps: 25.0))
                 statBox(title: "TOTAL BATCH SIZE", val: DeliverablesInspector.formatFileSize(bytes: totalBytes))
             }
@@ -246,15 +246,17 @@ extension ContentView {
             VStack(alignment: .leading, spacing: 0) {
                 // Table Header
                 HStack(spacing: 8) {
-                    Text("#").frame(width: 25, alignment: .leading)
+                    Text("#").frame(width: 25, alignment: .center)
                     Text("FILE NAME").frame(minWidth: 160, maxWidth: .infinity, alignment: .leading)
-                    Text("STATUS").frame(width: 75, alignment: .leading)
-                    Text("TIMECODE (TC)").frame(width: 140, alignment: .leading)
-                    Text("RATIO & SIZE").frame(width: 140, alignment: .leading)
-                    Text("FPS").frame(width: 65, alignment: .leading)
-                    Text("FILE SIZE").frame(width: 75, alignment: .leading)
-                    Text("VIDEO").frame(width: 85, alignment: .leading)
-                    Text("AUDIO SPEC & BITRATE").frame(width: 150, alignment: .leading)
+                    Text("STATUS").frame(width: 75, alignment: .center)
+                    Text("TIMECODE (TC)").frame(width: 130, alignment: .center)
+                    Text("RATIO & SIZE").frame(width: 135, alignment: .center)
+                    Text("FPS").frame(width: 60, alignment: .center)
+                    Text("FILE SIZE").frame(width: 75, alignment: .center)
+                    Text("CREATED").frame(width: 110, alignment: .center)
+                    Text("SUBS / CC").frame(width: 80, alignment: .center)
+                    Text("VIDEO").frame(width: 85, alignment: .center)
+                    Text("AUDIO SPEC").frame(width: 145, alignment: .center)
                 }
                 .font(.system(size: 9, weight: .bold, design: .monospaced))
                 .foregroundColor(textMuted)
@@ -272,7 +274,7 @@ extension ContentView {
                             
                             HStack(spacing: 8) {
                                 Text(String(format: "%02d", idx + 1))
-                                    .frame(width: 25, alignment: .leading)
+                                    .frame(width: 25, alignment: .center)
                                     .foregroundColor(textMuted)
                                 
                                 Text(asset.fileName.uppercased())
@@ -283,24 +285,28 @@ extension ContentView {
                                     .help(asset.fileName)
                                 
                                 // Validation Status Badge
-                                if hasMismatch {
-                                    Text("MISMATCH")
-                                        .font(.system(size: 8, weight: .black, design: .monospaced))
-                                        .padding(.horizontal, 5)
-                                        .padding(.vertical, 2)
-                                        .background(alertRed)
-                                        .foregroundColor(.white)
-                                        .frame(width: 75, alignment: .leading)
-                                        .help(asset.validation.summaryString)
-                                } else {
-                                    Text("OK")
-                                        .font(.system(size: 9, weight: .bold, design: .monospaced))
-                                        .foregroundColor(textMuted)
-                                        .frame(width: 75, alignment: .leading)
+                                ZStack {
+                                    if hasMismatch {
+                                        Text("MISMATCH")
+                                            .font(.system(size: 8, weight: .black, design: .monospaced))
+                                            .padding(.horizontal, 6)
+                                            .padding(.vertical, 2)
+                                            .background(alertRed)
+                                            .foregroundColor(.white)
+                                            .help(asset.validation.summaryString)
+                                    } else {
+                                        Text("OK")
+                                            .font(.system(size: 8, weight: .black, design: .monospaced))
+                                            .padding(.horizontal, 8)
+                                            .padding(.vertical, 2)
+                                            .background(accentPositive)
+                                            .foregroundColor(.white)
+                                    }
                                 }
+                                .frame(width: 75, alignment: .center)
                                 
                                 // Timecode Cell with Warning
-                                VStack(alignment: .leading, spacing: 2) {
+                                VStack(alignment: .center, spacing: 2) {
                                     Text(asset.timecode)
                                         .foregroundColor(asset.validation.isDurationMismatch ? alertRed : textSubtle)
                                         .fontWeight(asset.validation.isDurationMismatch ? .bold : .regular)
@@ -312,10 +318,10 @@ extension ContentView {
                                             .lineLimit(1)
                                     }
                                 }
-                                .frame(width: 140, alignment: .leading)
+                                .frame(width: 130, alignment: .center)
                                 
                                 // Ratio Cell with Warning
-                                VStack(alignment: .leading, spacing: 2) {
+                                VStack(alignment: .center, spacing: 2) {
                                     HStack(spacing: 4) {
                                         Text(asset.aspectRatioString)
                                             .font(.system(size: 9, weight: .bold, design: .monospaced))
@@ -336,18 +342,44 @@ extension ContentView {
                                             .lineLimit(1)
                                     }
                                 }
-                                .frame(width: 140, alignment: .leading)
+                                .frame(width: 135, alignment: .center)
                                 
                                 Text(String(format: "%.2f", asset.fps))
-                                    .frame(width: 65, alignment: .leading)
+                                    .frame(width: 60, alignment: .center)
                                     .foregroundColor(textSubtle)
                                 
                                 Text(asset.formattedFileSize)
-                                    .frame(width: 75, alignment: .leading)
+                                    .frame(width: 75, alignment: .center)
                                     .fontWeight(.semibold)
                                 
+                                // Creation Date Column
+                                Text(asset.formattedCreationDate)
+                                    .font(.system(size: 9, design: .monospaced))
+                                    .foregroundColor(textSubtle)
+                                    .frame(width: 110, alignment: .center)
+                                
+                                // Subs / CC Column
+                                ZStack {
+                                    if asset.hasSubtitles {
+                                        Text(asset.subtitlesInfo)
+                                            .font(.system(size: 8, weight: .bold, design: .monospaced))
+                                            .padding(.horizontal, 4)
+                                            .padding(.vertical, 2)
+                                            .background(accentPositive.opacity(0.18))
+                                            .foregroundColor(accentPositive)
+                                            .border(accentPositive, width: 0.5)
+                                            .lineLimit(1)
+                                            .help(asset.subtitlesInfo)
+                                    } else {
+                                        Text("NONE")
+                                            .font(.system(size: 9, design: .monospaced))
+                                            .foregroundColor(textMuted)
+                                    }
+                                }
+                                .frame(width: 80, alignment: .center)
+                                
                                 Text(asset.videoCodec)
-                                    .frame(width: 85, alignment: .leading)
+                                    .frame(width: 85, alignment: .center)
                                     .foregroundColor(textMuted)
                                     .lineLimit(1)
                                 
@@ -356,9 +388,9 @@ extension ContentView {
                                     Text("NONE")
                                         .font(.system(size: 9, weight: .bold, design: .monospaced))
                                         .foregroundColor(textMuted)
-                                        .frame(width: 150, alignment: .leading)
+                                        .frame(width: 145, alignment: .center)
                                 } else {
-                                    VStack(alignment: .leading, spacing: 2) {
+                                    VStack(alignment: .center, spacing: 2) {
                                         HStack(spacing: 4) {
                                             Text(asset.audioCodec)
                                                 .font(.system(size: 10, weight: .bold, design: .monospaced))
@@ -380,14 +412,14 @@ extension ContentView {
                                                 .lineLimit(1)
                                         }
                                     }
-                                    .frame(width: 150, alignment: .leading)
+                                    .frame(width: 145, alignment: .center)
                                     .help(asset.audioConfig)
                                 }
                             }
                             .font(.system(size: 11, design: .monospaced))
                             .padding(.horizontal, 14)
                             .padding(.vertical, 9)
-                            .background(hasMismatch ? (isLightMode ? Color.red.opacity(0.08) : Color.red.opacity(0.12)) : (idx % 2 == 0 ? bgPanel : bgCardSubtle))
+                            .background(hasMismatch ? alertRed.opacity(0.12) : (idx % 2 == 0 ? bgPanel : bgCardSubtle))
                             .overlay(
                                 hasMismatch ? Rectangle().fill(alertRed).frame(width: 3) : nil,
                                 alignment: .leading

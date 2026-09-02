@@ -15,7 +15,6 @@ struct UserGuideView: View {
     private var textMain: Color { isLightMode ? Color(white: 0.06) : Color.white }
     private var textMuted: Color { isLightMode ? Color(white: 0.45) : Color(white: 0.45) }
     private var textSubtle: Color { isLightMode ? Color(white: 0.25) : Color(white: 0.70) }
-    private var accentCyan: Color { isLightMode ? Color(red: 0.0, green: 0.45, blue: 0.80) : Color(red: 0.20, green: 0.80, blue: 1.0) }
 
     var body: some View {
         ZStack {
@@ -33,28 +32,21 @@ struct UserGuideView: View {
                     HStack(spacing: 8) {
                         Image(systemName: "info.circle.fill")
                             .font(.system(size: 13))
-                            .foregroundColor(accentCyan)
+                            .foregroundColor(textMain)
                         Text("USER GUIDE // THE LINEFINDER 5000")
                             .font(.system(size: 12, weight: .black, design: .monospaced))
                             .foregroundColor(textMain)
                         
-                        Link(destination: AppVersionInfo.commitURL) {
-                            HStack(spacing: 4) {
-                                Text("v\(AppVersionInfo.version)")
-                                    .fontWeight(.heavy)
-                                Text("(\(AppVersionInfo.gitCommit))")
-                                Image(systemName: "arrow.up.right.square")
-                                    .font(.system(size: 8))
-                            }
-                            .font(.system(size: 9, design: .monospaced))
-                            .foregroundColor(accentCyan)
-                            .padding(.horizontal, 6)
-                            .padding(.vertical, 2)
-                            .background(bgSubtle)
-                            .border(borderLine, width: 1)
+                        HStack(spacing: 4) {
+                            Text("v\(AppVersionInfo.version)")
+                                .fontWeight(.heavy)
                         }
-                        .buttonStyle(.plain)
-                        .help("View commit on GitHub")
+                        .font(.system(size: 9, design: .monospaced))
+                        .foregroundColor(textMain)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(bgSubtle)
+                        .border(borderLine, width: 1)
                     }
                     Spacer()
                     Button(action: { isPresented = false }) {
@@ -152,8 +144,8 @@ struct UserGuideView: View {
     private var tabOneGuide: some View {
         VStack(alignment: .leading, spacing: 10) {
             guideRow(name: "[ + CHOOSE FOLDER / FILES ]", desc: "Selects or drags in video files or folders to scan.")
-            guideRow(name: "TARGET COLOR & HEX", desc: "Sets the RGB target color for edge line detection.")
-            guideRow(name: "COLOR PRESETS", desc: "Quick targets: Magenta (#FF00B4), Cyan (#00FFFF), Green (#00FF00), Red (#FF0000), White (#FFFFFF), Black (#000000).")
+            guideRow(name: "TARGET COLOR & HEX", desc: "Sets the RGB target color for edge line detection. Hex value can be inputted at any time.")
+            guideRow(name: "COLOR PRESETS & CUSTOM WHEEL", desc: "Quick targets: Green (#00FF00, default), Magenta (#FF00B4), Black (#000000), or Custom Color Wheel / Swatch.")
             guideRow(name: "TOLERANCE SLIDER", desc: "Threshold for color matching (0–100%). Default is 15%.")
             guideRow(name: "HEAD SKIP", desc: "Skips the first X seconds of video (ignores slates/countdowns).")
             guideRow(name: "EDGE DEPTH", desc: "Number of pixels inward from the frame edge to check (1–32px, default 12px).")
@@ -193,7 +185,7 @@ struct UserGuideView: View {
             guideRow(name: "RENAMING MODES", desc: "Template (token-based), Find & Replace (text match), or Prefix / Suffix.")
             guideRow(name: "PROJECT / ASSET NAME {NAME}", desc: "Custom text to replace the {NAME} token. Defaults to original filename if blank.")
             guideRow(name: "TOKENS: {NAME}, {ORIGINAL}", desc: "{NAME} = Custom field value. {ORIGINAL} = Original filename without extension.")
-            guideRow(name: "TOKENS: {DUR}, {RATIO}, {TAG}", desc: "{DUR} = Duration in seconds. {RATIO} = Ratio tag (16x9, 9x16). {TAG} = HORIZONTAL, VERTICAL, SQUARE.")
+            guideRow(name: "TOKENS: {DUR}, {RATIO}, {TAG1-3}", desc: "{DUR} = Duration in seconds. {RATIO} = Ratio tag (16x9, 9x16). {TAG1}, {TAG2}, {TAG3} = Custom tags (empty by default, automatically added when filled).")
             guideRow(name: "TOKENS: {RES}, {DIMS}, {FPS}", desc: "{RES} = 1080p/4K. {DIMS} = 1920x1080. {FPS} = Frame rate (e.g. 25fps).")
             guideRow(name: "TOKENS: {CODEC}, {AUDIO}", desc: "{CODEC} = Video codec (e.g. ProRes422HQ). {AUDIO} = Audio channels (Stereo, 5.1).")
             guideRow(name: "TOKENS: {INDEX}, {DATE}", desc: "{INDEX} = Sequential counter (01, 02). {DATE} = Current date (YYYYMMDD).")

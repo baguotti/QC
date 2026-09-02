@@ -189,7 +189,7 @@ public struct VideoQCResult: Identifiable, Sendable {
 }
 
 public struct QCConfig: Sendable {
-    public var targetHex: String = "#FF00B4"
+    public var targetHex: String = "#00FF00"
     public var tolerance: Double = 0.15 // 15% tolerance default
     public var edgeDepth: Int = 12 // Scan outer 12 pixels
     public var minSpanRatio: Double = 0.70 // Must span at least 70% of row/column
@@ -205,7 +205,7 @@ public struct QCConfig: Sendable {
     public var maxBlackVariance: Double = 2.0 // Strict row uniformity check for digital black
     
     public init(
-        targetHex: String = "#FF00B4",
+        targetHex: String = "#00FF00",
         tolerance: Double = 0.15,
         edgeDepth: Int = 12,
         minSpanRatio: Double = 0.70,

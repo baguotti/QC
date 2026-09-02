@@ -60,8 +60,18 @@ struct StudioTheme {
         isLight ? Color(white: 0.30) : Color(white: 0.65)
     }
     
-    static func alertRed(_ isLight: Bool) -> Color {
-        isLight ? Color(red: 0.88, green: 0.12, blue: 0.12) : Color(red: 1.0, green: 0.22, blue: 0.22)
+    // MARK: - Exclusive Color Accents (Only 2 Accents)
+    // Positive Accent: #2E6F40 (Forest Green)
+    static let positive = Color(red: 46 / 255.0, green: 111 / 255.0, blue: 64 / 255.0)
+    // Negative Accent: #a14746 (Muted Brick Red)
+    static let negative = Color(red: 161 / 255.0, green: 71 / 255.0, blue: 70 / 255.0)
+    
+    static func alertRed(_ isLight: Bool = false) -> Color {
+        negative
+    }
+    
+    static func alertPositive(_ isLight: Bool = false) -> Color {
+        positive
     }
     
     static func primaryBtnBg(_ isLight: Bool) -> Color {
@@ -71,6 +81,11 @@ struct StudioTheme {
     static func primaryBtnFg(_ isLight: Bool) -> Color {
         isLight ? Color.white : Color.black
     }
+}
+
+extension Color {
+    static let studioPositive = StudioTheme.positive
+    static let studioNegative = StudioTheme.negative
 }
 
 // MARK: - Minimalist Studio Toggle Style

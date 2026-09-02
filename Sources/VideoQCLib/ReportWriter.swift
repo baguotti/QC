@@ -104,7 +104,8 @@ public struct ReportWriter: Sendable {
                     --text: #ffffff;
                     --text-secondary: #888888;
                     --text-muted: #555555;
-                    --red: #ff3333;
+                    --red: #a14746;
+                    --positive: #2e6f40;
                     --table-th-bg: #0d0d0d;
                     --font-heading: 'Barlow Condensed', 'Helvetica Neue', 'Helvetica', -apple-system, sans-serif;
                     --font-mono: 'JetBrains Mono', 'SF Mono', 'Menlo', monospace;
@@ -118,7 +119,8 @@ public struct ReportWriter: Sendable {
                     --text: #0a0a0a;
                     --text-secondary: #555555;
                     --text-muted: #888888;
-                    --red: #d32f2f;
+                    --red: #a14746;
+                    --positive: #2e6f40;
                     --table-th-bg: #f0f0f0;
                 }
 
@@ -216,9 +218,9 @@ public struct ReportWriter: Sendable {
                 }
 
                 .status-passed {
-                    background: var(--text);
-                    color: var(--bg);
-                    border-color: var(--text);
+                    background: var(--positive);
+                    color: #ffffff;
+                    border-color: var(--positive);
                 }
 
                 /* Metadata Grid */
@@ -290,6 +292,7 @@ public struct ReportWriter: Sendable {
                 }
 
                 .stat-box.highlight .num { color: var(--red); }
+                .stat-box.highlight-positive .num { color: var(--positive); }
 
                 /* Section Titles */
                 .section-header {
@@ -421,22 +424,20 @@ public struct ReportWriter: Sendable {
                     align-items: center;
                     gap: 12px;
                     min-width: 0;
-                    overflow: hidden;
                 }
 
                 .clean-cell .clean-name {
                     font-size: 12px;
                     font-weight: 700;
                     letter-spacing: 0.02em;
-                    white-space: nowrap;
-                    overflow: hidden;
-                    text-overflow: ellipsis;
+                    word-break: break-word;
+                    overflow-wrap: anywhere;
                     min-width: 0;
                     flex: 1;
                 }
 
                 .clean-cell .check {
-                    color: var(--text-muted);
+                    color: var(--positive);
                     font-family: var(--font-mono);
                     font-size: 11px;
                     font-weight: 700;
@@ -522,7 +523,7 @@ public struct ReportWriter: Sendable {
                         <div class="num">\(String(format: "%02d", flaggedVideos.count))</div>
                         <div class="label">FLAGGED DEFECTS</div>
                     </div>
-                    <div class="stat-box">
+                    <div class="stat-box \(cleanVideos.isEmpty ? "" : "highlight-positive")">
                         <div class="num">\(String(format: "%02d", cleanVideos.count))</div>
                         <div class="label">CLEAN PASSED</div>
                     </div>

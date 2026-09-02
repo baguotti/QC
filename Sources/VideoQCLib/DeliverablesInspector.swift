@@ -50,10 +50,16 @@ public struct DeliverablesInspector: Sendable {
             let audioTracks = (try? await asset.loadTracks(withMediaType: .audio)) ?? []
             let audioInfo = await extractAudioInfo(tracks: audioTracks)
             
-            // 6. Container
+            // 6. Subtitles & Closed Captions
+            let subInfo = await extractSubtitlesInfo(asset: asset)
+            
+            // 7. Creation Date
+            let (creationDate, formattedCreationDate) = await extractCreationDate(url: url, asset: asset)
+            
+            // 8. Container
             let container = url.pathExtension.uppercased()
             
-            // 7. Filename vs Attributes Cross-Reference Validation
+            // 9. Filename vs Attributes Cross-Reference Validation
             let validation = validateFilename(
                 fileName: url.lastPathComponent,
                 durationSeconds: durationSeconds,
@@ -82,6 +88,10 @@ public struct DeliverablesInspector: Sendable {
                 audioFormatDetail: audioInfo.subDetail,
                 audioConfig: audioInfo.fullDesc,
                 container: container,
+                creationDate: creationDate,
+                formattedCreationDate: formattedCreationDate,
+                hasSubtitles: subInfo.hasSubtitles,
+                subtitlesInfo: subInfo.info,
                 validation: validation
             )
         } catch {
@@ -377,10 +387,83 @@ public struct DeliverablesInspector: Sendable {
         return String(decoding: bytes, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
     }
     
+    // MARK: - Subtitles & Closed Captions Extraction
+    
+    private static func extractSubtitlesInfo(asset: AVURLAsset) async -> (hasSubtitles: Bool, info: String) {
+        var detected: [String] = []
+        
+        // 1. Subtitle tracks
+        if let subTracks = try? await asset.loadTracks(withMediaType: .subtitle), !subTracks.isEmpty {
+            var langs: [String] = []
+            for track in subTracks {
+                if let lang = try? await track.load(.extendedLanguageTag), !lang.isEmpty {
+                    langs.append(lang.uppercased())
+                } else if let lang = try? await track.load(.languageCode), !lang.isEmpty {
+                    langs.append(lang.uppercased())
+                }
+            }
+            if !langs.isEmpty {
+                detected.append("SUB (\(langs.joined(separator: ",")))")
+            } else {
+                detected.append(subTracks.count > 1 ? "\(subTracks.count) SUBS" : "SUBTITLE")
+            }
+        }
+        
+        // 2. Closed caption tracks
+        if let ccTracks = try? await asset.loadTracks(withMediaType: .closedCaption), !ccTracks.isEmpty {
+            detected.append(ccTracks.count > 1 ? "\(ccTracks.count) CC" : "CC (608/708)")
+        }
+        
+        // 3. Timed text tracks
+        if let textTracks = try? await asset.loadTracks(withMediaType: .text), !textTracks.isEmpty {
+            detected.append("TIMED TEXT")
+        }
+        
+        if !detected.isEmpty {
+            return (true, detected.joined(separator: " + "))
+        } else {
+            return (false, "NONE")
+        }
+    }
+    
+    // MARK: - Creation Date Extraction
+    
+    private static func extractCreationDate(url: URL, asset: AVURLAsset) async -> (Date?, String) {
+        var date: Date? = nil
+        
+        // 1. File system creation date
+        if let values = try? url.resourceValues(forKeys: [.creationDateKey, .contentModificationDateKey]) {
+            date = values.creationDate ?? values.contentModificationDate
+        }
+        
+        // 2. Check QuickTime container metadata
+        if let metadata = try? await asset.load(.metadata) {
+            let creationItems = AVMetadataItem.metadataItems(from: metadata, filteredByIdentifier: .quickTimeMetadataCreationDate)
+            if let first = creationItems.first {
+                if let metaDate = try? await first.load(.dateValue) {
+                    date = metaDate
+                } else if let metaString = try? await first.load(.stringValue) {
+                    let isoFormatter = ISO8601DateFormatter()
+                    if let parsed = isoFormatter.date(from: metaString) {
+                        date = parsed
+                    }
+                }
+            }
+        }
+        
+        guard let validDate = date else {
+            return (nil, "--")
+        }
+        
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd HH:mm"
+        return (validDate, formatter.string(from: validDate))
+    }
+    
     // MARK: - CSV Generator
     
     public static func generateManifestCSV(assets: [DeliverableAsset]) -> String {
-        var csv = "File Name,Status,Validation Notes,Timecode,Duration,Total Frames,Resolution,Aspect Ratio,FPS,File Size,Video Codec,Audio Codec,Audio Bitrate,Audio Details,Container\n"
+        var csv = "File Name,Status,Validation Notes,Timecode,Duration,Total Frames,Resolution,Aspect Ratio,FPS,File Size,Created Date,Subtitles / CC,Video Codec,Audio Codec,Audio Bitrate,Audio Details,Container\n"
         
         func escapeCSV(_ str: String) -> String {
             if str.contains(",") || str.contains("\"") || str.contains("\n") {
@@ -393,7 +476,7 @@ public struct DeliverablesInspector: Sendable {
         for a in assets {
             let status = a.validation.hasAnyMismatch ? "MISMATCH FLAGGED" : "MATCHED"
             let notes = a.validation.summaryString
-            csv += "\(escapeCSV(a.fileName)),\(escapeCSV(status)),\(escapeCSV(notes)),\(escapeCSV(a.timecode)),\(escapeCSV(a.formattedDuration)),\(a.totalFrames),\(escapeCSV(a.resolutionString)),\(escapeCSV(a.aspectRatioString)),\(String(format: "%.2f", a.fps)),\(escapeCSV(a.formattedFileSize)),\(escapeCSV(a.videoCodec)),\(escapeCSV(a.audioCodec)),\(escapeCSV(a.audioBitrate)),\(escapeCSV(a.audioConfig)),\(escapeCSV(a.container))\n"
+            csv += "\(escapeCSV(a.fileName)),\(escapeCSV(status)),\(escapeCSV(notes)),\(escapeCSV(a.timecode)),\(escapeCSV(a.formattedDuration)),\(a.totalFrames),\(escapeCSV(a.resolutionString)),\(escapeCSV(a.aspectRatioString)),\(String(format: "%.2f", a.fps)),\(escapeCSV(a.formattedFileSize)),\(escapeCSV(a.formattedCreationDate)),\(escapeCSV(a.subtitlesInfo)),\(escapeCSV(a.videoCodec)),\(escapeCSV(a.audioCodec)),\(escapeCSV(a.audioBitrate)),\(escapeCSV(a.audioConfig)),\(escapeCSV(a.container))\n"
         }
         
         return csv
@@ -429,8 +512,10 @@ public struct DeliverablesInspector: Sendable {
                     --text: #ffffff;
                     --text-secondary: #888888;
                     --text-muted: #555555;
-                    --red: #ff3333;
-                    --red-muted: rgba(255, 51, 51, 0.15);
+                    --red: #a14746;
+                    --red-muted: rgba(161, 71, 70, 0.15);
+                    --positive: #2e6f40;
+                    --positive-muted: rgba(46, 111, 64, 0.15);
                     --table-th-bg: #0d0d0d;
                     --font-heading: 'Barlow Condensed', 'Helvetica Neue', 'Helvetica', -apple-system, sans-serif;
                     --font-mono: 'JetBrains Mono', 'SF Mono', 'Menlo', monospace;
@@ -444,8 +529,10 @@ public struct DeliverablesInspector: Sendable {
                     --text: #0a0a0a;
                     --text-secondary: #555555;
                     --text-muted: #888888;
-                    --red: #d32f2f;
-                    --red-muted: rgba(211, 47, 47, 0.12);
+                    --red: #a14746;
+                    --red-muted: rgba(161, 71, 70, 0.12);
+                    --positive: #2e6f40;
+                    --positive-muted: rgba(46, 111, 64, 0.12);
                     --table-th-bg: #f0f0f0;
                 }
 
@@ -560,9 +647,12 @@ public struct DeliverablesInspector: Sendable {
                     font-weight: 700;
                     letter-spacing: 0.12em;
                     padding: 12px 14px;
-                    text-align: left;
+                    text-align: center;
                     border-bottom: 1px solid var(--border);
                     white-space: nowrap;
+                }
+                th:nth-child(2) {
+                    text-align: left;
                 }
 
                 td {
@@ -570,6 +660,10 @@ public struct DeliverablesInspector: Sendable {
                     border-bottom: 1px solid var(--border);
                     font-weight: 600;
                     vertical-align: middle;
+                    text-align: center;
+                }
+                td:nth-child(2) {
+                    text-align: left;
                 }
 
                 tr:last-child td { border-bottom: none; }
@@ -580,10 +674,8 @@ public struct DeliverablesInspector: Sendable {
                     font-size: 13px;
                     font-weight: 800;
                     letter-spacing: 0.02em;
-                    max-width: 260px;
-                    overflow: hidden;
-                    text-overflow: ellipsis;
-                    white-space: nowrap;
+                    word-break: break-word;
+                    overflow-wrap: anywhere;
                 }
 
                 .mono-cell {
@@ -607,6 +699,12 @@ public struct DeliverablesInspector: Sendable {
                     background: var(--red);
                     color: #ffffff;
                     border-color: var(--red);
+                }
+
+                .tag-ok {
+                    background: var(--positive);
+                    color: #ffffff;
+                    border-color: var(--positive);
                 }
 
                 .warning-pill {
@@ -697,6 +795,8 @@ public struct DeliverablesInspector: Sendable {
                                 <th>RATIO & RESOLUTION</th>
                                 <th>FPS</th>
                                 <th>FILE SIZE</th>
+                                <th>CREATED</th>
+                                <th>SUBS / CC</th>
                                 <th>VIDEO</th>
                                 <th>AUDIO (CODEC • BITRATE)</th>
                             </tr>
@@ -706,7 +806,8 @@ public struct DeliverablesInspector: Sendable {
         
         for (idx, a) in assets.enumerated() {
             let rowClass = a.validation.hasAnyMismatch ? "class='mismatch-row'" : ""
-            let statusTag = a.validation.hasAnyMismatch ? "<span class='tag tag-mismatch'>MISMATCH</span>" : "<span class='tag'>OK</span>"
+            let statusTag = a.validation.hasAnyMismatch ? "<span class='tag tag-mismatch'>MISMATCH</span>" : "<span class='tag tag-ok'>OK</span>"
+            let subTag = a.hasSubtitles ? "<span class='tag tag-ok'>\(a.subtitlesInfo)</span>" : "<span style='color:var(--text-muted); font-family:var(--font-mono); font-size:11px'>NONE</span>"
             
             let audioDisplay: String
             if !a.hasAudio {
@@ -741,6 +842,8 @@ public struct DeliverablesInspector: Sendable {
                                 </td>
                                 <td class="mono-cell">\(String(format: "%.2f", a.fps)) FPS</td>
                                 <td class="mono-cell">\(a.formattedFileSize)</td>
+                                <td class="mono-cell" style="font-size:11px">\(a.formattedCreationDate)</td>
+                                <td>\(subTag)</td>
                                 <td>\(a.videoCodec)</td>
                                 <td>\(audioDisplay)</td>
                             </tr>

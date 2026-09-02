@@ -1,6 +1,7 @@
 .build/
 build/
 __TEST/
+_TEST/
 *.mp4
 *.mov
 *.m4v

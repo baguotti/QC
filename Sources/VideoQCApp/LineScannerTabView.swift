@@ -42,12 +42,16 @@ extension ContentView {
             sectionHeader(num: "02", title: "TARGET ERROR COLOR")
             
             HStack(spacing: 10) {
-                if let rgb = RGBColor(hex: hexCode) {
+                // Interactive Color Swatch
+                Button(action: openColorPanel) {
                     Rectangle()
-                        .fill(Color(red: Double(rgb.r)/255.0, green: Double(rgb.g)/255.0, blue: Double(rgb.b)/255.0))
+                        .fill(colorFromHex(hexCode))
                         .frame(width: 32, height: 32)
                         .border(borderStrong, width: 1)
                 }
+                .buttonStyle(.plain)
+                .disabled(isScanning)
+                .explain("Interactive color swatch: click to open macOS color wheel.", binding: $hoverExplanation)
                 
                 TextField("#HEX", text: $hexCode)
                     .textFieldStyle(.plain)
@@ -58,7 +62,7 @@ extension ContentView {
                     .border(borderLine, width: 1)
                     .frame(width: 110)
                     .disabled(isScanning)
-                    .explain("Hex color value to search for on frame boundaries.", binding: $hoverExplanation)
+                    .explain("Hex color value to search for on frame boundaries. Can be edited at all times.", binding: $hoverExplanation)
                 
                 Spacer()
                 
@@ -67,26 +71,50 @@ extension ContentView {
                     .foregroundColor(textSubtle)
             }
             
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 5) {
-                    ForEach(colorPresets, id: \.1) { name, code, defaultTol in
-                        Button(action: {
-                            hexCode = code
-                            tolerancePercentage = defaultTol
-                        }) {
+            HStack(spacing: 5) {
+                ForEach(colorPresets, id: \.1) { name, code, defaultTol in
+                    Button(action: {
+                        hexCode = code
+                        tolerancePercentage = defaultTol
+                    }) {
+                        HStack(spacing: 5) {
+                            Rectangle()
+                                .fill(colorFromHex(code))
+                                .frame(width: 8, height: 8)
+                                .border(borderLine, width: 0.5)
                             Text(name)
-                                .font(.system(size: 9, weight: .bold, design: .monospaced))
-                                .padding(.horizontal, 7)
-                                .padding(.vertical, 4)
-                                .background(hexCode.uppercased() == code ? primaryBtnBg : bgSubtle)
-                                .foregroundColor(hexCode.uppercased() == code ? primaryBtnFg : textMain)
-                                .border(borderLine, width: 1)
                         }
-                        .buttonStyle(.plain)
-                        .disabled(isScanning)
-                        .explain("Sets target color to \(name) (\(code)) with \(Int(defaultTol))% tolerance.", binding: $hoverExplanation)
+                        .font(.system(size: 9, weight: .bold, design: .monospaced))
+                        .padding(.horizontal, 7)
+                        .padding(.vertical, 4)
+                        .background(hexCode.uppercased() == code ? primaryBtnBg : bgSubtle)
+                        .foregroundColor(hexCode.uppercased() == code ? primaryBtnFg : textMain)
+                        .border(borderLine, width: 1)
                     }
+                    .buttonStyle(.plain)
+                    .disabled(isScanning)
+                    .explain("Sets target color to \(name) (\(code)) with \(Int(defaultTol))% tolerance.", binding: $hoverExplanation)
                 }
+                
+                // Custom Color Button
+                Button(action: openColorPanel) {
+                    HStack(spacing: 5) {
+                        Rectangle()
+                            .fill(isCustomColor ? colorFromHex(hexCode) : Color(white: 0.5))
+                            .frame(width: 8, height: 8)
+                            .border(borderLine, width: 0.5)
+                        Text("CUSTOM")
+                    }
+                    .font(.system(size: 9, weight: .bold, design: .monospaced))
+                    .padding(.horizontal, 7)
+                    .padding(.vertical, 4)
+                    .background(isCustomColor ? primaryBtnBg : bgSubtle)
+                    .foregroundColor(isCustomColor ? primaryBtnFg : textMain)
+                    .border(borderLine, width: 1)
+                }
+                .buttonStyle(.plain)
+                .disabled(isScanning)
+                .explain("Opens macOS color wheel / palette to choose any custom color.", binding: $hoverExplanation)
             }
             
             VStack(alignment: .leading, spacing: 4) {
@@ -333,7 +361,7 @@ extension ContentView {
             HStack(spacing: 12) {
                 statBox(title: "TOTAL SCANNED", val: String(format: "%02d", scanResults.count))
                 statBox(title: "FLAGGED FILES", val: String(format: "%02d", flagged.count), isRed: !flagged.isEmpty)
-                statBox(title: "PASSED FILES", val: String(format: "%02d", clean.count))
+                statBox(title: "PASSED FILES", val: String(format: "%02d", clean.count), isPositive: !clean.isEmpty)
                 statBox(title: "GLITCH SEGMENTS", val: String(format: "%02d", totalSegments), isRed: totalSegments > 0)
             }
             
@@ -343,7 +371,7 @@ extension ContentView {
                         VStack(spacing: 8) {
                             Text("STATUS // ALL DELIVERIES PASSED")
                                 .font(.system(size: 16, weight: .black, design: .monospaced))
-                                .foregroundColor(textMain)
+                                .foregroundColor(accentPositive)
                             Text("NO COLORED EDGE LINES OR MATTE ARTIFACTS DETECTED.")
                                 .font(.system(size: 11, weight: .medium, design: .monospaced))
                                 .foregroundColor(textMuted)
