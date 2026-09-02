@@ -10,7 +10,7 @@ enum AppTab: Int, CaseIterable, Identifiable {
     var title: String {
         switch self {
         case .lineScanner: return "01 // LINE SCANNER"
-        case .deliverables: return "02 // DELIVERABLES MANIFEST"
+        case .deliverables: return "02 // DELIVERABLES SPECS"
         }
     }
 }
@@ -43,7 +43,7 @@ struct ContentView: View {
     @State private var generatedCSVURL: URL? = nil
     @State private var scannerActor: VideoScanner? = nil
     
-    // MARK: - Tab 2: Deliverables Manifest State
+    // MARK: - Tab 2: Deliverables Specs State
     @State private var deliverableFiles: [URL] = []
     @State private var deliverableAssets: [DeliverableAsset] = []
     @State private var isInspectingDeliverables: Bool = false
@@ -117,7 +117,7 @@ struct ContentView: View {
                     .font(.system(size: 16, weight: .black, design: .default))
                     .foregroundColor(textMain)
                     .tracking(1.5)
-                Text("POST-PRODUCTION QC & ASSET MANIFEST AUDITOR // APPLE SILICON")
+                Text("POST-PRODUCTION QC & DELIVERABLE SPECS AUDITOR // APPLE SILICON")
                     .font(.system(size: 9, weight: .bold, design: .monospaced))
                     .foregroundColor(textMuted)
                     .tracking(0.5)
@@ -200,7 +200,7 @@ struct ContentView: View {
             
             Spacer()
             
-            Text(selectedTab == .lineScanner ? "MODE // FRAME-BY-FRAME EDGE ARTIFACT SCANNER" : "MODE // INSTANT ASSET MANIFEST & SPEC AUDITOR")
+            Text(selectedTab == .lineScanner ? "MODE // FRAME-BY-FRAME EDGE ARTIFACT SCANNER" : "MODE // INSTANT ASSET SPECS & METADATA AUDITOR")
                 .font(.system(size: 10, weight: .bold, design: .monospaced))
                 .foregroundColor(textMuted)
                 .tracking(0.5)
@@ -246,7 +246,7 @@ struct ContentView: View {
     
     private var folderPickerSection: some View {
         VStack(alignment: .leading, spacing: 10) {
-            sectionHeader(num: "01", title: "DELIVERY FOLDER")
+            sectionHeader(num: "01", title: "DELIVERY ASSETS")
             
             VStack(alignment: .leading, spacing: 8) {
                 Button(action: selectFolder) {
@@ -256,7 +256,7 @@ struct ContentView: View {
                             .foregroundColor(textMain)
                             .tracking(0.5)
                         Spacer()
-                        Text("[BROWSE]")
+                        Text("[FOLDER]")
                             .font(.system(size: 10, weight: .bold, design: .monospaced))
                             .foregroundColor(textSubtle)
                     }
@@ -268,24 +268,57 @@ struct ContentView: View {
                 .buttonStyle(.plain)
                 .disabled(isScanning)
                 
-                if let folder = folderURL {
-                    VStack(alignment: .leading, spacing: 3) {
-                        Text(folder.lastPathComponent.uppercased())
-                            .font(.system(size: 12, weight: .bold, design: .monospaced))
+                Button(action: selectIndividualVideosForScanner) {
+                    HStack {
+                        Text("SELECT FILE(S)...")
+                            .font(.system(size: 11, weight: .bold, design: .monospaced))
                             .foregroundColor(textMain)
-                            .lineLimit(1)
-                            .truncationMode(.middle)
-                        
-                        Text("\(videoFiles.count) VIDEO FILES DETECTED")
-                            .font(.system(size: 10, weight: .semibold, design: .monospaced))
-                            .foregroundColor(videoFiles.isEmpty ? alertRed : textSubtle)
+                            .tracking(0.5)
+                        Spacer()
+                        Text("[FILES]")
+                            .font(.system(size: 10, weight: .bold, design: .monospaced))
+                            .foregroundColor(textSubtle)
+                    }
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 8)
+                    .background(bgSubtle)
+                    .border(borderLine, width: 1)
+                }
+                .buttonStyle(.plain)
+                .disabled(isScanning)
+                
+                if !videoFiles.isEmpty {
+                    VStack(alignment: .leading, spacing: 3) {
+                        if videoFiles.count == 1, let singleFile = videoFiles.first {
+                            Text(singleFile.lastPathComponent.uppercased())
+                                .font(.system(size: 12, weight: .bold, design: .monospaced))
+                                .foregroundColor(textMain)
+                                .lineLimit(1)
+                                .truncationMode(.middle)
+                            Text("1 VIDEO FILE LOADED")
+                                .font(.system(size: 10, weight: .semibold, design: .monospaced))
+                                .foregroundColor(textSubtle)
+                        } else if let folder = folderURL {
+                            Text(folder.lastPathComponent.uppercased())
+                                .font(.system(size: 12, weight: .bold, design: .monospaced))
+                                .foregroundColor(textMain)
+                                .lineLimit(1)
+                                .truncationMode(.middle)
+                            Text("\(videoFiles.count) VIDEO FILES DETECTED")
+                                .font(.system(size: 10, weight: .semibold, design: .monospaced))
+                                .foregroundColor(textSubtle)
+                        } else {
+                            Text("\(videoFiles.count) VIDEO FILES LOADED")
+                                .font(.system(size: 12, weight: .bold, design: .monospaced))
+                                .foregroundColor(textMain)
+                        }
                     }
                     .padding(10)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .background(bgCardSubtle)
                     .border(borderLine, width: 1)
                 } else {
-                    Text("DRAG & DROP FOLDER HERE OR BROWSE")
+                    Text("DRAG & DROP FOLDER OR VIDEO FILES HERE")
                         .font(.system(size: 10, weight: .medium, design: .monospaced))
                         .foregroundColor(textMuted)
                         .frame(maxWidth: .infinity, alignment: .center)
@@ -731,7 +764,7 @@ struct ContentView: View {
         .padding(40)
     }
     
-    // MARK: ==================== TAB 2: DELIVERABLES MANIFEST ====================
+    // MARK: ==================== TAB 2: DELIVERABLES SPECS ====================
     
     private var deliverablesTabView: some View {
         HSplitView {
@@ -808,7 +841,7 @@ struct ContentView: View {
                 
                 // Actions
                 VStack(alignment: .leading, spacing: 10) {
-                    sectionHeader(num: "02", title: "MANIFEST ACTIONS")
+                    sectionHeader(num: "02", title: "SPECS ACTIONS")
                     
                     Button(action: {
                         if !deliverableAssets.isEmpty {
@@ -830,7 +863,7 @@ struct ContentView: View {
                             openManifestHTML()
                         }
                     }) {
-                        Text("[ OPEN HTML MANIFEST ]")
+                        Text("[ OPEN HTML SPECS ]")
                             .font(.system(size: 11, weight: .bold, design: .monospaced))
                             .frame(maxWidth: .infinity)
                             .padding(.vertical, 9)
@@ -876,12 +909,12 @@ struct ContentView: View {
             .frame(minWidth: 360, idealWidth: 400, maxWidth: 440)
             .background(bgPanel)
             
-            // Right Panel: Manifest Table / Stats
+            // Right Panel: Specs Table / Stats
             VStack(alignment: .leading, spacing: 20) {
                 if isInspectingDeliverables {
                     VStack(alignment: .center, spacing: 12) {
                         Spacer()
-                        Text("INSPECTING DELIVERABLES METADATA...")
+                        Text("INSPECTING DELIVERABLES SPECS...")
                             .font(.system(size: 18, weight: .heavy, design: .monospaced))
                         ProgressView()
                             .scaleEffect(1.2)
@@ -896,7 +929,7 @@ struct ContentView: View {
                             .foregroundColor(textMain)
                             .tracking(1.0)
                         
-                        Text("DROP A DELIVERY FOLDER OR VIDEO FILES TO INSTANTLY GENERATE AN ASSET MANIFEST.\nDISPLAYS EXACT TIMECODE LENGTHS, ASPECT RATIOS, RESOLUTIONS, FRAMERATES, AND SIZES.")
+                        Text("DROP A DELIVERY FOLDER OR VIDEO FILES TO INSTANTLY GENERATE A DELIVERABLE SPECS AUDIT.\nDISPLAYS EXACT TIMECODE LENGTHS, ASPECT RATIOS, RESOLUTIONS, FRAMERATES, AND SIZES.")
                             .font(.system(size: 12, weight: .medium, design: .monospaced))
                             .foregroundColor(textMuted)
                             .lineSpacing(4)
@@ -916,12 +949,12 @@ struct ContentView: View {
                     // Quick Stats Strip
                     let totalBytes = deliverableAssets.reduce(Int64(0)) { $0 + $1.fileSizeBytes }
                     let totalSeconds = deliverableAssets.reduce(0.0) { $0 + $1.durationSeconds }
-                    let uniqueRatios = Array(Set(deliverableAssets.map { $0.aspectRatioString })).sorted().joined(separator: ", ")
+                    let mismatchCount = deliverableAssets.filter { $0.validation.hasAnyMismatch }.count
                     
                     HStack(spacing: 12) {
                         statBox(title: "TOTAL ASSETS", val: String(format: "%02d", deliverableAssets.count))
+                        statBox(title: "NAME MISMATCHES", val: String(format: "%02d", mismatchCount), isRed: mismatchCount > 0)
                         statBox(title: "TOTAL RUNTIME", val: TimecodeFormatter.format(frameIndex: Int(round(totalSeconds * 25.0)), fps: 25.0))
-                        statBox(title: "ASPECT RATIOS", val: uniqueRatios.isEmpty ? "--" : uniqueRatios)
                         statBox(title: "TOTAL BATCH SIZE", val: DeliverablesInspector.formatFileSize(bytes: totalBytes))
                     }
                     
@@ -930,12 +963,14 @@ struct ContentView: View {
                         // Table Header
                         HStack(spacing: 8) {
                             Text("#").frame(width: 25, alignment: .leading)
-                            Text("FILE NAME").frame(minWidth: 180, maxWidth: .infinity, alignment: .leading)
+                            Text("FILE NAME").frame(minWidth: 160, maxWidth: .infinity, alignment: .leading)
+                            Text("STATUS").frame(width: 75, alignment: .leading)
                             Text("LENGTH / TC").frame(width: 140, alignment: .leading)
                             Text("RATIO & SIZE").frame(width: 140, alignment: .leading)
-                            Text("FPS").frame(width: 75, alignment: .leading)
-                            Text("FILE SIZE").frame(width: 80, alignment: .leading)
-                            Text("CODEC").frame(width: 100, alignment: .leading)
+                            Text("FPS").frame(width: 65, alignment: .leading)
+                            Text("FILE SIZE").frame(width: 75, alignment: .leading)
+                            Text("VIDEO").frame(width: 85, alignment: .leading)
+                            Text("AUDIO SPEC & BITRATE").frame(width: 150, alignment: .leading)
                         }
                         .font(.system(size: 9, weight: .bold, design: .monospaced))
                         .foregroundColor(textMuted)
@@ -949,50 +984,130 @@ struct ContentView: View {
                         ScrollView {
                             VStack(spacing: 0) {
                                 ForEach(Array(deliverableAssets.enumerated()), id: \.element.id) { idx, asset in
+                                    let hasMismatch = asset.validation.hasAnyMismatch
+                                    
                                     HStack(spacing: 8) {
                                         Text(String(format: "%02d", idx + 1))
                                             .frame(width: 25, alignment: .leading)
                                             .foregroundColor(textMuted)
                                         
                                         Text(asset.fileName.uppercased())
-                                            .frame(minWidth: 180, maxWidth: .infinity, alignment: .leading)
+                                            .frame(minWidth: 160, maxWidth: .infinity, alignment: .leading)
                                             .fontWeight(.bold)
                                             .lineLimit(1)
                                             .truncationMode(.middle)
                                             .help(asset.fileName)
                                         
-                                        Text("\(asset.timecode) (\(asset.formattedDuration))")
-                                            .frame(width: 140, alignment: .leading)
-                                            .foregroundColor(textSubtle)
-                                        
-                                        HStack(spacing: 4) {
-                                            Text(asset.aspectRatioString)
-                                                .padding(.horizontal, 4)
+                                        // Validation Status Badge
+                                        if hasMismatch {
+                                            Text("MISMATCH")
+                                                .font(.system(size: 8, weight: .black, design: .monospaced))
+                                                .padding(.horizontal, 5)
                                                 .padding(.vertical, 2)
-                                                .background(bgSubtle)
-                                                .border(borderLine, width: 1)
-                                            Text(asset.resolutionString)
-                                                .foregroundColor(textSubtle)
+                                                .background(alertRed)
+                                                .foregroundColor(.white)
+                                                .frame(width: 75, alignment: .leading)
+                                                .help(asset.validation.summaryString)
+                                        } else {
+                                            Text("OK")
+                                                .font(.system(size: 9, weight: .bold, design: .monospaced))
+                                                .foregroundColor(textMuted)
+                                                .frame(width: 75, alignment: .leading)
+                                        }
+                                        
+                                        // Duration Cell with Warning
+                                        VStack(alignment: .leading, spacing: 2) {
+                                            Text("\(asset.timecode) (\(asset.formattedDuration))")
+                                                .foregroundColor(asset.validation.isDurationMismatch ? alertRed : textSubtle)
+                                                .fontWeight(asset.validation.isDurationMismatch ? .bold : .regular)
+                                            
+                                            if let detail = asset.validation.durationMismatchDetail {
+                                                Text(detail)
+                                                    .font(.system(size: 8, weight: .heavy, design: .monospaced))
+                                                    .foregroundColor(alertRed)
+                                                    .lineLimit(1)
+                                            }
+                                        }
+                                        .frame(width: 140, alignment: .leading)
+                                        
+                                        // Ratio Cell with Warning
+                                        VStack(alignment: .leading, spacing: 2) {
+                                            HStack(spacing: 4) {
+                                                Text(asset.aspectRatioString)
+                                                    .font(.system(size: 9, weight: .bold, design: .monospaced))
+                                                    .padding(.horizontal, 4)
+                                                    .padding(.vertical, 2)
+                                                    .background(asset.validation.isRatioMismatch ? alertRed : bgSubtle)
+                                                    .foregroundColor(asset.validation.isRatioMismatch ? .white : textMain)
+                                                    .border(asset.validation.isRatioMismatch ? alertRed : borderLine, width: 1)
+                                                
+                                                Text(asset.resolutionString)
+                                                    .foregroundColor(textSubtle)
+                                            }
+                                            
+                                            if let detail = asset.validation.ratioMismatchDetail {
+                                                Text(detail)
+                                                    .font(.system(size: 8, weight: .heavy, design: .monospaced))
+                                                    .foregroundColor(alertRed)
+                                                    .lineLimit(1)
+                                            }
                                         }
                                         .frame(width: 140, alignment: .leading)
                                         
                                         Text(String(format: "%.2f", asset.fps))
-                                            .frame(width: 75, alignment: .leading)
+                                            .frame(width: 65, alignment: .leading)
                                             .foregroundColor(textSubtle)
                                         
                                         Text(asset.formattedFileSize)
-                                            .frame(width: 80, alignment: .leading)
+                                            .frame(width: 75, alignment: .leading)
                                             .fontWeight(.semibold)
                                         
                                         Text(asset.videoCodec)
-                                            .frame(width: 100, alignment: .leading)
+                                            .frame(width: 85, alignment: .leading)
                                             .foregroundColor(textMuted)
                                             .lineLimit(1)
+                                        
+                                        // Audio Column
+                                        if !asset.hasAudio {
+                                            Text("NONE")
+                                                .font(.system(size: 9, weight: .bold, design: .monospaced))
+                                                .foregroundColor(textMuted)
+                                                .frame(width: 150, alignment: .leading)
+                                        } else {
+                                            VStack(alignment: .leading, spacing: 2) {
+                                                HStack(spacing: 4) {
+                                                    Text(asset.audioCodec)
+                                                        .font(.system(size: 10, weight: .bold, design: .monospaced))
+                                                        .foregroundColor(textMain)
+                                                    if asset.audioBitrate != "--" {
+                                                        Text(asset.audioBitrate)
+                                                            .font(.system(size: 8, weight: .bold, design: .monospaced))
+                                                            .padding(.horizontal, 4)
+                                                            .padding(.vertical, 1)
+                                                            .background(bgSubtle)
+                                                            .border(borderLine, width: 1)
+                                                            .foregroundColor(textSubtle)
+                                                    }
+                                                }
+                                                if !asset.audioFormatDetail.isEmpty {
+                                                    Text(asset.audioFormatDetail)
+                                                        .font(.system(size: 8, weight: .medium, design: .monospaced))
+                                                        .foregroundColor(textMuted)
+                                                        .lineLimit(1)
+                                                }
+                                            }
+                                            .frame(width: 150, alignment: .leading)
+                                            .help(asset.audioConfig)
+                                        }
                                     }
                                     .font(.system(size: 11, design: .monospaced))
                                     .padding(.horizontal, 14)
-                                    .padding(.vertical, 10)
-                                    .background(idx % 2 == 0 ? bgPanel : bgCardSubtle)
+                                    .padding(.vertical, 9)
+                                    .background(hasMismatch ? (isLightMode ? Color.red.opacity(0.08) : Color.red.opacity(0.12)) : (idx % 2 == 0 ? bgPanel : bgCardSubtle))
+                                    .overlay(
+                                        hasMismatch ? Rectangle().fill(alertRed).frame(width: 3) : nil,
+                                        alignment: .leading
+                                    )
                                     
                                     if idx < deliverableAssets.count - 1 {
                                         Rectangle().fill(borderLine.opacity(0.4)).frame(height: 1)
@@ -1079,7 +1194,7 @@ struct ContentView: View {
         let csvString = DeliverablesInspector.generateManifestCSV(assets: deliverableAssets)
         let savePanel = NSSavePanel()
         savePanel.allowedContentTypes = [UTType.commaSeparatedText]
-        savePanel.nameFieldStringValue = "Deliverables_Manifest_\(Date().timeIntervalSince1970).csv"
+        savePanel.nameFieldStringValue = "Deliverables_Specs_\(Date().timeIntervalSince1970).csv"
         
         if savePanel.runModal() == .OK, let url = savePanel.url {
             try? csvString.write(to: url, atomically: true, encoding: .utf8)
@@ -1093,7 +1208,7 @@ struct ContentView: View {
         let folderName = folderURL?.lastPathComponent ?? "Deliverables"
         let htmlString = DeliverablesInspector.generateManifestHTML(assets: deliverableAssets, folderName: folderName)
         
-        let tempURL = FileManager.default.temporaryDirectory.appendingPathComponent("Deliverables_Manifest_\(Int(Date().timeIntervalSince1970)).html")
+        let tempURL = FileManager.default.temporaryDirectory.appendingPathComponent("Deliverables_Specs_\(Int(Date().timeIntervalSince1970)).html")
         try? htmlString.write(to: tempURL, atomically: true, encoding: .utf8)
         NSWorkspace.shared.open(tempURL)
     }
@@ -1173,19 +1288,51 @@ struct ContentView: View {
         }
     }
     
+    private func selectIndividualVideosForScanner() {
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = false
+        panel.allowsMultipleSelection = true
+        panel.allowedContentTypes = [UTType.movie, UTType.video, UTType.quickTimeMovie, UTType.mpeg4Movie]
+        panel.prompt = "Select Video(s) to QC"
+        
+        if panel.runModal() == .OK, !panel.urls.isEmpty {
+            self.videoFiles = panel.urls
+            self.folderURL = panel.urls.first?.deletingLastPathComponent()
+            self.scanResults = []
+            self.generatedReportURL = nil
+            self.generatedCSVURL = nil
+            
+            // Auto-populate deliverables tab with metadata
+            inspectDeliverablesBatch(urls: self.videoFiles)
+        }
+    }
+    
     private func handleDrop(providers: [NSItemProvider]) -> Bool {
         guard let provider = providers.first else { return false }
         _ = provider.loadObject(ofClass: URL.self) { url, _ in
             guard let url = url else { return }
             var isDir: ObjCBool = false
-            if FileManager.default.fileExists(atPath: url.path, isDirectory: &isDir), isDir.boolValue {
-                Task { @MainActor in
-                    self.folderURL = url
-                    self.videoFiles = VideoScanner.findVideoFiles(in: url)
-                    self.scanResults = []
-                    self.generatedReportURL = nil
-                    self.generatedCSVURL = nil
-                    self.inspectDeliverablesBatch(urls: self.videoFiles)
+            if FileManager.default.fileExists(atPath: url.path, isDirectory: &isDir) {
+                if isDir.boolValue {
+                    let files = VideoScanner.findVideoFiles(in: url)
+                    Task { @MainActor in
+                        self.folderURL = url
+                        self.videoFiles = files
+                        self.scanResults = []
+                        self.generatedReportURL = nil
+                        self.generatedCSVURL = nil
+                        self.inspectDeliverablesBatch(urls: files)
+                    }
+                } else {
+                    Task { @MainActor in
+                        self.folderURL = url.deletingLastPathComponent()
+                        self.videoFiles = [url]
+                        self.scanResults = []
+                        self.generatedReportURL = nil
+                        self.generatedCSVURL = nil
+                        self.inspectDeliverablesBatch(urls: [url])
+                    }
                 }
             }
         }
@@ -1193,7 +1340,8 @@ struct ContentView: View {
     }
     
     private func startScan() {
-        guard let folder = folderURL, !videoFiles.isEmpty else { return }
+        guard !videoFiles.isEmpty else { return }
+        let folder = folderURL ?? videoFiles.first?.deletingLastPathComponent() ?? URL(fileURLWithPath: NSTemporaryDirectory())
         
         let config = QCConfig(
             targetHex: hexCode,

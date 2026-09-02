@@ -43,15 +43,24 @@ public struct DeliverablesInspector: Sendable {
             let fileSizeBytes = Int64(resourceValues?.fileSize ?? 0)
             let formattedFileSize = formatFileSize(bytes: fileSizeBytes)
             
-            // 4. Codec
+            // 4. Video Codec
             let videoCodec = await extractVideoCodec(track: videoTrack)
             
-            // 5. Audio
+            // 5. Audio Info (Codec, Bitrate, Sub-Details, Full Config or NONE)
             let audioTracks = (try? await asset.loadTracks(withMediaType: .audio)) ?? []
-            let audioConfig = await extractAudioConfig(tracks: audioTracks)
+            let audioInfo = await extractAudioInfo(tracks: audioTracks)
             
             // 6. Container
             let container = url.pathExtension.uppercased()
+            
+            // 7. Filename vs Attributes Cross-Reference Validation
+            let validation = validateFilename(
+                fileName: url.lastPathComponent,
+                durationSeconds: durationSeconds,
+                aspectRatio: aspectRatioString,
+                width: width,
+                height: height
+            )
             
             return DeliverableAsset(
                 fileURL: url,
@@ -68,8 +77,12 @@ public struct DeliverablesInspector: Sendable {
                 timecode: timecode,
                 fps: fps,
                 videoCodec: videoCodec,
-                audioConfig: audioConfig,
-                container: container
+                audioCodec: audioInfo.codec,
+                audioBitrate: audioInfo.bitrate,
+                audioFormatDetail: audioInfo.subDetail,
+                audioConfig: audioInfo.fullDesc,
+                container: container,
+                validation: validation
             )
         } catch {
             return nil
@@ -85,6 +98,83 @@ public struct DeliverablesInspector: Sendable {
             }
         }
         return assets
+    }
+    
+    // MARK: - Cross-Reference Validation
+    
+    /// Validates filename against actual attributes (e.g. filename says 15sec but video is 25s, or says 9x16 but video is 16:9)
+    public static func validateFilename(
+        fileName: String,
+        durationSeconds: Double,
+        aspectRatio: String,
+        width: Int,
+        height: Int
+    ) -> DeliverableValidation {
+        var isDurationMismatch = false
+        var expectedDurationSeconds: Double? = nil
+        var durationMismatchDetail: String? = nil
+        
+        var isRatioMismatch = false
+        var expectedRatioString: String? = nil
+        var ratioMismatchDetail: String? = nil
+        
+        let lowerName = fileName.lowercased()
+        
+        // 1. Duration validation: matches e.g. "15sec", "15_sec", "15s", "15 s", "15seconds", "15-sec"
+        let durationPattern = #"(?:^|[_\s\-\.])([0-9]{1,3})\s*(?:sec|secs|seconds|s)(?:$|[_\s\-\.])"#
+        if let regex = try? NSRegularExpression(pattern: durationPattern, options: .caseInsensitive) {
+            let nsString = lowerName as NSString
+            let matches = regex.matches(in: lowerName, range: NSRange(location: 0, length: nsString.length))
+            if let firstMatch = matches.first, firstMatch.numberOfRanges > 1 {
+                let matchedNumberStr = nsString.substring(with: firstMatch.range(at: 1))
+                if let secVal = Double(matchedNumberStr), secVal > 0 && secVal <= 600 {
+                    expectedDurationSeconds = secVal
+                    // Allow up to 1.5s tolerance for commercial frame rounding (e.g. 15.04s is 15s)
+                    if abs(durationSeconds - secVal) > 1.5 {
+                        isDurationMismatch = true
+                        let formattedActual = String(format: "%.1fs", durationSeconds)
+                        durationMismatchDetail = "NAME SAYS \(Int(secVal))S (ACTUAL: \(formattedActual))"
+                    }
+                }
+            }
+        }
+        
+        // 2. Aspect Ratio validation: matches 16x9, 9x16, 4x5, 5x4, 1x1, 4x3, 3x4, 21x9, square
+        let ratioPattern = #"(?:^|[_\s\-\.])(16[x_]9|9[x_]16|4[x_]5|5[x_]4|1[x_]1|4[x_]3|3[x_]4|21[x_]9|square)(?:$|[_\s\-\.])"#
+        if let regex = try? NSRegularExpression(pattern: ratioPattern, options: .caseInsensitive) {
+            let nsString = lowerName as NSString
+            let matches = regex.matches(in: lowerName, range: NSRange(location: 0, length: nsString.length))
+            if let firstMatch = matches.first, firstMatch.numberOfRanges > 1 {
+                let rawMatched = nsString.substring(with: firstMatch.range(at: 1))
+                let normalizedExpected: String
+                switch rawMatched {
+                case "16x9", "16_9": normalizedExpected = "16:9"
+                case "9x16", "9_16": normalizedExpected = "9:16"
+                case "4x5", "4_5": normalizedExpected = "4:5"
+                case "5x4", "5_4": normalizedExpected = "5:4"
+                case "1x1", "1_1", "square": normalizedExpected = "1:1"
+                case "4x3", "4_3": normalizedExpected = "4:3"
+                case "3x4", "3_4": normalizedExpected = "3:4"
+                case "21x9", "21_9": normalizedExpected = "21:9"
+                default: normalizedExpected = rawMatched.replacingOccurrences(of: "_", with: ":").replacingOccurrences(of: "x", with: ":")
+                }
+                
+                expectedRatioString = normalizedExpected
+                if aspectRatio != normalizedExpected {
+                    isRatioMismatch = true
+                    ratioMismatchDetail = "NAME SAYS \(normalizedExpected) (ACTUAL: \(aspectRatio))"
+                }
+            }
+        }
+        
+        return DeliverableValidation(
+            isDurationMismatch: isDurationMismatch,
+            expectedDurationSeconds: expectedDurationSeconds,
+            durationMismatchDetail: durationMismatchDetail,
+            isRatioMismatch: isRatioMismatch,
+            expectedRatioString: expectedRatioString,
+            ratioMismatchDetail: ratioMismatchDetail
+        )
     }
     
     // MARK: - Format Helpers
@@ -164,23 +254,102 @@ public struct DeliverablesInspector: Sendable {
         }
     }
     
-    private static func extractAudioConfig(tracks: [AVAssetTrack]) async -> String {
-        guard let audioTrack = tracks.first else { return "MUTE / NO AUDIO" }
+    /// Extracts audio codec, bitrate, sample rate, and channels. If no audio is present, returns "NONE".
+    public static func extractAudioInfo(tracks: [AVAssetTrack]) async -> (codec: String, bitrate: String, subDetail: String, fullDesc: String) {
+        guard let audioTrack = tracks.first else {
+            return (codec: "NONE", bitrate: "--", subDetail: "", fullDesc: "NONE")
+        }
+        
         guard let descriptions = try? await audioTrack.load(.formatDescriptions),
               let desc = descriptions.first,
               let asbd = CMAudioFormatDescriptionGetStreamBasicDescription(desc)?.pointee else {
-            return "AUDIO"
+            return (codec: "AUDIO", bitrate: "--", subDetail: "", fullDesc: "AUDIO")
         }
         
-        let channels = asbd.mChannelsPerFrame
-        let sampleRate = Int(asbd.mSampleRate)
-        let rateStr = sampleRate > 0 ? "\(sampleRate / 1000)kHz" : ""
+        // 1. Codec Identification
+        let formatID = asbd.mFormatID
+        let bitsPerChannel = Int(asbd.mBitsPerChannel)
+        var codecName = ""
         
-        if channels == 1 { return "Mono (\(rateStr))" }
-        if channels == 2 { return "Stereo (2ch • \(rateStr))" }
-        if channels == 6 { return "5.1 Surround (6ch)" }
-        if channels == 8 { return "7.1 Surround (8ch)" }
-        return "\(channels) Channels (\(rateStr))"
+        switch formatID {
+        case kAudioFormatLinearPCM:
+            if bitsPerChannel > 0 {
+                codecName = "PCM (\(bitsPerChannel)-bit)"
+            } else {
+                codecName = "Linear PCM"
+            }
+        case kAudioFormatMPEG4AAC, kAudioFormatMPEG4AAC_HE, kAudioFormatMPEG4AAC_HE_V2, kAudioFormatMPEG4AAC_Spatial:
+            codecName = "AAC"
+        case kAudioFormatAppleLossless:
+            codecName = "ALAC"
+        case kAudioFormatAC3:
+            codecName = "AC-3 (Dolby Digital)"
+        case kAudioFormatEnhancedAC3:
+            codecName = "E-AC-3"
+        case kAudioFormatMPEGLayer3:
+            codecName = "MP3"
+        case kAudioFormatOpus:
+            codecName = "Opus"
+        case kAudioFormatFLAC:
+            codecName = "FLAC"
+        default:
+            let fourCC = fourCCToString(formatID)
+            codecName = fourCC.isEmpty ? "Audio" : fourCC
+        }
+        
+        // 2. Sample Rate & Channels
+        let channels = Int(asbd.mChannelsPerFrame)
+        let sampleRate = Int(asbd.mSampleRate)
+        let rateStr = sampleRate > 0 ? (sampleRate % 1000 == 0 ? "\(sampleRate / 1000)kHz" : String(format: "%.1fkHz", Double(sampleRate) / 1000.0)) : ""
+        
+        let channelStr: String
+        if channels == 1 {
+            channelStr = "Mono (1ch)"
+        } else if channels == 2 {
+            channelStr = "Stereo (2ch)"
+        } else if channels == 6 {
+            channelStr = "5.1 Surround"
+        } else if channels == 8 {
+            channelStr = "7.1 Surround"
+        } else if channels > 0 {
+            channelStr = "\(channels)ch"
+        } else {
+            channelStr = ""
+        }
+        
+        // 3. Bitrate Calculation / Estimation
+        var bitrateKbps: Int = 0
+        let loadedRate = try? await audioTrack.load(.estimatedDataRate)
+        let estimatedRate = Double(loadedRate ?? 0)
+        
+        if estimatedRate > 0 {
+            bitrateKbps = Int(round(estimatedRate / 1000.0))
+        } else if formatID == kAudioFormatLinearPCM && sampleRate > 0 && channels > 0 {
+            let bits = bitsPerChannel > 0 ? bitsPerChannel : 16
+            let calcRate = Double(sampleRate * channels * bits)
+            bitrateKbps = Int(round(calcRate / 1000.0))
+        }
+        
+        let bitrateStr: String
+        if bitrateKbps > 0 {
+            bitrateStr = "\(bitrateKbps) kbps"
+        } else {
+            bitrateStr = "--"
+        }
+        
+        // 4. Sub-Details (only sample rate & channels, e.g. "48kHz • Stereo")
+        var subParts: [String] = []
+        if !rateStr.isEmpty { subParts.append(rateStr) }
+        if !channelStr.isEmpty { subParts.append(channelStr) }
+        let subDetail = subParts.joined(separator: " • ")
+        
+        // 5. Full combined description for CSV / tooltips
+        var fullParts: [String] = [codecName]
+        if bitrateStr != "--" { fullParts.append(bitrateStr) }
+        if !subDetail.isEmpty { fullParts.append(subDetail) }
+        let fullDesc = fullParts.joined(separator: " • ")
+        
+        return (codec: codecName, bitrate: bitrateStr, subDetail: subDetail, fullDesc: fullDesc)
     }
     
     private static func fourCCToString(_ fourCC: FourCharCode) -> String {
@@ -196,7 +365,7 @@ public struct DeliverablesInspector: Sendable {
     // MARK: - CSV Generator
     
     public static func generateManifestCSV(assets: [DeliverableAsset]) -> String {
-        var csv = "File Name,Timecode,Duration,Total Frames,Resolution,Aspect Ratio,FPS,File Size,Video Codec,Audio Channels,Container\n"
+        var csv = "File Name,Status,Validation Notes,Timecode,Duration,Total Frames,Resolution,Aspect Ratio,FPS,File Size,Video Codec,Audio Codec,Audio Bitrate,Audio Details,Container\n"
         
         func escapeCSV(_ str: String) -> String {
             if str.contains(",") || str.contains("\"") || str.contains("\n") {
@@ -207,13 +376,15 @@ public struct DeliverablesInspector: Sendable {
         }
         
         for a in assets {
-            csv += "\(escapeCSV(a.fileName)),\(escapeCSV(a.timecode)),\(escapeCSV(a.formattedDuration)),\(a.totalFrames),\(escapeCSV(a.resolutionString)),\(escapeCSV(a.aspectRatioString)),\(String(format: "%.2f", a.fps)),\(escapeCSV(a.formattedFileSize)),\(escapeCSV(a.videoCodec)),\(escapeCSV(a.audioConfig)),\(escapeCSV(a.container))\n"
+            let status = a.validation.hasAnyMismatch ? "MISMATCH FLAGGED" : "MATCHED"
+            let notes = a.validation.summaryString
+            csv += "\(escapeCSV(a.fileName)),\(escapeCSV(status)),\(escapeCSV(notes)),\(escapeCSV(a.timecode)),\(escapeCSV(a.formattedDuration)),\(a.totalFrames),\(escapeCSV(a.resolutionString)),\(escapeCSV(a.aspectRatioString)),\(String(format: "%.2f", a.fps)),\(escapeCSV(a.formattedFileSize)),\(escapeCSV(a.videoCodec)),\(escapeCSV(a.audioCodec)),\(escapeCSV(a.audioBitrate)),\(escapeCSV(a.audioConfig)),\(escapeCSV(a.container))\n"
         }
         
         return csv
     }
     
-    // MARK: - HTML Manifest Generator
+    // MARK: - HTML Specs Generator
     
     public static func generateManifestHTML(assets: [DeliverableAsset], folderName: String) -> String {
         let dateFormatter = DateFormatter()
@@ -222,7 +393,7 @@ public struct DeliverablesInspector: Sendable {
         
         let totalSize = assets.reduce(Int64(0)) { $0 + $1.fileSizeBytes }
         let formattedTotalSize = formatFileSize(bytes: totalSize)
-        let uniqueRatios = Array(Set(assets.map { $0.aspectRatioString })).sorted().joined(separator: ", ")
+        let mismatchCount = assets.filter { $0.validation.hasAnyMismatch }.count
         let rawCSV = generateManifestCSV(assets: assets)
         
         var html = """
@@ -231,7 +402,7 @@ public struct DeliverablesInspector: Sendable {
         <head>
             <meta charset="UTF-8">
             <meta name="viewport" content="width=device-width, initial-scale=1.0">
-            <title>DELIVERABLES MANIFEST // \(folderName.uppercased())</title>
+            <title>DELIVERABLES SPECS // \(folderName.uppercased())</title>
             <style>
                 @import url('https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@400;600;700;800;900&family=JetBrains+Mono:wght@400;500;700&display=swap');
 
@@ -243,6 +414,8 @@ public struct DeliverablesInspector: Sendable {
                     --text: #ffffff;
                     --text-secondary: #888888;
                     --text-muted: #555555;
+                    --red: #ff3333;
+                    --red-muted: rgba(255, 51, 51, 0.15);
                     --table-th-bg: #0d0d0d;
                     --font-heading: 'Barlow Condensed', 'Helvetica Neue', 'Helvetica', -apple-system, sans-serif;
                     --font-mono: 'JetBrains Mono', 'SF Mono', 'Menlo', monospace;
@@ -256,6 +429,8 @@ public struct DeliverablesInspector: Sendable {
                     --text: #0a0a0a;
                     --text-secondary: #555555;
                     --text-muted: #888888;
+                    --red: #d32f2f;
+                    --red-muted: rgba(211, 47, 47, 0.12);
                     --table-th-bg: #f0f0f0;
                 }
 
@@ -272,7 +447,7 @@ public struct DeliverablesInspector: Sendable {
                     -webkit-font-smoothing: antialiased;
                 }
 
-                .container { max-width: 1240px; margin: 0 auto; }
+                .container { max-width: 1320px; margin: 0 auto; }
 
                 .masthead {
                     display: flex;
@@ -347,6 +522,8 @@ public struct DeliverablesInspector: Sendable {
                     margin-top: 6px;
                 }
 
+                .stat-box.highlight .num { color: var(--red); }
+
                 /* Table */
                 .table-container {
                     background: var(--panel);
@@ -367,34 +544,38 @@ public struct DeliverablesInspector: Sendable {
                     font-size: 10px;
                     font-weight: 700;
                     letter-spacing: 0.12em;
-                    padding: 12px 16px;
+                    padding: 12px 14px;
                     text-align: left;
                     border-bottom: 1px solid var(--border);
                     white-space: nowrap;
                 }
 
                 td {
-                    padding: 14px 16px;
+                    padding: 12px 14px;
                     border-bottom: 1px solid var(--border);
                     font-weight: 600;
-                    white-space: nowrap;
+                    vertical-align: middle;
                 }
 
                 tr:last-child td { border-bottom: none; }
+                tr.mismatch-row { background: var(--red-muted); }
+                tr.mismatch-row td:first-child { border-left: 3px solid var(--red); }
 
                 .fn-cell {
                     font-size: 13px;
                     font-weight: 800;
                     letter-spacing: 0.02em;
-                    max-width: 320px;
+                    max-width: 260px;
                     overflow: hidden;
                     text-overflow: ellipsis;
+                    white-space: nowrap;
                 }
 
                 .mono-cell {
                     font-family: var(--font-mono);
                     font-weight: 700;
                     letter-spacing: 0.05em;
+                    white-space: nowrap;
                 }
 
                 .tag {
@@ -404,6 +585,31 @@ public struct DeliverablesInspector: Sendable {
                     font-family: var(--font-mono);
                     font-size: 10px;
                     font-weight: 700;
+                    white-space: nowrap;
+                }
+
+                .tag-mismatch {
+                    background: var(--red);
+                    color: #ffffff;
+                    border-color: var(--red);
+                }
+
+                .warning-pill {
+                    font-size: 10px;
+                    font-weight: 800;
+                    font-family: var(--font-mono);
+                    color: var(--red);
+                    display: block;
+                    margin-top: 3px;
+                    white-space: nowrap;
+                }
+
+                .audio-detail-sub {
+                    color: var(--text-secondary);
+                    font-size: 10px;
+                    font-family: var(--font-mono);
+                    margin-top: 3px;
+                    white-space: nowrap;
                 }
 
                 #toast {
@@ -436,7 +642,7 @@ public struct DeliverablesInspector: Sendable {
             <div class="container">
                 <div class="masthead">
                     <div class="title-block">
-                        <h1>DELIVERABLES MANIFEST</h1>
+                        <h1>DELIVERABLES SPECS</h1>
                         <div class="subtitle">ASSET SPECIFICATION AUDIT // \(folderName.uppercased())</div>
                     </div>
                     <div class="header-actions">
@@ -451,13 +657,13 @@ public struct DeliverablesInspector: Sendable {
                         <div class="num">\(String(format: "%02d", assets.count))</div>
                         <div class="label">TOTAL DELIVERABLES</div>
                     </div>
+                    <div class="stat-box \(mismatchCount > 0 ? "highlight" : "")">
+                        <div class="num">\(String(format: "%02d", mismatchCount))</div>
+                        <div class="label">NAME MISMATCHES</div>
+                    </div>
                     <div class="stat-box">
                         <div class="num">\(formattedTotalSize)</div>
                         <div class="label">TOTAL BATCH SIZE</div>
-                    </div>
-                    <div class="stat-box">
-                        <div class="num" style="font-size: 24px; padding-top: 10px;">\(uniqueRatios.isEmpty ? "--" : uniqueRatios)</div>
-                        <div class="label">ASPECT RATIOS</div>
                     </div>
                     <div class="stat-box">
                         <div class="num" style="font-size: 20px; padding-top: 14px; font-family: var(--font-mono)">\(dateString)</div>
@@ -471,28 +677,57 @@ public struct DeliverablesInspector: Sendable {
                             <tr>
                                 <th>#</th>
                                 <th>FILE NAME</th>
+                                <th>STATUS</th>
                                 <th>LENGTH / TC</th>
                                 <th>RATIO & RESOLUTION</th>
-                                <th>FRAME RATE</th>
+                                <th>FPS</th>
                                 <th>FILE SIZE</th>
-                                <th>CODEC</th>
-                                <th>AUDIO CONFIG</th>
+                                <th>VIDEO</th>
+                                <th>AUDIO (CODEC • BITRATE)</th>
                             </tr>
                         </thead>
                         <tbody>
         """
         
         for (idx, a) in assets.enumerated() {
+            let rowClass = a.validation.hasAnyMismatch ? "class='mismatch-row'" : ""
+            let statusTag = a.validation.hasAnyMismatch ? "<span class='tag tag-mismatch'>MISMATCH</span>" : "<span class='tag'>OK</span>"
+            
+            let audioDisplay: String
+            if !a.hasAudio {
+                audioDisplay = "<span style='color:var(--text-muted); font-family:var(--font-mono)'>NONE</span>"
+            } else {
+                let bitrateTag = a.audioBitrate != "--" ? "<span class='tag' style='margin-left:4px'>\(a.audioBitrate)</span>" : ""
+                let subLine = !a.audioFormatDetail.isEmpty ? "<div class='audio-detail-sub'>\(a.audioFormatDetail)</div>" : ""
+                audioDisplay = """
+                <div style="display:flex; align-items:center;">
+                    <span class="mono-cell">\(a.audioCodec)</span>\(bitrateTag)
+                </div>\(subLine)
+                """
+            }
+            
             html += """
-                            <tr>
+                            <tr \(rowClass)>
                                 <td style="color:var(--text-muted); font-family:var(--font-mono)">\(String(format: "%02d", idx + 1))</td>
-                                <td class="fn-cell" title="\(a.fileName.uppercased())">\(a.fileName.uppercased())</td>
-                                <td class="mono-cell">\(a.timecode) <span style="color:var(--text-muted); font-size:11px">(\(a.formattedDuration))</span></td>
-                                <td><span class="tag">\(a.aspectRatioString)</span> <span class="mono-cell" style="font-size:11px; margin-left:4px">\(a.resolutionString)</span></td>
+                                <td class="fn-cell" title="\(a.fileName.uppercased())">
+                                    \(a.fileName.uppercased())
+                                </td>
+                                <td>
+                                    \(statusTag)
+                                </td>
+                                <td class="mono-cell">
+                                    \(a.timecode) <span style="color:var(--text-muted); font-size:11px">(\(a.formattedDuration))</span>
+                                    \(a.validation.isDurationMismatch ? "<span class='warning-pill'>\(a.validation.durationMismatchDetail ?? "")</span>" : "")
+                                </td>
+                                <td>
+                                    <span class="tag \(a.validation.isRatioMismatch ? "tag-mismatch" : "")">\(a.aspectRatioString)</span> 
+                                    <span class="mono-cell" style="font-size:11px; margin-left:4px">\(a.resolutionString)</span>
+                                    \(a.validation.isRatioMismatch ? "<span class='warning-pill'>\(a.validation.ratioMismatchDetail ?? "")</span>" : "")
+                                </td>
                                 <td class="mono-cell">\(String(format: "%.2f", a.fps)) FPS</td>
                                 <td class="mono-cell">\(a.formattedFileSize)</td>
                                 <td>\(a.videoCodec)</td>
-                                <td style="color:var(--text-secondary); font-size:11px">\(a.audioConfig)</td>
+                                <td>\(audioDisplay)</td>
                             </tr>
             """
         }
@@ -504,7 +739,7 @@ public struct DeliverablesInspector: Sendable {
 
                 <footer>
                     <div>THE LINEFINDER 5000 // DELIVERABLES ENGINE</div>
-                    <div>AUTOMATED POST-PRODUCTION MANIFEST AUDIT</div>
+                    <div>AUTOMATED POST-PRODUCTION SPEC AUDIT</div>
                 </footer>
             </div>
 
@@ -531,11 +766,11 @@ public struct DeliverablesInspector: Sendable {
                     const blob = new Blob([csvData], { type: 'text/csv;charset=utf-8;' });
                     const link = document.createElement('a');
                     link.href = URL.createObjectURL(blob);
-                    link.download = "Deliverables_Manifest.csv";
+                    link.download = "Deliverables_Specs.csv";
                     document.body.appendChild(link);
                     link.click();
                     document.body.removeChild(link);
-                    showToast('CSV DOWNLOADED // Deliverables_Manifest.csv');
+                    showToast('CSV DOWNLOADED // Deliverables_Specs.csv');
                 }
 
                 function openGoogleSheets() {

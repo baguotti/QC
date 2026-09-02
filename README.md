@@ -18,10 +18,10 @@ You can directly launch or copy the app bundle to `/Applications` or any other A
 ## ✨ Key Features
 - **Dual-Tab Architecture:**
   - **Tab 1 (`01 // LINE SCANNER`):** Frame-by-frame edge artifact and colored matte line detection with automatic Finder Red Tagging.
-  - **Tab 2 (`02 // DELIVERABLES MANIFEST`):** Instant metadata specification auditor that outputs exact durations, SMPTE timecodes, aspect ratios (16:9, 9:16, 4:5, 1:1), resolutions, frame rates, file sizes (MB/GB), video codecs (ProRes, H.264, HEVC), and audio track configurations.
+  - **Tab 2 (`02 // DELIVERABLES SPECS`):** Instant metadata specification auditor that outputs exact durations, SMPTE timecodes, aspect ratios (16:9, 9:16, 4:5, 1:1), resolutions, frame rates, file sizes (MB/GB), video codecs (ProRes, H.264, HEVC), and audio track configurations with bitrates.
 - **Fast Frame-by-Frame Edge Inspection:** Scans only outer edge margins (Top, Bottom, Left, Right) with zero-copy hardware memory access.
 - **Enhanced Black Line Detection:** Features 10x exposure boost multiplier, row uniformity variance checks, and full-black slate suppression.
-- **Google Sheets & CSV Export:** Automatically generates clean `.csv` spreadsheet documents for both line glitch reports and deliverable manifests.
+- **Google Sheets & CSV Export:** Automatically generates clean `.csv` spreadsheet documents for both line glitch reports and deliverable specs.
 - **User-Friendly HTML Report:** Interactive presentation with Dark & Light theme toggles and instant 1-click Google Sheets launcher.
 - **Automatic Finder Red Tagging:** Flagged video files are automatically labeled with a **Red tag** in macOS Finder for instant visual identification.
 - **Batch Processing:** Drop or select folders with up to 100+ delivery videos or individual video files.
