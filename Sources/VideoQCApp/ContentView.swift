@@ -5,12 +5,14 @@ import VideoQCLib
 enum AppTab: Int, CaseIterable, Identifiable {
     case lineScanner = 0
     case deliverables = 1
+    case batchRenamer = 2
     
     var id: Int { rawValue }
     var title: String {
         switch self {
         case .lineScanner: return "01 // LINE SCANNER"
         case .deliverables: return "02 // DELIVERABLES SPECS"
+        case .batchRenamer: return "03 // BATCH RENAMER"
         }
     }
 }
@@ -19,7 +21,7 @@ struct ContentView: View {
     @AppStorage("isLightMode") private var isLightMode: Bool = false
     @State private var selectedTab: AppTab = .lineScanner
     
-    // Shared Folder
+    // Shared Folder & Video Files
     @State private var folderURL: URL? = nil
     @State private var videoFiles: [URL] = []
     
@@ -44,11 +46,43 @@ struct ContentView: View {
     @State private var scannerActor: VideoScanner? = nil
     
     // MARK: - Tab 2: Deliverables Specs State
-    @State private var deliverableFiles: [URL] = []
     @State private var deliverableAssets: [DeliverableAsset] = []
     @State private var isInspectingDeliverables: Bool = false
     @State private var manifestCSVURL: URL? = nil
     @State private var manifestHTMLURL: URL? = nil
+    
+    // MARK: - Tab 3: Batch Renamer State
+    @State private var renameMode: RenameMode = .template
+    @State private var customNameText: String = ""
+    @State private var templateText: String = "{NAME}_{DUR}sec_{RATIO}_{TAG}"
+    @State private var findText: String = ""
+    @State private var replaceText: String = ""
+    @State private var prefixText: String = ""
+    @State private var suffixText: String = ""
+    @State private var customTag: String = "CLEAN"
+    @State private var textCase: TextCaseOption = .uppercase
+    @State private var indexStart: Int = 1
+    @State private var indexPadding: Int = 2
+    @State private var lastTransaction: RenameTransaction? = nil
+    @State private var selectedAssetIDs: Set<UUID> = []
+    
+    var renameItems: [RenameItem] {
+        RenamerEngine.generateProposedItems(
+            assets: deliverableAssets,
+            mode: renameMode,
+            customName: customNameText,
+            templateString: templateText,
+            findString: findText,
+            replaceString: replaceText,
+            prefixString: prefixText,
+            suffixString: suffixText,
+            customTag: customTag,
+            caseOption: textCase,
+            indexStart: indexStart,
+            indexPadding: indexPadding,
+            selectedAssetIDs: selectedAssetIDs
+        )
+    }
     
     var isTargetBlack: Bool {
         guard let rgb = RGBColor(hex: hexCode) else { return false }
@@ -98,8 +132,10 @@ struct ContentView: View {
             // 3. Main Tab Content
             if selectedTab == .lineScanner {
                 lineScannerTabView
-            } else {
+            } else if selectedTab == .deliverables {
                 deliverablesTabView
+            } else {
+                batchRenamerTabView
             }
         }
         .frame(minWidth: 1000, minHeight: 720)
@@ -117,7 +153,7 @@ struct ContentView: View {
                     .font(.system(size: 16, weight: .black, design: .default))
                     .foregroundColor(textMain)
                     .tracking(1.5)
-                Text("POST-PRODUCTION QC & DELIVERABLE SPECS AUDITOR // APPLE SILICON")
+                Text("POST-PRODUCTION QC & DELIVERABLE SPECS AUDITOR")
                     .font(.system(size: 9, weight: .bold, design: .monospaced))
                     .foregroundColor(textMuted)
                     .tracking(0.5)
@@ -165,7 +201,7 @@ struct ContentView: View {
             ForEach(AppTab.allCases) { tab in
                 Button(action: {
                     selectedTab = tab
-                    if tab == .deliverables && deliverableAssets.isEmpty && !videoFiles.isEmpty {
+                    if (tab == .deliverables || tab == .batchRenamer) && deliverableAssets.isEmpty && !videoFiles.isEmpty {
                         inspectDeliverablesBatch(urls: videoFiles)
                     }
                 }) {
@@ -178,7 +214,7 @@ struct ContentView: View {
                             .font(.system(size: 12, weight: .black, design: .monospaced))
                             .tracking(1.0)
                         
-                        if tab == .deliverables && !deliverableAssets.isEmpty {
+                        if (tab == .deliverables || tab == .batchRenamer) && !deliverableAssets.isEmpty {
                             Text("[\(deliverableAssets.count)]")
                                 .font(.system(size: 10, weight: .bold, design: .monospaced))
                                 .foregroundColor(selectedTab == tab ? primaryBtnFg : textSubtle)
@@ -200,82 +236,44 @@ struct ContentView: View {
             
             Spacer()
             
-            Text(selectedTab == .lineScanner ? "MODE // FRAME-BY-FRAME EDGE ARTIFACT SCANNER" : "MODE // INSTANT ASSET SPECS & METADATA AUDITOR")
-                .font(.system(size: 10, weight: .bold, design: .monospaced))
-                .foregroundColor(textMuted)
-                .tracking(0.5)
+            switch selectedTab {
+            case .lineScanner:
+                Text("MODE // FRAME-BY-FRAME EDGE ARTIFACT SCANNER")
+                    .font(.system(size: 10, weight: .bold, design: .monospaced))
+                    .foregroundColor(textMuted)
+                    .tracking(0.5)
+            case .deliverables:
+                Text("MODE // INSTANT ASSET SPECS & METADATA AUDITOR")
+                    .font(.system(size: 10, weight: .bold, design: .monospaced))
+                    .foregroundColor(textMuted)
+                    .tracking(0.5)
+            case .batchRenamer:
+                Text("MODE // GRANULAR DELIVERABLE BATCH RENAMING & TOKEN ENGINE")
+                    .font(.system(size: 10, weight: .bold, design: .monospaced))
+                    .foregroundColor(textMuted)
+                    .tracking(0.5)
+            }
         }
         .padding(.horizontal, 24)
         .padding(.vertical, 10)
         .background(bgCardHeader)
     }
     
-    // MARK: ==================== TAB 1: LINE SCANNER ====================
+    // MARK: - Reusable Unified Asset Selection Section (Used by Tabs 1, 2, and 3)
     
-    private var lineScannerTabView: some View {
-        HSplitView {
-            // Left Panel: Configuration
-            VStack(alignment: .leading, spacing: 18) {
-                folderPickerSection
-                colorSettingsSection
-                if isTargetBlack {
-                    blackLineModeSection
-                }
-                edgeSettingsSection
-                actionSection
-                Spacer(minLength: 0)
-            }
-            .padding(22)
-            .frame(minWidth: 360, idealWidth: 400, maxWidth: 440)
-            .background(bgPanel)
-            
-            // Right Panel: Results / Live Progress / Empty State
-            VStack(alignment: .leading, spacing: 0) {
-                if isScanning {
-                    activeScanProgressView
-                } else if !scanResults.isEmpty {
-                    resultsSummaryView
-                } else {
-                    emptyStateView
-                }
-            }
-            .frame(minWidth: 540)
-            .background(bgMain)
-        }
-    }
-    
-    private var folderPickerSection: some View {
+    private func deliveryAssetsSection(forTab: AppTab) -> some View {
         VStack(alignment: .leading, spacing: 10) {
             sectionHeader(num: "01", title: "DELIVERY ASSETS")
             
             VStack(alignment: .leading, spacing: 8) {
-                Button(action: selectFolder) {
+                Button(action: { selectAssets(forTab: forTab) }) {
                     HStack {
-                        Text(folderURL == nil ? "SELECT FOLDER..." : "CHANGE FOLDER...")
+                        Text(folderURL == nil && videoFiles.isEmpty ? "SELECT FILES OR FOLDER..." : "CHANGE ASSETS...")
                             .font(.system(size: 11, weight: .bold, design: .monospaced))
                             .foregroundColor(textMain)
                             .tracking(0.5)
                         Spacer()
-                        Text("[FOLDER]")
-                            .font(.system(size: 10, weight: .bold, design: .monospaced))
-                            .foregroundColor(textSubtle)
-                    }
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 8)
-                    .background(bgSubtle)
-                    .border(borderLine, width: 1)
-                }
-                .buttonStyle(.plain)
-                .disabled(isScanning)
-                
-                Button(action: selectIndividualVideosForScanner) {
-                    HStack {
-                        Text("SELECT FILE(S)...")
-                            .font(.system(size: 11, weight: .bold, design: .monospaced))
-                            .foregroundColor(textMain)
-                            .tracking(0.5)
-                        Spacer()
-                        Text("[FILES]")
+                        Text("[OPEN]")
                             .font(.system(size: 10, weight: .bold, design: .monospaced))
                             .foregroundColor(textSubtle)
                     }
@@ -322,14 +320,48 @@ struct ContentView: View {
                         .font(.system(size: 10, weight: .medium, design: .monospaced))
                         .foregroundColor(textMuted)
                         .frame(maxWidth: .infinity, alignment: .center)
-                        .padding(.vertical, 10)
+                        .padding(.vertical, 14)
                         .background(bgCardSubtle)
                         .border(borderLine, width: 1)
                 }
             }
         }
         .onDrop(of: [UTType.fileURL.identifier], isTargeted: nil) { providers in
-            handleDrop(providers: providers)
+            handleDrop(providers: providers, forTab: forTab)
+        }
+    }
+    
+    // MARK: ==================== TAB 1: LINE SCANNER ====================
+    
+    private var lineScannerTabView: some View {
+        HSplitView {
+            // Left Panel: Configuration
+            VStack(alignment: .leading, spacing: 18) {
+                deliveryAssetsSection(forTab: .lineScanner)
+                colorSettingsSection
+                if isTargetBlack {
+                    blackLineModeSection
+                }
+                edgeSettingsSection
+                actionSection
+                Spacer(minLength: 0)
+            }
+            .padding(22)
+            .frame(minWidth: 360, idealWidth: 400, maxWidth: 440)
+            .background(bgPanel)
+            
+            // Right Panel: Results / Live Progress / Empty State
+            VStack(alignment: .leading, spacing: 0) {
+                if isScanning {
+                    activeScanProgressView
+                } else if !scanResults.isEmpty {
+                    resultsSummaryView
+                } else {
+                    emptyStateView
+                }
+            }
+            .frame(minWidth: 540)
+            .background(bgMain)
         }
     }
     
@@ -473,7 +505,7 @@ struct ContentView: View {
                 .buttonStyle(.plain)
             } else {
                 Button(action: startScan) {
-                    Text("[ START QC AUDIT ]")
+                    Text("[ START LINE QC AUDIT ]")
                         .font(.system(size: 12, weight: .black, design: .monospaced))
                         .tracking(1.0)
                         .frame(maxWidth: .infinity)
@@ -742,7 +774,7 @@ struct ContentView: View {
                 .foregroundColor(textMain)
                 .tracking(1.0)
             
-            Text("CHOOSE A DELIVERY FOLDER ON THE LEFT TO BEGIN FRAME-BY-FRAME ANALYSIS.\nDETECTS MATTE MISALIGNMENTS, LETTERBOX ARTIFACTS, AND COLORED EDGE LINES.")
+            Text("CHOOSE A DELIVERY FOLDER OR VIDEO FILES ON THE LEFT TO BEGIN FRAME-BY-FRAME ANALYSIS.\nDETECTS MATTE MISALIGNMENTS, LETTERBOX ARTIFACTS, AND COLORED EDGE LINES.")
                 .font(.system(size: 12, weight: .medium, design: .monospaced))
                 .foregroundColor(textMuted)
                 .lineSpacing(4)
@@ -770,78 +802,30 @@ struct ContentView: View {
         HSplitView {
             // Left Control Panel
             VStack(alignment: .leading, spacing: 18) {
-                // Folder / Files Picker
-                VStack(alignment: .leading, spacing: 10) {
-                    sectionHeader(num: "01", title: "DELIVERABLE ASSETS")
-                    
-                    VStack(alignment: .leading, spacing: 8) {
-                        Button(action: selectDeliverablesFolder) {
-                            HStack {
-                                Text("SELECT FOLDER...")
-                                    .font(.system(size: 11, weight: .bold, design: .monospaced))
-                                    .foregroundColor(textMain)
-                                Spacer()
-                                Text("[FOLDER]")
-                                    .font(.system(size: 10, weight: .bold, design: .monospaced))
-                                    .foregroundColor(textSubtle)
-                            }
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 8)
-                            .background(bgSubtle)
-                            .border(borderLine, width: 1)
-                        }
-                        .buttonStyle(.plain)
-                        
-                        Button(action: selectIndividualFiles) {
-                            HStack {
-                                Text("SELECT FILE(S)...")
-                                    .font(.system(size: 11, weight: .bold, design: .monospaced))
-                                    .foregroundColor(textMain)
-                                Spacer()
-                                Text("[FILES]")
-                                    .font(.system(size: 10, weight: .bold, design: .monospaced))
-                                    .foregroundColor(textSubtle)
-                            }
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 8)
-                            .background(bgSubtle)
-                            .border(borderLine, width: 1)
-                        }
-                        .buttonStyle(.plain)
-                        
-                        if !deliverableAssets.isEmpty {
-                            VStack(alignment: .leading, spacing: 3) {
-                                Text("\(deliverableAssets.count) ASSETS LOADED")
-                                    .font(.system(size: 12, weight: .bold, design: .monospaced))
-                                    .foregroundColor(textMain)
-                                
-                                let totalBytes = deliverableAssets.reduce(Int64(0)) { $0 + $1.fileSizeBytes }
-                                Text("TOTAL: \(DeliverablesInspector.formatFileSize(bytes: totalBytes))")
-                                    .font(.system(size: 10, weight: .semibold, design: .monospaced))
-                                    .foregroundColor(textSubtle)
-                            }
-                            .padding(10)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .background(bgCardSubtle)
-                            .border(borderLine, width: 1)
-                        } else {
-                            Text("DRAG & DROP FOLDER OR VIDEO FILES HERE")
-                                .font(.system(size: 10, weight: .medium, design: .monospaced))
-                                .foregroundColor(textMuted)
-                                .frame(maxWidth: .infinity, alignment: .center)
-                                .padding(.vertical, 14)
-                                .background(bgCardSubtle)
-                                .border(borderLine, width: 1)
-                        }
-                    }
-                }
-                .onDrop(of: [UTType.fileURL.identifier], isTargeted: nil) { providers in
-                    handleDeliverablesDrop(providers: providers)
-                }
+                // Unified Asset Picker (exact identical styling & font spacing)
+                deliveryAssetsSection(forTab: .deliverables)
                 
                 // Actions
                 VStack(alignment: .leading, spacing: 10) {
                     sectionHeader(num: "02", title: "SPECS ACTIONS")
+                    
+                    Button(action: rescanDeliverables) {
+                        HStack {
+                            Text("[ RESCAN FOLDER / ASSETS ]")
+                                .font(.system(size: 11, weight: .bold, design: .monospaced))
+                            Spacer()
+                            Image(systemName: "arrow.clockwise")
+                                .font(.system(size: 10, weight: .bold))
+                        }
+                        .frame(maxWidth: .infinity)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 9)
+                        .background(bgSubtle)
+                        .foregroundColor((videoFiles.isEmpty && folderURL == nil) ? textMuted : textMain)
+                        .border(borderLine, width: 1)
+                    }
+                    .buttonStyle(.plain)
+                    .disabled((videoFiles.isEmpty && folderURL == nil) || isInspectingDeliverables)
                     
                     Button(action: {
                         if !deliverableAssets.isEmpty {
@@ -910,7 +894,7 @@ struct ContentView: View {
             .background(bgPanel)
             
             // Right Panel: Specs Table / Stats
-            VStack(alignment: .leading, spacing: 20) {
+            VStack(alignment: .leading, spacing: 0) {
                 if isInspectingDeliverables {
                     VStack(alignment: .center, spacing: 12) {
                         Spacer()
@@ -921,424 +905,925 @@ struct ContentView: View {
                         Spacer()
                     }
                     .frame(maxWidth: .infinity)
+                    .padding(28)
                 } else if deliverableAssets.isEmpty {
-                    VStack(alignment: .leading, spacing: 18) {
-                        Spacer()
-                        Text("STATUS // READY TO INSPECT DELIVERABLES")
-                            .font(.system(size: 32, weight: .black, design: .default))
-                            .foregroundColor(textMain)
-                            .tracking(1.0)
-                        
-                        Text("DROP A DELIVERY FOLDER OR VIDEO FILES TO INSTANTLY GENERATE A DELIVERABLE SPECS AUDIT.\nDISPLAYS EXACT TIMECODE LENGTHS, ASPECT RATIOS, RESOLUTIONS, FRAMERATES, AND SIZES.")
-                            .font(.system(size: 12, weight: .medium, design: .monospaced))
-                            .foregroundColor(textMuted)
-                            .lineSpacing(4)
-                        
-                        Rectangle().fill(borderLine).frame(height: 1)
-                        
-                        HStack(spacing: 16) {
-                            formatTag("16:9 • 9:16 • 4:5 • 1:1")
-                            formatTag("SMPTE TIMECODES")
-                            formatTag("FILE SIZES")
-                            formatTag("CODEC PARSER")
-                        }
-                        Spacer()
-                    }
-                    .padding(40)
+                    emptyDeliverablesStateView
                 } else {
-                    // Quick Stats Strip
-                    let totalBytes = deliverableAssets.reduce(Int64(0)) { $0 + $1.fileSizeBytes }
-                    let totalSeconds = deliverableAssets.reduce(0.0) { $0 + $1.durationSeconds }
-                    let mismatchCount = deliverableAssets.filter { $0.validation.hasAnyMismatch }.count
-                    
-                    HStack(spacing: 12) {
-                        statBox(title: "TOTAL ASSETS", val: String(format: "%02d", deliverableAssets.count))
-                        statBox(title: "NAME MISMATCHES", val: String(format: "%02d", mismatchCount), isRed: mismatchCount > 0)
-                        statBox(title: "TOTAL RUNTIME", val: TimecodeFormatter.format(frameIndex: Int(round(totalSeconds * 25.0)), fps: 25.0))
-                        statBox(title: "TOTAL BATCH SIZE", val: DeliverablesInspector.formatFileSize(bytes: totalBytes))
-                    }
-                    
-                    // Table
-                    VStack(alignment: .leading, spacing: 0) {
-                        // Table Header
-                        HStack(spacing: 8) {
-                            Text("#").frame(width: 25, alignment: .leading)
-                            Text("FILE NAME").frame(minWidth: 160, maxWidth: .infinity, alignment: .leading)
-                            Text("STATUS").frame(width: 75, alignment: .leading)
-                            Text("LENGTH / TC").frame(width: 140, alignment: .leading)
-                            Text("RATIO & SIZE").frame(width: 140, alignment: .leading)
-                            Text("FPS").frame(width: 65, alignment: .leading)
-                            Text("FILE SIZE").frame(width: 75, alignment: .leading)
-                            Text("VIDEO").frame(width: 85, alignment: .leading)
-                            Text("AUDIO SPEC & BITRATE").frame(width: 150, alignment: .leading)
-                        }
-                        .font(.system(size: 9, weight: .bold, design: .monospaced))
-                        .foregroundColor(textMuted)
-                        .padding(.horizontal, 14)
-                        .padding(.vertical, 9)
-                        .background(bgCardHeader)
-                        
-                        Rectangle().fill(borderLine).frame(height: 1)
-                        
-                        // Table Rows
-                        ScrollView {
-                            VStack(spacing: 0) {
-                                ForEach(Array(deliverableAssets.enumerated()), id: \.element.id) { idx, asset in
-                                    let hasMismatch = asset.validation.hasAnyMismatch
-                                    
-                                    HStack(spacing: 8) {
-                                        Text(String(format: "%02d", idx + 1))
-                                            .frame(width: 25, alignment: .leading)
-                                            .foregroundColor(textMuted)
-                                        
-                                        Text(asset.fileName.uppercased())
-                                            .frame(minWidth: 160, maxWidth: .infinity, alignment: .leading)
-                                            .fontWeight(.bold)
-                                            .lineLimit(1)
-                                            .truncationMode(.middle)
-                                            .help(asset.fileName)
-                                        
-                                        // Validation Status Badge
-                                        if hasMismatch {
-                                            Text("MISMATCH")
-                                                .font(.system(size: 8, weight: .black, design: .monospaced))
-                                                .padding(.horizontal, 5)
-                                                .padding(.vertical, 2)
-                                                .background(alertRed)
-                                                .foregroundColor(.white)
-                                                .frame(width: 75, alignment: .leading)
-                                                .help(asset.validation.summaryString)
-                                        } else {
-                                            Text("OK")
-                                                .font(.system(size: 9, weight: .bold, design: .monospaced))
-                                                .foregroundColor(textMuted)
-                                                .frame(width: 75, alignment: .leading)
-                                        }
-                                        
-                                        // Duration Cell with Warning
-                                        VStack(alignment: .leading, spacing: 2) {
-                                            Text("\(asset.timecode) (\(asset.formattedDuration))")
-                                                .foregroundColor(asset.validation.isDurationMismatch ? alertRed : textSubtle)
-                                                .fontWeight(asset.validation.isDurationMismatch ? .bold : .regular)
-                                            
-                                            if let detail = asset.validation.durationMismatchDetail {
-                                                Text(detail)
-                                                    .font(.system(size: 8, weight: .heavy, design: .monospaced))
-                                                    .foregroundColor(alertRed)
-                                                    .lineLimit(1)
-                                            }
-                                        }
-                                        .frame(width: 140, alignment: .leading)
-                                        
-                                        // Ratio Cell with Warning
-                                        VStack(alignment: .leading, spacing: 2) {
-                                            HStack(spacing: 4) {
-                                                Text(asset.aspectRatioString)
-                                                    .font(.system(size: 9, weight: .bold, design: .monospaced))
-                                                    .padding(.horizontal, 4)
-                                                    .padding(.vertical, 2)
-                                                    .background(asset.validation.isRatioMismatch ? alertRed : bgSubtle)
-                                                    .foregroundColor(asset.validation.isRatioMismatch ? .white : textMain)
-                                                    .border(asset.validation.isRatioMismatch ? alertRed : borderLine, width: 1)
-                                                
-                                                Text(asset.resolutionString)
-                                                    .foregroundColor(textSubtle)
-                                            }
-                                            
-                                            if let detail = asset.validation.ratioMismatchDetail {
-                                                Text(detail)
-                                                    .font(.system(size: 8, weight: .heavy, design: .monospaced))
-                                                    .foregroundColor(alertRed)
-                                                    .lineLimit(1)
-                                            }
-                                        }
-                                        .frame(width: 140, alignment: .leading)
-                                        
-                                        Text(String(format: "%.2f", asset.fps))
-                                            .frame(width: 65, alignment: .leading)
-                                            .foregroundColor(textSubtle)
-                                        
-                                        Text(asset.formattedFileSize)
-                                            .frame(width: 75, alignment: .leading)
-                                            .fontWeight(.semibold)
-                                        
-                                        Text(asset.videoCodec)
-                                            .frame(width: 85, alignment: .leading)
-                                            .foregroundColor(textMuted)
-                                            .lineLimit(1)
-                                        
-                                        // Audio Column
-                                        if !asset.hasAudio {
-                                            Text("NONE")
-                                                .font(.system(size: 9, weight: .bold, design: .monospaced))
-                                                .foregroundColor(textMuted)
-                                                .frame(width: 150, alignment: .leading)
-                                        } else {
-                                            VStack(alignment: .leading, spacing: 2) {
-                                                HStack(spacing: 4) {
-                                                    Text(asset.audioCodec)
-                                                        .font(.system(size: 10, weight: .bold, design: .monospaced))
-                                                        .foregroundColor(textMain)
-                                                    if asset.audioBitrate != "--" {
-                                                        Text(asset.audioBitrate)
-                                                            .font(.system(size: 8, weight: .bold, design: .monospaced))
-                                                            .padding(.horizontal, 4)
-                                                            .padding(.vertical, 1)
-                                                            .background(bgSubtle)
-                                                            .border(borderLine, width: 1)
-                                                            .foregroundColor(textSubtle)
-                                                    }
-                                                }
-                                                if !asset.audioFormatDetail.isEmpty {
-                                                    Text(asset.audioFormatDetail)
-                                                        .font(.system(size: 8, weight: .medium, design: .monospaced))
-                                                        .foregroundColor(textMuted)
-                                                        .lineLimit(1)
-                                                }
-                                            }
-                                            .frame(width: 150, alignment: .leading)
-                                            .help(asset.audioConfig)
-                                        }
-                                    }
-                                    .font(.system(size: 11, design: .monospaced))
-                                    .padding(.horizontal, 14)
-                                    .padding(.vertical, 9)
-                                    .background(hasMismatch ? (isLightMode ? Color.red.opacity(0.08) : Color.red.opacity(0.12)) : (idx % 2 == 0 ? bgPanel : bgCardSubtle))
-                                    .overlay(
-                                        hasMismatch ? Rectangle().fill(alertRed).frame(width: 3) : nil,
-                                        alignment: .leading
-                                    )
-                                    
-                                    if idx < deliverableAssets.count - 1 {
-                                        Rectangle().fill(borderLine.opacity(0.4)).frame(height: 1)
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    .background(bgPanel)
-                    .border(borderLine, width: 1)
+                    deliverablesResultsView
                 }
             }
-            .padding(28)
             .frame(minWidth: 540)
             .background(bgMain)
         }
     }
     
-    // MARK: - Deliverables Handlers
-    
-    private func selectDeliverablesFolder() {
-        let panel = NSOpenPanel()
-        panel.canChooseFiles = false
-        panel.canChooseDirectories = true
-        panel.allowsMultipleSelection = false
-        panel.prompt = "Select Deliverables Folder"
-        
-        if panel.runModal() == .OK, let selectedURL = panel.url {
-            let files = VideoScanner.findVideoFiles(in: selectedURL)
-            inspectDeliverablesBatch(urls: files)
-        }
-    }
-    
-    private func selectIndividualFiles() {
-        let panel = NSOpenPanel()
-        panel.canChooseFiles = true
-        panel.canChooseDirectories = false
-        panel.allowsMultipleSelection = true
-        panel.allowedContentTypes = [UTType.movie, UTType.video, UTType.quickTimeMovie, UTType.mpeg4Movie]
-        panel.prompt = "Select Videos"
-        
-        if panel.runModal() == .OK {
-            inspectDeliverablesBatch(urls: panel.urls)
-        }
-    }
-    
-    private func handleDeliverablesDrop(providers: [NSItemProvider]) -> Bool {
-        guard let provider = providers.first else { return false }
-        _ = provider.loadObject(ofClass: URL.self) { url, _ in
-            guard let url = url else { return }
-            var isDir: ObjCBool = false
-            if FileManager.default.fileExists(atPath: url.path, isDirectory: &isDir) {
-                if isDir.boolValue {
-                    let files = VideoScanner.findVideoFiles(in: url)
-                    Task { @MainActor in
-                        self.inspectDeliverablesBatch(urls: files)
-                    }
-                } else {
-                    Task { @MainActor in
-                        self.inspectDeliverablesBatch(urls: [url])
-                    }
-                }
-            }
-        }
-        return true
-    }
-    
-    private func inspectDeliverablesBatch(urls: [URL]) {
-        guard !urls.isEmpty else { return }
-        isInspectingDeliverables = true
-        
-        Task {
-            let assets = await DeliverablesInspector.inspectBatch(urls: urls)
-            DispatchQueue.main.async {
-                self.deliverableAssets = assets
-                self.isInspectingDeliverables = false
-            }
-        }
-    }
-    
-    private func exportDeliverablesManifest() {
-        guard !deliverableAssets.isEmpty else { return }
-        
-        let csvString = DeliverablesInspector.generateManifestCSV(assets: deliverableAssets)
-        let savePanel = NSSavePanel()
-        savePanel.allowedContentTypes = [UTType.commaSeparatedText]
-        savePanel.nameFieldStringValue = "Deliverables_Specs_\(Date().timeIntervalSince1970).csv"
-        
-        if savePanel.runModal() == .OK, let url = savePanel.url {
-            try? csvString.write(to: url, atomically: true, encoding: .utf8)
-            NSWorkspace.shared.activateFileViewerSelecting([url])
-        }
-    }
-    
-    private func openManifestHTML() {
-        guard !deliverableAssets.isEmpty else { return }
-        
-        let folderName = folderURL?.lastPathComponent ?? "Deliverables"
-        let htmlString = DeliverablesInspector.generateManifestHTML(assets: deliverableAssets, folderName: folderName)
-        
-        let tempURL = FileManager.default.temporaryDirectory.appendingPathComponent("Deliverables_Specs_\(Int(Date().timeIntervalSince1970)).html")
-        try? htmlString.write(to: tempURL, atomically: true, encoding: .utf8)
-        NSWorkspace.shared.open(tempURL)
-    }
-    
-    // MARK: - Helper UI Builders
-    
-    private func sectionHeader(num: String, title: String) -> some View {
-        HStack(spacing: 6) {
-            Text(num)
-                .font(.system(size: 10, weight: .bold, design: .monospaced))
-                .foregroundColor(textMuted)
-            Text("//")
-                .font(.system(size: 10, weight: .bold, design: .monospaced))
-                .foregroundColor(textMuted)
-            Text(title)
-                .font(.system(size: 11, weight: .black, design: .monospaced))
+    private var emptyDeliverablesStateView: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            Spacer()
+            
+            Text("STATUS // READY TO INSPECT DELIVERABLES")
+                .font(.system(size: 32, weight: .black, design: .default))
                 .foregroundColor(textMain)
                 .tracking(1.0)
-        }
-    }
-    
-    private func statBox(title: String, val: String, isRed: Bool = false) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text(title)
-                .font(.system(size: 9, weight: .bold, design: .monospaced))
-                .foregroundColor(textMuted)
-                .tracking(0.5)
-            Text(val)
-                .font(.system(size: 20, weight: .black, design: .monospaced))
-                .foregroundColor(isRed ? alertRed : textMain)
-                .lineLimit(1)
-        }
-        .padding(12)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(bgPanel)
-        .border(borderLine, width: 1)
-    }
-    
-    private func statItem(label: String, val: String, isAlert: Bool = false) -> some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text(label)
-                .font(.system(size: 9, weight: .bold, design: .monospaced))
-                .foregroundColor(textMuted)
-            Text(val)
-                .font(.system(size: 13, weight: .heavy, design: .monospaced))
-                .foregroundColor(isAlert ? alertRed : textMain)
-        }
-    }
-    
-    private func formatTag(_ text: String) -> some View {
-        Text(text)
-            .font(.system(size: 9, weight: .bold, design: .monospaced))
-            .foregroundColor(textMuted)
-            .padding(.horizontal, 8)
-            .padding(.vertical, 4)
-            .border(borderLine, width: 1)
-    }
-    
-    // MARK: - Logic Handlers
-    
-    private func selectFolder() {
-        let panel = NSOpenPanel()
-        panel.canChooseFiles = false
-        panel.canChooseDirectories = true
-        panel.allowsMultipleSelection = false
-        panel.prompt = "Select Delivery Folder"
-        
-        if panel.runModal() == .OK, let selectedURL = panel.url {
-            self.folderURL = selectedURL
-            self.videoFiles = VideoScanner.findVideoFiles(in: selectedURL)
-            self.scanResults = []
-            self.generatedReportURL = nil
-            self.generatedCSVURL = nil
             
-            // Auto-populate deliverables tab with metadata
-            inspectDeliverablesBatch(urls: self.videoFiles)
-        }
-    }
-    
-    private func selectIndividualVideosForScanner() {
-        let panel = NSOpenPanel()
-        panel.canChooseFiles = true
-        panel.canChooseDirectories = false
-        panel.allowsMultipleSelection = true
-        panel.allowedContentTypes = [UTType.movie, UTType.video, UTType.quickTimeMovie, UTType.mpeg4Movie]
-        panel.prompt = "Select Video(s) to QC"
-        
-        if panel.runModal() == .OK, !panel.urls.isEmpty {
-            self.videoFiles = panel.urls
-            self.folderURL = panel.urls.first?.deletingLastPathComponent()
-            self.scanResults = []
-            self.generatedReportURL = nil
-            self.generatedCSVURL = nil
+            Text("CHOOSE A DELIVERY FOLDER OR VIDEO FILES ON THE LEFT TO INSTANTLY GENERATE A DELIVERABLE SPECS AUDIT.\nDISPLAYS EXACT TIMECODE LENGTHS, ASPECT RATIOS, RESOLUTIONS, FRAMERATES, AND SIZES.")
+                .font(.system(size: 12, weight: .medium, design: .monospaced))
+                .foregroundColor(textMuted)
+                .lineSpacing(4)
             
-            // Auto-populate deliverables tab with metadata
-            inspectDeliverablesBatch(urls: self.videoFiles)
+            Rectangle()
+                .fill(borderLine)
+                .frame(height: 1)
+            
+            HStack(spacing: 16) {
+                formatTag("16:9 • 9:16 • 4:5 • 1:1")
+                formatTag("SMPTE TIMECODES")
+                formatTag("FILE SIZES")
+                formatTag("CODEC & BITRATES")
+            }
+            
+            Spacer()
         }
+        .padding(40)
     }
     
-    private func handleDrop(providers: [NSItemProvider]) -> Bool {
-        guard let provider = providers.first else { return false }
-        _ = provider.loadObject(ofClass: URL.self) { url, _ in
-            guard let url = url else { return }
-            var isDir: ObjCBool = false
-            if FileManager.default.fileExists(atPath: url.path, isDirectory: &isDir) {
-                if isDir.boolValue {
-                    let files = VideoScanner.findVideoFiles(in: url)
-                    Task { @MainActor in
-                        self.folderURL = url
-                        self.videoFiles = files
-                        self.scanResults = []
-                        self.generatedReportURL = nil
-                        self.generatedCSVURL = nil
-                        self.inspectDeliverablesBatch(urls: files)
+    private var deliverablesResultsView: some View {
+        let totalBytes = deliverableAssets.reduce(Int64(0)) { $0 + $1.fileSizeBytes }
+        let totalSeconds = deliverableAssets.reduce(0.0) { $0 + $1.durationSeconds }
+        let mismatchCount = deliverableAssets.filter { $0.validation.hasAnyMismatch }.count
+        
+        return VStack(alignment: .leading, spacing: 20) {
+            HStack(alignment: .center) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("AUDIT COMPLETE")
+                        .font(.system(size: 28, weight: .black, design: .default))
+                        .foregroundColor(textMain)
+                        .tracking(1.0)
+                    Text("\(deliverableAssets.count) ASSETS ANALYZED")
+                        .font(.system(size: 11, weight: .bold, design: .monospaced))
+                        .foregroundColor(textMuted)
+                }
+                Spacer()
+                
+                HStack(spacing: 8) {
+                    Button(action: rescanDeliverables) {
+                        HStack(spacing: 5) {
+                            Image(systemName: "arrow.clockwise")
+                                .font(.system(size: 9, weight: .bold))
+                            Text("[ RESCAN ]")
+                                .font(.system(size: 11, weight: .bold, design: .monospaced))
+                        }
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 8)
+                        .background(bgSubtle)
+                        .foregroundColor(textMain)
+                        .border(borderLine, width: 1)
                     }
-                } else {
-                    Task { @MainActor in
-                        self.folderURL = url.deletingLastPathComponent()
-                        self.videoFiles = [url]
-                        self.scanResults = []
-                        self.generatedReportURL = nil
-                        self.generatedCSVURL = nil
-                        self.inspectDeliverablesBatch(urls: [url])
+                    .buttonStyle(.plain)
+                    .disabled(isInspectingDeliverables)
+                    
+                    Button(action: exportDeliverablesManifest) {
+                        Text("[ EXPORT GOOGLE SHEETS / CSV ]")
+                            .font(.system(size: 11, weight: .bold, design: .monospaced))
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 8)
+                            .background(primaryBtnBg)
+                            .foregroundColor(primaryBtnFg)
+                    }
+                    .buttonStyle(.plain)
+                    
+                    Button(action: openManifestHTML) {
+                        Text("[ OPEN HTML SPECS ]")
+                            .font(.system(size: 11, weight: .bold, design: .monospaced))
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 8)
+                            .background(bgSubtle)
+                            .foregroundColor(textMain)
+                            .border(borderLine, width: 1)
+                    }
+                    .buttonStyle(.plain)
+                    
+                    if let firstURL = deliverableAssets.first?.fileURL {
+                        Button(action: { NSWorkspace.shared.activateFileViewerSelecting([firstURL]) }) {
+                            Text("[ FINDER ]")
+                                .font(.system(size: 11, weight: .bold, design: .monospaced))
+                                .padding(.horizontal, 14)
+                                .padding(.vertical, 8)
+                                .background(bgSubtle)
+                                .foregroundColor(textMain)
+                                .border(borderLine, width: 1)
+                        }
+                        .buttonStyle(.plain)
                     }
                 }
             }
+            
+            // Quick Stats Strip
+            HStack(spacing: 12) {
+                statBox(title: "TOTAL ASSETS", val: String(format: "%02d", deliverableAssets.count))
+                statBox(title: "NAME MISMATCHES", val: String(format: "%02d", mismatchCount), isRed: mismatchCount > 0)
+                statBox(title: "TOTAL RUNTIME", val: TimecodeFormatter.format(frameIndex: Int(round(totalSeconds * 25.0)), fps: 25.0))
+                statBox(title: "TOTAL BATCH SIZE", val: DeliverablesInspector.formatFileSize(bytes: totalBytes))
+            }
+            
+            // Table
+            VStack(alignment: .leading, spacing: 0) {
+                // Table Header
+                HStack(spacing: 8) {
+                    Text("#").frame(width: 25, alignment: .leading)
+                    Text("FILE NAME").frame(minWidth: 160, maxWidth: .infinity, alignment: .leading)
+                    Text("STATUS").frame(width: 75, alignment: .leading)
+                    Text("TIMECODE (TC)").frame(width: 140, alignment: .leading)
+                    Text("RATIO & SIZE").frame(width: 140, alignment: .leading)
+                    Text("FPS").frame(width: 65, alignment: .leading)
+                    Text("FILE SIZE").frame(width: 75, alignment: .leading)
+                    Text("VIDEO").frame(width: 85, alignment: .leading)
+                    Text("AUDIO SPEC & BITRATE").frame(width: 150, alignment: .leading)
+                }
+                .font(.system(size: 9, weight: .bold, design: .monospaced))
+                .foregroundColor(textMuted)
+                .padding(.horizontal, 14)
+                .padding(.vertical, 9)
+                .background(bgCardHeader)
+                
+                Rectangle().fill(borderLine).frame(height: 1)
+                
+                // Table Rows
+                ScrollView {
+                    VStack(spacing: 0) {
+                        ForEach(Array(deliverableAssets.enumerated()), id: \.element.id) { idx, asset in
+                            let hasMismatch = asset.validation.hasAnyMismatch
+                            
+                            HStack(spacing: 8) {
+                                Text(String(format: "%02d", idx + 1))
+                                    .frame(width: 25, alignment: .leading)
+                                    .foregroundColor(textMuted)
+                                
+                                Text(asset.fileName.uppercased())
+                                    .frame(minWidth: 160, maxWidth: .infinity, alignment: .leading)
+                                    .fontWeight(.bold)
+                                    .lineLimit(1)
+                                    .truncationMode(.middle)
+                                    .help(asset.fileName)
+                                
+                                // Validation Status Badge
+                                if hasMismatch {
+                                    Text("MISMATCH")
+                                        .font(.system(size: 8, weight: .black, design: .monospaced))
+                                        .padding(.horizontal, 5)
+                                        .padding(.vertical, 2)
+                                        .background(alertRed)
+                                        .foregroundColor(.white)
+                                        .frame(width: 75, alignment: .leading)
+                                        .help(asset.validation.summaryString)
+                                } else {
+                                    Text("OK")
+                                        .font(.system(size: 9, weight: .bold, design: .monospaced))
+                                        .foregroundColor(textMuted)
+                                        .frame(width: 75, alignment: .leading)
+                                }
+                                
+                                // Timecode Cell with Warning
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(asset.timecode)
+                                        .foregroundColor(asset.validation.isDurationMismatch ? alertRed : textSubtle)
+                                        .fontWeight(asset.validation.isDurationMismatch ? .bold : .regular)
+                                    
+                                    if let detail = asset.validation.durationMismatchDetail {
+                                        Text(detail)
+                                            .font(.system(size: 8, weight: .heavy, design: .monospaced))
+                                            .foregroundColor(alertRed)
+                                            .lineLimit(1)
+                                    }
+                                }
+                                .frame(width: 140, alignment: .leading)
+                                
+                                // Ratio Cell with Warning
+                                VStack(alignment: .leading, spacing: 2) {
+                                    HStack(spacing: 4) {
+                                        Text(asset.aspectRatioString)
+                                            .font(.system(size: 9, weight: .bold, design: .monospaced))
+                                            .padding(.horizontal, 4)
+                                            .padding(.vertical, 2)
+                                            .background(asset.validation.isRatioMismatch ? alertRed : bgSubtle)
+                                            .foregroundColor(asset.validation.isRatioMismatch ? .white : textMain)
+                                            .border(asset.validation.isRatioMismatch ? alertRed : borderLine, width: 1)
+                                        
+                                        Text(asset.resolutionString)
+                                            .foregroundColor(textSubtle)
+                                    }
+                                    
+                                    if let detail = asset.validation.ratioMismatchDetail {
+                                        Text(detail)
+                                            .font(.system(size: 8, weight: .heavy, design: .monospaced))
+                                            .foregroundColor(alertRed)
+                                            .lineLimit(1)
+                                    }
+                                }
+                                .frame(width: 140, alignment: .leading)
+                                
+                                Text(String(format: "%.2f", asset.fps))
+                                    .frame(width: 65, alignment: .leading)
+                                    .foregroundColor(textSubtle)
+                                
+                                Text(asset.formattedFileSize)
+                                    .frame(width: 75, alignment: .leading)
+                                    .fontWeight(.semibold)
+                                
+                                Text(asset.videoCodec)
+                                    .frame(width: 85, alignment: .leading)
+                                    .foregroundColor(textMuted)
+                                    .lineLimit(1)
+                                
+                                // Audio Column
+                                if !asset.hasAudio {
+                                    Text("NONE")
+                                        .font(.system(size: 9, weight: .bold, design: .monospaced))
+                                        .foregroundColor(textMuted)
+                                        .frame(width: 150, alignment: .leading)
+                                } else {
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        HStack(spacing: 4) {
+                                            Text(asset.audioCodec)
+                                                .font(.system(size: 10, weight: .bold, design: .monospaced))
+                                                .foregroundColor(textMain)
+                                            if asset.audioBitrate != "--" {
+                                                Text(asset.audioBitrate)
+                                                    .font(.system(size: 8, weight: .bold, design: .monospaced))
+                                                    .padding(.horizontal, 4)
+                                                    .padding(.vertical, 1)
+                                                    .background(bgSubtle)
+                                                    .border(borderLine, width: 1)
+                                                    .foregroundColor(textSubtle)
+                                            }
+                                        }
+                                        if !asset.audioFormatDetail.isEmpty {
+                                            Text(asset.audioFormatDetail)
+                                                .font(.system(size: 8, weight: .medium, design: .monospaced))
+                                                .foregroundColor(textMuted)
+                                                .lineLimit(1)
+                                        }
+                                    }
+                                    .frame(width: 150, alignment: .leading)
+                                    .help(asset.audioConfig)
+                                }
+                            }
+                            .font(.system(size: 11, design: .monospaced))
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 9)
+                            .background(hasMismatch ? (isLightMode ? Color.red.opacity(0.08) : Color.red.opacity(0.12)) : (idx % 2 == 0 ? bgPanel : bgCardSubtle))
+                            .overlay(
+                                hasMismatch ? Rectangle().fill(alertRed).frame(width: 3) : nil,
+                                alignment: .leading
+                            )
+                            
+                            if idx < deliverableAssets.count - 1 {
+                                Rectangle().fill(borderLine.opacity(0.4)).frame(height: 1)
+                            }
+                        }
+                    }
+                }
+            }
+            .background(bgPanel)
+            .border(borderLine, width: 1)
+        }
+        .padding(28)
+    }
+    
+    // MARK: ==================== TAB 3: BATCH RENAMER ====================
+    
+    private var batchRenamerTabView: some View {
+        HSplitView {
+            // Left Control Panel
+            VStack(alignment: .leading, spacing: 16) {
+                // 01 // Assets
+                deliveryAssetsSection(forTab: .batchRenamer)
+                
+                // 02 // Rename Mode
+                VStack(alignment: .leading, spacing: 10) {
+                    sectionHeader(num: "02", title: "RENAME MODE")
+                    
+                    HStack(spacing: 6) {
+                        ForEach(RenameMode.allCases) { mode in
+                            Button(action: { renameMode = mode }) {
+                                Text(mode.rawValue)
+                                    .font(.system(size: 9, weight: .bold, design: .monospaced))
+                                    .frame(maxWidth: .infinity)
+                                    .padding(.vertical, 6)
+                                    .background(renameMode == mode ? primaryBtnBg : bgSubtle)
+                                    .foregroundColor(renameMode == mode ? primaryBtnFg : textMain)
+                                    .border(borderLine, width: 1)
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                }
+                
+                // 03 // Pattern & Rules Builder
+                VStack(alignment: .leading, spacing: 10) {
+                    sectionHeader(num: "03", title: "PATTERN & RULES")
+                    
+                    if renameMode == .template {
+                        VStack(alignment: .leading, spacing: 8) {
+                            // 1. Custom Name Field for {NAME}
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text("PROJECT / ASSET NAME {NAME}:")
+                                    .font(.system(size: 9, weight: .bold, design: .monospaced))
+                                    .foregroundColor(textMuted)
+                                TextField("e.g. NIKE_AIR (leave blank for original)", text: $customNameText)
+                                    .textFieldStyle(.plain)
+                                    .font(.system(size: 11, weight: .bold, design: .monospaced))
+                                    .foregroundColor(textMain)
+                                    .padding(7)
+                                    .background(bgSubtle)
+                                    .border(borderStrong, width: 1)
+                            }
+                            
+                            // 2. Template Structure
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text("TEMPLATE STRUCTURE:")
+                                    .font(.system(size: 9, weight: .bold, design: .monospaced))
+                                    .foregroundColor(textMuted)
+                                
+                                TextField("e.g. {NAME}_{DUR}sec_{RATIO}_{TAG}", text: $templateText)
+                                    .textFieldStyle(.plain)
+                                    .font(.system(size: 11, weight: .bold, design: .monospaced))
+                                    .foregroundColor(textMain)
+                                    .padding(7)
+                                    .background(bgSubtle)
+                                    .border(borderStrong, width: 1)
+                            }
+                            
+                            Text("CLICK TO INSERT TOKEN:")
+                                .font(.system(size: 8, weight: .bold, design: .monospaced))
+                                .foregroundColor(textMuted)
+                            
+                            // Token Chips ScrollView
+                            ScrollView(.horizontal, showsIndicators: false) {
+                                HStack(spacing: 5) {
+                                    ForEach(RenamerEngine.availableTokens, id: \.token) { item in
+                                        Button(action: {
+                                            insertToken(item.token)
+                                        }) {
+                                            Text(item.token)
+                                                .font(.system(size: 9, weight: .bold, design: .monospaced))
+                                                .padding(.horizontal, 6)
+                                                .padding(.vertical, 3)
+                                                .background(bgSubtle)
+                                                .foregroundColor(textMain)
+                                                .border(borderLine, width: 1)
+                                        }
+                                        .buttonStyle(.plain)
+                                        .help("\(item.label) (e.g. \(item.example))")
+                                    }
+                                }
+                            }
+                            
+                            HStack(spacing: 10) {
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text("CUSTOM TAG {TAG}:")
+                                        .font(.system(size: 9, weight: .bold, design: .monospaced))
+                                        .foregroundColor(textMuted)
+                                    TextField("TAG", text: $customTag)
+                                        .textFieldStyle(.plain)
+                                        .font(.system(size: 11, weight: .bold, design: .monospaced))
+                                        .foregroundColor(textMain)
+                                        .padding(6)
+                                        .background(bgSubtle)
+                                        .border(borderLine, width: 1)
+                                }
+                                
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text("INDEX START:")
+                                        .font(.system(size: 9, weight: .bold, design: .monospaced))
+                                        .foregroundColor(textMuted)
+                                    Stepper("\(indexStart) (PAD: \(indexPadding))", value: $indexStart, in: 1...999)
+                                        .font(.system(size: 10, weight: .bold, design: .monospaced))
+                                }
+                            }
+                        }
+                    } else if renameMode == .findReplace {
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text("FIND TEXT:")
+                                .font(.system(size: 9, weight: .bold, design: .monospaced))
+                                .foregroundColor(textMuted)
+                            TextField("Find text in filename...", text: $findText)
+                                .textFieldStyle(.plain)
+                                .font(.system(size: 11, weight: .bold, design: .monospaced))
+                                .foregroundColor(textMain)
+                                .padding(8)
+                                .background(bgSubtle)
+                                .border(borderLine, width: 1)
+                            
+                            Text("REPLACE WITH:")
+                                .font(.system(size: 9, weight: .bold, design: .monospaced))
+                                .foregroundColor(textMuted)
+                            TextField("Replace with...", text: $replaceText)
+                                .textFieldStyle(.plain)
+                                .font(.system(size: 11, weight: .bold, design: .monospaced))
+                                .foregroundColor(textMain)
+                                .padding(8)
+                                .background(bgSubtle)
+                                .border(borderLine, width: 1)
+                        }
+                    } else {
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text("PREFIX (ADD TO START):")
+                                .font(.system(size: 9, weight: .bold, design: .monospaced))
+                                .foregroundColor(textMuted)
+                            TextField("Prefix_", text: $prefixText)
+                                .textFieldStyle(.plain)
+                                .font(.system(size: 11, weight: .bold, design: .monospaced))
+                                .foregroundColor(textMain)
+                                .padding(8)
+                                .background(bgSubtle)
+                                .border(borderLine, width: 1)
+                            
+                            Text("SUFFIX (ADD TO END):")
+                                .font(.system(size: 9, weight: .bold, design: .monospaced))
+                                .foregroundColor(textMuted)
+                            TextField("_Suffix", text: $suffixText)
+                                .textFieldStyle(.plain)
+                                .font(.system(size: 11, weight: .bold, design: .monospaced))
+                                .foregroundColor(textMain)
+                                .padding(8)
+                                .background(bgSubtle)
+                                .border(borderLine, width: 1)
+                        }
+                    }
+                    
+                    // Case Formatting
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("TEXT CASING:")
+                            .font(.system(size: 9, weight: .bold, design: .monospaced))
+                            .foregroundColor(textMuted)
+                        
+                        HStack(spacing: 5) {
+                            ForEach(TextCaseOption.allCases) { opt in
+                                Button(action: { textCase = opt }) {
+                                    Text(opt.rawValue)
+                                        .font(.system(size: 8, weight: .bold, design: .monospaced))
+                                        .frame(maxWidth: .infinity)
+                                        .padding(.vertical, 5)
+                                        .background(textCase == opt ? primaryBtnBg : bgSubtle)
+                                        .foregroundColor(textCase == opt ? primaryBtnFg : textSubtle)
+                                        .border(borderLine, width: 1)
+                                }
+                                .buttonStyle(.plain)
+                            }
+                        }
+                    }
+                }
+                
+                // 04 // Execution
+                VStack(alignment: .leading, spacing: 8) {
+                    sectionHeader(num: "04", title: "EXECUTION")
+                    
+                    let items = renameItems
+                    let activeSelectedCount = items.filter { selectedAssetIDs.contains($0.asset.id) && $0.status == .pending }.count
+                    let hasCollisions = items.contains { selectedAssetIDs.contains($0.asset.id) && $0.status.isErrorOrCollision }
+                    
+                    Button(action: executeRename) {
+                        Text(hasCollisions ? "[ RESOLVE COLLISIONS FIRST ]" : (activeSelectedCount > 0 ? "[ RENAME \(activeSelectedCount) SELECTED FILE(S) ]" : "[ NO CHANGES TO APPLY ]"))
+                            .font(.system(size: 11, weight: .black, design: .monospaced))
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 11)
+                            .background(hasCollisions ? alertRed : (activeSelectedCount > 0 ? primaryBtnBg : bgSubtle))
+                            .foregroundColor(hasCollisions ? .white : (activeSelectedCount > 0 ? primaryBtnFg : textMuted))
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(activeSelectedCount == 0 || hasCollisions)
+                    
+                    if let trans = lastTransaction {
+                        Button(action: undoLastRename) {
+                            HStack {
+                                Image(systemName: "arrow.uturn.backward")
+                                    .font(.system(size: 9, weight: .bold))
+                                Text("[ UNDO / REVERT (\(trans.entries.count) FILES) ]")
+                                    .font(.system(size: 10, weight: .bold, design: .monospaced))
+                            }
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 8)
+                            .background(bgSubtle)
+                            .foregroundColor(textMain)
+                            .border(borderLine, width: 1)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+                
+                Spacer(minLength: 0)
+            }
+            .padding(22)
+            .frame(minWidth: 360, idealWidth: 400, maxWidth: 440)
+            .background(bgPanel)
+            
+            // Right Panel
+            VStack(alignment: .leading, spacing: 0) {
+                if deliverableAssets.isEmpty {
+                    emptyRenamerStateView
+                } else {
+                    renamerResultsView
+                }
+            }
+            .frame(minWidth: 540)
+            .background(bgMain)
+        }
+    }
+    
+    private var emptyRenamerStateView: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            Spacer()
+            
+            Text("STATUS // READY TO BATCH RENAME")
+                .font(.system(size: 32, weight: .black, design: .default))
+                .foregroundColor(textMain)
+                .tracking(1.0)
+            
+            Text("CHOOSE A DELIVERY FOLDER OR VIDEO FILES ON THE LEFT TO AUTOMATICALLY RENAME ASSETS ACCORDING TO SPECS.\nSUPPORTS SMART DURATION TOKENS, ASPECT RATIOS, RESOLUTIONS, AUDIO, CODEC, AND CUSTOM TAGS.")
+                .font(.system(size: 12, weight: .medium, design: .monospaced))
+                .foregroundColor(textMuted)
+                .lineSpacing(4)
+            
+            Rectangle()
+                .fill(borderLine)
+                .frame(height: 1)
+            
+            HStack(spacing: 16) {
+                formatTag("{NAME}")
+                formatTag("{XXsec}")
+                formatTag("{RATIO}")
+                formatTag("{TAG}")
+                formatTag("{RES}")
+                formatTag("{FPS}")
+            }
+            
+            Spacer()
+        }
+        .padding(40)
+    }
+    
+    private var renamerResultsView: some View {
+        let items = renameItems
+        let totalCount = items.count
+        let selectedCount = selectedAssetIDs.count
+        let readyCount = items.filter { selectedAssetIDs.contains($0.asset.id) && $0.status == .pending }.count
+        let collisionCount = items.filter { selectedAssetIDs.contains($0.asset.id) && $0.status.isErrorOrCollision }.count
+        let unchangedCount = items.filter { selectedAssetIDs.contains($0.asset.id) && $0.status == .unchanged }.count
+        let excludedCount = items.filter { !selectedAssetIDs.contains($0.asset.id) }.count
+        
+        return VStack(alignment: .leading, spacing: 20) {
+            HStack(alignment: .center) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("LIVE BATCH PREVIEW")
+                        .font(.system(size: 28, weight: .black, design: .default))
+                        .foregroundColor(textMain)
+                        .tracking(1.0)
+                    Text("\(selectedCount) OF \(totalCount) ASSETS SELECTED // SELECT INDIVIDUAL FILES BELOW")
+                        .font(.system(size: 11, weight: .bold, design: .monospaced))
+                        .foregroundColor(textMuted)
+                }
+                Spacer()
+                
+                HStack(spacing: 8) {
+                    Button(action: toggleSelectAll) {
+                        Text(selectedAssetIDs.count == deliverableAssets.count ? "[ DESELECT ALL ]" : "[ SELECT ALL ]")
+                            .font(.system(size: 11, weight: .bold, design: .monospaced))
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 8)
+                            .background(bgSubtle)
+                            .foregroundColor(textMain)
+                            .border(borderLine, width: 1)
+                    }
+                    .buttonStyle(.plain)
+                    
+                    if let firstURL = deliverableAssets.first?.fileURL {
+                        Button(action: { NSWorkspace.shared.activateFileViewerSelecting([firstURL]) }) {
+                            Text("[ FINDER ]")
+                                .font(.system(size: 11, weight: .bold, design: .monospaced))
+                                .padding(.horizontal, 14)
+                                .padding(.vertical, 8)
+                                .background(bgSubtle)
+                                .foregroundColor(textMain)
+                                .border(borderLine, width: 1)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+            }
+            
+            // Quick Stats Strip
+            HStack(spacing: 12) {
+                statBox(title: "TOTAL ASSETS", val: String(format: "%02d", totalCount))
+                statBox(title: "TO BE RENAMED", val: String(format: "%02d", readyCount))
+                statBox(title: "COLLISIONS", val: String(format: "%02d", collisionCount), isRed: collisionCount > 0)
+                statBox(title: "EXCLUDED / UNCHANGED", val: String(format: "%02d", excludedCount + unchangedCount))
+            }
+            
+            // Table
+            VStack(alignment: .leading, spacing: 0) {
+                // Table Header
+                HStack(spacing: 8) {
+                    // Select All Toggle Column
+                    Button(action: toggleSelectAll) {
+                        HStack(spacing: 6) {
+                            Image(systemName: selectedAssetIDs.count == deliverableAssets.count && !deliverableAssets.isEmpty ? "checkmark.square.fill" : (selectedAssetIDs.isEmpty ? "square" : "minus.square.fill"))
+                                .font(.system(size: 12, weight: .bold))
+                                .foregroundColor(textMain)
+                            Text("#")
+                                .font(.system(size: 9, weight: .bold, design: .monospaced))
+                                .foregroundColor(textMuted)
+                        }
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .frame(width: 55, alignment: .leading)
+                    
+                    Text("CURRENT FILE NAME").frame(minWidth: 150, maxWidth: .infinity, alignment: .leading)
+                    Text("➔").frame(width: 20, alignment: .center)
+                    Text("PROPOSED NEW NAME").frame(minWidth: 170, maxWidth: .infinity, alignment: .leading)
+                    Text("SPECS APPLIED").frame(width: 140, alignment: .leading)
+                    Text("STATUS").frame(width: 110, alignment: .trailing)
+                }
+                .font(.system(size: 9, weight: .bold, design: .monospaced))
+                .foregroundColor(textMuted)
+                .padding(.horizontal, 14)
+                .padding(.vertical, 9)
+                .background(bgCardHeader)
+                
+                Rectangle().fill(borderLine).frame(height: 1)
+                
+                // Table Rows
+                ScrollView {
+                    VStack(spacing: 0) {
+                        ForEach(Array(items.enumerated()), id: \.element.id) { idx, item in
+                            let isSelected = selectedAssetIDs.contains(item.asset.id)
+                            let isCollision = isSelected && item.status.isErrorOrCollision
+                            let isUnchanged = isSelected && item.status == .unchanged
+                            
+                            HStack(spacing: 8) {
+                                // Large Checkbox + Index Number
+                                HStack(spacing: 6) {
+                                    Image(systemName: isSelected ? "checkmark.square.fill" : "square")
+                                        .font(.system(size: 13, weight: .bold))
+                                        .foregroundColor(isSelected ? primaryBtnBg : textMuted)
+                                    
+                                    Text(String(format: "%02d", idx + 1))
+                                        .font(.system(size: 10, weight: .bold, design: .monospaced))
+                                        .foregroundColor(isSelected ? textMain : textMuted)
+                                }
+                                .frame(width: 55, alignment: .leading)
+                                
+                                Text(item.originalName + (item.originalExtension.isEmpty ? "" : ".\(item.originalExtension)"))
+                                    .frame(minWidth: 150, maxWidth: .infinity, alignment: .leading)
+                                    .foregroundColor(isSelected ? textMuted : textMuted.opacity(0.35))
+                                    .lineLimit(1)
+                                    .truncationMode(.middle)
+                                
+                                Text("➔")
+                                    .frame(width: 20, alignment: .center)
+                                    .foregroundColor(isSelected ? textSubtle : textMuted.opacity(0.25))
+                                    .font(.system(size: 10, weight: .bold))
+                                
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(isSelected ? item.proposedFullName : "\(item.originalName).\(item.originalExtension)")
+                                        .fontWeight(.bold)
+                                        .foregroundColor(!isSelected ? textMuted.opacity(0.35) : (isCollision ? alertRed : (isUnchanged ? textMuted : textMain)))
+                                        .lineLimit(1)
+                                        .truncationMode(.middle)
+                                    
+                                    if isSelected, let col = item.collisionDetail {
+                                        Text(col)
+                                            .font(.system(size: 8, weight: .heavy, design: .monospaced))
+                                            .foregroundColor(alertRed)
+                                            .lineLimit(1)
+                                    }
+                                }
+                                .frame(minWidth: 170, maxWidth: .infinity, alignment: .leading)
+                                
+                                Text("\(item.asset.aspectRatioString) • \(Int(round(item.asset.durationSeconds)))s • \(item.asset.videoCodec)")
+                                    .frame(width: 140, alignment: .leading)
+                                    .foregroundColor(isSelected ? textSubtle : textMuted.opacity(0.35))
+                                    .lineLimit(1)
+                                
+                                // Status Badge
+                                Text(isSelected ? item.status.badgeText : "EXCLUDED")
+                                    .font(.system(size: 8, weight: .black, design: .monospaced))
+                                    .padding(.horizontal, 6)
+                                    .padding(.vertical, 2)
+                                    .background(!isSelected ? bgSubtle.opacity(0.5) : (isCollision ? alertRed : (isUnchanged ? bgSubtle : primaryBtnBg)))
+                                    .foregroundColor(!isSelected ? textMuted.opacity(0.6) : (isCollision ? .white : (isUnchanged ? textMuted : primaryBtnFg)))
+                                    .border(isCollision ? alertRed : borderLine, width: 1)
+                                    .frame(width: 110, alignment: .trailing)
+                            }
+                            .font(.system(size: 11, design: .monospaced))
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 9)
+                            .background(
+                                isCollision ? (isLightMode ? Color.red.opacity(0.08) : Color.red.opacity(0.12)) :
+                                (isSelected ? (idx % 2 == 0 ? bgPanel : bgCardSubtle) : (isLightMode ? Color(white: 0.94) : Color(white: 0.04)))
+                            )
+                            .contentShape(Rectangle())
+                            .onTapGesture {
+                                if isSelected {
+                                    selectedAssetIDs.remove(item.asset.id)
+                                } else {
+                                    selectedAssetIDs.insert(item.asset.id)
+                                }
+                            }
+                            .overlay(
+                                isCollision ? Rectangle().fill(alertRed).frame(width: 3) : nil,
+                                alignment: .leading
+                            )
+                            
+                            if idx < items.count - 1 {
+                                Rectangle().fill(borderLine.opacity(0.4)).frame(height: 1)
+                            }
+                        }
+                    }
+                }
+            }
+            .background(bgPanel)
+            .border(borderLine, width: 1)
+        }
+        .padding(28)
+    }
+    
+    // MARK: - Handlers & Unified Scanning Logic
+    
+    private func toggleSelectAll() {
+        if selectedAssetIDs.count == deliverableAssets.count {
+            selectedAssetIDs.removeAll()
+        } else {
+            selectedAssetIDs = Set(deliverableAssets.map { $0.id })
+        }
+    }
+    
+    private func insertToken(_ token: String) {
+        if templateText.isEmpty {
+            templateText = token
+        } else {
+            templateText += "_\(token)"
+        }
+    }
+    
+    private func executeRename() {
+        let items = renameItems
+        let result = RenamerEngine.executeBatchRename(items: items, selectedIDs: selectedAssetIDs)
+        if let transaction = result.transaction {
+            self.lastTransaction = transaction
+        }
+        
+        // Refresh deliverable assets
+        if let folder = folderURL {
+            let updatedFiles = VideoScanner.findVideoFiles(in: folder)
+            self.videoFiles = updatedFiles
+            inspectDeliverablesBatch(urls: updatedFiles)
+        } else if !videoFiles.isEmpty {
+            if let transaction = result.transaction {
+                let urlMap = Dictionary(uniqueKeysWithValues: transaction.entries.map { ($0.oldURL, $0.newURL) })
+                let updated = self.videoFiles.map { urlMap[$0] ?? $0 }
+                self.videoFiles = updated
+                inspectDeliverablesBatch(urls: updated)
+            }
+        }
+    }
+    
+    private func undoLastRename() {
+        guard let trans = lastTransaction else { return }
+        _ = RenamerEngine.undoRenameTransaction(trans)
+        self.lastTransaction = nil
+        
+        // Refresh deliverable assets
+        if let folder = folderURL {
+            let updatedFiles = VideoScanner.findVideoFiles(in: folder)
+            self.videoFiles = updatedFiles
+            inspectDeliverablesBatch(urls: updatedFiles)
+        } else if !videoFiles.isEmpty {
+            let urlMap = Dictionary(uniqueKeysWithValues: trans.entries.map { ($0.newURL, $0.oldURL) })
+            let updated = self.videoFiles.map { urlMap[$0] ?? $0 }
+            self.videoFiles = updated
+            inspectDeliverablesBatch(urls: updated)
+        }
+    }
+    
+    private func selectAssets(forTab: AppTab) {
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = true
+        panel.allowsMultipleSelection = true
+        panel.allowedContentTypes = [UTType.movie, UTType.video, UTType.quickTimeMovie, UTType.mpeg4Movie, UTType.folder]
+        panel.prompt = "Select"
+        
+        if panel.runModal() == .OK, !panel.urls.isEmpty {
+            var collectedVideos: [URL] = []
+            var detectedFolder: URL? = nil
+            
+            for url in panel.urls {
+                var isDir: ObjCBool = false
+                if FileManager.default.fileExists(atPath: url.path, isDirectory: &isDir) {
+                    if isDir.boolValue {
+                        detectedFolder = url
+                        let inFolder = VideoScanner.findVideoFiles(in: url)
+                        collectedVideos.append(contentsOf: inFolder)
+                    } else {
+                        if detectedFolder == nil {
+                            detectedFolder = url.deletingLastPathComponent()
+                        }
+                        let ext = url.pathExtension.lowercased()
+                        if ["mp4", "mov", "m4v", "mkv", "avi", "prores"].contains(ext) {
+                            collectedVideos.append(url)
+                        }
+                    }
+                }
+            }
+            
+            var uniqueVideos: [URL] = []
+            var seen: Set<String> = []
+            for v in collectedVideos {
+                if !seen.contains(v.path) {
+                    seen.insert(v.path)
+                    uniqueVideos.append(v)
+                }
+            }
+            
+            guard !uniqueVideos.isEmpty else { return }
+            
+            self.folderURL = detectedFolder
+            self.videoFiles = uniqueVideos
+            self.scanResults = []
+            self.generatedReportURL = nil
+            self.generatedCSVURL = nil
+            
+            // Populate deliverables in background
+            inspectDeliverablesBatch(urls: uniqueVideos)
+        }
+    }
+    
+    private func handleDrop(providers: [NSItemProvider], forTab: AppTab) -> Bool {
+        guard !providers.isEmpty else { return false }
+        
+        let lock = NSLock()
+        var loadedURLs: [URL] = []
+        let group = DispatchGroup()
+        
+        for provider in providers {
+            group.enter()
+            _ = provider.loadObject(ofClass: URL.self) { url, _ in
+                if let url = url {
+                    lock.lock()
+                    loadedURLs.append(url)
+                    lock.unlock()
+                }
+                group.leave()
+            }
+        }
+        
+        group.notify(queue: .main) {
+            var collectedVideos: [URL] = []
+            var detectedFolder: URL? = nil
+            
+            for url in loadedURLs {
+                var isDir: ObjCBool = false
+                if FileManager.default.fileExists(atPath: url.path, isDirectory: &isDir) {
+                    if isDir.boolValue {
+                        detectedFolder = url
+                        let inFolder = VideoScanner.findVideoFiles(in: url)
+                        collectedVideos.append(contentsOf: inFolder)
+                    } else {
+                        if detectedFolder == nil {
+                            detectedFolder = url.deletingLastPathComponent()
+                        }
+                        let ext = url.pathExtension.lowercased()
+                        if ["mp4", "mov", "m4v", "mkv", "avi", "prores"].contains(ext) {
+                            collectedVideos.append(url)
+                        }
+                    }
+                }
+            }
+            
+            var uniqueVideos: [URL] = []
+            var seen: Set<String> = []
+            for v in collectedVideos {
+                if !seen.contains(v.path) {
+                    seen.insert(v.path)
+                    uniqueVideos.append(v)
+                }
+            }
+            
+            guard !uniqueVideos.isEmpty else { return }
+            
+            self.folderURL = detectedFolder
+            self.videoFiles = uniqueVideos
+            self.scanResults = []
+            self.generatedReportURL = nil
+            self.generatedCSVURL = nil
+            self.inspectDeliverablesBatch(urls: uniqueVideos)
         }
         return true
     }
     
+    // Line Scanner Execution
     private func startScan() {
         guard !videoFiles.isEmpty else { return }
         let folder = folderURL ?? videoFiles.first?.deletingLastPathComponent() ?? URL(fileURLWithPath: NSTemporaryDirectory())
@@ -1393,9 +1878,112 @@ struct ContentView: View {
             }
         }
     }
+    
+    // Deliverables Specs Handlers
+    private func rescanDeliverables() {
+        if let folder = folderURL {
+            let updatedFiles = VideoScanner.findVideoFiles(in: folder)
+            self.videoFiles = updatedFiles
+            inspectDeliverablesBatch(urls: updatedFiles)
+        } else if !videoFiles.isEmpty {
+            inspectDeliverablesBatch(urls: videoFiles)
+        }
+    }
+    
+    private func inspectDeliverablesBatch(urls: [URL]) {
+        guard !urls.isEmpty else { return }
+        isInspectingDeliverables = true
+        
+        Task {
+            let assets = await DeliverablesInspector.inspectBatch(urls: urls)
+            DispatchQueue.main.async {
+                self.deliverableAssets = assets
+                self.selectedAssetIDs = Set(assets.map { $0.id })
+                self.isInspectingDeliverables = false
+            }
+        }
+    }
+    
+    private func exportDeliverablesManifest() {
+        guard !deliverableAssets.isEmpty else { return }
+        
+        let csvString = DeliverablesInspector.generateManifestCSV(assets: deliverableAssets)
+        let savePanel = NSSavePanel()
+        savePanel.allowedContentTypes = [UTType.commaSeparatedText]
+        savePanel.nameFieldStringValue = "Deliverables_Specs_\(Date().timeIntervalSince1970).csv"
+        
+        if savePanel.runModal() == .OK, let url = savePanel.url {
+            try? csvString.write(to: url, atomically: true, encoding: .utf8)
+            NSWorkspace.shared.activateFileViewerSelecting([url])
+        }
+    }
+    
+    private func openManifestHTML() {
+        guard !deliverableAssets.isEmpty else { return }
+        
+        let folderName = folderURL?.lastPathComponent ?? "Deliverables"
+        let htmlString = DeliverablesInspector.generateManifestHTML(assets: deliverableAssets, folderName: folderName)
+        
+        let tempURL = FileManager.default.temporaryDirectory.appendingPathComponent("Deliverables_Specs_\(Int(Date().timeIntervalSince1970)).html")
+        try? htmlString.write(to: tempURL, atomically: true, encoding: .utf8)
+        NSWorkspace.shared.open(tempURL)
+    }
+    
+    // UI Helpers
+    private func sectionHeader(num: String, title: String) -> some View {
+        HStack(spacing: 6) {
+            Text(num)
+                .font(.system(size: 10, weight: .bold, design: .monospaced))
+                .foregroundColor(textMuted)
+            Text("//")
+                .font(.system(size: 10, weight: .bold, design: .monospaced))
+                .foregroundColor(textMuted)
+            Text(title)
+                .font(.system(size: 11, weight: .black, design: .monospaced))
+                .foregroundColor(textMain)
+                .tracking(1.0)
+        }
+    }
+    
+    private func statBox(title: String, val: String, isRed: Bool = false) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(title)
+                .font(.system(size: 9, weight: .bold, design: .monospaced))
+                .foregroundColor(textMuted)
+                .tracking(0.5)
+            Text(val)
+                .font(.system(size: 20, weight: .black, design: .monospaced))
+                .foregroundColor(isRed ? alertRed : textMain)
+                .lineLimit(1)
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(bgPanel)
+        .border(borderLine, width: 1)
+    }
+    
+    private func statItem(label: String, val: String, isAlert: Bool = false) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(label)
+                .font(.system(size: 9, weight: .bold, design: .monospaced))
+                .foregroundColor(textMuted)
+            Text(val)
+                .font(.system(size: 13, weight: .heavy, design: .monospaced))
+                .foregroundColor(isAlert ? alertRed : textMain)
+        }
+    }
+    
+    private func formatTag(_ text: String) -> some View {
+        Text(text)
+            .font(.system(size: 9, weight: .bold, design: .monospaced))
+            .foregroundColor(textMuted)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+            .border(borderLine, width: 1)
+    }
 }
 
-// MARK: - Custom Minimalist Toggle Style
+// Minimalist Toggle Style
 struct StudioToggleStyle: ToggleStyle {
     var isLight: Bool = false
     

@@ -4,18 +4,21 @@ public struct ReportWriter: Sendable {
     
     // MARK: - Finder Tagging (Red Label for Flagged Files)
     
+    /// Marks a single video file in macOS Finder with a Red label/tag
+    public static func setRedTag(for url: URL) {
+        let nsURL = url as NSURL
+        try? nsURL.setResourceValue(["Red"] as NSArray, forKey: .tagNamesKey)
+        var mutableURL = url
+        var resourceValues = URLResourceValues()
+        resourceValues.labelNumber = 6
+        try? mutableURL.setResourceValues(resourceValues)
+    }
+    
     /// Marks all flagged video files in macOS Finder with a Red label/tag
     public static func tagFlaggedFilesInFinder(results: [VideoQCResult]) {
         for result in results {
             if result.isFlagged {
-                let nsURL = result.fileURL as NSURL
-                // 1. Set Finder Tag Name "Red"
-                try? nsURL.setResourceValue(["Red"] as NSArray, forKey: .tagNamesKey)
-                // 2. Set Finder Color Label Number (6 = Red)
-                var mutableURL = result.fileURL
-                var resourceValues = URLResourceValues()
-                resourceValues.labelNumber = 6
-                try? mutableURL.setResourceValues(resourceValues)
+                setRedTag(for: result.fileURL)
             }
         }
     }
