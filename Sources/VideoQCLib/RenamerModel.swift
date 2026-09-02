@@ -61,7 +61,7 @@ public struct RenameItem: Identifiable, Sendable {
     public var collisionDetail: String?
     
     public init(
-        id: UUID = UUID(),
+        id: UUID? = nil,
         asset: DeliverableAsset,
         originalURL: URL,
         originalName: String,
@@ -70,7 +70,7 @@ public struct RenameItem: Identifiable, Sendable {
         status: RenameStatus = .pending,
         collisionDetail: String? = nil
     ) {
-        self.id = id
+        self.id = id ?? asset.id
         self.asset = asset
         self.originalURL = originalURL
         self.originalName = originalName

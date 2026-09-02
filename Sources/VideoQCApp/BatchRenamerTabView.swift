@@ -6,7 +6,8 @@ extension ContentView {
     // MARK: ==================== TAB 3: BATCH RENAMER ====================
     
     var batchRenamerTabView: some View {
-        HSplitView {
+        let items = renameItems
+        return HSplitView {
             // Left Control Panel
             VStack(alignment: .leading, spacing: 16) {
                 // 01 // Assets
@@ -28,6 +29,7 @@ extension ContentView {
                                     .border(borderLine, width: 1)
                             }
                             .buttonStyle(.plain)
+                            .explain("Sets rename mode to \(mode.rawValue).", binding: $hoverExplanation)
                         }
                     }
                 }
@@ -50,6 +52,7 @@ extension ContentView {
                                     .padding(7)
                                     .background(bgSubtle)
                                     .border(borderStrong, width: 1)
+                                    .explain("Custom text to replace the {NAME} token.", binding: $hoverExplanation)
                             }
                             
                             // 2. Template Structure
@@ -65,6 +68,7 @@ extension ContentView {
                                     .padding(7)
                                     .background(bgSubtle)
                                     .border(borderStrong, width: 1)
+                                    .explain("Naming pattern string using bracketed tokens.", binding: $hoverExplanation)
                             }
                             
                             Text("CLICK TO INSERT TOKEN:")
@@ -87,7 +91,7 @@ extension ContentView {
                                                 .border(borderLine, width: 1)
                                         }
                                         .buttonStyle(.plain)
-                                        .help("\(item.label) (e.g. \(item.example))")
+                                        .explain("Inserts \(item.token) (\(item.label), e.g. \(item.example)).", binding: $hoverExplanation)
                                     }
                                 }
                             }
@@ -104,6 +108,7 @@ extension ContentView {
                                         .padding(6)
                                         .background(bgSubtle)
                                         .border(borderLine, width: 1)
+                                        .explain("Custom text to replace the {TAG} token.", binding: $hoverExplanation)
                                 }
                                 
                                 VStack(alignment: .leading, spacing: 4) {
@@ -112,6 +117,7 @@ extension ContentView {
                                         .foregroundColor(textMuted)
                                     Stepper("\(indexStart) (PAD: \(indexPadding))", value: $indexStart, in: 1...999)
                                         .font(.system(size: 10, weight: .bold, design: .monospaced))
+                                        .explain("Starting number and digit padding for {INDEX} token.", binding: $hoverExplanation)
                                 }
                             }
                         }
@@ -127,6 +133,7 @@ extension ContentView {
                                 .padding(8)
                                 .background(bgSubtle)
                                 .border(borderLine, width: 1)
+                                .explain("Text characters to find in filenames.", binding: $hoverExplanation)
                             
                             Text("REPLACE WITH:")
                                 .font(.system(size: 9, weight: .bold, design: .monospaced))
@@ -138,6 +145,7 @@ extension ContentView {
                                 .padding(8)
                                 .background(bgSubtle)
                                 .border(borderLine, width: 1)
+                                .explain("Replacement text for matched search strings.", binding: $hoverExplanation)
                         }
                     } else {
                         VStack(alignment: .leading, spacing: 8) {
@@ -151,6 +159,7 @@ extension ContentView {
                                 .padding(8)
                                 .background(bgSubtle)
                                 .border(borderLine, width: 1)
+                                .explain("Text prepended to start of filenames.", binding: $hoverExplanation)
                             
                             Text("SUFFIX (ADD TO END):")
                                 .font(.system(size: 9, weight: .bold, design: .monospaced))
@@ -162,6 +171,7 @@ extension ContentView {
                                 .padding(8)
                                 .background(bgSubtle)
                                 .border(borderLine, width: 1)
+                                .explain("Text appended to end of filenames.", binding: $hoverExplanation)
                         }
                     }
                     
@@ -183,6 +193,7 @@ extension ContentView {
                                         .border(borderLine, width: 1)
                                 }
                                 .buttonStyle(.plain)
+                                .explain("Applies \(opt.rawValue) letter casing to filenames.", binding: $hoverExplanation)
                             }
                         }
                     }
@@ -192,7 +203,6 @@ extension ContentView {
                 VStack(alignment: .leading, spacing: 8) {
                     sectionHeader(num: "04", title: "EXECUTION")
                     
-                    let items = renameItems
                     let activeSelectedCount = items.filter { selectedAssetIDs.contains($0.asset.id) && $0.status == .pending }.count
                     let hasCollisions = items.contains { selectedAssetIDs.contains($0.asset.id) && $0.status.isErrorOrCollision }
                     
@@ -206,6 +216,11 @@ extension ContentView {
                     }
                     .buttonStyle(.plain)
                     .disabled(activeSelectedCount == 0 || hasCollisions)
+                    .explain(
+                        hasCollisions ? "Cannot rename: resolve duplicate name collisions first." :
+                        (activeSelectedCount > 0 ? "Renames \(activeSelectedCount) selected files on disk." : "No name changes to apply."),
+                        binding: $hoverExplanation
+                    )
                     
                     if let trans = lastTransaction {
                         Button(action: undoLastRename) {
@@ -222,6 +237,7 @@ extension ContentView {
                             .border(borderLine, width: 1)
                         }
                         .buttonStyle(.plain)
+                        .explain("Reverses the last rename operation and restores original filenames on disk.", binding: $hoverExplanation)
                     }
                 }
                 
@@ -236,7 +252,7 @@ extension ContentView {
                 if deliverableAssets.isEmpty {
                     emptyRenamerStateView
                 } else {
-                    renamerResultsView
+                    renamerResultsView(items: items)
                 }
             }
             .frame(minWidth: 540)
@@ -276,8 +292,7 @@ extension ContentView {
         .padding(40)
     }
     
-    var renamerResultsView: some View {
-        let items = renameItems
+    func renamerResultsView(items: [RenameItem]) -> some View {
         let totalCount = items.count
         let selectedCount = selectedAssetIDs.count
         let readyCount = items.filter { selectedAssetIDs.contains($0.asset.id) && $0.status == .pending }.count
@@ -309,6 +324,7 @@ extension ContentView {
                             .border(borderLine, width: 1)
                     }
                     .buttonStyle(.plain)
+                    .explain("Selects or deselects all files in the batch list.", binding: $hoverExplanation)
                     
                     if let firstURL = deliverableAssets.first?.fileURL {
                         Button(action: { NSWorkspace.shared.activateFileViewerSelecting([firstURL]) }) {
@@ -321,6 +337,7 @@ extension ContentView {
                                 .border(borderLine, width: 1)
                         }
                         .buttonStyle(.plain)
+                        .explain("Locates and highlights the first file in macOS Finder.", binding: $hoverExplanation)
                     }
                 }
             }
@@ -350,6 +367,7 @@ extension ContentView {
                         .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
+                    .explain("Selects or deselects all files in the batch list.", binding: $hoverExplanation)
                     .frame(width: 55, alignment: .leading)
                     
                     Text("CURRENT FILE NAME").frame(minWidth: 150, maxWidth: .infinity, alignment: .leading)
@@ -368,7 +386,7 @@ extension ContentView {
                 
                 // Table Rows
                 ScrollView {
-                    VStack(spacing: 0) {
+                    LazyVStack(spacing: 0) {
                         ForEach(Array(items.enumerated()), id: \.element.id) { idx, item in
                             let isSelected = selectedAssetIDs.contains(item.asset.id)
                             let isCollision = isSelected && item.status.isErrorOrCollision
@@ -444,6 +462,7 @@ extension ContentView {
                                     selectedAssetIDs.insert(item.asset.id)
                                 }
                             }
+                            .help("Click row to include or exclude '\(item.originalName)' from renaming.")
                             .overlay(
                                 isCollision ? Rectangle().fill(alertRed).frame(width: 3) : nil,
                                 alignment: .leading
@@ -455,6 +474,7 @@ extension ContentView {
                         }
                     }
                 }
+                .explain("Batch Items Table: Click any row or checkbox to include or exclude assets from renaming.", binding: $hoverExplanation)
             }
             .background(bgPanel)
             .border(borderLine, width: 1)

@@ -7,6 +7,7 @@ struct ContentView: View {
     @AppStorage("isLightMode") var isLightMode: Bool = false
     @State var selectedTab: AppTab = .lineScanner
     @State var showUserGuide: Bool = false
+    @State var hoverExplanation: String = ""
     
     // Shared Folder & Video Files
     @State var folderURL: URL? = nil
@@ -125,6 +126,36 @@ struct ContentView: View {
                 } else {
                     batchRenamerTabView
                 }
+                
+                // 4. Bottom Contextual Explanation Bar
+                Rectangle()
+                    .fill(borderLine)
+                    .frame(height: 1)
+                
+                HStack(spacing: 8) {
+                    HStack(spacing: 5) {
+                        Image(systemName: "cursorarrow.rays")
+                            .font(.system(size: 9))
+                            .foregroundColor(hoverExplanation.isEmpty ? textMuted : alertRed)
+                        Text("INFO //")
+                            .font(.system(size: 9, weight: .black, design: .monospaced))
+                            .foregroundColor(hoverExplanation.isEmpty ? textMuted : alertRed)
+                    }
+                    
+                    Text(hoverExplanation.isEmpty ? "Hover over any button, field, or control for function details." : hoverExplanation)
+                        .font(.system(size: 10, weight: hoverExplanation.isEmpty ? .regular : .semibold, design: .monospaced))
+                        .foregroundColor(hoverExplanation.isEmpty ? textMuted : textMain)
+                        .lineLimit(1)
+                    
+                    Spacer()
+                    
+                    Text("v\(AppVersionInfo.version)")
+                        .font(.system(size: 9, weight: .bold, design: .monospaced))
+                        .foregroundColor(textMuted)
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 7)
+                .background(bgPanel)
             }
             .frame(minWidth: 1000, minHeight: 720)
             .background(bgMain)
@@ -190,7 +221,7 @@ struct ContentView: View {
                     .border(borderLine, width: 1)
                 }
                 .buttonStyle(.plain)
-                .help("Open commit \(AppVersionInfo.gitCommit) on GitHub (v\(AppVersionInfo.version))")
+                .explain("Opens commit \(AppVersionInfo.gitCommit) on GitHub repository.", binding: $hoverExplanation)
                 
                 // Info / User Guide Modal Button
                 Button(action: { showUserGuide.toggle() }) {
@@ -207,7 +238,7 @@ struct ContentView: View {
                     .border(borderLine, width: 1)
                 }
                 .buttonStyle(.plain)
-                .help("Open in-app operation instructions and tab-by-tab guide")
+                .explain("Opens the user guide with descriptions of each tab.", binding: $hoverExplanation)
                 
                 // Theme Toggle
                 Button(action: { isLightMode.toggle() }) {
@@ -224,6 +255,7 @@ struct ContentView: View {
                     .border(borderLine, width: 1)
                 }
                 .buttonStyle(.plain)
+                .explain("Switches between light and dark studio interface themes.", binding: $hoverExplanation)
                 
                 HStack(spacing: 6) {
                     Circle()
@@ -238,6 +270,7 @@ struct ContentView: View {
                 .padding(.vertical, 5)
                 .background(bgSubtle)
                 .border(borderLine, width: 1)
+                .explain(isScanning || isInspectingDeliverables ? "Engine is currently processing video files." : "Engine is idle and ready for new jobs.", binding: $hoverExplanation)
             }
         }
         .padding(.horizontal, 24)
@@ -281,6 +314,12 @@ struct ContentView: View {
                     .border(selectedTab == tab ? primaryBtnBg : borderLine, width: 1)
                 }
                 .buttonStyle(.plain)
+                .explain(
+                    tab == .lineScanner ? "01 // LINE SCANNER: Scans video frames for edge line glitches and blanking errors." :
+                    (tab == .deliverables ? "02 // DELIVERABLES SPECS: Reads container resolution, timecode, audio, and codecs." :
+                     "03 // BATCH RENAMER: Renames files using inspected video metadata and custom templates."),
+                    binding: $hoverExplanation
+                )
             }
             
             Spacer()
@@ -333,6 +372,7 @@ struct ContentView: View {
                 }
                 .buttonStyle(.plain)
                 .disabled(isScanning)
+                .explain("Opens file picker to select video files or a folder to inspect.", binding: $hoverExplanation)
                 
                 if let folder = folderURL {
                     VStack(alignment: .leading, spacing: 3) {
@@ -348,6 +388,7 @@ struct ContentView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .background(bgCardSubtle)
                     .border(borderLine, width: 1)
+                    .explain("Active directory loaded: \(folder.path)", binding: $hoverExplanation)
                 } else if !videoFiles.isEmpty {
                     VStack(alignment: .leading, spacing: 3) {
                         Text("\(videoFiles.count) INDIVIDUAL FILE(S)")
@@ -361,6 +402,7 @@ struct ContentView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .background(bgCardSubtle)
                     .border(borderLine, width: 1)
+                    .explain("\(videoFiles.count) video files loaded into the working batch.", binding: $hoverExplanation)
                 } else {
                     Text("DRAG & DROP FOLDER OR VIDEO FILES HERE")
                         .font(.system(size: 10, weight: .medium, design: .monospaced))
@@ -369,6 +411,7 @@ struct ContentView: View {
                         .padding(.vertical, 14)
                         .background(bgCardSubtle)
                         .border(borderLine, width: 1)
+                        .explain("Drag and drop video files or folders directly into the app.", binding: $hoverExplanation)
                 }
             }
         }

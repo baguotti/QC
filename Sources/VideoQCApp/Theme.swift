@@ -91,3 +91,28 @@ struct StudioToggleStyle: ToggleStyle {
         .buttonStyle(.plain)
     }
 }
+
+// MARK: - Interactive Element Explanation Modifier
+
+struct StudioExplanationModifier: ViewModifier {
+    let explanation: String
+    @Binding var binding: String
+    
+    func body(content: Content) -> some View {
+        content
+            .help(explanation)
+            .onHover { isHovered in
+                if isHovered {
+                    binding = explanation
+                } else if binding == explanation {
+                    binding = ""
+                }
+            }
+    }
+}
+
+extension View {
+    func explain(_ text: String, binding: Binding<String>) -> some View {
+        self.modifier(StudioExplanationModifier(explanation: text, binding: binding))
+    }
+}

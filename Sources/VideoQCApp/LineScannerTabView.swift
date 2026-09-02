@@ -58,6 +58,7 @@ extension ContentView {
                     .border(borderLine, width: 1)
                     .frame(width: 110)
                     .disabled(isScanning)
+                    .explain("Hex color value to search for on frame boundaries.", binding: $hoverExplanation)
                 
                 Spacer()
                 
@@ -83,6 +84,7 @@ extension ContentView {
                         }
                         .buttonStyle(.plain)
                         .disabled(isScanning)
+                        .explain("Sets target color to \(name) (\(code)) with \(Int(defaultTol))% tolerance.", binding: $hoverExplanation)
                     }
                 }
             }
@@ -100,6 +102,7 @@ extension ContentView {
                 Slider(value: $tolerancePercentage, in: isTargetBlack ? 1...15 : 5...35, step: 1)
                     .tint(primaryBtnBg)
                     .disabled(isScanning)
+                    .explain("Color match sensitivity. Lower values match strictly; higher values match broader shades.", binding: $hoverExplanation)
             }
         }
     }
@@ -121,11 +124,13 @@ extension ContentView {
                 .font(.system(size: 10, weight: .bold, design: .monospaced))
                 .toggleStyle(StudioToggleStyle(isLight: isLightMode))
                 .disabled(isScanning)
+                .explain("Amplifies shadow levels 10X to avoid false flags on naturally dark scenes.", binding: $hoverExplanation)
             
             Toggle("IGNORE FULL-FRAME BLACK SLATES", isOn: $ignoreFullBlackFrames)
                 .font(.system(size: 10, weight: .bold, design: .monospaced))
                 .toggleStyle(StudioToggleStyle(isLight: isLightMode))
                 .disabled(isScanning)
+                .explain("Skips solid black frames such as slates, head countdowns, and scene fades.", binding: $hoverExplanation)
         }
         .padding(10)
         .background(bgCardSubtle)
@@ -147,13 +152,26 @@ extension ContentView {
                 Stepper("", value: $edgeDepth, in: 2...40)
                     .labelsHidden()
                     .disabled(isScanning)
+                    .explain("Depth in pixels from outer frame boundaries to inspect for colored edge lines.", binding: $hoverExplanation)
             }
             
             HStack(spacing: 12) {
-                Toggle("TOP", isOn: $checkTop).toggleStyle(StudioToggleStyle(isLight: isLightMode)).disabled(isScanning)
-                Toggle("BOT", isOn: $checkBottom).toggleStyle(StudioToggleStyle(isLight: isLightMode)).disabled(isScanning)
-                Toggle("LFT", isOn: $checkLeft).toggleStyle(StudioToggleStyle(isLight: isLightMode)).disabled(isScanning)
-                Toggle("RGT", isOn: $checkRight).toggleStyle(StudioToggleStyle(isLight: isLightMode)).disabled(isScanning)
+                Toggle("TOP", isOn: $checkTop)
+                    .toggleStyle(StudioToggleStyle(isLight: isLightMode))
+                    .disabled(isScanning)
+                    .explain("Inspects top frame boundary for line artifacts.", binding: $hoverExplanation)
+                Toggle("BOT", isOn: $checkBottom)
+                    .toggleStyle(StudioToggleStyle(isLight: isLightMode))
+                    .disabled(isScanning)
+                    .explain("Inspects bottom frame boundary for line artifacts.", binding: $hoverExplanation)
+                Toggle("LFT", isOn: $checkLeft)
+                    .toggleStyle(StudioToggleStyle(isLight: isLightMode))
+                    .disabled(isScanning)
+                    .explain("Inspects left frame boundary for line artifacts.", binding: $hoverExplanation)
+                Toggle("RGT", isOn: $checkRight)
+                    .toggleStyle(StudioToggleStyle(isLight: isLightMode))
+                    .disabled(isScanning)
+                    .explain("Inspects right frame boundary for line artifacts.", binding: $hoverExplanation)
             }
             .font(.system(size: 10, weight: .bold, design: .monospaced))
             .foregroundColor(textMain)
@@ -175,6 +193,7 @@ extension ContentView {
                         .foregroundColor(.white)
                 }
                 .buttonStyle(.plain)
+                .explain("Aborts the active video scan in progress.", binding: $hoverExplanation)
             } else {
                 Button(action: startScan) {
                     Text("[ START LINE QC AUDIT ]")
@@ -187,6 +206,7 @@ extension ContentView {
                 }
                 .buttonStyle(.plain)
                 .disabled(videoFiles.isEmpty || RGBColor(hex: hexCode) == nil)
+                .explain("Starts frame-by-frame edge analysis across all files in the batch.", binding: $hoverExplanation)
             }
         }
     }
@@ -277,6 +297,7 @@ extension ContentView {
                                 .foregroundColor(primaryBtnFg)
                         }
                         .buttonStyle(.plain)
+                        .explain("Opens the interactive visual HTML glitch report in default browser.", binding: $hoverExplanation)
                     }
                     
                     if let csvURL = generatedCSVURL {
@@ -290,6 +311,7 @@ extension ContentView {
                                 .border(borderLine, width: 1)
                         }
                         .buttonStyle(.plain)
+                        .explain("Opens the glitch occurrence CSV table in your spreadsheet app.", binding: $hoverExplanation)
                     }
                     
                     if let reportURL = generatedReportURL {
@@ -303,6 +325,7 @@ extension ContentView {
                                 .border(borderLine, width: 1)
                         }
                         .buttonStyle(.plain)
+                        .explain("Reveals the generated HTML report file in macOS Finder.", binding: $hoverExplanation)
                     }
                 }
             }

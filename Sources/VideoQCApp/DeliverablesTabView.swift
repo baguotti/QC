@@ -33,6 +33,7 @@ extension ContentView {
                     }
                     .buttonStyle(.plain)
                     .disabled((videoFiles.isEmpty && folderURL == nil) || isInspectingDeliverables)
+                    .explain("Re-inspects all video files and refreshes stream metadata.", binding: $hoverExplanation)
                     
                     Button(action: {
                         if !deliverableAssets.isEmpty {
@@ -48,6 +49,7 @@ extension ContentView {
                     }
                     .buttonStyle(.plain)
                     .disabled(deliverableAssets.isEmpty)
+                    .explain("Exports the deliverables metadata table to a CSV file.", binding: $hoverExplanation)
                     
                     Button(action: {
                         if !deliverableAssets.isEmpty {
@@ -64,6 +66,7 @@ extension ContentView {
                     }
                     .buttonStyle(.plain)
                     .disabled(deliverableAssets.isEmpty)
+                    .explain("Generates and opens a formatted HTML delivery specs sheet in browser.", binding: $hoverExplanation)
                     
                     if let firstURL = deliverableAssets.first?.fileURL {
                         Button(action: {
@@ -78,6 +81,7 @@ extension ContentView {
                                 .border(borderLine, width: 1)
                         }
                         .buttonStyle(.plain)
+                        .explain("Locates and highlights the first asset in macOS Finder.", binding: $hoverExplanation)
                     }
                     
                     if !deliverableAssets.isEmpty {
@@ -91,6 +95,7 @@ extension ContentView {
                                 .padding(.top, 6)
                         }
                         .buttonStyle(.plain)
+                        .explain("Removes all video assets from the inspection table.", binding: $hoverExplanation)
                     }
                 }
                 
@@ -188,6 +193,7 @@ extension ContentView {
                     }
                     .buttonStyle(.plain)
                     .disabled(isInspectingDeliverables)
+                    .explain("Re-inspects all video files and refreshes stream metadata.", binding: $hoverExplanation)
                     
                     Button(action: exportDeliverablesManifest) {
                         Text("[ EXPORT GOOGLE SHEETS / CSV ]")
@@ -198,6 +204,7 @@ extension ContentView {
                             .foregroundColor(primaryBtnFg)
                     }
                     .buttonStyle(.plain)
+                    .explain("Exports the deliverables metadata table to a CSV file.", binding: $hoverExplanation)
                     
                     Button(action: openManifestHTML) {
                         Text("[ OPEN HTML SPECS ]")
@@ -209,6 +216,7 @@ extension ContentView {
                             .border(borderLine, width: 1)
                     }
                     .buttonStyle(.plain)
+                    .explain("Generates and opens a formatted HTML delivery specs sheet in browser.", binding: $hoverExplanation)
                     
                     if let firstURL = deliverableAssets.first?.fileURL {
                         Button(action: { NSWorkspace.shared.activateFileViewerSelecting([firstURL]) }) {
@@ -221,6 +229,7 @@ extension ContentView {
                                 .border(borderLine, width: 1)
                         }
                         .buttonStyle(.plain)
+                        .explain("Locates and highlights the first asset in macOS Finder.", binding: $hoverExplanation)
                     }
                 }
             }

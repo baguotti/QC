@@ -92,6 +92,7 @@ public struct RenamerEngine: Sendable {
             }
             
             let item = RenameItem(
+                id: asset.id,
                 asset: asset,
                 originalURL: asset.fileURL,
                 originalName: baseName,
@@ -100,6 +101,18 @@ public struct RenamerEngine: Sendable {
                 status: isSelected ? .pending : .excluded
             )
             items.append(item)
+        }
+        
+        // Directory file cache to eliminate per-item synchronous filesystem stat RPC calls
+        var dirCache: [URL: Set<String>] = [:]
+        func getExistingFiles(in dir: URL) -> Set<String> {
+            if let cached = dirCache[dir] {
+                return cached
+            }
+            let files = (try? FileManager.default.contentsOfDirectory(atPath: dir.path)) ?? []
+            let set = Set(files.map { $0.lowercased() })
+            dirCache[dir] = set
+            return set
         }
         
         // Evaluate Collisions and Statuses
@@ -126,10 +139,14 @@ public struct RenamerEngine: Sendable {
                 return updated
             }
             
-            // Check filesystem collision (if file exists and is not the current file)
+            // Check filesystem collision (using cached directory listing in memory)
             let destinationURL = item.targetURL
             let isCaseOnlyChange = destinationURL.path.caseInsensitiveCompare(item.originalURL.path) == .orderedSame
-            if !isCaseOnlyChange && FileManager.default.fileExists(atPath: destinationURL.path) {
+            let parentDir = destinationURL.deletingLastPathComponent()
+            let existingInDir = getExistingFiles(in: parentDir)
+            let isSameOriginal = destinationURL.lastPathComponent.caseInsensitiveCompare(item.originalURL.lastPathComponent) == .orderedSame
+            
+            if !isCaseOnlyChange && !isSameOriginal && existingInDir.contains(destinationURL.lastPathComponent.lowercased()) {
                 updated.status = .collision("File Exists on Disk")
                 updated.collisionDetail = "A file already exists with name: \(proposedFull)"
                 return updated
