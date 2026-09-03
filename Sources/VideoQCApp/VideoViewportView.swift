@@ -36,6 +36,7 @@ public final class PlayerContainerNSView: NSView {
     private var dragStartLocation: NSPoint? = nil
     private var initialPanOffset: CGSize = .zero
     
+    private var activeRenderedURL: URL? = nil
     private var lastCapturedTime: CMTime? = nil
     private var isCapturingStill: Bool = false
     
@@ -48,6 +49,7 @@ public final class PlayerContainerNSView: NSView {
         // Canvas Container Layer (anchored at center for clean scaling & translation)
         canvasLayer.anchorPoint = CGPoint(x: 0.5, y: 0.5)
         canvasLayer.backgroundColor = NSColor.clear.cgColor
+        canvasLayer.masksToBounds = true
         canvasLayer.borderWidth = 0
         canvasLayer.shadowOpacity = 0
         layer?.addSublayer(canvasLayer)
@@ -105,16 +107,21 @@ public final class PlayerContainerNSView: NSView {
     
     public func update(engine: PlayerEngine, isLightMode: Bool) {
         self.engine = engine
-        if playerLayer.player != engine.player {
-            playerLayer.player = engine.player
-            // Clear stale still frame from previous video to prevent wrong-AR ghost
+        
+        // When active file changes, purge stale frame buffers and reset still layer immediately
+        if activeRenderedURL != engine.activeURL {
+            activeRenderedURL = engine.activeURL
             CATransaction.begin()
             CATransaction.setDisableActions(true)
             self.lastCapturedTime = nil
+            self.isCapturingStill = false
             self.stillFrameLayer.contents = nil
             self.stillFrameLayer.isHidden = true
-            self.playerLayer.isHidden = false
             CATransaction.commit()
+        }
+        
+        if playerLayer.player != engine.player {
+            playerLayer.player = engine.player
         }
         
         // Deep canvas background (Premiere style neutral dark gray)
@@ -153,6 +160,9 @@ public final class PlayerContainerNSView: NSView {
     // MARK: - Video Aspect Ratio & Layout
     
     private func getVideoAspectRatio() -> CGFloat {
+        if let item = playerLayer.player?.currentItem, item.presentationSize.width > 0, item.presentationSize.height > 0 {
+            return item.presentationSize.width / item.presentationSize.height
+        }
         guard let engine = engine else { return 16.0 / 9.0 }
         let w = engine.videoSize.width
         let h = engine.videoSize.height
@@ -220,17 +230,19 @@ public final class PlayerContainerNSView: NSView {
     }
     
     private func checkStillFrameDisplay() {
-        guard let engine = engine else { return }
+        guard let engine = engine, let currentURL = engine.activeURL else { return }
         
-        // If playing or actively scrubbing, show the live AVPlayerLayer
+        // If playing or actively scrubbing, hide the still overlay immediately
         if engine.isPlaying || engine.isScrubbing {
             CATransaction.begin()
             CATransaction.setDisableActions(true)
             stillFrameLayer.isHidden = true
-            playerLayer.isHidden = false
             CATransaction.commit()
             return
         }
+        
+        // Ensure this viewport is tracking the current active asset
+        guard activeRenderedURL == currentURL else { return }
         
         let time = engine.currentTime
         if let last = lastCapturedTime, abs(CMTimeGetSeconds(last) - CMTimeGetSeconds(time)) < 0.005 {
@@ -238,7 +250,6 @@ public final class PlayerContainerNSView: NSView {
             CATransaction.begin()
             CATransaction.setDisableActions(true)
             stillFrameLayer.isHidden = false
-            playerLayer.isHidden = true
             CATransaction.commit()
             return
         }
@@ -246,19 +257,20 @@ public final class PlayerContainerNSView: NSView {
         guard !isCapturingStill else { return }
         isCapturingStill = true
         
+        let captureURL = currentURL
         Task { [weak self] in
             guard let self = self, let curEngine = self.engine else { return }
             let img = await curEngine.captureCurrentFrame(at: time)
             await MainActor.run {
                 self.isCapturingStill = false
                 guard let img = img, let curEngine = self.engine else { return }
-                if !curEngine.isPlaying && abs(CMTimeGetSeconds(curEngine.currentTime) - CMTimeGetSeconds(time)) < 0.04 {
+                // Only commit if engine is still paused and still on the exact same asset
+                if !curEngine.isPlaying && curEngine.activeURL == captureURL && abs(CMTimeGetSeconds(curEngine.currentTime) - CMTimeGetSeconds(time)) < 0.04 {
                     CATransaction.begin()
                     CATransaction.setDisableActions(true)
                     self.lastCapturedTime = time
                     self.stillFrameLayer.contents = img
                     self.stillFrameLayer.isHidden = false
-                    self.playerLayer.isHidden = true
                     CATransaction.commit()
                 }
             }

@@ -9,6 +9,8 @@ struct ContentView: View {
     @AppStorage("isLightMode") var isLightMode: Bool = false
     @State var selectedTab: AppTab = .lineScanner
     @State var showUserGuide: Bool = false
+    @State var showFeedbackModal: Bool = false
+    @ObservedObject private var updateManager = UpdateManager.shared
     @State var hoverExplanation: String = ""
     
     // Shared Folder & Video Files
@@ -214,6 +216,20 @@ struct ContentView: View {
                     .zIndex(100)
             }
             
+            // Feedback Form Overlay Modal
+            if showFeedbackModal {
+                FeedbackModalView(isPresented: $showFeedbackModal)
+                    .transition(.opacity.combined(with: .scale(scale: 0.98)))
+                    .zIndex(150)
+            }
+            
+            // Software Update Overlay Modal
+            if updateManager.showModal {
+                UpdateModalView(updateManager: updateManager, isPresented: $updateManager.showModal)
+                    .transition(.opacity.combined(with: .scale(scale: 0.98)))
+                    .zIndex(160)
+            }
+            
             // Dedicated Fullscreen Video Player Presentation
             if fullscreenMode == .review {
                 fullscreenPlayerOverlay
@@ -226,6 +242,7 @@ struct ContentView: View {
             }
         }
         .animation(.easeInOut(duration: 0.15), value: showUserGuide)
+        .animation(.easeInOut(duration: 0.15), value: showFeedbackModal)
         .animation(.easeInOut(duration: 0.15), value: fullscreenMode)
         .onReceive(NotificationCenter.default.publisher(for: NSWindow.didExitFullScreenNotification)) { _ in
             if fullscreenMode != .none {
@@ -256,6 +273,7 @@ struct ContentView: View {
         .onAppear {
             setupKeyboardMonitor()
             loadFinderTagsForQueue()
+            updateManager.checkForUpdates(userInitiated: false)
         }
     }
     
@@ -284,20 +302,41 @@ struct ContentView: View {
             Spacer()
             
             HStack(spacing: 10) {
-                // Version Badge
-                HStack(spacing: 5) {
-                    Circle()
-                        .fill(accentPositive)
-                        .frame(width: 5, height: 5)
-                    Text("v\(AppVersionInfo.version)")
-                        .font(.system(size: 10, weight: .black, design: .monospaced))
+                // Version / Update Badge
+                if updateManager.hasUpdate {
+                    Button(action: { updateManager.showModal = true }) {
+                        HStack(spacing: 5) {
+                            Image(systemName: "arrow.down.circle.fill")
+                                .font(.system(size: 10))
+                            Text("UPDATE v\(updateManager.latestVersion)")
+                                .font(.system(size: 10, weight: .black, design: .monospaced))
+                        }
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 5)
+                        .background(accentPositive)
+                        .foregroundColor(.white)
+                        .border(borderStrong, width: 1)
+                    }
+                    .buttonStyle(.plain)
+                    .explain("New update v\(updateManager.latestVersion) available! Click to update.", binding: $hoverExplanation)
+                } else {
+                    Button(action: { updateManager.checkForUpdates(userInitiated: true) }) {
+                        HStack(spacing: 5) {
+                            Circle()
+                                .fill(accentPositive)
+                                .frame(width: 5, height: 5)
+                            Text("v\(AppVersionInfo.version)")
+                                .font(.system(size: 10, weight: .black, design: .monospaced))
+                        }
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 5)
+                        .background(bgSubtle)
+                        .foregroundColor(textMain)
+                        .border(borderLine, width: 1)
+                    }
+                    .buttonStyle(.plain)
+                    .explain("QCpie v\(AppVersionInfo.version) • Click to check for updates", binding: $hoverExplanation)
                 }
-                .padding(.horizontal, 8)
-                .padding(.vertical, 5)
-                .background(bgSubtle)
-                .foregroundColor(textMain)
-                .border(borderLine, width: 1)
-                .explain("Application version: v\(AppVersionInfo.version)", binding: $hoverExplanation)
                 
                 // Info / User Guide Modal Button
                 Button(action: { showUserGuide.toggle() }) {
@@ -330,6 +369,23 @@ struct ContentView: View {
                 }
                 .buttonStyle(.plain)
                 .explain("Switches between light and dark studio interface themes.", binding: $hoverExplanation)
+                
+                // Feedback Button (Sends to fusetti.riccardo@gmail.com)
+                Button(action: { showFeedbackModal = true }) {
+                    HStack(spacing: 5) {
+                        Image(systemName: "envelope.fill")
+                            .font(.system(size: 10))
+                        Text("FEEDBACK")
+                            .font(.system(size: 10, weight: .bold, design: .monospaced))
+                    }
+                    .frame(height: 26)
+                    .padding(.horizontal, 10)
+                    .background(bgSubtle)
+                    .foregroundColor(textMain)
+                    .border(borderLine, width: 1)
+                }
+                .buttonStyle(.plain)
+                .explain("Send feedback, bug reports, or feature ideas directly to Riccardo.", binding: $hoverExplanation)
                 
                 // Engine Status Indicator (Fixed 76px width)
                 HStack(spacing: 6) {
@@ -817,10 +873,8 @@ struct ContentView: View {
                 .font(.system(size: 16, weight: .black, design: .monospaced))
                 .foregroundColor(isRed ? alertRed : (isPositive ? accentPositive : textMain))
         }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 8)
-        .background(bgPanel)
-        .border(borderLine, width: 1)
+        .padding(.trailing, 16)
+        .padding(.vertical, 4)
     }
     
     func statItem(label: String, val: String, isAlert: Bool = false, isPositive: Bool = false) -> some View {

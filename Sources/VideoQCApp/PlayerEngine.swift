@@ -91,11 +91,14 @@ public final class PlayerEngine: ObservableObject {
     }
     private let tokens = TokenBox()
     private var cancellables = Set<AnyCancellable>()
+    private var itemStatusCancellable: AnyCancellable? = nil
     
     private var isSeeking: Bool = false
     private var pendingSeekTime: CMTime? = nil
     
     public init() {
+        // Bypass buffer stall heuristics for ultra-snappy local NLE playback
+        player.automaticallyWaitsToMinimizeStalling = false
         setupTimeObserver()
         setupEndObserver()
     }
@@ -133,7 +136,32 @@ public final class PlayerEngine: ObservableObject {
         
         let asset = AVURLAsset(url: url)
         let item = AVPlayerItem(asset: asset)
+        item.canUseNetworkResourcesForLiveStreamingWhilePaused = false
+        
         player.replaceCurrentItem(with: item)
+        player.automaticallyWaitsToMinimizeStalling = false
+        
+        // Observe presentationSize as early as possible so aspect ratio updates immediately
+        item.publisher(for: \.presentationSize)
+            .receive(on: DispatchQueue.main)
+            .filter { $0.width > 0 && $0.height > 0 }
+            .first()
+            .sink { [weak self] size in
+                guard let self = self, self.activeURL == url else { return }
+                self.videoSize = size
+            }
+            .store(in: &cancellables)
+        
+        // Pre-roll hardware decoders and audio engines as soon as ready to play
+        itemStatusCancellable = item.publisher(for: \.status)
+            .receive(on: DispatchQueue.main)
+            .filter { $0 == .readyToPlay }
+            .first()
+            .sink { [weak self] _ in
+                guard let self = self else { return }
+                self.player.automaticallyWaitsToMinimizeStalling = false
+                self.player.preroll(atRate: 1.0) { _ in }
+            }
         
         Task {
             await extractMetadata(asset: asset)
@@ -489,14 +517,19 @@ public final class PlayerEngine: ObservableObject {
         stopSlowStep()
         self.rate = newRate
         self.isPlaying = (newRate != 0.0)
-        player.rate = newRate
         
         if newRate == 0.0 {
+            player.pause()
             shuttleStateText = "PAUSE"
-        } else if newRate > 0.0 {
-            shuttleStateText = newRate == 1.0 ? "PLAY 1x" : "FWD \(Int(newRate))x"
         } else {
-            shuttleStateText = newRate == -1.0 ? "REV 1x" : "REV \(Int(abs(newRate)))x"
+            player.automaticallyWaitsToMinimizeStalling = false
+            player.playImmediately(atRate: newRate)
+            
+            if newRate > 0.0 {
+                shuttleStateText = newRate == 1.0 ? "PLAY 1x" : "FWD \(Int(newRate))x"
+            } else {
+                shuttleStateText = newRate == -1.0 ? "REV 1x" : "REV \(Int(abs(newRate)))x"
+            }
         }
     }
     

@@ -16,6 +16,11 @@ struct QCpieApp: App {
         .windowToolbarStyle(.unified)
         .commands {
             SidebarCommands()
+            CommandGroup(after: .appInfo) {
+                Button("Check for Updates...") {
+                    UpdateManager.shared.checkForUpdates(userInitiated: true)
+                }
+            }
         }
     }
 }
