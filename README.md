@@ -7,9 +7,9 @@ Video QC, metadata inspection, and batch renaming for macOS (Apple Silicon).
 
 ## 🚀 How to Install & Run
 
-- **Disk Image Installer (.dmg):** Open [`build/QCpie.dmg`](file:///Users/wildmacstudio25/Documents/QC/build/QCpie.dmg) and drag `QCpie` to `/Applications`.
-- **Standalone App (.app):** Open [`build/QCpie.app`](file:///Users/wildmacstudio25/Documents/QC/build/QCpie.app) directly.
-- **Terminal Launcher:** Double-click [`Start_QCpie.command`](file:///Users/wildmacstudio25/Documents/QC/Start_QCpie.command).
+- **Disk Image Installer (.dmg):** Open `build/QCpie.dmg` and drag `QCpie` to `/Applications`.
+- **Standalone App (.app):** Open `build/QCpie.app` directly.
+- **Terminal Launcher:** Double-click `Start_QCpie.command`.
 
 ---
 
@@ -19,11 +19,11 @@ Video QC, metadata inspection, and batch renaming for macOS (Apple Silicon).
 Scans video frames for edge line glitches, matte slips, and blanking errors.
 - **[ + CHOOSE FOLDER / FILES ]:** Selects or drags in video files or folders to scan.
 - **Color Picker & Hex:** Sets the RGB target color for edge line detection.
-- **Color Presets:** One-click targets: Magenta, Cyan, Green, Red, White, Black.
-- **Tolerance Slider:** Sets color match threshold (0–100%).
+- **Color Presets:** One-click targets: Green (#00FF00), Magenta (#FF00B4), Black (#000000), or Custom Color Wheel.
+- **Tolerance Slider:** Sets color match sensitivity (5–50%).
 - **Head Skip:** Skips the first X seconds of video (ignores slates/countdowns).
-- **Edge Depth:** Number of pixels inward from frame edge to check (1–32px).
-- **Top / Bottom / Left / Right:** Toggles which edges to inspect.
+- **Edge Depth:** Number of pixels inward from outer frame boundary to inspect (2–40px). All 4 borders are always scanned.
+- **Scan Full Screen:** Toggles full-frame inspection for internal split-screen dividing lines and PIP seams.
 - **10X Exposure Boost:** Brightens shadows during black scans to prevent dark scenes from being flagged.
 - **Ignore Full Black Frames:** Skips full black frames (fades, commercial breaks).
 - **[ START QC SCAN ]:** Starts frame-by-frame analysis.
