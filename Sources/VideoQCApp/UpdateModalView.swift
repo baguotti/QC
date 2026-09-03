@@ -51,8 +51,8 @@ struct UpdateModalView: View {
                             .foregroundColor(textMuted)
                             .padding(.horizontal, 6)
                             .padding(.vertical, 2)
-                            .background(bgSubtle)
-                            .border(borderLine, width: 1)
+                            .foregroundColor(textMuted)
+                            .studioBox(background: bgSubtle, border: borderLine)
                     }
                     Spacer()
                     
@@ -61,9 +61,8 @@ struct UpdateModalView: View {
                             .font(.system(size: 10, weight: .bold, design: .monospaced))
                             .padding(.horizontal, 9)
                             .padding(.vertical, 5)
-                            .background(bgSubtle)
                             .foregroundColor(textMain)
-                            .border(borderLine, width: 1)
+                            .studioBox(background: bgSubtle, border: borderLine)
                     }
                     .buttonStyle(.plain)
                     .keyboardShortcut(.escape, modifiers: [])
@@ -95,7 +94,7 @@ struct UpdateModalView: View {
                 .background(bgMain)
             }
             .frame(width: 540)
-            .border(borderStrong, width: 1)
+            .studioBox(background: bgMain, border: borderStrong)
             .shadow(color: Color.black.opacity(0.4), radius: 20, x: 0, y: 10)
         }
     }
@@ -139,9 +138,8 @@ struct UpdateModalView: View {
                 Text("DONE")
                     .font(.system(size: 11, weight: .bold, design: .monospaced))
                     .frame(width: 120, height: 30)
-                    .background(primaryBtnBg)
                     .foregroundColor(primaryBtnFg)
-                    .border(borderStrong, width: 1)
+                    .studioBox(background: primaryBtnBg, border: borderStrong)
             }
             .buttonStyle(.plain)
             .padding(.top, 10)
@@ -174,8 +172,8 @@ struct UpdateModalView: View {
                         .foregroundColor(textMuted)
                 }
                 .padding(8)
-                .background(bgSubtle)
-                .border(borderLine, width: 1)
+                .foregroundColor(textMuted)
+                .studioBox(background: bgSubtle, border: borderLine)
             }
             
             Rectangle().fill(borderLine).frame(height: 1)
@@ -191,8 +189,7 @@ struct UpdateModalView: View {
                     .lineSpacing(4)
             }
             .padding(12)
-            .background(bgCardBody)
-            .border(borderLine, width: 1)
+            .studioBox(background: bgCardBody, border: borderLine)
             
             HStack(spacing: 12) {
                 Button(action: { updateManager.startDownload() }) {
@@ -203,9 +200,8 @@ struct UpdateModalView: View {
                             .font(.system(size: 11, weight: .black, design: .monospaced))
                     }
                     .frame(maxWidth: .infinity, minHeight: 34)
-                    .background(accentPositive)
                     .foregroundColor(.white)
-                    .border(borderStrong, width: 1)
+                    .studioBox(background: accentPositive, border: borderStrong)
                 }
                 .buttonStyle(.plain)
                 
@@ -213,9 +209,8 @@ struct UpdateModalView: View {
                     Text("LATER")
                         .font(.system(size: 11, weight: .bold, design: .monospaced))
                         .frame(width: 100, height: 34)
-                        .background(bgSubtle)
                         .foregroundColor(textMain)
-                        .border(borderLine, width: 1)
+                        .studioBox(background: bgSubtle, border: borderLine)
                 }
                 .buttonStyle(.plain)
             }
@@ -240,11 +235,11 @@ struct UpdateModalView: View {
             // Minimalist Progress Bar
             GeometryReader { geo in
                 ZStack(alignment: .leading) {
-                    Rectangle()
+                    RoundedRectangle(cornerRadius: StudioTheme.cornerRadius)
                         .fill(bgSubtle)
-                        .border(borderLine, width: 1)
+                        .overlay(RoundedRectangle(cornerRadius: StudioTheme.cornerRadius).stroke(borderLine, lineWidth: 1))
                     
-                    Rectangle()
+                    RoundedRectangle(cornerRadius: StudioTheme.cornerRadius)
                         .fill(accentPositive)
                         .frame(width: max(0, min(geo.size.width, geo.size.width * CGFloat(progress))))
                 }
@@ -263,9 +258,8 @@ struct UpdateModalView: View {
                         .font(.system(size: 10, weight: .bold, design: .monospaced))
                         .padding(.horizontal, 10)
                         .padding(.vertical, 4)
-                        .background(bgSubtle)
                         .foregroundColor(textMain)
-                        .border(borderLine, width: 1)
+                        .studioBox(background: bgSubtle, border: borderLine)
                 }
                 .buttonStyle(.plain)
             }
@@ -309,8 +303,7 @@ struct UpdateModalView: View {
                 }
             }
             .padding(12)
-            .background(bgCardBody)
-            .border(borderLine, width: 1)
+            .studioBox(background: bgCardBody, border: borderLine)
             
             HStack(spacing: 10) {
                 Button(action: { updateManager.quitAppToReplace() }) {
@@ -321,9 +314,8 @@ struct UpdateModalView: View {
                             .font(.system(size: 11, weight: .black, design: .monospaced))
                     }
                     .frame(maxWidth: .infinity, minHeight: 34)
-                    .background(primaryBtnBg)
                     .foregroundColor(primaryBtnFg)
-                    .border(borderStrong, width: 1)
+                    .studioBox(background: primaryBtnBg, border: borderStrong)
                 }
                 .buttonStyle(.plain)
                 
@@ -331,9 +323,8 @@ struct UpdateModalView: View {
                     Text("RE-OPEN DMG")
                         .font(.system(size: 10, weight: .bold, design: .monospaced))
                         .frame(width: 100, height: 34)
-                        .background(bgSubtle)
                         .foregroundColor(textMain)
-                        .border(borderLine, width: 1)
+                        .studioBox(background: bgSubtle, border: borderLine)
                 }
                 .buttonStyle(.plain)
                 
@@ -341,9 +332,8 @@ struct UpdateModalView: View {
                     Text("CLOSE")
                         .font(.system(size: 10, weight: .bold, design: .monospaced))
                         .frame(width: 70, height: 34)
-                        .background(bgSubtle)
                         .foregroundColor(textMain)
-                        .border(borderLine, width: 1)
+                        .studioBox(background: bgSubtle, border: borderLine)
                 }
                 .buttonStyle(.plain)
             }
@@ -366,8 +356,7 @@ struct UpdateModalView: View {
                 .font(.system(size: 11, design: .monospaced))
                 .foregroundColor(textMuted)
                 .padding(10)
-                .background(bgCardBody)
-                .border(borderLine, width: 1)
+                .studioBox(background: bgCardBody, border: borderLine)
             
             HStack(spacing: 10) {
                 Button(action: { updateManager.checkForUpdates(userInitiated: true) }) {
@@ -375,9 +364,8 @@ struct UpdateModalView: View {
                         .font(.system(size: 11, weight: .bold, design: .monospaced))
                         .padding(.horizontal, 14)
                         .padding(.vertical, 7)
-                        .background(primaryBtnBg)
                         .foregroundColor(primaryBtnFg)
-                        .border(borderStrong, width: 1)
+                        .studioBox(background: primaryBtnBg, border: borderStrong)
                 }
                 .buttonStyle(.plain)
                 
@@ -387,9 +375,8 @@ struct UpdateModalView: View {
                             .font(.system(size: 11, weight: .bold, design: .monospaced))
                             .padding(.horizontal, 14)
                             .padding(.vertical, 7)
-                            .background(bgSubtle)
                             .foregroundColor(textMain)
-                            .border(borderLine, width: 1)
+                            .studioBox(background: bgSubtle, border: borderLine)
                     }
                     .buttonStyle(.plain)
                 }
@@ -401,9 +388,8 @@ struct UpdateModalView: View {
                         .font(.system(size: 11, weight: .bold, design: .monospaced))
                         .padding(.horizontal, 14)
                         .padding(.vertical, 7)
-                        .background(bgSubtle)
                         .foregroundColor(textMain)
-                        .border(borderLine, width: 1)
+                        .studioBox(background: bgSubtle, border: borderLine)
                 }
                 .buttonStyle(.plain)
             }

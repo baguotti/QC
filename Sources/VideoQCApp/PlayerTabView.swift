@@ -34,8 +34,7 @@ extension ContentView {
                     }
                     .padding(.horizontal, 8)
                     .padding(.vertical, 6)
-                    .background(bgSubtle)
-                    .border(borderLine, width: 1)
+                    .studioBox(background: bgSubtle, border: borderLine)
                 }
                 
                 // Asset List
@@ -70,8 +69,7 @@ extension ContentView {
                         }
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                         .padding(12)
-                        .background(bgCardSubtle)
-                        .border(borderLine, width: 1)
+                        .studioBox(background: bgCardSubtle, border: borderLine)
                     } else {
                         ScrollViewReader { scrollProxy in
                             ScrollView {
@@ -90,8 +88,7 @@ extension ContentView {
                                 }
                             }
                         }
-                        .background(bgCardSubtle)
-                        .border(borderLine, width: 1)
+                        .studioBox(background: bgCardSubtle, border: borderLine)
                     }
                 }
                 .frame(maxHeight: .infinity)
@@ -106,8 +103,7 @@ extension ContentView {
                 playerMonitorHeader
                     .padding(.horizontal, 16)
                     .padding(.vertical, 10)
-                    .background(bgCardHeader)
-                    .border(borderLine, width: 1)
+                    .studioBox(background: bgCardHeader, border: borderLine)
                 
                 // Program Monitor Viewport Canvas
                 ZStack {
@@ -131,8 +127,7 @@ extension ContentView {
                     }
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .clipped()
-                .border(borderLine, width: 1)
+                .studioBox(background: Color(white: 0.08), border: borderLine)
                 
                 // Timeline Scrubber & Transport Controls (Rigidly locked height to prevent any layout jitter)
                 VStack(spacing: 8) {
@@ -149,10 +144,9 @@ extension ContentView {
                     playerTransportBar
                         .frame(height: 28)
                 }
-                .padding(12)
-                .frame(height: 138)
-                .background(bgPanel)
-                .border(borderLine, width: 1)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 12)
+                .studioBox(background: bgCardHeader, border: borderLine)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
@@ -211,16 +205,14 @@ extension ContentView {
                         .font(.system(size: 8, weight: .black, design: .monospaced))
                         .padding(.horizontal, 4)
                         .padding(.vertical, 2)
-                        .background(accentPositive.opacity(0.2))
                         .foregroundColor(accentPositive)
-                        .border(accentPositive, width: 1)
+                        .studioBox(background: accentPositive.opacity(0.2), border: accentPositive)
                 }
             }
             .frame(maxWidth: .infinity)
             .frame(height: 42)
             .padding(.horizontal, 8)
-            .background(isSelected ? bgSubtle : Color.clear)
-            .border(isSelected ? borderLine : Color.clear, width: 1)
+            .studioBox(background: isSelected ? bgSubtle : Color.clear, border: isSelected ? borderLine : Color.clear)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -283,9 +275,8 @@ extension ContentView {
                     }
                     .padding(.horizontal, 9)
                     .padding(.vertical, 5)
-                    .background(playerEngine.activeURL == nil ? bgSubtle : bgPanel)
                     .foregroundColor(playerEngine.activeURL == nil ? textMuted : textMain)
-                    .border(borderLine, width: 1)
+                    .studioBox(background: playerEngine.activeURL == nil ? bgSubtle : bgPanel, border: borderLine)
                 }
                 .buttonStyle(.plain)
                 .disabled(playerEngine.activeURL == nil)
@@ -300,9 +291,8 @@ extension ContentView {
                     }
                     .padding(.horizontal, 10)
                     .padding(.vertical, 5)
-                    .background(playerEngine.activeURL == nil ? bgSubtle : primaryBtnBg)
                     .foregroundColor(playerEngine.activeURL == nil ? textMuted : primaryBtnFg)
-                    .border(borderLine, width: 1)
+                    .studioBox(background: playerEngine.activeURL == nil ? bgSubtle : primaryBtnBg, border: borderLine)
                 }
                 .buttonStyle(.plain)
                 .disabled(playerEngine.activeURL == nil)
@@ -377,8 +367,7 @@ extension ContentView {
                 }
                 .padding(.horizontal, 6)
                 .frame(width: 64, height: 22)
-                .background(bgSubtle)
-                .border(borderLine, width: 1)
+                .studioBox(background: bgSubtle, border: borderLine)
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
@@ -393,9 +382,8 @@ extension ContentView {
                         .font(.system(size: 10, weight: .bold, design: .monospaced))
                         .padding(.horizontal, 6)
                         .frame(height: 20)
-                        .background(accentPositive.opacity(0.15))
                         .foregroundColor(accentPositive)
-                        .border(accentPositive.opacity(0.6), width: 0.5)
+                        .studioBox(background: accentPositive.opacity(0.15), border: accentPositive.opacity(0.6), width: 0.5)
                 }
             }
             .frame(width: 100, height: 20, alignment: .center)
@@ -465,9 +453,8 @@ extension ContentView {
                             .font(.system(size: 12, weight: .black))
                     }
                     .frame(width: 44, height: 28)
-                    .background(primaryBtnBg)
                     .foregroundColor(primaryBtnFg)
-                    .border(borderLine, width: 1)
+                    .studioBox(background: primaryBtnBg, border: borderLine)
                 }
                 .buttonStyle(.plain)
                 .explain("Play / Pause (Spacebar / K)", binding: $hoverExplanation)
@@ -518,9 +505,8 @@ extension ContentView {
                             .font(.system(size: 9, weight: .bold, design: .monospaced))
                     }
                     .frame(width: 96, height: 28)
-                    .background(hasGlitches ? alertRed.opacity(0.18) : bgSubtle)
                     .foregroundColor(hasGlitches ? alertRed : textMuted)
-                    .border(hasGlitches ? alertRed.opacity(0.6) : borderLine, width: 1)
+                    .studioBox(background: hasGlitches ? alertRed.opacity(0.18) : bgSubtle, border: hasGlitches ? alertRed.opacity(0.6) : borderLine)
                 }
                 .buttonStyle(.plain)
                 .disabled(!hasGlitches)
@@ -537,9 +523,8 @@ extension ContentView {
                             .font(.system(size: 9, weight: .bold, design: .monospaced))
                     }
                     .frame(width: 96, height: 28)
-                    .background(hasGlitches ? alertRed.opacity(0.18) : bgSubtle)
                     .foregroundColor(hasGlitches ? alertRed : textMuted)
-                    .border(hasGlitches ? alertRed.opacity(0.6) : borderLine, width: 1)
+                    .studioBox(background: hasGlitches ? alertRed.opacity(0.18) : bgSubtle, border: hasGlitches ? alertRed.opacity(0.6) : borderLine)
                 }
                 .buttonStyle(.plain)
                 .disabled(!hasGlitches)
@@ -564,9 +549,8 @@ extension ContentView {
                             .font(.system(size: 9, weight: .bold, design: .monospaced))
                     }
                     .frame(width: 78, height: 28)
-                    .background(activeTag != nil ? activeTag!.color.opacity(0.18) : bgSubtle)
                     .foregroundColor(activeTag != nil ? activeTag!.color : textMain)
-                    .border(activeTag != nil ? activeTag!.color.opacity(0.6) : borderLine, width: 1)
+                    .studioBox(background: activeTag != nil ? activeTag!.color.opacity(0.18) : bgSubtle, border: activeTag != nil ? activeTag!.color.opacity(0.6) : borderLine)
                 }
                 .buttonStyle(.plain)
                 .disabled(activeURL == nil)
@@ -578,16 +562,27 @@ extension ContentView {
             
             Spacer()
             
-            // Right: Review Fullscreen, Video Fullscreen & Shortcuts Menu (Fixed 186px width)
+            // Right: Screenshot, Review Fullscreen, Video Fullscreen & Shortcuts Menu
             HStack(spacing: 6) {
+                // Export Screenshot Button
+                Button(action: { exportCurrentFrameScreenshot() }) {
+                    Image(systemName: "camera.fill")
+                        .font(.system(size: 11, weight: .bold))
+                        .frame(width: 28, height: 28)
+                        .foregroundColor(playerEngine.activeURL == nil ? textMuted : textMain)
+                        .studioBox(background: bgSubtle, border: borderLine)
+                }
+                .buttonStyle(.plain)
+                .disabled(playerEngine.activeURL == nil)
+                .explain("Export screenshot of the current video frame as medium-quality JPG.", binding: $hoverExplanation)
+                
                 // Review Fullscreen Button
                 Button(action: { enterFullscreen(mode: .review) }) {
                     Image(systemName: "rectangle.inset.filled.and.cursorarrow")
                         .font(.system(size: 10, weight: .bold))
                         .frame(width: 28, height: 28)
-                        .background(bgSubtle)
                         .foregroundColor(playerEngine.activeURL == nil ? textMuted : textMain)
-                        .border(borderLine, width: 1)
+                        .studioBox(background: bgSubtle, border: borderLine)
                 }
                 .buttonStyle(.plain)
                 .disabled(playerEngine.activeURL == nil)
@@ -598,9 +593,8 @@ extension ContentView {
                     Image(systemName: "arrow.up.left.and.arrow.down.right")
                         .font(.system(size: 10, weight: .bold))
                         .frame(width: 28, height: 28)
-                        .background(bgSubtle)
                         .foregroundColor(playerEngine.activeURL == nil ? textMuted : textMain)
-                        .border(borderLine, width: 1)
+                        .studioBox(background: bgSubtle, border: borderLine)
                 }
                 .buttonStyle(.plain)
                 .disabled(playerEngine.activeURL == nil)
@@ -633,14 +627,13 @@ extension ContentView {
                             .font(.system(size: 7, weight: .bold))
                     }
                     .frame(width: 110, height: 28)
-                    .background(bgSubtle)
                     .foregroundColor(textMain)
-                    .border(borderLine, width: 1)
+                    .studioBox(background: bgSubtle, border: borderLine)
                 }
                 .menuStyle(.borderlessButton)
                 .explain("View all player keyboard shortcuts.", binding: $hoverExplanation)
             }
-            .frame(width: 186, alignment: .trailing)
+            .frame(width: 220, alignment: .trailing)
         }
         .frame(height: 28)
     }
@@ -650,9 +643,8 @@ extension ContentView {
             Image(systemName: icon)
                 .font(.system(size: 10, weight: .bold))
                 .frame(width: 30, height: 28)
-                .background(isActive ? accentPositive.opacity(0.18) : bgSubtle)
                 .foregroundColor(isActive ? accentPositive : textMain)
-                .border(isActive ? accentPositive : borderLine, width: 1)
+                .studioBox(background: isActive ? accentPositive.opacity(0.18) : bgSubtle, border: isActive ? accentPositive : borderLine)
         }
         .buttonStyle(.plain)
         .explain(tooltip, binding: $hoverExplanation)
@@ -663,6 +655,37 @@ extension ContentView {
             return videoFiles
         }
         return videoFiles.filter { $0.lastPathComponent.localizedCaseInsensitiveContains(playerFilterText) }
+    }
+    
+    // MARK: - Screenshot Capture & Export
+    
+    private func exportCurrentFrameScreenshot() {
+        guard let url = playerEngine.activeURL else { return }
+        
+        let baseName = url.deletingPathExtension().lastPathComponent
+        let defaultFileName = "\(baseName)_frame_\(playerEngine.currentFrame).jpg"
+        
+        let savePanel = NSSavePanel()
+        savePanel.title = "Save Frame Screenshot"
+        savePanel.prompt = "Save"
+        savePanel.canCreateDirectories = true
+        savePanel.nameFieldStringValue = defaultFileName
+        savePanel.allowedContentTypes = [.jpeg]
+        
+        if let parentDir = folderURL {
+            savePanel.directoryURL = parentDir
+        }
+        
+        if savePanel.runModal() == .OK, let targetURL = savePanel.url {
+            Task { @MainActor in
+                do {
+                    try await playerEngine.exportCurrentFrameAsJPEG(to: targetURL, quality: 0.65)
+                    NSSound(named: "Tink")?.play()
+                } catch {
+                    print("[Screenshot] Export error: \(error.localizedDescription)")
+                }
+            }
+        }
     }
     
     // MARK: - Tag Picker Popover
@@ -924,9 +947,8 @@ struct FullscreenPlayerView: View {
                         Image(systemName: engine.isPlaying ? "pause.fill" : "play.fill")
                             .font(.system(size: 13, weight: .black))
                             .frame(width: 48, height: 30)
-                            .background(Color.white)
                             .foregroundColor(.black)
-                            .border(Color(white: 0.5), width: 1)
+                            .studioBox(background: Color.white, border: Color(white: 0.5))
                     }
                     .buttonStyle(.plain)
                     .help("Play / Pause (Spacebar / K)")
@@ -957,9 +979,8 @@ struct FullscreenPlayerView: View {
                                     .font(.system(size: 9, weight: .bold, design: .monospaced))
                             }
                             .frame(width: 96, height: 30)
-                            .background(alertRed.opacity(0.2))
                             .foregroundColor(alertRed)
-                            .border(alertRed.opacity(0.6), width: 1)
+                            .studioBox(background: alertRed.opacity(0.2), border: alertRed.opacity(0.6))
                         }
                         .buttonStyle(.plain)
                         .help("Previous Glitch (⇧N)")
@@ -972,9 +993,8 @@ struct FullscreenPlayerView: View {
                                     .font(.system(size: 9, weight: .bold, design: .monospaced))
                             }
                             .frame(width: 96, height: 30)
-                            .background(alertRed.opacity(0.2))
                             .foregroundColor(alertRed)
-                            .border(alertRed.opacity(0.6), width: 1)
+                            .studioBox(background: alertRed.opacity(0.2), border: alertRed.opacity(0.6))
                         }
                         .buttonStyle(.plain)
                         .help("Next Glitch (N)")
@@ -995,9 +1015,8 @@ struct FullscreenPlayerView: View {
                         Image(systemName: "arrow.down.right.and.arrow.up.left")
                             .font(.system(size: 11, weight: .bold))
                             .frame(width: 32, height: 30)
-                            .background(Color(white: 0.15))
                             .foregroundColor(.white)
-                            .border(Color(white: 0.35), width: 1)
+                            .studioBox(background: Color(white: 0.15), border: Color(white: 0.35))
                     }
                     .buttonStyle(.plain)
                     .help("Exit Fullscreen (ESC / F)")
@@ -1027,9 +1046,8 @@ struct FullscreenPlayerView: View {
             Image(systemName: icon)
                 .font(.system(size: 11, weight: .bold))
                 .frame(width: 32, height: 30)
-                .background(isActive ? accentPositive.opacity(0.25) : Color(white: 0.15))
                 .foregroundColor(isActive ? accentPositive : .white)
-                .border(isActive ? accentPositive : Color(white: 0.35), width: 1)
+                .studioBox(background: isActive ? accentPositive.opacity(0.25) : Color(white: 0.15), border: isActive ? accentPositive : Color(white: 0.35))
         }
         .buttonStyle(.plain)
         .help(tooltip)

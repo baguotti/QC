@@ -27,9 +27,8 @@ extension ContentView {
                         .frame(maxWidth: .infinity)
                         .padding(.horizontal, 12)
                         .padding(.vertical, 9)
-                        .background(bgSubtle)
                         .foregroundColor((videoFiles.isEmpty && folderURL == nil) ? textMuted : textMain)
-                        .border(borderLine, width: 1)
+                        .studioBox(background: bgSubtle, border: borderLine)
                     }
                     .buttonStyle(.plain)
                     .disabled((videoFiles.isEmpty && folderURL == nil) || isInspectingDeliverables)
@@ -44,8 +43,8 @@ extension ContentView {
                             .font(.system(size: 11, weight: .black, design: .monospaced))
                             .frame(maxWidth: .infinity)
                             .padding(.vertical, 10)
-                            .background(deliverableAssets.isEmpty ? bgSubtle : primaryBtnBg)
                             .foregroundColor(deliverableAssets.isEmpty ? textMuted : primaryBtnFg)
+                            .studioBox(background: deliverableAssets.isEmpty ? bgSubtle : primaryBtnBg, border: borderLine)
                     }
                     .buttonStyle(.plain)
                     .disabled(deliverableAssets.isEmpty)
@@ -60,9 +59,8 @@ extension ContentView {
                             .font(.system(size: 11, weight: .bold, design: .monospaced))
                             .frame(maxWidth: .infinity)
                             .padding(.vertical, 9)
-                            .background(bgSubtle)
                             .foregroundColor(deliverableAssets.isEmpty ? textMuted : textMain)
-                            .border(borderLine, width: 1)
+                            .studioBox(background: bgSubtle, border: borderLine)
                     }
                     .buttonStyle(.plain)
                     .disabled(deliverableAssets.isEmpty)
@@ -76,9 +74,8 @@ extension ContentView {
                                 .font(.system(size: 11, weight: .bold, design: .monospaced))
                                 .frame(maxWidth: .infinity)
                                 .padding(.vertical, 9)
-                                .background(bgSubtle)
                                 .foregroundColor(textMain)
-                                .border(borderLine, width: 1)
+                                .studioBox(background: bgSubtle, border: borderLine)
                         }
                         .buttonStyle(.plain)
                         .explain("Locates and highlights the first asset in macOS Finder.", binding: $hoverExplanation)
@@ -187,9 +184,8 @@ extension ContentView {
                         }
                         .padding(.horizontal, 12)
                         .padding(.vertical, 8)
-                        .background(bgSubtle)
                         .foregroundColor(textMain)
-                        .border(borderLine, width: 1)
+                        .studioBox(background: bgSubtle, border: borderLine)
                     }
                     .buttonStyle(.plain)
                     .disabled(isInspectingDeliverables)
@@ -200,8 +196,8 @@ extension ContentView {
                             .font(.system(size: 11, weight: .bold, design: .monospaced))
                             .padding(.horizontal, 12)
                             .padding(.vertical, 8)
-                            .background(primaryBtnBg)
                             .foregroundColor(primaryBtnFg)
+                            .studioBox(background: primaryBtnBg, border: primaryBtnBg)
                     }
                     .buttonStyle(.plain)
                     .explain("Exports the deliverables metadata table to a CSV file.", binding: $hoverExplanation)
@@ -211,9 +207,8 @@ extension ContentView {
                             .font(.system(size: 11, weight: .bold, design: .monospaced))
                             .padding(.horizontal, 12)
                             .padding(.vertical, 8)
-                            .background(bgSubtle)
                             .foregroundColor(textMain)
-                            .border(borderLine, width: 1)
+                            .studioBox(background: bgSubtle, border: borderLine)
                     }
                     .buttonStyle(.plain)
                     .explain("Generates and opens a formatted HTML delivery specs sheet in browser.", binding: $hoverExplanation)
@@ -224,9 +219,8 @@ extension ContentView {
                                 .font(.system(size: 11, weight: .bold, design: .monospaced))
                                 .padding(.horizontal, 14)
                                 .padding(.vertical, 8)
-                                .background(bgSubtle)
                                 .foregroundColor(textMain)
-                                .border(borderLine, width: 1)
+                                .studioBox(background: bgSubtle, border: borderLine)
                         }
                         .buttonStyle(.plain)
                         .explain("Locates and highlights the first asset in macOS Finder.", binding: $hoverExplanation)
@@ -326,9 +320,8 @@ extension ContentView {
                                             .font(.system(size: 9, weight: .bold, design: .monospaced))
                                             .padding(.horizontal, 4)
                                             .padding(.vertical, 2)
-                                            .background(asset.validation.isRatioMismatch ? alertRed : bgSubtle)
                                             .foregroundColor(asset.validation.isRatioMismatch ? .white : textMain)
-                                            .border(asset.validation.isRatioMismatch ? alertRed : borderLine, width: 1)
+                                            .studioBox(background: asset.validation.isRatioMismatch ? alertRed : bgSubtle, border: asset.validation.isRatioMismatch ? alertRed : borderLine)
                                         
                                         Text(asset.resolutionString)
                                             .foregroundColor(textSubtle)
@@ -380,9 +373,8 @@ extension ContentView {
                                                     .font(.system(size: 8, weight: .bold, design: .monospaced))
                                                     .padding(.horizontal, 4)
                                                     .padding(.vertical, 1)
-                                                    .background(bgSubtle)
-                                                    .border(borderLine, width: 1)
                                                     .foregroundColor(textSubtle)
+                                                    .studioBox(background: bgSubtle, border: borderLine)
                                             }
                                         }
                                         if !asset.audioFormatDetail.isEmpty {
@@ -412,8 +404,7 @@ extension ContentView {
                     }
                 }
             }
-            .background(bgPanel)
-            .border(borderLine, width: 1)
+            .studioBox(background: bgPanel, border: borderLine)
         }
         .padding(28)
     }

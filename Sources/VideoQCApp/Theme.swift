@@ -22,6 +22,10 @@ enum AppTab: Int, CaseIterable, Identifiable {
 // MARK: - Dynamic Studio Palette & Styling Tokens
 
 struct StudioTheme {
+    /// Master corner radius controlling all boxes, buttons, cards, and input fields.
+    /// Tweak this single value to adjust corner rounding across the entire app.
+    static let cornerRadius: CGFloat = 4.0
+    
     static func bgMain(_ isLight: Bool) -> Color {
         isLight ? Color(white: 0.96) : Color(red: 0.04, green: 0.04, blue: 0.04)
     }
@@ -55,7 +59,7 @@ struct StudioTheme {
     }
     
     static func textMuted(_ isLight: Bool) -> Color {
-        isLight ? Color(white: 0.45) : Color(white: 0.45)
+        isLight ? Color(white: 0.28) : Color(white: 0.50)
     }
     
     static func textSubtle(_ isLight: Bool) -> Color {
@@ -132,4 +136,19 @@ extension View {
     func explain(_ text: String, binding: Binding<String>) -> some View {
         self.modifier(StudioExplanationModifier(explanation: text, binding: binding))
     }
+    
+    /// Applies the rounded studio box background and border using master corner radius
+    func studioBox(background: Color, border: Color, radius: CGFloat = StudioTheme.cornerRadius, width: CGFloat = 1) -> some View {
+        self
+            .background(background, in: RoundedRectangle(cornerRadius: radius))
+            .overlay(RoundedRectangle(cornerRadius: radius).stroke(border, lineWidth: width))
+    }
+    
+    /// Applies the rounded studio stroke border using master corner radius
+    func studioBorder(_ color: Color, radius: CGFloat = StudioTheme.cornerRadius, width: CGFloat = 1) -> some View {
+        self
+            .overlay(RoundedRectangle(cornerRadius: radius).stroke(color, lineWidth: width))
+            .clipShape(RoundedRectangle(cornerRadius: radius))
+    }
 }
+

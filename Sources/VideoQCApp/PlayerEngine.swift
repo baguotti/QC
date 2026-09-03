@@ -2,6 +2,7 @@ import Foundation
 import AVFoundation
 import Combine
 import CoreMedia
+import AppKit
 import VideoQCLib
 
 public struct PlayerTimelineMarker: Identifiable, Sendable, Hashable {
@@ -660,5 +661,19 @@ public final class PlayerEngine: ObservableObject {
                 return nil
             }
         }.value
+    }
+    
+    /// Exports the current video frame as a medium-quality JPEG (quality ~0.65)
+    public func exportCurrentFrameAsJPEG(to destinationURL: URL, quality: CGFloat = 0.65) async throws {
+        guard let cgImage = await captureCurrentFrame() else {
+            throw NSError(domain: "PlayerEngine", code: -1, userInfo: [NSLocalizedDescriptionKey: "Failed to capture video frame at current playhead."])
+        }
+        
+        let bitmapRep = NSBitmapImageRep(cgImage: cgImage)
+        guard let jpegData = bitmapRep.representation(using: .jpeg, properties: [.compressionFactor: quality]) else {
+            throw NSError(domain: "PlayerEngine", code: -2, userInfo: [NSLocalizedDescriptionKey: "Failed to encode image to JPEG format."])
+        }
+        
+        try jpegData.write(to: destinationURL, options: .atomic)
     }
 }

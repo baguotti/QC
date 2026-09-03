@@ -45,8 +45,8 @@ struct UserGuideView: View {
                         .foregroundColor(textMain)
                         .padding(.horizontal, 6)
                         .padding(.vertical, 2)
-                        .background(bgSubtle)
-                        .border(borderLine, width: 1)
+                        .foregroundColor(textMain)
+                        .studioBox(background: bgSubtle, border: borderLine)
                     }
                     Spacer()
                     Button(action: { isPresented = false }) {
@@ -54,9 +54,8 @@ struct UserGuideView: View {
                             .font(.system(size: 10, weight: .bold, design: .monospaced))
                             .padding(.horizontal, 9)
                             .padding(.vertical, 5)
-                            .background(bgSubtle)
                             .foregroundColor(textMain)
-                            .border(borderLine, width: 1)
+                            .studioBox(background: bgSubtle, border: borderLine)
                     }
                     .buttonStyle(.plain)
                     .keyboardShortcut(.escape, modifiers: [])
@@ -110,10 +109,10 @@ struct UserGuideView: View {
                     Button(action: { isPresented = false }) {
                         Text("DONE")
                             .font(.system(size: 10, weight: .bold, design: .monospaced))
-                            .padding(.horizontal, 14)
-                            .padding(.vertical, 5)
-                            .background(isLightMode ? Color.black : Color.white)
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 7)
                             .foregroundColor(isLightMode ? Color.white : Color.black)
+                            .studioBox(background: isLightMode ? Color.black : Color.white, border: borderStrong)
                     }
                     .buttonStyle(.plain)
                 }
@@ -122,8 +121,7 @@ struct UserGuideView: View {
                 .background(bgPanel)
             }
             .frame(minWidth: 800, maxWidth: 900, minHeight: 560, maxHeight: 680)
-            .background(bgPanel)
-            .border(borderStrong, width: 1)
+            .studioBox(background: bgPanel, border: borderStrong)
             .shadow(color: Color.black.opacity(0.5), radius: 20, x: 0, y: 10)
         }
     }
@@ -135,9 +133,8 @@ struct UserGuideView: View {
                 .font(.system(size: 10, weight: isSel ? .black : .bold, design: .monospaced))
                 .padding(.horizontal, 12)
                 .padding(.vertical, 6)
-                .background(isSel ? (isLightMode ? Color.white : Color(white: 0.22)) : Color.clear)
                 .foregroundColor(isSel ? textMain : textMuted)
-                .border(isSel ? borderStrong : Color.clear, width: 1)
+                .studioBox(background: isSel ? (isLightMode ? Color.white : Color(white: 0.22)) : Color.clear, border: isSel ? borderStrong : Color.clear)
         }
         .buttonStyle(.plain)
     }
@@ -238,7 +235,6 @@ struct UserGuideView: View {
         .padding(.horizontal, 10)
         .padding(.vertical, 7)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(bgCardBody)
-        .border(borderLine, width: 1)
+        .studioBox(background: bgCardBody, border: borderLine)
     }
 }

@@ -24,9 +24,8 @@ extension ContentView {
                                     .font(.system(size: 9, weight: .bold, design: .monospaced))
                                     .frame(maxWidth: .infinity)
                                     .padding(.vertical, 6)
-                                    .background(renameMode == mode ? primaryBtnBg : bgSubtle)
                                     .foregroundColor(renameMode == mode ? primaryBtnFg : textMain)
-                                    .border(borderLine, width: 1)
+                                    .studioBox(background: renameMode == mode ? primaryBtnBg : bgSubtle, border: borderLine)
                             }
                             .buttonStyle(.plain)
                             .explain("Sets rename mode to \(mode.rawValue).", binding: $hoverExplanation)
@@ -50,8 +49,8 @@ extension ContentView {
                                     .font(.system(size: 11, weight: .bold, design: .monospaced))
                                     .foregroundColor(textMain)
                                     .padding(7)
-                                    .background(bgSubtle)
-                                    .border(borderStrong, width: 1)
+                                    .foregroundColor(textMain)
+                                    .studioBox(background: bgSubtle, border: borderStrong)
                                     .explain("Custom text to replace the {NAME} token.", binding: $hoverExplanation)
                             }
                             
@@ -66,8 +65,8 @@ extension ContentView {
                                     .font(.system(size: 11, weight: .bold, design: .monospaced))
                                     .foregroundColor(textMain)
                                     .padding(7)
-                                    .background(bgSubtle)
-                                    .border(borderStrong, width: 1)
+                                    .foregroundColor(textMain)
+                                    .studioBox(background: bgSubtle, border: borderStrong)
                                     .explain("Naming pattern string using bracketed tokens.", binding: $hoverExplanation)
                             }
                             
@@ -86,9 +85,8 @@ extension ContentView {
                                                 .font(.system(size: 9, weight: .bold, design: .monospaced))
                                                 .padding(.horizontal, 6)
                                                 .padding(.vertical, 3)
-                                                .background(bgSubtle)
                                                 .foregroundColor(textMain)
-                                                .border(borderLine, width: 1)
+                                                .studioBox(background: bgSubtle, border: borderLine)
                                         }
                                         .buttonStyle(.plain)
                                         .explain("Inserts \(item.token) (\(item.label), e.g. \(item.example)).", binding: $hoverExplanation)
@@ -106,8 +104,8 @@ extension ContentView {
                                         .font(.system(size: 11, weight: .bold, design: .monospaced))
                                         .foregroundColor(textMain)
                                         .padding(6)
-                                        .background(bgSubtle)
-                                        .border(borderLine, width: 1)
+                                        .foregroundColor(textMain)
+                                        .studioBox(background: bgSubtle, border: borderLine)
                                         .explain("Tag 1 token {TAG1} / {TAG}. Added to filename when typed.", binding: $hoverExplanation)
                                 }
                                 
@@ -120,8 +118,8 @@ extension ContentView {
                                         .font(.system(size: 11, weight: .bold, design: .monospaced))
                                         .foregroundColor(textMain)
                                         .padding(6)
-                                        .background(bgSubtle)
-                                        .border(borderLine, width: 1)
+                                        .foregroundColor(textMain)
+                                        .studioBox(background: bgSubtle, border: borderLine)
                                         .explain("Tag 2 token {TAG2}. Added to filename when typed.", binding: $hoverExplanation)
                                 }
                                 
@@ -134,8 +132,8 @@ extension ContentView {
                                         .font(.system(size: 11, weight: .bold, design: .monospaced))
                                         .foregroundColor(textMain)
                                         .padding(6)
-                                        .background(bgSubtle)
-                                        .border(borderLine, width: 1)
+                                        .foregroundColor(textMain)
+                                        .studioBox(background: bgSubtle, border: borderLine)
                                         .explain("Tag 3 token {TAG3}. Added to filename when typed.", binding: $hoverExplanation)
                                 }
                                 
@@ -159,8 +157,8 @@ extension ContentView {
                                 .font(.system(size: 11, weight: .bold, design: .monospaced))
                                 .foregroundColor(textMain)
                                 .padding(8)
-                                .background(bgSubtle)
-                                .border(borderLine, width: 1)
+                                .foregroundColor(textMain)
+                                .studioBox(background: bgSubtle, border: borderLine)
                                 .explain("Text characters to find in filenames.", binding: $hoverExplanation)
                             
                             Text("REPLACE WITH:")
@@ -171,8 +169,8 @@ extension ContentView {
                                 .font(.system(size: 11, weight: .bold, design: .monospaced))
                                 .foregroundColor(textMain)
                                 .padding(8)
-                                .background(bgSubtle)
-                                .border(borderLine, width: 1)
+                                .foregroundColor(textMain)
+                                .studioBox(background: bgSubtle, border: borderLine)
                                 .explain("Replacement text for matched search strings.", binding: $hoverExplanation)
                         }
                     } else {
@@ -185,8 +183,8 @@ extension ContentView {
                                 .font(.system(size: 11, weight: .bold, design: .monospaced))
                                 .foregroundColor(textMain)
                                 .padding(8)
-                                .background(bgSubtle)
-                                .border(borderLine, width: 1)
+                                .foregroundColor(textMain)
+                                .studioBox(background: bgSubtle, border: borderLine)
                                 .explain("Text prepended to start of filenames.", binding: $hoverExplanation)
                             
                             Text("SUFFIX (ADD TO END):")
@@ -197,8 +195,8 @@ extension ContentView {
                                 .font(.system(size: 11, weight: .bold, design: .monospaced))
                                 .foregroundColor(textMain)
                                 .padding(8)
-                                .background(bgSubtle)
-                                .border(borderLine, width: 1)
+                                .foregroundColor(textMain)
+                                .studioBox(background: bgSubtle, border: borderLine)
                                 .explain("Text appended to end of filenames.", binding: $hoverExplanation)
                         }
                     }
@@ -216,9 +214,8 @@ extension ContentView {
                                         .font(.system(size: 8, weight: .bold, design: .monospaced))
                                         .frame(maxWidth: .infinity)
                                         .padding(.vertical, 5)
-                                        .background(textCase == opt ? primaryBtnBg : bgSubtle)
                                         .foregroundColor(textCase == opt ? primaryBtnFg : textSubtle)
-                                        .border(borderLine, width: 1)
+                                        .studioBox(background: textCase == opt ? primaryBtnBg : bgSubtle, border: borderLine)
                                 }
                                 .buttonStyle(.plain)
                                 .explain("Applies \(opt.rawValue) letter casing to filenames.", binding: $hoverExplanation)
@@ -239,8 +236,8 @@ extension ContentView {
                             .font(.system(size: 11, weight: .black, design: .monospaced))
                             .frame(maxWidth: .infinity)
                             .padding(.vertical, 11)
-                            .background(hasCollisions ? alertRed : (activeSelectedCount > 0 ? primaryBtnBg : bgSubtle))
                             .foregroundColor(hasCollisions ? .white : (activeSelectedCount > 0 ? primaryBtnFg : textMuted))
+                            .studioBox(background: hasCollisions ? alertRed : (activeSelectedCount > 0 ? primaryBtnBg : bgSubtle), border: borderLine)
                     }
                     .buttonStyle(.plain)
                     .disabled(activeSelectedCount == 0 || hasCollisions)
@@ -260,9 +257,8 @@ extension ContentView {
                             }
                             .frame(maxWidth: .infinity)
                             .padding(.vertical, 8)
-                            .background(bgSubtle)
                             .foregroundColor(textMain)
-                            .border(borderLine, width: 1)
+                            .studioBox(background: bgSubtle, border: borderLine)
                         }
                         .buttonStyle(.plain)
                         .explain("Reverses the last rename operation and restores original filenames on disk.", binding: $hoverExplanation)
@@ -347,9 +343,8 @@ extension ContentView {
                             .font(.system(size: 11, weight: .bold, design: .monospaced))
                             .padding(.horizontal, 12)
                             .padding(.vertical, 8)
-                            .background(bgSubtle)
                             .foregroundColor(textMain)
-                            .border(borderLine, width: 1)
+                            .studioBox(background: bgSubtle, border: borderLine)
                     }
                     .buttonStyle(.plain)
                     .explain("Selects or deselects all files in the batch list.", binding: $hoverExplanation)
@@ -360,9 +355,8 @@ extension ContentView {
                                 .font(.system(size: 11, weight: .bold, design: .monospaced))
                                 .padding(.horizontal, 14)
                                 .padding(.vertical, 8)
-                                .background(bgSubtle)
                                 .foregroundColor(textMain)
-                                .border(borderLine, width: 1)
+                                .studioBox(background: bgSubtle, border: borderLine)
                         }
                         .buttonStyle(.plain)
                         .explain("Locates and highlights the first file in macOS Finder.", binding: $hoverExplanation)
@@ -489,9 +483,8 @@ extension ContentView {
                                     .font(.system(size: 8, weight: .black, design: .monospaced))
                                     .padding(.horizontal, 6)
                                     .padding(.vertical, 2)
-                                    .background(badgeBg)
                                     .foregroundColor(badgeFg)
-                                    .border(badgeBorder, width: 1)
+                                    .studioBox(background: badgeBg, border: badgeBorder)
                                     .frame(width: 110, alignment: .trailing)
                             }
                             .font(.system(size: 11, design: .monospaced))
@@ -523,8 +516,7 @@ extension ContentView {
                 }
                 .explain("Batch Items Table: Click any row or checkbox to include or exclude assets from renaming.", binding: $hoverExplanation)
             }
-            .background(bgPanel)
-            .border(borderLine, width: 1)
+            .studioBox(background: bgPanel, border: borderLine)
         }
         .padding(28)
     }

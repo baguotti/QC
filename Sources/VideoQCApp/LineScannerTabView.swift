@@ -44,10 +44,10 @@ extension ContentView {
             HStack(spacing: 10) {
                 // Interactive Color Swatch
                 Button(action: openColorPanel) {
-                    Rectangle()
+                    RoundedRectangle(cornerRadius: StudioTheme.cornerRadius)
                         .fill(colorFromHex(hexCode))
                         .frame(width: 32, height: 32)
-                        .border(borderStrong, width: 1)
+                        .overlay(RoundedRectangle(cornerRadius: StudioTheme.cornerRadius).stroke(borderStrong, lineWidth: 1))
                 }
                 .buttonStyle(.plain)
                 .disabled(isScanning)
@@ -58,8 +58,8 @@ extension ContentView {
                     .font(.system(size: 13, weight: .bold, design: .monospaced))
                     .foregroundColor(textMain)
                     .padding(7)
-                    .background(bgSubtle)
-                    .border(borderLine, width: 1)
+                    .foregroundColor(textMain)
+                    .studioBox(background: bgSubtle, border: borderLine)
                     .frame(width: 110)
                     .disabled(isScanning)
                     .explain("Hex color value to search for on frame boundaries. Can be edited at all times.", binding: $hoverExplanation)
@@ -78,18 +78,17 @@ extension ContentView {
                         tolerancePercentage = defaultTol
                     }) {
                         HStack(spacing: 5) {
-                            Rectangle()
+                            RoundedRectangle(cornerRadius: 1)
                                 .fill(colorFromHex(code))
                                 .frame(width: 8, height: 8)
-                                .border(borderLine, width: 0.5)
+                                .overlay(RoundedRectangle(cornerRadius: 1).stroke(borderLine, lineWidth: 0.5))
                             Text(name)
                         }
                         .font(.system(size: 9, weight: .bold, design: .monospaced))
                         .padding(.horizontal, 7)
                         .padding(.vertical, 4)
-                        .background(hexCode.uppercased() == code ? primaryBtnBg : bgSubtle)
                         .foregroundColor(hexCode.uppercased() == code ? primaryBtnFg : textMain)
-                        .border(borderLine, width: 1)
+                        .studioBox(background: hexCode.uppercased() == code ? primaryBtnBg : bgSubtle, border: borderLine)
                     }
                     .buttonStyle(.plain)
                     .disabled(isScanning)
@@ -99,18 +98,17 @@ extension ContentView {
                 // Custom Color Button
                 Button(action: openColorPanel) {
                     HStack(spacing: 5) {
-                        Rectangle()
+                        RoundedRectangle(cornerRadius: 1)
                             .fill(isCustomColor ? colorFromHex(hexCode) : Color(white: 0.5))
                             .frame(width: 8, height: 8)
-                            .border(borderLine, width: 0.5)
+                            .overlay(RoundedRectangle(cornerRadius: 1).stroke(borderLine, lineWidth: 0.5))
                         Text("CUSTOM")
                     }
                     .font(.system(size: 9, weight: .bold, design: .monospaced))
                     .padding(.horizontal, 7)
                     .padding(.vertical, 4)
-                    .background(isCustomColor ? primaryBtnBg : bgSubtle)
                     .foregroundColor(isCustomColor ? primaryBtnFg : textMain)
-                    .border(borderLine, width: 1)
+                    .studioBox(background: isCustomColor ? primaryBtnBg : bgSubtle, border: borderLine)
                 }
                 .buttonStyle(.plain)
                 .disabled(isScanning)
@@ -161,8 +159,7 @@ extension ContentView {
                 .explain("Skips solid black frames such as slates, head countdowns, and scene fades.", binding: $hoverExplanation)
         }
         .padding(10)
-        .background(bgCardSubtle)
-        .border(borderStrong, width: 1)
+        .studioBox(background: bgCardSubtle, border: borderStrong)
     }
     
     var edgeSettingsSection: some View {
@@ -203,8 +200,8 @@ extension ContentView {
                         .tracking(1.0)
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 12)
-                        .background(alertRed)
                         .foregroundColor(.white)
+                        .studioBox(background: alertRed, border: alertRed)
                 }
                 .buttonStyle(.plain)
                 .explain("Aborts the active video scan in progress.", binding: $hoverExplanation)
@@ -213,17 +210,17 @@ extension ContentView {
                 Button(action: startScan) {
                     Text("[ START LINE QC AUDIT ]")
                         .font(.system(size: 12, weight: .black, design: .monospaced))
-                        .tracking(1.0)
+                        .tracking((isAuditBtnHovered && isReady) ? 1.0 : 0.6)
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 12)
-                        .background(
-                            videoFiles.isEmpty ? bgSubtle : (
-                                (isAuditBtnHovered && isReady) ? (isLightMode ? Color(white: 0.18) : Color(white: 0.88)) : primaryBtnBg
-                            )
-                        )
                         .foregroundColor(videoFiles.isEmpty ? textMuted : primaryBtnFg)
-                        .scaleEffect(isAuditBtnHovered && isReady ? 1.01 : 1.0)
-                        .animation(.easeInOut(duration: 0.15), value: isAuditBtnHovered)
+                        .studioBox(
+                            background: videoFiles.isEmpty ? bgSubtle : (
+                                (isAuditBtnHovered && isReady) ? (isLightMode ? Color(white: 0.18) : Color(white: 0.88)) : primaryBtnBg
+                            ),
+                            border: borderLine
+                        )
+                        .animation(.easeInOut(duration: 0.25), value: isAuditBtnHovered)
                 }
                 .buttonStyle(.plain)
                 .disabled(!isReady)
@@ -247,7 +244,7 @@ extension ContentView {
                     .font(.system(size: 11, weight: .bold, design: .monospaced))
                     .foregroundColor(textMain)
                     .padding(6)
-                    .border(borderLine, width: 1)
+                    .studioBox(background: bgSubtle, border: borderLine)
             }
             
             if let p = progressInfo {
@@ -284,8 +281,7 @@ extension ContentView {
                     .frame(height: 4)
                 }
                 .padding(24)
-                .background(bgPanel)
-                .border(borderLine, width: 1)
+                .studioBox(background: bgPanel, border: borderLine)
             }
             Spacer()
         }
@@ -316,8 +312,8 @@ extension ContentView {
                             .font(.system(size: 11, weight: .bold, design: .monospaced))
                             .padding(.horizontal, 14)
                             .padding(.vertical, 8)
-                            .background(primaryBtnBg)
                             .foregroundColor(primaryBtnFg)
+                            .studioBox(background: primaryBtnBg, border: primaryBtnBg)
                     }
                     .buttonStyle(.plain)
                     .explain("Saves the interactive visual HTML glitch report to a chosen location.", binding: $hoverExplanation)
@@ -327,9 +323,8 @@ extension ContentView {
                             .font(.system(size: 11, weight: .bold, design: .monospaced))
                             .padding(.horizontal, 12)
                             .padding(.vertical, 8)
-                            .background(bgSubtle)
                             .foregroundColor(textMain)
-                            .border(borderLine, width: 1)
+                            .studioBox(background: bgSubtle, border: borderLine)
                     }
                     .buttonStyle(.plain)
                     .explain("Exports the glitch occurrence data as a CSV file.", binding: $hoverExplanation)
@@ -356,8 +351,7 @@ extension ContentView {
                         }
                         .frame(maxWidth: .infinity)
                         .padding(40)
-                        .background(bgPanel)
-                        .border(borderLine, width: 1)
+                        .studioBox(background: bgPanel, border: borderLine)
                     } else {
                         ForEach(flagged) { result in
                             let segments = result.glitchSegments
@@ -454,8 +448,8 @@ extension ContentView {
                                             }
                                             .padding(.horizontal, 7)
                                             .padding(.vertical, 3)
-                                            .background(primaryBtnBg)
                                             .foregroundColor(primaryBtnFg)
+                                            .studioBox(background: primaryBtnBg, border: primaryBtnBg)
                                             .frame(width: 75, alignment: .trailing)
                                         }
                                         .font(.system(size: 11, design: .monospaced))
@@ -471,13 +465,10 @@ extension ContentView {
                                     }
                                 }
                             }
-                            .background(bgPanel)
-                            .border(borderLine, width: 1)
+                            .studioBox(background: bgPanel, border: borderLine)
                             .overlay(
-                                Rectangle()
-                                    .fill(alertRed)
-                                    .frame(width: 3),
-                                alignment: .leading
+                                RoundedRectangle(cornerRadius: StudioTheme.cornerRadius)
+                                    .stroke(alertRed, lineWidth: 1)
                             )
                         }
                     }

@@ -90,8 +90,8 @@ struct FeedbackModalView: View {
                             .foregroundColor(textMuted)
                             .padding(.horizontal, 6)
                             .padding(.vertical, 2)
-                            .background(bgSubtle)
-                            .border(borderLine, width: 1)
+                            .foregroundColor(textMuted)
+                            .studioBox(background: bgSubtle, border: borderLine)
                     }
                     Spacer()
                     Button(action: { isPresented = false }) {
@@ -99,9 +99,8 @@ struct FeedbackModalView: View {
                             .font(.system(size: 10, weight: .bold, design: .monospaced))
                             .padding(.horizontal, 9)
                             .padding(.vertical, 5)
-                            .background(bgSubtle)
                             .foregroundColor(textMain)
-                            .border(borderLine, width: 1)
+                            .studioBox(background: bgSubtle, border: borderLine)
                     }
                     .buttonStyle(.plain)
                     .keyboardShortcut(.escape, modifiers: [])
@@ -131,9 +130,8 @@ struct FeedbackModalView: View {
                                     }
                                     .padding(.horizontal, 10)
                                     .padding(.vertical, 6)
-                                    .background(feedbackType == type ? primaryBtnBg : bgSubtle)
                                     .foregroundColor(feedbackType == type ? primaryBtnFg : textMain)
-                                    .border(feedbackType == type ? borderStrong : borderLine, width: 1)
+                                    .studioBox(background: feedbackType == type ? primaryBtnBg : bgSubtle, border: feedbackType == type ? borderStrong : borderLine)
                                 }
                                 .buttonStyle(.plain)
                             }
@@ -156,9 +154,8 @@ struct FeedbackModalView: View {
                             .textFieldStyle(.plain)
                             .font(.system(size: 11, design: .monospaced))
                             .padding(8)
-                            .background(bgSubtle)
-                            .border(borderLine, width: 1)
                             .foregroundColor(textMain)
+                            .studioBox(background: bgSubtle, border: borderLine)
                     }
                     
                     // Message Text Area
@@ -177,9 +174,8 @@ struct FeedbackModalView: View {
                             .font(.system(size: 11, design: .monospaced))
                             .scrollContentBackground(.hidden)
                             .padding(8)
-                            .background(bgSubtle)
-                            .border(borderLine, width: 1)
                             .foregroundColor(textMain)
+                            .studioBox(background: bgSubtle, border: borderLine)
                             .frame(minHeight: 140, maxHeight: 180)
                     }
                     
@@ -204,8 +200,7 @@ struct FeedbackModalView: View {
                         Spacer()
                     }
                     .padding(8)
-                    .background(bgCardBody)
-                    .border(borderLine, width: 1)
+                    .studioBox(background: bgCardBody, border: borderLine)
                 }
                 .padding(18)
                 .background(bgMain)
@@ -238,9 +233,8 @@ struct FeedbackModalView: View {
                         }
                         .padding(.horizontal, 12)
                         .padding(.vertical, 7)
-                        .background(bgSubtle)
                         .foregroundColor(textMain)
-                        .border(borderLine, width: 1)
+                        .studioBox(background: bgSubtle, border: borderLine)
                     }
                     .buttonStyle(.plain)
                     .disabled(feedbackText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
@@ -255,9 +249,8 @@ struct FeedbackModalView: View {
                         }
                         .padding(.horizontal, 16)
                         .padding(.vertical, 7)
-                        .background(feedbackText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? bgSubtle : primaryBtnBg)
                         .foregroundColor(feedbackText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? textMuted : primaryBtnFg)
-                        .border(borderLine, width: 1)
+                        .studioBox(background: feedbackText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? bgSubtle : primaryBtnBg, border: borderLine)
                     }
                     .buttonStyle(.plain)
                     .disabled(feedbackText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
@@ -267,7 +260,7 @@ struct FeedbackModalView: View {
                 .background(bgPanel)
             }
             .frame(width: 580)
-            .border(borderStrong, width: 1)
+            .studioBox(background: bgMain, border: borderStrong)
             .shadow(color: Color.black.opacity(0.4), radius: 24, x: 0, y: 12)
         }
     }

@@ -12,7 +12,7 @@ MACOS="${CONTENTS}/MacOS"
 RESOURCES="${CONTENTS}/Resources"
 
 # Version & Metadata
-APP_VERSION="0.2.3"
+APP_VERSION="0.2.4"
 GIT_COMMIT_COUNT=$(git rev-list --count HEAD 2>/dev/null || echo "1")
 
 echo "📌 Version: v${APP_VERSION} (Build: ${GIT_COMMIT_COUNT})"

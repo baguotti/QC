@@ -10,6 +10,7 @@ struct ContentView: View {
     @State var selectedTab: AppTab = .lineScanner
     @State var showUserGuide: Bool = false
     @State var showFeedbackModal: Bool = false
+    @State var showSettingsPopover: Bool = false
     @ObservedObject private var updateManager = UpdateManager.shared
     @State var hoverExplanation: String = ""
     
@@ -302,7 +303,7 @@ struct ContentView: View {
             Spacer()
             
             HStack(spacing: 10) {
-                // Version / Update Badge
+                // Update Badge (if update available, keep prominent banner)
                 if updateManager.hasUpdate {
                     Button(action: { updateManager.showModal = true }) {
                         HStack(spacing: 5) {
@@ -313,79 +314,112 @@ struct ContentView: View {
                         }
                         .padding(.horizontal, 8)
                         .padding(.vertical, 5)
-                        .background(accentPositive)
-                        .foregroundColor(.white)
-                        .border(borderStrong, width: 1)
+                        .studioBox(background: accentPositive, border: borderStrong)
                     }
                     .buttonStyle(.plain)
                     .explain("New update v\(updateManager.latestVersion) available! Click to update.", binding: $hoverExplanation)
-                } else {
-                    Button(action: { updateManager.checkForUpdates(userInitiated: true) }) {
-                        HStack(spacing: 5) {
+                }
+                
+                // Theme Toggle (Square 26x26 with Sun / Moon icon)
+                Button(action: { isLightMode.toggle() }) {
+                    Image(systemName: isLightMode ? "sun.max.fill" : "moon.stars.fill")
+                        .font(.system(size: 12, weight: .bold))
+                        .frame(width: 26, height: 26)
+                        .foregroundColor(textMain)
+                        .studioBox(background: bgSubtle, border: borderLine)
+                }
+                .buttonStyle(.plain)
+                .explain("Switch to \(isLightMode ? "Dark" : "Light") mode theme.", binding: $hoverExplanation)
+                
+                // Settings Menu Button (Clean square gear button with zero chevron)
+                Button(action: { showSettingsPopover.toggle() }) {
+                    ZStack(alignment: .topTrailing) {
+                        Image(systemName: "gearshape.fill")
+                            .font(.system(size: 12, weight: .bold))
+                            .frame(width: 26, height: 26)
+                            .foregroundColor(textMain)
+                            .studioBox(background: bgSubtle, border: borderLine)
+                        
+                        if updateManager.hasUpdate {
                             Circle()
                                 .fill(accentPositive)
-                                .frame(width: 5, height: 5)
-                            Text("v\(AppVersionInfo.version)")
-                                .font(.system(size: 10, weight: .black, design: .monospaced))
+                                .frame(width: 6, height: 6)
+                                .offset(x: -2, y: 2)
                         }
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 5)
-                        .background(bgSubtle)
-                        .foregroundColor(textMain)
-                        .border(borderLine, width: 1)
                     }
-                    .buttonStyle(.plain)
-                    .explain("QCpie v\(AppVersionInfo.version) • Click to check for updates", binding: $hoverExplanation)
-                }
-                
-                // Info / User Guide Modal Button
-                Button(action: { showUserGuide.toggle() }) {
-                    HStack(spacing: 5) {
-                        Image(systemName: "info.circle.fill")
-                            .font(.system(size: 10))
-                        Text("INFO / GUIDE")
-                            .font(.system(size: 10, weight: .bold, design: .monospaced))
-                    }
-                    .frame(width: 114, height: 26)
-                    .background(bgSubtle)
-                    .foregroundColor(textMain)
-                    .border(borderLine, width: 1)
                 }
                 .buttonStyle(.plain)
-                .explain("Opens the user guide with descriptions of each tab.", binding: $hoverExplanation)
-                
-                // Theme Toggle (Fixed 118px width: no UI jumping between LIGHT and DARK)
-                Button(action: { isLightMode.toggle() }) {
-                    HStack(spacing: 6) {
-                        Image(systemName: isLightMode ? "sun.max.fill" : "moon.stars.fill")
-                            .font(.system(size: 10))
-                        Text(isLightMode ? "THEME: LIGHT" : "THEME: DARK")
-                            .font(.system(size: 10, weight: .bold, design: .monospaced))
+                .explain("Settings: Software Update, Info & Guide, and Feedback.", binding: $hoverExplanation)
+                .popover(isPresented: $showSettingsPopover, arrowEdge: .bottom) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Button(action: {
+                            showSettingsPopover = false
+                            updateManager.checkForUpdates(userInitiated: true)
+                        }) {
+                            HStack(spacing: 8) {
+                                Image(systemName: updateManager.hasUpdate ? "arrow.down.circle.fill" : "arrow.triangle.2.circlepath")
+                                    .font(.system(size: 11, weight: .bold))
+                                    .foregroundColor(updateManager.hasUpdate ? accentPositive : textMain)
+                                    .frame(width: 16)
+                                Text(updateManager.hasUpdate ? "Software Update (v\(updateManager.latestVersion) available)" : "Software Update (v\(AppVersionInfo.version))")
+                                    .font(.system(size: 11, weight: .bold, design: .monospaced))
+                                    .foregroundColor(updateManager.hasUpdate ? accentPositive : textMain)
+                            }
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 7)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        
+                        Rectangle().fill(borderLine).frame(height: 1)
+                        
+                        Button(action: {
+                            showSettingsPopover = false
+                            showUserGuide.toggle()
+                        }) {
+                            HStack(spacing: 8) {
+                                Image(systemName: "info.circle")
+                                    .font(.system(size: 11, weight: .bold))
+                                    .foregroundColor(textMain)
+                                    .frame(width: 16)
+                                Text("Info / Guide")
+                                    .font(.system(size: 11, weight: .bold, design: .monospaced))
+                                    .foregroundColor(textMain)
+                            }
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 7)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        
+                        Rectangle().fill(borderLine).frame(height: 1)
+                        
+                        Button(action: {
+                            showSettingsPopover = false
+                            showFeedbackModal = true
+                        }) {
+                            HStack(spacing: 8) {
+                                Image(systemName: "envelope")
+                                    .font(.system(size: 11, weight: .bold))
+                                    .foregroundColor(textMain)
+                                    .frame(width: 16)
+                                Text("Feedback & Support")
+                                    .font(.system(size: 11, weight: .bold, design: .monospaced))
+                                    .foregroundColor(textMain)
+                            }
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 7)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
                     }
-                    .frame(width: 118, height: 26)
-                    .background(bgSubtle)
-                    .foregroundColor(textMain)
-                    .border(borderLine, width: 1)
+                    .padding(6)
+                    .frame(width: 250)
+                    .background(bgPanel)
                 }
-                .buttonStyle(.plain)
-                .explain("Switches between light and dark studio interface themes.", binding: $hoverExplanation)
-                
-                // Feedback Button (Sends to fusetti.riccardo@gmail.com)
-                Button(action: { showFeedbackModal = true }) {
-                    HStack(spacing: 5) {
-                        Image(systemName: "envelope.fill")
-                            .font(.system(size: 10))
-                        Text("FEEDBACK")
-                            .font(.system(size: 10, weight: .bold, design: .monospaced))
-                    }
-                    .frame(height: 26)
-                    .padding(.horizontal, 10)
-                    .background(bgSubtle)
-                    .foregroundColor(textMain)
-                    .border(borderLine, width: 1)
-                }
-                .buttonStyle(.plain)
-                .explain("Send feedback, bug reports, or feature ideas directly to Riccardo.", binding: $hoverExplanation)
                 
                 // Engine Status Indicator (Fixed 76px width)
                 HStack(spacing: 6) {
@@ -398,8 +432,7 @@ struct ContentView: View {
                         .tracking(1.0)
                 }
                 .frame(width: 76, height: 26)
-                .background(bgSubtle)
-                .border(borderLine, width: 1)
+                .studioBox(background: bgSubtle, border: borderLine)
                 .explain(isScanning || isInspectingDeliverables ? "Engine is currently processing video files." : "Engine is idle and ready for new jobs.", binding: $hoverExplanation)
             }
         }
@@ -465,9 +498,8 @@ struct ContentView: View {
                     .frame(width: tabWidth(for: tab))
                     .padding(.horizontal, 12)
                     .padding(.vertical, 10)
-                    .background(selectedTab == tab ? primaryBtnBg : bgSubtle)
                     .foregroundColor(selectedTab == tab ? primaryBtnFg : textSubtle)
-                    .border(selectedTab == tab ? primaryBtnBg : borderLine, width: 1)
+                    .studioBox(background: selectedTab == tab ? primaryBtnBg : bgSubtle, border: selectedTab == tab ? primaryBtnBg : borderLine)
                 }
                 .buttonStyle(.plain)
                 .explain(
@@ -506,8 +538,7 @@ struct ContentView: View {
                     }
                     .padding(.horizontal, 12)
                     .padding(.vertical, 9)
-                    .background(bgSubtle)
-                    .border(borderLine, width: 1)
+                    .studioBox(background: bgSubtle, border: borderLine)
                 }
                 .buttonStyle(.plain)
                 .disabled(isScanning)
@@ -525,8 +556,7 @@ struct ContentView: View {
                     }
                     .padding(10)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(bgCardSubtle)
-                    .border(borderLine, width: 1)
+                    .studioBox(background: bgCardSubtle, border: borderLine)
                     .explain("Active directory loaded: \(folder.path)", binding: $hoverExplanation)
                 } else if !videoFiles.isEmpty {
                     VStack(alignment: .leading, spacing: 3) {
@@ -539,8 +569,7 @@ struct ContentView: View {
                     }
                     .padding(10)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(bgCardSubtle)
-                    .border(borderLine, width: 1)
+                    .studioBox(background: bgCardSubtle, border: borderLine)
                     .explain("\(videoFiles.count) video files loaded into the working batch.", binding: $hoverExplanation)
                 } else {
                     Text("DRAG & DROP FOLDER OR VIDEO FILES HERE")
@@ -548,8 +577,7 @@ struct ContentView: View {
                         .foregroundColor(textMuted)
                         .frame(maxWidth: .infinity, alignment: .center)
                         .padding(.vertical, 14)
-                        .background(bgCardSubtle)
-                        .border(borderLine, width: 1)
+                        .studioBox(background: bgCardSubtle, border: borderLine)
                         .explain("Drag and drop video files or folders directly into the app.", binding: $hoverExplanation)
                 }
             }
@@ -893,9 +921,8 @@ struct ContentView: View {
             .font(.system(size: 9, weight: .bold, design: .monospaced))
             .padding(.horizontal, 8)
             .padding(.vertical, 4)
-            .background(bgSubtle)
             .foregroundColor(textSubtle)
-            .border(borderLine, width: 1)
+            .studioBox(background: bgSubtle, border: borderLine)
     }
     
     // MARK: - Fullscreen Player Controls
