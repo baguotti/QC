@@ -98,7 +98,7 @@ public struct ReportWriter: Sendable {
         <head>
             <meta charset="UTF-8">
             <meta name="viewport" content="width=device-width, initial-scale=1.0">
-            <title>THE LINEFINDER 5000 // \(folderURL.lastPathComponent.uppercased())</title>
+            <title>QCpie // \(folderURL.lastPathComponent.uppercased())</title>
             <style>
                 @import url('https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@400;600;700;800;900&family=JetBrains+Mono:wght@400;500;700&display=swap');
 
@@ -485,7 +485,7 @@ public struct ReportWriter: Sendable {
                 <!-- Masthead -->
                 <div class="masthead">
                     <div class="title-block">
-                        <h1>THE LINEFINDER 5000</h1>
+                        <h1>QCpie</h1>
                         <div class="subtitle">DELIVERY QC AUDIT // \(folderURL.lastPathComponent.uppercased())</div>
                     </div>
                     <div class="header-actions">
@@ -626,7 +626,7 @@ public struct ReportWriter: Sendable {
                 </div>
 
                 <footer>
-                    <div>THE LINEFINDER 5000 // APPLE SILICON NATIVE</div>
+                    <div>QCpie // APPLE SILICON NATIVE</div>
                     <div>AUTOMATED POST-PRODUCTION AUDIT</div>
                 </footer>
             </div>

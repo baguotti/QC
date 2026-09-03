@@ -1,11 +1,11 @@
 #!/bin/bash
 set -e
 
-APP_NAME="THE LINEFINDER 5000"
+APP_NAME="QCpie"
 BUILD_DIR="$(pwd)/build"
 APP_BUNDLE="${BUILD_DIR}/${APP_NAME}.app"
 DMG_STAGING="${BUILD_DIR}/dmg_staging"
-DMG_OUTPUT="${BUILD_DIR}/THE_LINEFINDER_5000.dmg"
+DMG_OUTPUT="${BUILD_DIR}/QCpie.dmg"
 
 echo "💿 Creating Standalone DMG Installer for ${APP_NAME}..."
 

@@ -33,7 +33,7 @@ struct UserGuideView: View {
                         Image(systemName: "info.circle.fill")
                             .font(.system(size: 13))
                             .foregroundColor(textMain)
-                        Text("USER GUIDE // THE LINEFINDER 5000")
+                        Text("USER GUIDE // QCpie")
                             .font(.system(size: 12, weight: .black, design: .monospaced))
                             .foregroundColor(textMain)
                         

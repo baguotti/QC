@@ -2,12 +2,12 @@
 import PackageDescription
 
 let package = Package(
-    name: "LineFinder5000",
+    name: "QCpie",
     platforms: [
         .macOS(.v14)
     ],
     products: [
-        .executable(name: "LineFinder5000", targets: ["LineFinder5000"]),
+        .executable(name: "QCpie", targets: ["QCpie"]),
         .library(name: "VideoQCLib", targets: ["VideoQCLib"])
     ],
     dependencies: [],
@@ -18,7 +18,7 @@ let package = Package(
             path: "Sources/VideoQCLib"
         ),
         .executableTarget(
-            name: "LineFinder5000",
+            name: "QCpie",
             dependencies: ["VideoQCLib"],
             path: "Sources/VideoQCApp"
         )

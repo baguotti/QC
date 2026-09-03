@@ -226,7 +226,7 @@ struct ContentView: View {
                     .frame(width: 4, height: 26)
                 
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("THE LINEFINDER 5000")
+                    Text("QCpie")
                         .font(.system(size: 16, weight: .black, design: .monospaced))
                         .tracking(1.5)
                         .foregroundColor(textMain)

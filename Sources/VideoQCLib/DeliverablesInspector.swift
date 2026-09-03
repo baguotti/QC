@@ -883,7 +883,7 @@ public struct DeliverablesInspector: Sendable {
                 </div>
 
                 <footer>
-                    <div>THE LINEFINDER 5000 // DELIVERABLES ENGINE</div>
+                    <div>QCpie // DELIVERABLES ENGINE</div>
                     <div>AUTOMATED POST-PRODUCTION SPEC AUDIT</div>
                 </footer>
             </div>

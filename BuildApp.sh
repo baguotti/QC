@@ -1,10 +1,10 @@
 #!/bin/bash
 set -e
 
-echo "🔨 Building THE LINEFINDER 5000 for Apple Silicon (Release mode)..."
+echo "🔨 Building QCpie for Apple Silicon (Release mode)..."
 
-BIN_NAME="LineFinder5000"
-APP_NAME="THE LINEFINDER 5000"
+BIN_NAME="QCpie"
+APP_NAME="QCpie"
 BUILD_DIR="$(pwd)/build"
 APP_BUNDLE="${BUILD_DIR}/${APP_NAME}.app"
 CONTENTS="${APP_BUNDLE}/Contents"
@@ -56,7 +56,7 @@ cat << EOF > "${CONTENTS}/Info.plist"
     <key>CFBundleIconFile</key>
     <string>AppIcon</string>
     <key>CFBundleIdentifier</key>
-    <string>com.studio.linefinder5000</string>
+    <string>com.studio.qcpie</string>
     <key>CFBundleInfoDictionaryVersion</key>
     <string>6.0</string>
     <key>CFBundleName</key>

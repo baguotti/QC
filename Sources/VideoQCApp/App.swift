@@ -2,14 +2,14 @@ import SwiftUI
 import AppKit
 
 @main
-struct LineFinder5000App: App {
+struct QCpieApp: App {
     init() {
         NSColorPanel.setPickerMask(.wheelModeMask)
         NSColorPanel.setPickerMode(.wheel)
     }
     
     var body: some Scene {
-        WindowGroup("THE LINEFINDER 5000") {
+        WindowGroup("QCpie") {
             ContentView()
         }
         .windowStyle(.titleBar)

@@ -1,4 +1,4 @@
-# THE LINEFINDER 5000 // SYSTEM & CODEBASE AUDIT REPORT
+# QCpie // SYSTEM & CODEBASE AUDIT REPORT
 
 **Date:** September 2026  
 **Target Platform:** macOS Sonoma (14.0+) & Sequoia (15.0+) // Apple Silicon  
@@ -9,7 +9,7 @@
 
 ## Executive Summary
 
-**THE LINEFINDER 5000** is an exceptionally fast, focused, native Swift application that leverages Apple Silicon hardware decoders, zero-copy memory buffers, and macOS Finder integrations. Its 3-tab architecture (Line Scanner, Deliverables Specs, Batch Renamer) directly solves real-world post-production pain points.
+**QCpie** is an exceptionally fast, focused, native Swift application that leverages Apple Silicon hardware decoders, zero-copy memory buffers, and macOS Finder integrations. Its 3-tab architecture (Line Scanner, Deliverables Specs, Batch Renamer) directly solves real-world post-production pain points.
 
 However, a deep technical inspection of the source code reveals several **critical edge cases, latent bugs, performance bottlenecks, and architectural debt** that should be addressed before enterprise deployment or wide distribution.
 
@@ -112,14 +112,14 @@ However, a deep technical inspection of the source code reveals several **critic
 ## 3. Application Packaging & macOS Ecosystem
 
 ### 1. Missing Native Application Icon (`AppIcon.icns`)
-- **Current State:** `build/THE LINEFINDER 5000.app` has no icon resource file in `Contents/Resources/` and no `CFBundleIconFile` key in `Info.plist`.
+- **Current State:** `build/QCpie.app` has no icon resource file in `Contents/Resources/` and no `CFBundleIconFile` key in `Info.plist`.
 - **User Impact:** The app displays a generic blank sheet icon in the macOS Dock, Launchpad, and Finder.
 - **Suggested Fix:** Generate a clean studio reticle icon in `.icns` format and package it during `BuildApp.sh`.
 
 ### 2. Missing Ad-Hoc Code Signature
 - **Current State:** `BuildApp.sh` copies the binary and creates `Info.plist`, but does not invoke `codesign`.
 - **User Impact:** macOS Sequoia (15.0+) flags unsigned apps copied to another machine with quarantine dialogs.
-- **Suggested Fix:** Add `codesign --force --deep --sign - "build/THE LINEFINDER 5000.app"` to `BuildApp.sh`.
+- **Suggested Fix:** Add `codesign --force --deep --sign - "build/QCpie.app"` to `BuildApp.sh`.
 
 ---
 

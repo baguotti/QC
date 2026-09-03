@@ -1,4 +1,4 @@
-# THE LINEFINDER 5000
+# QCpie
 **Version 0.1.1** • [GitHub Repository](https://github.com/baguotti/QC)
 
 Video QC, metadata inspection, and batch renaming for macOS (Apple Silicon).
@@ -7,9 +7,9 @@ Video QC, metadata inspection, and batch renaming for macOS (Apple Silicon).
 
 ## 🚀 How to Install & Run
 
-- **Disk Image Installer (.dmg):** Open [`build/THE_LINEFINDER_5000.dmg`](file:///Users/wildmacstudio25/Documents/QC/build/THE_LINEFINDER_5000.dmg) and drag `THE LINEFINDER 5000` to `/Applications`.
-- **Standalone App (.app):** Open [`build/THE LINEFINDER 5000.app`](file:///Users/wildmacstudio25/Documents/QC/build/THE%20LINEFINDER%205000.app) directly.
-- **Terminal Launcher:** Double-click [`Start_LineFinder.command`](file:///Users/wildmacstudio25/Documents/QC/Start_LineFinder.command).
+- **Disk Image Installer (.dmg):** Open [`build/QCpie.dmg`](file:///Users/wildmacstudio25/Documents/QC/build/QCpie.dmg) and drag `QCpie` to `/Applications`.
+- **Standalone App (.app):** Open [`build/QCpie.app`](file:///Users/wildmacstudio25/Documents/QC/build/QCpie.app) directly.
+- **Terminal Launcher:** Double-click [`Start_QCpie.command`](file:///Users/wildmacstudio25/Documents/QC/Start_QCpie.command).
 
 ---
 
