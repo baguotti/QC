@@ -5,6 +5,8 @@ public enum EdgeLocation: String, CaseIterable, Identifiable, Sendable {
     case bottom = "Bottom"
     case left = "Left"
     case right = "Right"
+    case splitHorizontal = "Split Screen (H)"
+    case splitVertical = "Split Screen (V)"
     
     public var id: String { rawValue }
 }
@@ -205,13 +207,10 @@ public struct VideoQCResult: Identifiable, Sendable {
 
 public struct QCConfig: Sendable {
     public var targetHex: String = "#00FF00"
-    public var tolerance: Double = 0.15 // 15% tolerance default
+    public var tolerance: Double = 0.25 // 25% tolerance default (optimal for video compression chroma bleed)
     public var edgeDepth: Int = 12 // Scan outer 12 pixels
     public var minSpanRatio: Double = 0.70 // Must span at least 70% of row/column
-    public var checkTop: Bool = true
-    public var checkBottom: Bool = true
-    public var checkLeft: Bool = true
-    public var checkRight: Bool = true
+    public var scanFullScreen: Bool = false // When true, scans entire frame for internal split screen lines
     
     // Enhanced Black Line Detection options
     public var enableExposureBoost: Bool = true
@@ -221,13 +220,10 @@ public struct QCConfig: Sendable {
     
     public init(
         targetHex: String = "#00FF00",
-        tolerance: Double = 0.15,
+        tolerance: Double = 0.25,
         edgeDepth: Int = 12,
         minSpanRatio: Double = 0.70,
-        checkTop: Bool = true,
-        checkBottom: Bool = true,
-        checkLeft: Bool = true,
-        checkRight: Bool = true,
+        scanFullScreen: Bool = false,
         enableExposureBoost: Bool = true,
         exposureMultiplier: Double = 10.0,
         ignoreFullBlackFrames: Bool = true,
@@ -237,10 +233,7 @@ public struct QCConfig: Sendable {
         self.tolerance = tolerance
         self.edgeDepth = edgeDepth
         self.minSpanRatio = minSpanRatio
-        self.checkTop = checkTop
-        self.checkBottom = checkBottom
-        self.checkLeft = checkLeft
-        self.checkRight = checkRight
+        self.scanFullScreen = scanFullScreen
         self.enableExposureBoost = enableExposureBoost
         self.exposureMultiplier = exposureMultiplier
         self.ignoreFullBlackFrames = ignoreFullBlackFrames

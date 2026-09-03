@@ -1,5 +1,5 @@
 # THE LINEFINDER 5000
-**Version 0.1.0** • [GitHub Repository](https://github.com/baguotti/QC)
+**Version 0.1.1** • [GitHub Repository](https://github.com/baguotti/QC)
 
 Video QC, metadata inspection, and batch renaming for macOS (Apple Silicon).
 

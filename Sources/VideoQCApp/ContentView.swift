@@ -17,13 +17,10 @@ struct ContentView: View {
     
     // MARK: - Tab 1: Line Scanner State
     @State var hexCode: String = "#00FF00"
-    @State var tolerancePercentage: Double = 15.0
+    @State var tolerancePercentage: Double = 25.0
     @State var edgeDepth: Int = 12
     @State var minSpanPercentage: Double = 70.0
-    @State var checkTop: Bool = true
-    @State var checkBottom: Bool = true
-    @State var checkLeft: Bool = true
-    @State var checkRight: Bool = true
+    @State var scanFullScreen: Bool = false
     @State var enableExposureBoost: Bool = true
     @State var exposureMultiplier: Double = 10.0
     @State var ignoreFullBlackFrames: Bool = true
@@ -86,8 +83,8 @@ struct ContentView: View {
     }
     
     let colorPresets = [
-        ("GREEN", "#00FF00", 15.0),
-        ("MAGENTA", "#FF00B4", 15.0),
+        ("GREEN", "#00FF00", 25.0),
+        ("MAGENTA", "#FF00B4", 25.0),
         ("BLACK", "#000000", 3.0)
     ]
     
@@ -594,10 +591,7 @@ struct ContentView: View {
             tolerance: tolerancePercentage / 100.0,
             edgeDepth: edgeDepth,
             minSpanRatio: minSpanPercentage / 100.0,
-            checkTop: checkTop,
-            checkBottom: checkBottom,
-            checkLeft: checkLeft,
-            checkRight: checkRight,
+            scanFullScreen: scanFullScreen,
             enableExposureBoost: enableExposureBoost,
             exposureMultiplier: exposureMultiplier,
             ignoreFullBlackFrames: ignoreFullBlackFrames

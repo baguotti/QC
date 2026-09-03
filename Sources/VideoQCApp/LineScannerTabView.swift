@@ -127,7 +127,7 @@ extension ContentView {
                         .font(.system(size: 10, weight: .bold, design: .monospaced))
                         .foregroundColor(textMain)
                 }
-                Slider(value: $tolerancePercentage, in: isTargetBlack ? 1...15 : 5...35, step: 1)
+                Slider(value: $tolerancePercentage, in: isTargetBlack ? 1...15 : 5...50, step: 1)
                     .tint(primaryBtnBg)
                     .disabled(isScanning)
                     .explain("Color match sensitivity. Lower values match strictly; higher values match broader shades.", binding: $hoverExplanation)
@@ -180,29 +180,15 @@ extension ContentView {
                 Stepper("", value: $edgeDepth, in: 2...40)
                     .labelsHidden()
                     .disabled(isScanning)
-                    .explain("Depth in pixels from outer frame boundaries to inspect for colored edge lines.", binding: $hoverExplanation)
+                    .explain("Depth in pixels from outer frame boundaries to inspect for colored edge lines (all borders).", binding: $hoverExplanation)
             }
             
-            HStack(spacing: 12) {
-                Toggle("TOP", isOn: $checkTop)
-                    .toggleStyle(StudioToggleStyle(isLight: isLightMode))
-                    .disabled(isScanning)
-                    .explain("Inspects top frame boundary for line artifacts.", binding: $hoverExplanation)
-                Toggle("BOT", isOn: $checkBottom)
-                    .toggleStyle(StudioToggleStyle(isLight: isLightMode))
-                    .disabled(isScanning)
-                    .explain("Inspects bottom frame boundary for line artifacts.", binding: $hoverExplanation)
-                Toggle("LFT", isOn: $checkLeft)
-                    .toggleStyle(StudioToggleStyle(isLight: isLightMode))
-                    .disabled(isScanning)
-                    .explain("Inspects left frame boundary for line artifacts.", binding: $hoverExplanation)
-                Toggle("RGT", isOn: $checkRight)
-                    .toggleStyle(StudioToggleStyle(isLight: isLightMode))
-                    .disabled(isScanning)
-                    .explain("Inspects right frame boundary for line artifacts.", binding: $hoverExplanation)
-            }
-            .font(.system(size: 10, weight: .bold, design: .monospaced))
-            .foregroundColor(textMain)
+            Toggle("SCAN FULL SCREEN (SPLIT SCREENS)", isOn: $scanFullScreen)
+                .toggleStyle(StudioToggleStyle(isLight: isLightMode))
+                .font(.system(size: 10, weight: .bold, design: .monospaced))
+                .foregroundColor(textMain)
+                .disabled(isScanning)
+                .explain("Inspects the entire frame for internal dividing line artifacts and split-screen seams.", binding: $hoverExplanation)
         }
     }
     
@@ -411,10 +397,10 @@ extension ContentView {
                                 
                                 HStack(spacing: 8) {
                                     Text("#").frame(width: 25, alignment: .leading)
-                                    Text("LOCATION").frame(width: 120, alignment: .leading)
-                                    Text("TIMECODE RANGE").frame(width: 170, alignment: .leading)
-                                    Text("DURATION").frame(width: 140, alignment: .leading)
-                                    Text("FRAMES").frame(width: 80, alignment: .leading)
+                                    Text("LOCATION").frame(width: 155, alignment: .leading)
+                                    Text("TIMECODE RANGE").frame(width: 155, alignment: .leading)
+                                    Text("DURATION").frame(width: 135, alignment: .leading)
+                                    Text("FRAMES").frame(width: 75, alignment: .leading)
                                     Spacer()
                                     Text("COLOR").frame(width: 80, alignment: .trailing)
                                 }
@@ -433,21 +419,21 @@ extension ContentView {
                                             .foregroundColor(textMuted)
                                         
                                         Text("\(seg.edge.rawValue.uppercased()) (\(seg.avgThickness)PX)")
-                                            .frame(width: 120, alignment: .leading)
+                                            .frame(width: 155, alignment: .leading)
                                             .fontWeight(.bold)
                                             .foregroundColor(textMain)
                                         
                                         Text(seg.startTimecode == seg.endTimecode ? seg.startTimecode : "\(seg.startTimecode) -> \(seg.endTimecode)")
-                                            .frame(width: 170, alignment: .leading)
+                                            .frame(width: 155, alignment: .leading)
                                             .fontWeight(.heavy)
                                             .foregroundColor(textMain)
                                         
                                         Text(seg.frameCount == 1 ? "1 FRAME (0.04S)" : "\(seg.frameCount) FRAMES (\(String(format: "%.2f", seg.durationSeconds))S)")
-                                            .frame(width: 140, alignment: .leading)
+                                            .frame(width: 135, alignment: .leading)
                                             .foregroundColor(textSubtle)
                                         
                                         Text("[\(seg.startFrame == seg.endFrame ? "\(seg.startFrame)" : "\(seg.startFrame)-\(seg.endFrame)")]")
-                                            .frame(width: 80, alignment: .leading)
+                                            .frame(width: 75, alignment: .leading)
                                             .foregroundColor(textMuted)
                                         
                                         Spacer()

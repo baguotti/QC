@@ -50,7 +50,13 @@ public struct ReportWriter: Sendable {
                     let displayName = segments.count > 1 ? "\(fileName) (Segment \(idx + 1))" : fileName
                     let linesFound = "Yes (\(segments.count) total)"
                     let timecode = seg.startTimecode == seg.endTimecode ? seg.startTimecode : "\(seg.startTimecode) -> \(seg.endTimecode)"
-                    let location = "\(seg.edge.rawValue.capitalized) Edge (\(seg.avgThickness)px)"
+                    let location: String
+                    switch seg.edge {
+                    case .top, .bottom, .left, .right:
+                        location = "\(seg.edge.rawValue.capitalized) Edge (\(seg.avgThickness)px)"
+                    case .splitHorizontal, .splitVertical:
+                        location = "\(seg.edge.rawValue) (\(seg.avgThickness)px)"
+                    }
                     let duration = seg.frameCount == 1 ? "1 frame (0.04s)" : "\(seg.frameCount) frames (\(String(format: "%.2f", seg.durationSeconds))s)"
                     let color = seg.detectedColor.hexString.uppercased()
                     
@@ -505,7 +511,7 @@ public struct ReportWriter: Sendable {
                     </div>
                     <div class="meta-cell">
                         <div class="meta-label">EDGE MARGIN</div>
-                        <div class="meta-value">\(config.edgeDepth) PX</div>
+                        <div class="meta-value">\(config.edgeDepth) PX\(config.scanFullScreen ? " // FULL SCREEN" : "")</div>
                     </div>
                     <div class="meta-cell">
                         <div class="meta-label">TIMESTAMP</div>

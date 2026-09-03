@@ -5,7 +5,7 @@ public struct EdgeDetector: Sendable {
     
     public init() {}
     
-    /// Detects colored lines at frame edges from a CVPixelBuffer (BGRA format)
+    /// Detects colored lines at frame edges and internal split-screens from a CVPixelBuffer (BGRA format)
     public func scanPixelBuffer(_ pixelBuffer: CVPixelBuffer, config: QCConfig) -> [LineDetection] {
         guard let targetRGB = config.targetRGB else { return [] }
         
@@ -82,65 +82,92 @@ public struct EdgeDetector: Sendable {
         let maxDist = config.maxDistance
         let edgeDepth = min(config.edgeDepth, min(width / 2, height / 2))
         
-        // 1. Scan Bottom Edge (rows: height - 1 down to height - edgeDepth)
-        if config.checkBottom {
-            var matchingRows: [(row: Int, count: Int, avgColor: RGBColor)] = []
-            for d in 0..<edgeDepth {
-                let y = height - 1 - d
-                if let match = checkHorizontalRowBGRA(ptr: ptr, y: y, width: width, bytesPerRow: bytesPerRow, targetRGB: targetRGB, maxDist: maxDist, config: config) {
-                    matchingRows.append((y, match.count, match.avgColor))
-                }
-            }
-            if !matchingRows.isEmpty {
-                let avgColor = matchingRows.first?.avgColor ?? targetRGB
-                let spanRatio = Double(matchingRows.map(\.count).max() ?? 0) / Double(width)
-                detections.append(LineDetection(edge: .bottom, thickness: matchingRows.count, detectedColor: avgColor, spanRatio: spanRatio))
+        // 1. Always Scan Bottom Edge (rows: height - 1 down to height - edgeDepth)
+        var bottomRows: [(row: Int, count: Int, avgColor: RGBColor)] = []
+        for d in 0..<edgeDepth {
+            let y = height - 1 - d
+            if let match = checkHorizontalRowBGRA(ptr: ptr, y: y, width: width, bytesPerRow: bytesPerRow, targetRGB: targetRGB, maxDist: maxDist, config: config) {
+                bottomRows.append((y, match.count, match.avgColor))
             }
         }
-        
-        // 2. Scan Top Edge (rows: 0 to edgeDepth - 1)
-        if config.checkTop {
-            var matchingRows: [(row: Int, count: Int, avgColor: RGBColor)] = []
-            for y in 0..<edgeDepth {
-                if let match = checkHorizontalRowBGRA(ptr: ptr, y: y, width: width, bytesPerRow: bytesPerRow, targetRGB: targetRGB, maxDist: maxDist, config: config) {
-                    matchingRows.append((y, match.count, match.avgColor))
-                }
-            }
-            if !matchingRows.isEmpty {
-                let avgColor = matchingRows.first?.avgColor ?? targetRGB
-                let spanRatio = Double(matchingRows.map(\.count).max() ?? 0) / Double(width)
-                detections.append(LineDetection(edge: .top, thickness: matchingRows.count, detectedColor: avgColor, spanRatio: spanRatio))
-            }
+        if !bottomRows.isEmpty {
+            let avgColor = bottomRows.first?.avgColor ?? targetRGB
+            let spanRatio = Double(bottomRows.map(\.count).max() ?? 0) / Double(width)
+            detections.append(LineDetection(edge: .bottom, thickness: bottomRows.count, detectedColor: avgColor, spanRatio: spanRatio))
         }
         
-        // 3. Scan Left Edge (columns: 0 to edgeDepth - 1)
-        if config.checkLeft {
-            var matchingCols: [(col: Int, count: Int, avgColor: RGBColor)] = []
-            for x in 0..<edgeDepth {
-                if let match = checkVerticalColumnBGRA(ptr: ptr, x: x, height: height, bytesPerRow: bytesPerRow, targetRGB: targetRGB, maxDist: maxDist, config: config) {
-                    matchingCols.append((x, match.count, match.avgColor))
-                }
-            }
-            if !matchingCols.isEmpty {
-                let avgColor = matchingCols.first?.avgColor ?? targetRGB
-                let spanRatio = Double(matchingCols.map(\.count).max() ?? 0) / Double(height)
-                detections.append(LineDetection(edge: .left, thickness: matchingCols.count, detectedColor: avgColor, spanRatio: spanRatio))
+        // 2. Always Scan Top Edge (rows: 0 to edgeDepth - 1)
+        var topRows: [(row: Int, count: Int, avgColor: RGBColor)] = []
+        for y in 0..<edgeDepth {
+            if let match = checkHorizontalRowBGRA(ptr: ptr, y: y, width: width, bytesPerRow: bytesPerRow, targetRGB: targetRGB, maxDist: maxDist, config: config) {
+                topRows.append((y, match.count, match.avgColor))
             }
         }
+        if !topRows.isEmpty {
+            let avgColor = topRows.first?.avgColor ?? targetRGB
+            let spanRatio = Double(topRows.map(\.count).max() ?? 0) / Double(width)
+            detections.append(LineDetection(edge: .top, thickness: topRows.count, detectedColor: avgColor, spanRatio: spanRatio))
+        }
         
-        // 4. Scan Right Edge (columns: width - 1 down to width - edgeDepth)
-        if config.checkRight {
-            var matchingCols: [(col: Int, count: Int, avgColor: RGBColor)] = []
-            for d in 0..<edgeDepth {
-                let x = width - 1 - d
-                if let match = checkVerticalColumnBGRA(ptr: ptr, x: x, height: height, bytesPerRow: bytesPerRow, targetRGB: targetRGB, maxDist: maxDist, config: config) {
-                    matchingCols.append((x, match.count, match.avgColor))
+        // 3. Always Scan Left Edge (columns: 0 to edgeDepth - 1)
+        var leftCols: [(col: Int, count: Int, avgColor: RGBColor)] = []
+        for x in 0..<edgeDepth {
+            if let match = checkVerticalColumnBGRA(ptr: ptr, x: x, height: height, bytesPerRow: bytesPerRow, targetRGB: targetRGB, maxDist: maxDist, config: config) {
+                leftCols.append((x, match.count, match.avgColor))
+            }
+        }
+        if !leftCols.isEmpty {
+            let avgColor = leftCols.first?.avgColor ?? targetRGB
+            let spanRatio = Double(leftCols.map(\.count).max() ?? 0) / Double(height)
+            detections.append(LineDetection(edge: .left, thickness: leftCols.count, detectedColor: avgColor, spanRatio: spanRatio))
+        }
+        
+        // 4. Always Scan Right Edge (columns: width - 1 down to width - edgeDepth)
+        var rightCols: [(col: Int, count: Int, avgColor: RGBColor)] = []
+        for d in 0..<edgeDepth {
+            let x = width - 1 - d
+            if let match = checkVerticalColumnBGRA(ptr: ptr, x: x, height: height, bytesPerRow: bytesPerRow, targetRGB: targetRGB, maxDist: maxDist, config: config) {
+                rightCols.append((x, match.count, match.avgColor))
+            }
+        }
+        if !rightCols.isEmpty {
+            let avgColor = rightCols.first?.avgColor ?? targetRGB
+            let spanRatio = Double(rightCols.map(\.count).max() ?? 0) / Double(height)
+            detections.append(LineDetection(edge: .right, thickness: rightCols.count, detectedColor: avgColor, spanRatio: spanRatio))
+        }
+        
+        // 5. Full Screen Scan for Split Screens (internal rows & columns)
+        if config.scanFullScreen {
+            let startY = edgeDepth
+            let endY = height - edgeDepth
+            if startY < endY {
+                var internalRows: [(row: Int, count: Int, avgColor: RGBColor)] = []
+                for y in startY..<endY {
+                    if let match = checkHorizontalRowBGRA(ptr: ptr, y: y, width: width, bytesPerRow: bytesPerRow, targetRGB: targetRGB, maxDist: maxDist, config: config) {
+                        internalRows.append((y, match.count, match.avgColor))
+                    }
+                }
+                if !internalRows.isEmpty {
+                    let avgColor = internalRows.first?.avgColor ?? targetRGB
+                    let spanRatio = Double(internalRows.map(\.count).max() ?? 0) / Double(width)
+                    detections.append(LineDetection(edge: .splitHorizontal, thickness: internalRows.count, detectedColor: avgColor, spanRatio: spanRatio))
                 }
             }
-            if !matchingCols.isEmpty {
-                let avgColor = matchingCols.first?.avgColor ?? targetRGB
-                let spanRatio = Double(matchingCols.map(\.count).max() ?? 0) / Double(height)
-                detections.append(LineDetection(edge: .right, thickness: matchingCols.count, detectedColor: avgColor, spanRatio: spanRatio))
+            
+            let startX = edgeDepth
+            let endX = width - edgeDepth
+            if startX < endX {
+                var internalCols: [(col: Int, count: Int, avgColor: RGBColor)] = []
+                for x in startX..<endX {
+                    if let match = checkVerticalColumnBGRA(ptr: ptr, x: x, height: height, bytesPerRow: bytesPerRow, targetRGB: targetRGB, maxDist: maxDist, config: config) {
+                        internalCols.append((x, match.count, match.avgColor))
+                    }
+                }
+                if !internalCols.isEmpty {
+                    let avgColor = internalCols.first?.avgColor ?? targetRGB
+                    let spanRatio = Double(internalCols.map(\.count).max() ?? 0) / Double(height)
+                    detections.append(LineDetection(edge: .splitVertical, thickness: internalCols.count, detectedColor: avgColor, spanRatio: spanRatio))
+                }
             }
         }
         
@@ -165,6 +192,10 @@ public struct EdgeDetector: Sendable {
         var sumG: UInt64 = 0
         var sumB: UInt64 = 0
         
+        let minMatchesRequired = Int(ceil(Double(width) * config.minSpanRatio))
+        let maxAllowedMisses = width - minMatchesRequired
+        var missCount = 0
+        
         let isBlack = config.isBlackDetection
         let useBoost = isBlack && config.enableExposureBoost
         let multiplier = useBoost ? config.exposureMultiplier : 1.0
@@ -173,6 +204,9 @@ public struct EdgeDetector: Sendable {
         let tg = Int(targetRGB.g)
         let tb = Int(targetRGB.b)
         let maxDistSqInt = Int(round(maxDist * maxDist))
+        
+        let isGreenTarget = tg - tr >= 80 && tg - tb >= 80
+        let isMagentaTarget = tr - tg >= 80 && tb - tg >= 80
         
         var blackCount = 0
         var blackMean = 0.0
@@ -197,7 +231,32 @@ public struct EdgeDetector: Sendable {
             let dr = r - tr
             let dg = g - tg
             let db = b - tb
-            let distSq = dr * dr + dg * dg + db * db
+            var distSq = dr * dr + dg * dg + db * db
+            
+            // Chroma bleed compensation for video compression (YUV 4:2:0 averaging against light backgrounds)
+            if distSq > maxDistSqInt {
+                if isGreenTarget && g > r && g > b {
+                    let neutral = min(r, b)
+                    let bleed = (neutral * 166) >> 8 // ~65% neutral background bleed removal
+                    let rc = max(0, r - bleed)
+                    let bc = max(0, b - bleed)
+                    let drc = rc - tr
+                    let dbc = bc - tb
+                    let compDistSq = drc * drc + dg * dg + dbc * dbc
+                    if compDistSq < distSq {
+                        distSq = compDistSq
+                    }
+                } else if isMagentaTarget && r > g && b > g {
+                    let neutral = g
+                    let bleed = (neutral * 166) >> 8
+                    let gc = max(0, g - bleed)
+                    let dgc = gc - tg
+                    let compDistSq = dr * dr + dgc * dgc + db * db
+                    if compDistSq < distSq {
+                        distSq = compDistSq
+                    }
+                }
+            }
             
             if distSq <= maxDistSqInt {
                 matchCount += 1
@@ -211,6 +270,11 @@ public struct EdgeDetector: Sendable {
                     blackMean += delta / Double(blackCount)
                     let delta2 = intensity - blackMean
                     blackM2 += delta * delta2
+                }
+            } else {
+                missCount += 1
+                if missCount > maxAllowedMisses {
+                    return nil
                 }
             }
         }
@@ -249,6 +313,10 @@ public struct EdgeDetector: Sendable {
         var sumG: UInt64 = 0
         var sumB: UInt64 = 0
         
+        let minMatchesRequired = Int(ceil(Double(height) * config.minSpanRatio))
+        let maxAllowedMisses = height - minMatchesRequired
+        var missCount = 0
+        
         let isBlack = config.isBlackDetection
         let useBoost = isBlack && config.enableExposureBoost
         let multiplier = useBoost ? config.exposureMultiplier : 1.0
@@ -257,6 +325,9 @@ public struct EdgeDetector: Sendable {
         let tg = Int(targetRGB.g)
         let tb = Int(targetRGB.b)
         let maxDistSqInt = Int(round(maxDist * maxDist))
+        
+        let isGreenTarget = tg - tr >= 80 && tg - tb >= 80
+        let isMagentaTarget = tr - tg >= 80 && tb - tg >= 80
         
         var blackCount = 0
         var blackMean = 0.0
@@ -281,7 +352,32 @@ public struct EdgeDetector: Sendable {
             let dr = r - tr
             let dg = g - tg
             let db = b - tb
-            let distSq = dr * dr + dg * dg + db * db
+            var distSq = dr * dr + dg * dg + db * db
+            
+            // Chroma bleed compensation for video compression (YUV 4:2:0 averaging against light backgrounds)
+            if distSq > maxDistSqInt {
+                if isGreenTarget && g > r && g > b {
+                    let neutral = min(r, b)
+                    let bleed = (neutral * 166) >> 8 // ~65% neutral background bleed removal
+                    let rc = max(0, r - bleed)
+                    let bc = max(0, b - bleed)
+                    let drc = rc - tr
+                    let dbc = bc - tb
+                    let compDistSq = drc * drc + dg * dg + dbc * dbc
+                    if compDistSq < distSq {
+                        distSq = compDistSq
+                    }
+                } else if isMagentaTarget && r > g && b > g {
+                    let neutral = g
+                    let bleed = (neutral * 166) >> 8
+                    let gc = max(0, g - bleed)
+                    let dgc = gc - tg
+                    let compDistSq = dr * dr + dgc * dgc + db * db
+                    if compDistSq < distSq {
+                        distSq = compDistSq
+                    }
+                }
+            }
             
             if distSq <= maxDistSqInt {
                 matchCount += 1
@@ -295,6 +391,11 @@ public struct EdgeDetector: Sendable {
                     blackMean += delta / Double(blackCount)
                     let delta2 = intensity - blackMean
                     blackM2 += delta * delta2
+                }
+            } else {
+                missCount += 1
+                if missCount > maxAllowedMisses {
+                    return nil
                 }
             }
         }
