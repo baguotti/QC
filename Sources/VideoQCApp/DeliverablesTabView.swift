@@ -254,7 +254,6 @@ extension ContentView {
                     Text("FPS").frame(width: 60, alignment: .center)
                     Text("FILE SIZE").frame(width: 75, alignment: .center)
                     Text("CREATED").frame(width: 110, alignment: .center)
-                    Text("SUBS / CC").frame(width: 80, alignment: .center)
                     Text("VIDEO").frame(width: 85, alignment: .center)
                     Text("AUDIO SPEC").frame(width: 145, alignment: .center)
                 }
@@ -358,26 +357,7 @@ extension ContentView {
                                     .foregroundColor(textSubtle)
                                     .frame(width: 110, alignment: .center)
                                 
-                                // Subs / CC Column
-                                ZStack {
-                                    if asset.hasSubtitles {
-                                        Text(asset.subtitlesInfo)
-                                            .font(.system(size: 8, weight: .bold, design: .monospaced))
-                                            .padding(.horizontal, 4)
-                                            .padding(.vertical, 2)
-                                            .background(accentPositive.opacity(0.18))
-                                            .foregroundColor(accentPositive)
-                                            .border(accentPositive, width: 0.5)
-                                            .lineLimit(1)
-                                            .help(asset.subtitlesInfo)
-                                    } else {
-                                        Text("NONE")
-                                            .font(.system(size: 9, design: .monospaced))
-                                            .foregroundColor(textMuted)
-                                    }
-                                }
-                                .frame(width: 80, alignment: .center)
-                                
+
                                 Text(asset.videoCodec)
                                     .frame(width: 85, alignment: .center)
                                     .foregroundColor(textMuted)

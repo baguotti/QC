@@ -48,6 +48,7 @@ public final class PlayerEngine: ObservableObject {
     @Published public var currentProgress: Double = 0.0 // 0.0 ... 1.0
     @Published public var currentFrame: Int = 0
     @Published public var totalFrames: Int = 0
+    @Published public var displayTimeAsFrames: Bool = false
     
     @Published public var rate: Float = 0.0
     @Published public var isPlaying: Bool = false

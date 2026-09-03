@@ -28,6 +28,7 @@ struct ContentView: View {
     @State var isScanning: Bool = false
     @State var progressInfo: VideoScanner.ScanProgress? = nil
     @State var scanResults: [VideoQCResult] = []
+    @State var lastScanConfig: QCConfig? = nil
     @State var generatedReportURL: URL? = nil
     @State var generatedCSVURL: URL? = nil
     @State var scannerActor: VideoScanner? = nil
@@ -395,29 +396,6 @@ struct ContentView: View {
             }
             
             Spacer()
-            
-            switch selectedTab {
-            case .lineScanner:
-                Text("MODE // FRAME-BY-FRAME EDGE ARTIFACT SCANNER")
-                    .font(.system(size: 10, weight: .bold, design: .monospaced))
-                    .foregroundColor(textMuted)
-                    .tracking(0.5)
-            case .deliverables:
-                Text("MODE // INSTANT ASSET SPECS & METADATA AUDITOR")
-                    .font(.system(size: 10, weight: .bold, design: .monospaced))
-                    .foregroundColor(textMuted)
-                    .tracking(0.5)
-            case .batchRenamer:
-                Text("MODE // GRANULAR DELIVERABLE BATCH RENAMING & TOKEN ENGINE")
-                    .font(.system(size: 10, weight: .bold, design: .monospaced))
-                    .foregroundColor(textMuted)
-                    .tracking(0.5)
-            case .player:
-                Text("MODE // PRO PROGRAM MONITOR & TIMELINE PLAYBACK ENGINE")
-                    .font(.system(size: 10, weight: .bold, design: .monospaced))
-                    .foregroundColor(textMuted)
-                    .tracking(0.5)
-            }
         }
         .padding(.horizontal, 24)
         .padding(.vertical, 10)
@@ -636,7 +614,6 @@ struct ContentView: View {
     
     func startScan() {
         guard !videoFiles.isEmpty else { return }
-        let folder = folderURL ?? videoFiles.first?.deletingLastPathComponent() ?? URL(fileURLWithPath: NSTemporaryDirectory())
         
         let config = QCConfig(
             targetHex: hexCode,
@@ -664,13 +641,13 @@ struct ContentView: View {
                 }
             }
             
-            let reports = ReportWriter.saveReport(folderURL: folder, config: config, results: results)
+            // Only tag flagged files in Finder — no auto file export
+            ReportWriter.tagFlaggedFilesInFinder(results: results)
             
             DispatchQueue.main.async {
                 self.scanResults = results
+                self.lastScanConfig = config
                 self.playerEngine.setScanResults(results)
-                self.generatedReportURL = reports.htmlURL
-                self.generatedCSVURL = reports.csvURL
                 self.isScanning = false
                 self.scannerActor = nil
             }
@@ -681,6 +658,45 @@ struct ContentView: View {
         scannerActor?.cancel()
         self.isScanning = false
         self.scannerActor = nil
+    }
+    
+    // MARK: - On-Demand Report Export
+    
+    func exportScanHTML() {
+        guard !scanResults.isEmpty, let config = lastScanConfig else { return }
+        let folder = folderURL ?? videoFiles.first?.deletingLastPathComponent() ?? URL(fileURLWithPath: NSTemporaryDirectory())
+        
+        let csvFileName = "QC_Report.csv"
+        let htmlString = ReportWriter.generateHTMLReport(folderURL: folder, config: config, results: scanResults, csvFileName: csvFileName)
+        
+        let savePanel = NSSavePanel()
+        savePanel.allowedContentTypes = [.html]
+        savePanel.nameFieldStringValue = "QC_Report_\(folder.lastPathComponent).html"
+        savePanel.directoryURL = folder
+        
+        if savePanel.runModal() == .OK, let url = savePanel.url {
+            try? htmlString.write(to: url, atomically: true, encoding: .utf8)
+            self.generatedReportURL = url
+            NSWorkspace.shared.open(url)
+        }
+    }
+    
+    func exportScanCSV() {
+        guard !scanResults.isEmpty else { return }
+        let folder = folderURL ?? videoFiles.first?.deletingLastPathComponent() ?? URL(fileURLWithPath: NSTemporaryDirectory())
+        
+        let csvString = ReportWriter.generateCSVReport(results: scanResults)
+        
+        let savePanel = NSSavePanel()
+        savePanel.allowedContentTypes = [.commaSeparatedText]
+        savePanel.nameFieldStringValue = "QC_Report_\(folder.lastPathComponent).csv"
+        savePanel.directoryURL = folder
+        
+        if savePanel.runModal() == .OK, let url = savePanel.url {
+            try? csvString.write(to: url, atomically: true, encoding: .utf8)
+            self.generatedCSVURL = url
+            NSWorkspace.shared.open(url)
+        }
     }
     
     // MARK: - Deliverables Specs Execution
@@ -845,8 +861,12 @@ struct ContentView: View {
                 } else if chars == " " { // Spacebar
                     self.playerEngine.togglePlayPause()
                     return nil
-                } else if chars == "n" { // N: Jump to Next Line Finding
-                    self.jumpToNextGlitchFinding()
+                } else if chars == "n" { // N: Jump to Next Line Finding / Shift+N: Previous Line Finding
+                    if isShift {
+                        self.jumpToPreviousGlitchFinding()
+                    } else {
+                        self.jumpToNextGlitchFinding()
+                    }
                     return nil
                 }
             }
@@ -954,6 +974,47 @@ struct ContentView: View {
         }
         
         let target = nextTarget ?? allGlitches[0]
+        jumpToGlitchInPlayer(fileURL: target.url, frameIndex: target.frameIndex)
+    }
+    
+    // MARK: - Previous Line Finding Cycler (Tab 1 Findings)
+    
+    func jumpToPreviousGlitchFinding() {
+        var allGlitches: [(url: URL, frameIndex: Int, timecode: String, label: String)] = []
+        for result in scanResults where result.isFlagged {
+            for seg in result.glitchSegments {
+                allGlitches.append((
+                    url: result.fileURL,
+                    frameIndex: seg.startFrame,
+                    timecode: seg.startTimecode,
+                    label: "\(seg.edge.rawValue.uppercased()) (\(seg.avgThickness)PX) @ \(seg.startTimecode)"
+                ))
+            }
+        }
+        
+        guard !allGlitches.isEmpty else { return }
+        
+        let currentURL = playerEngine.activeURL
+        let currentFrame = playerEngine.currentFrame
+        
+        var prevTarget: (url: URL, frameIndex: Int, timecode: String, label: String)? = nil
+        
+        if let currentURL = currentURL {
+            let inCurrentFile = allGlitches.filter { $0.url == currentURL }
+            // Look for the glitch before the current frame in current file (from closest backwards)
+            if let behind = inCurrentFile.last(where: { $0.frameIndex < currentFrame - 1 }) {
+                prevTarget = behind
+            } else {
+                let distinctFlaggedFiles = scanResults.filter { $0.isFlagged && !$0.glitchSegments.isEmpty }.map { $0.fileURL }
+                if let currentFileIdx = distinctFlaggedFiles.firstIndex(of: currentURL) {
+                    let prevFileIdx = (currentFileIdx - 1 + distinctFlaggedFiles.count) % distinctFlaggedFiles.count
+                    let targetURL = distinctFlaggedFiles[prevFileIdx]
+                    prevTarget = allGlitches.filter { $0.url == targetURL }.last
+                }
+            }
+        }
+        
+        let target = prevTarget ?? allGlitches.last ?? allGlitches[0]
         jumpToGlitchInPlayer(fileURL: target.url, frameIndex: target.frameIndex)
     }
     

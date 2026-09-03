@@ -212,10 +212,12 @@ extension ContentView {
                         .border(accentPositive, width: 1)
                 }
             }
+            .frame(maxWidth: .infinity)
             .frame(height: 42)
             .padding(.horizontal, 8)
             .background(isSelected ? bgSubtle : Color.clear)
             .border(isSelected ? borderLine : Color.clear, width: 1)
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .contextMenu {
@@ -271,35 +273,43 @@ extension ContentView {
     // MARK: - Timecode Bar (above timeline)
     
     private var playerTimecodeBar: some View {
-        HStack(spacing: 14) {
-            Spacer()
-            
-            // SMPTE Timecode Display
-            HStack(spacing: 6) {
-                Text(playerEngine.currentTimecode)
-                    .font(.system(size: 18, weight: .black, design: .monospaced))
-                    .foregroundColor(accentPositive)
-                Text("/")
-                    .font(.system(size: 18, weight: .black, design: .monospaced))
-                    .foregroundColor(textMuted)
-                Text(playerEngine.durationTimecode)
-                    .font(.system(size: 18, weight: .black, design: .monospaced))
-                    .foregroundColor(textSubtle)
+        HStack(spacing: 12) {
+            // Left: Current SMPTE Timecode or Frame Count (Fixed width so switching modes or increasing digits never moves the UI)
+            Menu {
+                Button(action: { playerEngine.displayTimeAsFrames = false }) {
+                    HStack {
+                        Text("SMPTE Timecode (HH:MM:SS:FF)")
+                        if !playerEngine.displayTimeAsFrames {
+                            Image(systemName: "checkmark")
+                        }
+                    }
+                }
+                Button(action: { playerEngine.displayTimeAsFrames = true }) {
+                    HStack {
+                        Text("Frames (Frame Count)")
+                        if playerEngine.displayTimeAsFrames {
+                            Image(systemName: "checkmark")
+                        }
+                    }
+                }
+            } label: {
+                HStack(spacing: 5) {
+                    Text(playerEngine.displayTimeAsFrames ? "\(playerEngine.currentFrame) frames" : playerEngine.currentTimecode)
+                        .font(.system(size: 13, weight: .bold, design: .monospaced))
+                        .foregroundColor(accentPositive)
+                        .tracking(0.5)
+                        .lineLimit(1)
+                    
+                    Image(systemName: "chevron.down")
+                        .font(.system(size: 8, weight: .bold))
+                        .foregroundColor(accentPositive.opacity(0.8))
+                }
+                .frame(width: 125, alignment: .leading)
+                .contentShape(Rectangle())
             }
-            .padding(.horizontal, 10)
-            .padding(.vertical, 4)
-            .background(bgSubtle)
-            .border(borderLine, width: 1)
+            .buttonStyle(.plain)
             
-            // Shuttle Speed Badge (Fixed 105px width)
-            Text(playerEngine.shuttleStateText)
-                .font(.system(size: 10, weight: .black, design: .monospaced))
-                .frame(width: 105, height: 26)
-                .background(playerEngine.isPlaying ? accentPositive.opacity(0.15) : bgSubtle)
-                .foregroundColor(playerEngine.isPlaying ? accentPositive : textMuted)
-                .border(playerEngine.isPlaying ? accentPositive : borderLine, width: 1)
-            
-            // Zoom Dropdown / Presets (Fixed 110px width to accommodate 10% to 400% without layout shifts)
+            // Zoom Dropdown Menu (Clean compact box with text + single small chevron; locked to 64px width for 3-digit consistency)
             Menu {
                 Button("Fit to Window") { playerEngine.setZoomFit() }
                 Divider()
@@ -313,24 +323,48 @@ extension ContentView {
                 Button("400% (Zoom In)") { playerEngine.setZoomLevel(4.0) }
             } label: {
                 HStack(spacing: 4) {
-                    Image(systemName: "magnifyingglass")
-                        .font(.system(size: 9, weight: .bold))
-                        .foregroundColor(textMain)
-                    Text(playerEngine.isFitZoom ? "ZOOM: FIT" : "ZOOM: \(Int(round(playerEngine.zoomScale * 100)))%")
-                        .font(.system(size: 9, weight: .bold, design: .monospaced))
+                    Text(playerEngine.isFitZoom ? "Fit" : "\(Int(round(playerEngine.zoomScale * 100)))%")
+                        .font(.system(size: 11, weight: .medium, design: .monospaced))
                         .foregroundColor(textMain)
                         .lineLimit(1)
+                        .frame(maxWidth: .infinity, alignment: .center)
+                    
+                    Image(systemName: "chevron.down")
+                        .font(.system(size: 8, weight: .bold))
+                        .foregroundColor(textMuted)
                 }
-                .frame(width: 110, height: 26)
+                .padding(.horizontal, 6)
+                .frame(width: 64, height: 22)
                 .background(bgSubtle)
                 .border(borderLine, width: 1)
+                .contentShape(Rectangle())
             }
-            .menuStyle(.borderlessButton)
-            .accentColor(textMain)
-            .frame(width: 110, height: 26)
+            .buttonStyle(.plain)
+            .frame(width: 64)
             
             Spacer()
+            
+            // Shuttle Speed Indicator (if active / playing)
+            if playerEngine.isPlaying || playerEngine.rate != 0 {
+                Text(playerEngine.shuttleStateText)
+                    .font(.system(size: 10, weight: .bold, design: .monospaced))
+                    .padding(.horizontal, 6)
+                    .frame(height: 20)
+                    .background(accentPositive.opacity(0.15))
+                    .foregroundColor(accentPositive)
+                    .border(accentPositive.opacity(0.6), width: 0.5)
+            }
+            
+            // Right: Duration Timecode / Total Frames (Clean muted mono text, locked width for stability)
+            Text(playerEngine.displayTimeAsFrames ? "\(playerEngine.totalFrames) frames" : playerEngine.durationTimecode)
+                .font(.system(size: 13, weight: .bold, design: .monospaced))
+                .foregroundColor(textMuted)
+                .tracking(0.5)
+                .lineLimit(1)
+                .frame(width: 125, alignment: .trailing)
         }
+        .padding(.horizontal, 4)
+        .padding(.vertical, 2)
     }
     
     // MARK: - Transport Bar
@@ -423,13 +457,33 @@ extension ContentView {
                     playerEngine.showCenterCrosshair.toggle()
                 }
                 
-                // Jump to Next Line Finding Button (Cycles through Tab 1 findings - Fixed 96px width)
                 let hasGlitches = scanResults.contains(where: { $0.isFlagged && !$0.glitchSegments.isEmpty })
+                
+                // Jump to Previous Line Finding Button (Cycles backwards through Tab 1 findings - Fixed 96px width)
+                Button(action: {
+                    jumpToPreviousGlitchFinding()
+                }) {
+                    HStack(spacing: 4) {
+                        Image(systemName: "chevron.left.to.line")
+                            .font(.system(size: 9, weight: .bold))
+                        Text("PREV LINE")
+                            .font(.system(size: 9, weight: .bold, design: .monospaced))
+                    }
+                    .frame(width: 96, height: 28)
+                    .background(hasGlitches ? alertRed.opacity(0.18) : bgSubtle)
+                    .foregroundColor(hasGlitches ? alertRed : textMuted)
+                    .border(hasGlitches ? alertRed.opacity(0.6) : borderLine, width: 1)
+                }
+                .buttonStyle(.plain)
+                .disabled(!hasGlitches)
+                .explain(hasGlitches ? "Jump to previous detected line glitch (⇧N / cycles backwards through findings of Tab 1)." : "No line glitches found in Tab 1 to cycle through.", binding: $hoverExplanation)
+                
+                // Jump to Next Line Finding Button (Cycles through Tab 1 findings - Fixed 96px width)
                 Button(action: {
                     jumpToNextGlitchFinding()
                 }) {
                     HStack(spacing: 4) {
-                        Image(systemName: "scope")
+                        Image(systemName: "chevron.right.to.line")
                             .font(.system(size: 9, weight: .bold))
                         Text("NEXT LINE")
                             .font(.system(size: 9, weight: .bold, design: .monospaced))
@@ -441,7 +495,7 @@ extension ContentView {
                 }
                 .buttonStyle(.plain)
                 .disabled(!hasGlitches)
-                .explain(hasGlitches ? "Jump to next detected line glitch (cycles through all findings of Tab 1)." : "No line glitches found in Tab 1 to cycle through.", binding: $hoverExplanation)
+                .explain(hasGlitches ? "Jump to next detected line glitch (N / cycles forwards through findings of Tab 1)." : "No line glitches found in Tab 1 to cycle through.", binding: $hoverExplanation)
                 
                 // Finder Tags Button (Fixed 78px width)
                 let activeURL = playerEngine.activeURL
@@ -491,6 +545,7 @@ extension ContentView {
                     Button("Drag Canvas: Pan Viewport Hand Tool") {}
                     Button("⌘L: Toggle Seamless Loop") {}
                     Button("N: Jump to Next Line Finding") {}
+                    Button("⇧ + N: Jump to Previous Line Finding") {}
                 } label: {
                     HStack(spacing: 5) {
                         Image(systemName: "command")

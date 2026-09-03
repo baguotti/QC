@@ -193,7 +193,7 @@ extension ContentView {
     }
     
     var actionSection: some View {
-        VStack(spacing: 8) {
+        VStack(alignment: .leading, spacing: 8) {
             sectionHeader(num: "04", title: "EXECUTION")
             
             if isScanning {
@@ -301,46 +301,28 @@ extension ContentView {
                 Spacer()
                 
                 HStack(spacing: 8) {
-                    if let reportURL = generatedReportURL {
-                        Button(action: { NSWorkspace.shared.open(reportURL) }) {
-                            Text("[ OPEN HTML REPORT ]")
-                                .font(.system(size: 11, weight: .bold, design: .monospaced))
-                                .padding(.horizontal, 14)
-                                .padding(.vertical, 8)
-                                .background(primaryBtnBg)
-                                .foregroundColor(primaryBtnFg)
-                        }
-                        .buttonStyle(.plain)
-                        .explain("Opens the interactive visual HTML glitch report in default browser.", binding: $hoverExplanation)
+                    Button(action: { exportScanHTML() }) {
+                        Text("[ SAVE HTML REPORT ]")
+                            .font(.system(size: 11, weight: .bold, design: .monospaced))
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 8)
+                            .background(primaryBtnBg)
+                            .foregroundColor(primaryBtnFg)
                     }
+                    .buttonStyle(.plain)
+                    .explain("Saves the interactive visual HTML glitch report to a chosen location.", binding: $hoverExplanation)
                     
-                    if let csvURL = generatedCSVURL {
-                        Button(action: { NSWorkspace.shared.open(csvURL) }) {
-                            Text("[ GOOGLE SHEETS / CSV ]")
-                                .font(.system(size: 11, weight: .bold, design: .monospaced))
-                                .padding(.horizontal, 12)
-                                .padding(.vertical, 8)
-                                .background(bgSubtle)
-                                .foregroundColor(textMain)
-                                .border(borderLine, width: 1)
-                        }
-                        .buttonStyle(.plain)
-                        .explain("Opens the glitch occurrence CSV table in your spreadsheet app.", binding: $hoverExplanation)
+                    Button(action: { exportScanCSV() }) {
+                        Text("[ EXPORT CSV ]")
+                            .font(.system(size: 11, weight: .bold, design: .monospaced))
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 8)
+                            .background(bgSubtle)
+                            .foregroundColor(textMain)
+                            .border(borderLine, width: 1)
                     }
-                    
-                    if let reportURL = generatedReportURL {
-                        Button(action: { NSWorkspace.shared.activateFileViewerSelecting([reportURL]) }) {
-                            Text("[ FINDER ]")
-                                .font(.system(size: 11, weight: .bold, design: .monospaced))
-                                .padding(.horizontal, 14)
-                                .padding(.vertical, 8)
-                                .background(bgSubtle)
-                                .foregroundColor(textMain)
-                                .border(borderLine, width: 1)
-                        }
-                        .buttonStyle(.plain)
-                        .explain("Reveals the generated HTML report file in macOS Finder.", binding: $hoverExplanation)
-                    }
+                    .buttonStyle(.plain)
+                    .explain("Exports the glitch occurrence data as a CSV file.", binding: $hoverExplanation)
                 }
             }
             
@@ -504,7 +486,7 @@ extension ContentView {
                 .foregroundColor(textMain)
                 .tracking(1.0)
             
-            Text("CHOOSE A DELIVERY FOLDER OR VIDEO FILES ON THE LEFT TO BEGIN FRAME-BY-FRAME ANALYSIS.\nDETECTS MATTE MISALIGNMENTS, LETTERBOX ARTIFACTS, AND COLORED EDGE LINES.")
+            Text("CHOOSE A DELIVERY FOLDER OR VIDEO FILES ON THE LEFT TO BEGIN FRAME-BY-FRAME ANALYSIS.\nDETECTS COLORED EDGE LINES.")
                 .font(.system(size: 12, weight: .medium, design: .monospaced))
                 .foregroundColor(textMuted)
                 .lineSpacing(4)
