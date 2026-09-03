@@ -52,15 +52,12 @@ struct ContentView: View {
     @State var customTag1: String = ""
     @State var customTag2: String = ""
     @State var customTag3: String = ""
-    var customTag: String {
-        get { customTag1 }
-        set { customTag1 = newValue }
-    }
     @State var textCase: TextCaseOption = .uppercase
     @State var indexStart: Int = 1
     @State var indexPadding: Int = 2
     @State var lastTransaction: RenameTransaction? = nil
     @State var selectedAssetIDs: Set<UUID> = []
+    @State var directoryFilesCache: [URL: Set<String>] = [:]
     
     var renameItems: [RenameItem] {
         RenamerEngine.generateProposedItems(
@@ -78,7 +75,8 @@ struct ContentView: View {
             caseOption: textCase,
             indexStart: indexStart,
             indexPadding: indexPadding,
-            selectedAssetIDs: selectedAssetIDs
+            selectedAssetIDs: selectedAssetIDs,
+            existingFilesByDir: directoryFilesCache
         )
     }
     
@@ -656,8 +654,18 @@ struct ContentView: View {
         
         Task {
             let assets = await DeliverablesInspector.inspectBatch(urls: urls)
+            
+            // Build directory files cache off the main thread
+            var cache: [URL: Set<String>] = [:]
+            let dirs = Set(urls.map { $0.deletingLastPathComponent() })
+            for dir in dirs {
+                let files = (try? FileManager.default.contentsOfDirectory(atPath: dir.path)) ?? []
+                cache[dir] = Set(files.map { $0.lowercased() })
+            }
+            
             DispatchQueue.main.async {
                 self.deliverableAssets = assets
+                self.directoryFilesCache = cache
                 self.selectedAssetIDs = Set(assets.map { $0.id })
                 self.isInspectingDeliverables = false
             }

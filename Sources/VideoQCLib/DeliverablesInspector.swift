@@ -99,24 +99,53 @@ public struct DeliverablesInspector: Sendable {
         }
     }
     
-    /// Inspects a batch of video files in parallel using structured concurrency
-    public static func inspectBatch(urls: [URL]) async -> [DeliverableAsset] {
+    // MARK: - Pre-compiled Validation Regular Expressions
+    
+    private static let durationRegex: NSRegularExpression? = {
+        let pattern = #"(?:^|[_\s\-\.])([0-9]{1,3})\s*(?:sec|secs|seconds|s)(?:$|[_\s\-\.])"#
+        return try? NSRegularExpression(pattern: pattern, options: .caseInsensitive)
+    }()
+    
+    private static let ratioRegex: NSRegularExpression? = {
+        let pattern = #"(?:^|[_\s\-\.])(16[x_]9|9[x_]16|4[x_]5|5[x_]4|1[x_]1|4[x_]3|3[x_]4|21[x_]9|square)(?:$|[_\s\-\.])"#
+        return try? NSRegularExpression(pattern: pattern, options: .caseInsensitive)
+    }()
+    
+    /// Inspects a batch of video files in parallel using structured concurrency with bounded worker pool
+    public static func inspectBatch(urls: [URL], maxConcurrency: Int = 4) async -> [DeliverableAsset] {
         guard !urls.isEmpty else { return [] }
+        let concurrency = min(max(1, maxConcurrency), urls.count)
         
         return await withTaskGroup(of: (Int, DeliverableAsset?).self) { group in
-            for (index, url) in urls.enumerated() {
-                group.addTask {
-                    let asset = await inspectFile(url: url)
-                    return (index, asset)
-                }
-            }
-            
+            var submitted = 0
             var indexedAssets: [(Int, DeliverableAsset)] = []
             indexedAssets.reserveCapacity(urls.count)
             
+            // Seed initial pool
+            for _ in 0..<concurrency {
+                let idx = submitted
+                let url = urls[idx]
+                submitted += 1
+                group.addTask {
+                    let asset = await inspectFile(url: url)
+                    return (idx, asset)
+                }
+            }
+            
+            // As each finishes, submit next
             for await (index, maybeAsset) in group {
                 if let asset = maybeAsset {
                     indexedAssets.append((index, asset))
+                }
+                
+                if submitted < urls.count {
+                    let nextIdx = submitted
+                    let nextURL = urls[nextIdx]
+                    submitted += 1
+                    group.addTask {
+                        let asset = await inspectFile(url: nextURL)
+                        return (nextIdx, asset)
+                    }
                 }
             }
             
@@ -146,8 +175,7 @@ public struct DeliverablesInspector: Sendable {
         let lowerName = fileName.lowercased()
         
         // 1. Duration validation: matches e.g. "15sec", "15_sec", "15s", "15 s", "15seconds", "15-sec"
-        let durationPattern = #"(?:^|[_\s\-\.])([0-9]{1,3})\s*(?:sec|secs|seconds|s)(?:$|[_\s\-\.])"#
-        if let regex = try? NSRegularExpression(pattern: durationPattern, options: .caseInsensitive) {
+        if let regex = durationRegex {
             let nsString = lowerName as NSString
             let matches = regex.matches(in: lowerName, range: NSRange(location: 0, length: nsString.length))
             if let firstMatch = matches.first, firstMatch.numberOfRanges > 1 {
@@ -165,8 +193,7 @@ public struct DeliverablesInspector: Sendable {
         }
         
         // 2. Aspect Ratio validation: matches 16x9, 9x16, 4x5, 5x4, 1x1, 4x3, 3x4, 21x9, square
-        let ratioPattern = #"(?:^|[_\s\-\.])(16[x_]9|9[x_]16|4[x_]5|5[x_]4|1[x_]1|4[x_]3|3[x_]4|21[x_]9|square)(?:$|[_\s\-\.])"#
-        if let regex = try? NSRegularExpression(pattern: ratioPattern, options: .caseInsensitive) {
+        if let regex = ratioRegex {
             let nsString = lowerName as NSString
             let matches = regex.matches(in: lowerName, range: NSRange(location: 0, length: nsString.length))
             if let firstMatch = matches.first, firstMatch.numberOfRanges > 1 {

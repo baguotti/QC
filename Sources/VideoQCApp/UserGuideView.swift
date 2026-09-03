@@ -6,15 +6,15 @@ struct UserGuideView: View {
     @State private var selectedGuideTab: Int = 0
     
     // Dynamic Studio Theme Palette
-    private var bgMain: Color { isLightMode ? Color(white: 0.96) : Color(red: 0.04, green: 0.04, blue: 0.04) }
-    private var bgPanel: Color { isLightMode ? Color.white : Color(red: 0.08, green: 0.08, blue: 0.08) }
-    private var bgSubtle: Color { isLightMode ? Color(white: 0.92) : Color(white: 0.13) }
-    private var bgCardBody: Color { isLightMode ? Color(white: 0.98) : Color(white: 0.06) }
-    private var borderLine: Color { isLightMode ? Color(white: 0.82) : Color(white: 0.20) }
-    private var borderStrong: Color { isLightMode ? Color(white: 0.60) : Color(white: 0.40) }
-    private var textMain: Color { isLightMode ? Color(white: 0.06) : Color.white }
-    private var textMuted: Color { isLightMode ? Color(white: 0.45) : Color(white: 0.45) }
-    private var textSubtle: Color { isLightMode ? Color(white: 0.25) : Color(white: 0.70) }
+    private var bgMain: Color { StudioTheme.bgMain(isLightMode) }
+    private var bgPanel: Color { StudioTheme.bgPanel(isLightMode) }
+    private var bgSubtle: Color { StudioTheme.bgSubtle(isLightMode) }
+    private var bgCardBody: Color { StudioTheme.bgCardSubtle(isLightMode) }
+    private var borderLine: Color { StudioTheme.borderLine(isLightMode) }
+    private var borderStrong: Color { StudioTheme.borderStrong(isLightMode) }
+    private var textMain: Color { StudioTheme.textMain(isLightMode) }
+    private var textMuted: Color { StudioTheme.textMuted(isLightMode) }
+    private var textSubtle: Color { StudioTheme.textSubtle(isLightMode) }
 
     var body: some View {
         ZStack {

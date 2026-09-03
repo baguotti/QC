@@ -31,7 +31,7 @@ public actor VideoScanner {
     private let cancellationState = CancellationState()
     
     public nonisolated var isCancelled: Bool {
-        cancellationState.isCancelled
+        cancellationState.isCancelled || Task.isCancelled
     }
     
     public init() {}
@@ -113,13 +113,19 @@ public actor VideoScanner {
                 }
             }
             
+            var flaggedCount = 0
+            
             // As each video finishes, submit the next one
             for await (idx, result) in group {
                 results.append((idx, result))
+                if result.isFlagged {
+                    flaggedCount += 1
+                }
                 
-                if submitted < totalFiles && !self.isCancelled {
+                if submitted < totalFiles && !self.isCancelled && !Task.isCancelled {
                     let nextIdx = submitted
                     let nextURL = videoURLs[nextIdx]
+                    let currentFlagged = flaggedCount
                     submitted += 1
                     group.addTask {
                         let res = await self.scanSingleVideo(
@@ -127,7 +133,7 @@ public actor VideoScanner {
                             config: config,
                             fileIndex: nextIdx + 1,
                             totalFiles: totalFiles,
-                            flaggedSoFar: 0,
+                            flaggedSoFar: currentFlagged,
                             progressHandler: progressHandler
                         )
                         return (nextIdx, res)

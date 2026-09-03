@@ -675,93 +675,15 @@ public struct ReportWriter: Sendable {
         return html
     }
     
-    // MARK: - Plain Text Report Generator (Clean & Minimal)
-    
-    public static func generateTextReport(
-        folderURL: URL,
-        config: QCConfig,
-        results: [VideoQCResult],
-        scanDate: Date = Date()
-    ) -> String {
-        let dateFormatter = DateFormatter()
-        dateFormatter.dateFormat = "yyyy.MM.dd // HH:mm:ss"
-        let dateString = dateFormatter.string(from: scanDate)
-        
-        let flaggedVideos = results.filter { $0.isFlagged }
-        let cleanVideos = results.filter { !$0.isFlagged }
-        let totalErrors = flaggedVideos.reduce(0) { $0 + $1.errorFrames.count }
-        
-        var report = ""
-        report += "================================================================================\n"
-        report += "THE LINEFINDER 5000 // DELIVERY REPORT\n"
-        report += "================================================================================\n"
-        report += "DATE: \(dateString)\n"
-        var configDetails = "TARGET COLOR: \(config.targetHex.uppercased()) (TOLERANCE: \(Int(config.tolerance * 100))% | MARGIN: \(config.edgeDepth)PX"
-        if config.isBlackDetection {
-            configDetails += " | BLACK MODE: \(config.enableExposureBoost ? "\(Int(config.exposureMultiplier))X GAIN" : "OFF")"
-        }
-        configDetails += ")\n"
-        report += configDetails
-        report += "FOLDER: \(folderURL.path)\n"
-        report += "TOTAL SCANNED: \(results.count)\n"
-        report += "FLAGGED: \(flaggedVideos.count) [FINDER RED TAG APPLIED]\n"
-        report += "PASSED: \(cleanVideos.count)\n"
-        report += "TOTAL ERROR FRAMES: \(totalErrors)\n"
-        report += "================================================================================\n\n"
-        
-        if flaggedVideos.isEmpty {
-            report += "STATUS // ALL FILES PASSED QC (NO EDGE LINES DETECTED)\n\n"
-        } else {
-            report += "--------------------------------------------------------------------------------\n"
-            report += "FLAGGED DELIVERIES (\(flaggedVideos.count))\n"
-            report += "--------------------------------------------------------------------------------\n\n"
-            
-            for flagged in flaggedVideos {
-                report += "[FLAGGED] \(flagged.fileName.uppercased())\n"
-                report += "  PATH: \(flagged.fileURL.path)\n"
-                report += "  SPEC: \(flagged.resolution) // \(String(format: "%.2f", flagged.fps)) FPS // \(flagged.totalFrames) FRAMES\n"
-                report += "  GLITCH OCCURRENCES: \(flagged.glitchSegments.count) (\(flagged.errorFrames.count) FRAMES TOTAL)\n"
-                report += "  ------------------------------------------------------------------------------\n"
-                report += "  #   TIMECODE RANGE                DURATION          LOCATION          COLOR\n"
-                report += "  ------------------------------------------------------------------------------\n"
-                
-                for (idx, seg) in flagged.glitchSegments.enumerated() {
-                    let num = String(format: "%02d", idx + 1)
-                    let tcRange = seg.startTimecode == seg.endTimecode ? seg.startTimecode : "\(seg.startTimecode) -> \(seg.endTimecode)"
-                    let tcPadded = tcRange.padding(toLength: 29, withPad: " ", startingAt: 0)
-                    let durStr = "\(seg.frameCount) FRAMES (\(String(format: "%.2f", seg.durationSeconds))S)".padding(toLength: 18, withPad: " ", startingAt: 0)
-                    let edgeStr = "\(seg.edge.rawValue.uppercased()) (\(seg.avgThickness)PX)".padding(toLength: 18, withPad: " ", startingAt: 0)
-                    let color = seg.detectedColor.hexString.uppercased()
-                    report += "  \(num)  \(tcPadded)\(durStr)\(edgeStr)\(color)\n"
-                }
-                report += "  ------------------------------------------------------------------------------\n\n"
-            }
-        }
-        
-        report += "================================================================================\n"
-        report += "PASSED DELIVERIES (\(cleanVideos.count))\n"
-        report += "================================================================================\n"
-        if cleanVideos.isEmpty {
-            report += "  [NONE]\n"
-        } else {
-            for clean in cleanVideos {
-                report += "  [PASSED] \(clean.fileName.uppercased())\n"
-            }
-        }
-        report += "================================================================================\n"
-        
-        return report
-    }
-    
     // MARK: - Save Reports
     
-    /// Saves .html, .csv (Google Sheets compatible), and .txt reports and applies Red Finder tags to flagged videos
+    /// Saves .html and .csv (Google Sheets compatible) reports and applies Red Finder tags to flagged videos
     @discardableResult
     public static func saveReport(
         folderURL: URL,
         config: QCConfig,
         results: [VideoQCResult]
-    ) -> (htmlURL: URL?, csvURL: URL?, txtURL: URL?) {
+    ) -> (htmlURL: URL?, csvURL: URL?) {
         // 1. Tag flagged files with Red label in Finder
         tagFlaggedFilesInFinder(results: results)
         
@@ -774,19 +696,13 @@ public struct ReportWriter: Sendable {
         let htmlReportText = generateHTMLReport(folderURL: folderURL, config: config, results: results, csvFileName: csvFileName)
         let htmlFileName = "QC_Report_\(timestamp).html"
         let htmlFileURL = folderURL.appendingPathComponent(htmlFileName)
-        try? htmlReportText.write(to: htmlFileURL, atomically: true, encoding: .utf8)
+        let savedHTML = (try? htmlReportText.write(to: htmlFileURL, atomically: true, encoding: .utf8)) != nil ? htmlFileURL : nil
         
         // 3. Save CSV Document (Google Sheets / Excel / Numbers compatible)
         let csvReportText = generateCSVReport(results: results)
         let csvFileURL = folderURL.appendingPathComponent(csvFileName)
-        try? csvReportText.write(to: csvFileURL, atomically: true, encoding: .utf8)
+        let savedCSV = (try? csvReportText.write(to: csvFileURL, atomically: true, encoding: .utf8)) != nil ? csvFileURL : nil
         
-        // 4. Save TXT Report
-        let txtReportText = generateTextReport(folderURL: folderURL, config: config, results: results)
-        let txtFileName = "QC_Report_\(timestamp).txt"
-        let txtFileURL = folderURL.appendingPathComponent(txtFileName)
-        try? txtReportText.write(to: txtFileURL, atomically: true, encoding: .utf8)
-        
-        return (htmlFileURL, csvFileURL, txtFileURL)
+        return (savedHTML, savedCSV)
     }
 }

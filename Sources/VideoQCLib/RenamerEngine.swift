@@ -41,7 +41,8 @@ public struct RenamerEngine: Sendable {
         caseOption: TextCaseOption,
         indexStart: Int = 1,
         indexPadding: Int = 2,
-        selectedAssetIDs: Set<UUID> = []
+        selectedAssetIDs: Set<UUID> = [],
+        existingFilesByDir: [URL: Set<String>]? = nil
     ) -> [RenameItem] {
         guard !assets.isEmpty else { return [] }
         
@@ -113,7 +114,7 @@ public struct RenamerEngine: Sendable {
         }
         
         // Directory file cache to eliminate per-item synchronous filesystem stat RPC calls
-        var dirCache: [URL: Set<String>] = [:]
+        var dirCache: [URL: Set<String>] = existingFilesByDir ?? [:]
         func getExistingFiles(in dir: URL) -> Set<String> {
             if let cached = dirCache[dir] {
                 return cached

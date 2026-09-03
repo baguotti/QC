@@ -36,13 +36,6 @@ public struct RGBColor: Equatable, Sendable {
     public var hexString: String {
         String(format: "#%02X%02X%02X", r, g, b)
     }
-    
-    public func distance(to other: RGBColor) -> Double {
-        let dr = Double(Int(r) - Int(other.r))
-        let dg = Double(Int(g) - Int(other.g))
-        let db = Double(Int(b) - Int(other.b))
-        return sqrt(dr * dr + dg * dg + db * db)
-    }
 }
 
 public struct LineDetection: Identifiable, Sendable {
@@ -108,7 +101,7 @@ public struct GlitchSegment: Identifiable, Sendable {
 }
 
 public struct VideoQCResult: Identifiable, Sendable {
-    public let id = UUID()
+    public let id: UUID
     public let fileURL: URL
     public let fileName: String
     public let resolution: String
@@ -116,13 +109,35 @@ public struct VideoQCResult: Identifiable, Sendable {
     public let totalFrames: Int
     public let durationSeconds: Double
     public let errorFrames: [FrameError]
+    public let glitchSegments: [GlitchSegment]
     
     public var isFlagged: Bool {
         !errorFrames.isEmpty
     }
     
+    public init(
+        id: UUID = UUID(),
+        fileURL: URL,
+        fileName: String,
+        resolution: String,
+        fps: Double,
+        totalFrames: Int,
+        durationSeconds: Double,
+        errorFrames: [FrameError]
+    ) {
+        self.id = id
+        self.fileURL = fileURL
+        self.fileName = fileName
+        self.resolution = resolution
+        self.fps = fps
+        self.totalFrames = totalFrames
+        self.durationSeconds = durationSeconds
+        self.errorFrames = errorFrames
+        self.glitchSegments = Self.calculateGlitchSegments(from: errorFrames, fps: fps)
+    }
+    
     /// Groups individual error frames into continuous glitch segments (start TC -> end TC, duration)
-    public var glitchSegments: [GlitchSegment] {
+    private static func calculateGlitchSegments(from errorFrames: [FrameError], fps: Double) -> [GlitchSegment] {
         guard !errorFrames.isEmpty else { return [] }
         
         var segments: [GlitchSegment] = []
