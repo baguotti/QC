@@ -1,5 +1,5 @@
-# QCpie
-**Version 0.1.1** • [GitHub Repository](https://github.com/baguotti/QC)
+# QCpie // The LineFinder 5000
+**Version 0.2.0** • [GitHub Repository](https://github.com/baguotti/QC)
 
 Video QC, metadata inspection, and batch renaming for macOS (Apple Silicon).
 
@@ -33,7 +33,27 @@ Scans video frames for edge line glitches, matte slips, and blanking errors.
 
 ---
 
-### 02 // DELIVERABLES SPECS
+### 02 // PLAYER
+High-performance delivery playback and inspection engine mimicking Adobe Premiere Pro's Program Monitor.
+- **[ + SELECT FILES OR FOLDER ] / Queue:** Left sidebar displays all video files in batch with instant switching and name filtering.
+- **Queue Navigation:** Press `Up Arrow` (↑) and `Down Arrow` (↓) to quickly cycle through all deliverables in the queue, automatically loading each into the player.
+- **Jump to Next Line Finding (`NEXT LINE` or `N`):** Automatically cycles through all line glitches detected in Tab 1 across all deliverables, seeking frame-accurately and pausing playback for inspection.
+- **Native macOS Finder Color Tags (`TAGS` / Right-Click):** Tag any deliverable with native macOS Finder color tags (Red, Orange, Yellow, Green, Blue, Purple, Gray) via the `[ TAGS ]` popover in the transport bar or by right-clicking on any asset in the queue. Tags are applied directly to files on disk in macOS Finder.
+- **Center Crosshair Overlay:** Toggle button (`CROSSHAIR: ON/OFF`) draws a pixel-accurate top-to-bottom and left-to-right crosshair guide with a center reticle to verify element centering.
+- **J-K-L Shuttling:** Tap `L` to shuttle forward (1x, 2x, 4x, 8x, 16x), `K` to pause, `J` to shuttle reverse (-1x, -2x, -4x, -8x, -16x).
+- **Slow Frame-by-Frame Automatic Shuttle:** Tap `Shift + L` (forward) or `Shift + J` (reverse) or use the dedicated UI buttons. Tapping repeatedly accelerates frame-by-frame playback speed (2, 4, 8, 15, 24, 30 FPS).
+- **Spacebar:** Toggles 1x playback and pause.
+- **Single Frame Stepping:** Left / Right arrow keys step exactly 1 frame backward / forward.
+- **Second Stepping:** Shift + Left / Right arrow jumps 1 second.
+- **Home / End:** Jumps instantly to the first frame or last frame.
+- **Timeline Scrubber:** Frame-accurate time ruler with playhead needle and click-to-seek.
+- **Canvas Zoom & Pan:** Scroll mouse wheel directly up/down to zoom in/out (from 10% to 400%). Pinch-to-zoom on trackpad. Click and drag with the hand tool to pan anywhere on the canvas at any zoom level.
+- **Seamless Loop:** Toggle button (`Loop ON/OFF` or `⌘L`) for continuous looping.
+- **Audio Monitoring:** Master volume slider and instant audio mute toggle.
+
+---
+
+### 03 // DELIVERABLES SPECS
 Reads container metadata across multiple files without decoding video frames.
 - **[ + SELECT DELIVERY FOLDER / FILES ]:** Loads files or folders for inspection.
 - **File Name:** Name of the file.
@@ -50,7 +70,7 @@ Reads container metadata across multiple files without decoding video frames.
 
 ---
 
-### 03 // BATCH RENAMER
+### 04 // BATCH RENAMER
 Renames files using inspected video metadata.
 - **Renaming Modes:**
   - **Template:** Builds new names using text and metadata tokens.

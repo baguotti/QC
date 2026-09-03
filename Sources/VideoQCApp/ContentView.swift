@@ -56,6 +56,13 @@ struct ContentView: View {
     @State var selectedAssetIDs: Set<UUID> = []
     @State var directoryFilesCache: [URL: Set<String>] = [:]
     
+    // MARK: - Tab 2: Player State
+    @StateObject var playerEngine = PlayerEngine()
+    @State var playerFilterText: String = ""
+    @State var fileTagsMap: [URL: FinderTagColor] = [:]
+    @State var showTagPickerPopover: Bool = false
+    @State private var hasSetupKeyboardMonitor: Bool = false
+    
     var renameItems: [RenameItem] {
         RenamerEngine.generateProposedItems(
             assets: deliverableAssets,
@@ -144,11 +151,14 @@ struct ContentView: View {
                     .frame(height: 1)
                 
                 // 3. Main Tab Content
-                if selectedTab == .lineScanner {
+                switch selectedTab {
+                case .lineScanner:
                     lineScannerTabView
-                } else if selectedTab == .deliverables {
+                case .player:
+                    playerTabView
+                case .deliverables:
                     deliverablesTabView
-                } else {
+                case .batchRenamer:
                     batchRenamerTabView
                 }
                 
@@ -214,6 +224,10 @@ struct ContentView: View {
                 }
             }
         }
+        .onAppear {
+            setupKeyboardMonitor()
+            loadFinderTagsForQueue()
+        }
     }
     
     // MARK: - Header & Navigation
@@ -261,11 +275,10 @@ struct ContentView: View {
                     HStack(spacing: 5) {
                         Image(systemName: "info.circle.fill")
                             .font(.system(size: 10))
-                        Text("[ ℹ INFO / GUIDE ]")
+                        Text("INFO / GUIDE")
                             .font(.system(size: 10, weight: .bold, design: .monospaced))
                     }
-                    .padding(.horizontal, 9)
-                    .padding(.vertical, 5)
+                    .frame(width: 114, height: 26)
                     .background(bgSubtle)
                     .foregroundColor(textMain)
                     .border(borderLine, width: 1)
@@ -273,7 +286,7 @@ struct ContentView: View {
                 .buttonStyle(.plain)
                 .explain("Opens the user guide with descriptions of each tab.", binding: $hoverExplanation)
                 
-                // Theme Toggle
+                // Theme Toggle (Fixed 118px width: no UI jumping between LIGHT and DARK)
                 Button(action: { isLightMode.toggle() }) {
                     HStack(spacing: 6) {
                         Image(systemName: isLightMode ? "sun.max.fill" : "moon.stars.fill")
@@ -281,8 +294,7 @@ struct ContentView: View {
                         Text(isLightMode ? "THEME: LIGHT" : "THEME: DARK")
                             .font(.system(size: 10, weight: .bold, design: .monospaced))
                     }
-                    .padding(.horizontal, 9)
-                    .padding(.vertical, 5)
+                    .frame(width: 118, height: 26)
                     .background(bgSubtle)
                     .foregroundColor(textMain)
                     .border(borderLine, width: 1)
@@ -290,6 +302,7 @@ struct ContentView: View {
                 .buttonStyle(.plain)
                 .explain("Switches between light and dark studio interface themes.", binding: $hoverExplanation)
                 
+                // Engine Status Indicator (Fixed 76px width)
                 HStack(spacing: 6) {
                     Circle()
                         .fill(isScanning || isInspectingDeliverables ? textMain : accentPositive)
@@ -299,8 +312,7 @@ struct ContentView: View {
                         .foregroundColor(isScanning || isInspectingDeliverables ? textSubtle : accentPositive)
                         .tracking(1.0)
                 }
-                .padding(.horizontal, 10)
-                .padding(.vertical, 5)
+                .frame(width: 76, height: 26)
                 .background(bgSubtle)
                 .border(borderLine, width: 1)
                 .explain(isScanning || isInspectingDeliverables ? "Engine is currently processing video files." : "Engine is idle and ready for new jobs.", binding: $hoverExplanation)
@@ -311,13 +323,24 @@ struct ContentView: View {
         .background(bgPanel)
     }
     
+    private func tabWidth(for tab: AppTab) -> CGFloat {
+        switch tab {
+        case .lineScanner: return 260
+        case .deliverables: return 260
+        case .batchRenamer: return 220
+        case .player: return 165
+        }
+    }
+    
     private var tabBarStrip: some View {
-        HStack(spacing: 12) {
+        HStack(spacing: 10) {
             ForEach(AppTab.allCases) { tab in
                 Button(action: {
                     selectedTab = tab
                     if (tab == .deliverables || tab == .batchRenamer) && deliverableAssets.isEmpty && !videoFiles.isEmpty {
                         inspectDeliverablesBatch(urls: videoFiles)
+                    } else if tab == .player && playerEngine.activeURL == nil, let first = videoFiles.first {
+                        playerEngine.loadVideo(url: first)
                     }
                 }) {
                     HStack(spacing: 8) {
@@ -327,20 +350,35 @@ struct ContentView: View {
                         
                         Text(tab.title)
                             .font(.system(size: 12, weight: .black, design: .monospaced))
-                            .tracking(1.0)
+                            .tracking(0.5)
+                            .lineLimit(1)
+                            .fixedSize(horizontal: true, vertical: false)
+                        
+                        Spacer(minLength: 6)
                         
                         if (tab == .deliverables || tab == .batchRenamer) && !deliverableAssets.isEmpty {
                             Text("[\(deliverableAssets.count)]")
                                 .font(.system(size: 10, weight: .bold, design: .monospaced))
                                 .foregroundColor(selectedTab == tab ? primaryBtnFg : textSubtle)
+                                .lineLimit(1)
+                                .fixedSize(horizontal: true, vertical: false)
+                        } else if tab == .player && !videoFiles.isEmpty {
+                            Text("[\(videoFiles.count)]")
+                                .font(.system(size: 10, weight: .bold, design: .monospaced))
+                                .foregroundColor(selectedTab == tab ? primaryBtnFg : textSubtle)
+                                .lineLimit(1)
+                                .fixedSize(horizontal: true, vertical: false)
                         } else if tab == .lineScanner && !scanResults.isEmpty {
                             let flaggedCount = scanResults.filter { $0.isFlagged }.count
                             Text(flaggedCount > 0 ? "[\(flaggedCount) FLAGGED]" : "[PASSED]")
                                 .font(.system(size: 10, weight: .bold, design: .monospaced))
                                 .foregroundColor(flaggedCount > 0 ? alertRed : accentPositive)
+                                .lineLimit(1)
+                                .fixedSize(horizontal: true, vertical: false)
                         }
                     }
-                    .padding(.horizontal, 16)
+                    .frame(width: tabWidth(for: tab))
+                    .padding(.horizontal, 12)
                     .padding(.vertical, 10)
                     .background(selectedTab == tab ? primaryBtnBg : bgSubtle)
                     .foregroundColor(selectedTab == tab ? primaryBtnFg : textSubtle)
@@ -349,8 +387,9 @@ struct ContentView: View {
                 .buttonStyle(.plain)
                 .explain(
                     tab == .lineScanner ? "01 // LINE SCANNER: Scans video frames for edge line glitches and blanking errors." :
-                    (tab == .deliverables ? "02 // DELIVERABLES SPECS: Reads container resolution, timecode, audio, and codecs." :
-                     "03 // BATCH RENAMER: Renames files using inspected video metadata and custom templates."),
+                    (tab == .player ? "02 // PLAYER: High-performance delivery playback with J-K-L shuttle, timeline scrubbing, and zoom." :
+                     (tab == .deliverables ? "03 // DELIVERABLES SPECS: Reads container resolution, timecode, audio, and codecs." :
+                      "04 // BATCH RENAMER: Renames files using inspected video metadata and custom templates.")),
                     binding: $hoverExplanation
                 )
             }
@@ -370,6 +409,11 @@ struct ContentView: View {
                     .tracking(0.5)
             case .batchRenamer:
                 Text("MODE // GRANULAR DELIVERABLE BATCH RENAMING & TOKEN ENGINE")
+                    .font(.system(size: 10, weight: .bold, design: .monospaced))
+                    .foregroundColor(textMuted)
+                    .tracking(0.5)
+            case .player:
+                Text("MODE // PRO PROGRAM MONITOR & TIMELINE PLAYBACK ENGINE")
                     .font(.system(size: 10, weight: .bold, design: .monospaced))
                     .foregroundColor(textMuted)
                     .tracking(0.5)
@@ -505,6 +549,10 @@ struct ContentView: View {
             
             // Populate deliverables in background
             inspectDeliverablesBatch(urls: uniqueVideos)
+            self.loadFinderTagsForQueue()
+            if self.playerEngine.activeURL == nil, let first = uniqueVideos.first {
+                self.playerEngine.loadVideo(url: first)
+            }
         }
     }
     
@@ -576,6 +624,10 @@ struct ContentView: View {
             self.generatedReportURL = nil
             self.generatedCSVURL = nil
             self.inspectDeliverablesBatch(urls: uniqueVideos)
+            self.loadFinderTagsForQueue()
+            if self.playerEngine.activeURL == nil, let first = uniqueVideos.first {
+                self.playerEngine.loadVideo(url: first)
+            }
         }
         return true
     }
@@ -616,6 +668,7 @@ struct ContentView: View {
             
             DispatchQueue.main.async {
                 self.scanResults = results
+                self.playerEngine.setScanResults(results)
                 self.generatedReportURL = reports.htmlURL
                 self.generatedCSVURL = reports.csvURL
                 self.isScanning = false
@@ -745,5 +798,191 @@ struct ContentView: View {
             .background(bgSubtle)
             .foregroundColor(textSubtle)
             .border(borderLine, width: 1)
+    }
+    
+    // MARK: - Global Player Keyboard Shortcuts (J-K-L, Space, Arrows)
+    
+    func setupKeyboardMonitor() {
+        guard !hasSetupKeyboardMonitor else { return }
+        hasSetupKeyboardMonitor = true
+        
+        NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+            // Only capture if on the player tab
+            guard self.selectedTab == .player else { return event }
+            
+            // Check if user is typing in a text field
+            if let window = NSApp.keyWindow,
+               let firstResponder = window.firstResponder,
+               firstResponder is NSTextView {
+                return event
+            }
+            
+            let isShift = event.modifierFlags.contains(.shift)
+            let isCommand = event.modifierFlags.contains(.command)
+            
+            // J K L Shuttle
+            if let chars = event.charactersIgnoringModifiers?.lowercased() {
+                if chars == "j" {
+                    if isShift {
+                        self.playerEngine.pressSlowJ()
+                    } else {
+                        self.playerEngine.pressJ()
+                    }
+                    return nil
+                } else if chars == "k" {
+                    self.playerEngine.pressK()
+                    return nil
+                } else if chars == "l" && !isCommand {
+                    if isShift {
+                        self.playerEngine.pressSlowL()
+                    } else {
+                        self.playerEngine.pressL()
+                    }
+                    return nil
+                } else if chars == "l" && isCommand {
+                    self.playerEngine.isLooping.toggle()
+                    return nil
+                } else if chars == " " { // Spacebar
+                    self.playerEngine.togglePlayPause()
+                    return nil
+                } else if chars == "n" { // N: Jump to Next Line Finding
+                    self.jumpToNextGlitchFinding()
+                    return nil
+                }
+            }
+            
+            switch event.keyCode {
+            case 126: // Up Arrow: Previous file in queue
+                self.playerSelectPreviousFile()
+                return nil
+            case 125: // Down Arrow: Next file in queue
+                self.playerSelectNextFile()
+                return nil
+            case 123: // Left Arrow
+                if isShift {
+                    self.playerEngine.stepSeconds(-1.0)
+                } else {
+                    self.playerEngine.stepFrame(forward: false)
+                }
+                return nil
+            case 124: // Right Arrow
+                if isShift {
+                    self.playerEngine.stepSeconds(1.0)
+                } else {
+                    self.playerEngine.stepFrame(forward: true)
+                }
+                return nil
+            case 115: // Home
+                self.playerEngine.jumpToBeginning()
+                return nil
+            case 119: // End
+                self.playerEngine.jumpToEnd()
+                return nil
+            default:
+                break
+            }
+            
+            return event
+        }
+    }
+    
+    func playerSelectPreviousFile() {
+        let files = filteredPlayerFiles
+        guard !files.isEmpty else { return }
+        if let currentURL = playerEngine.activeURL, let idx = files.firstIndex(of: currentURL) {
+            let prevIdx = max(0, idx - 1)
+            playerEngine.loadVideo(url: files[prevIdx])
+        } else {
+            playerEngine.loadVideo(url: files[0])
+        }
+    }
+    
+    func playerSelectNextFile() {
+        let files = filteredPlayerFiles
+        guard !files.isEmpty else { return }
+        if let currentURL = playerEngine.activeURL, let idx = files.firstIndex(of: currentURL) {
+            let nextIdx = min(files.count - 1, idx + 1)
+            playerEngine.loadVideo(url: files[nextIdx])
+        } else {
+            playerEngine.loadVideo(url: files[0])
+        }
+    }
+    
+    func jumpToGlitchInPlayer(fileURL: URL, frameIndex: Int) {
+        if !videoFiles.contains(fileURL) {
+            videoFiles.append(fileURL)
+        }
+        playerEngine.loadVideo(url: fileURL, initialSeekFrame: frameIndex)
+        playerEngine.pause()
+        selectedTab = .player
+    }
+    
+    // MARK: - Next Line Finding Cycler (Tab 1 Findings)
+    
+    func jumpToNextGlitchFinding() {
+        var allGlitches: [(url: URL, frameIndex: Int, timecode: String, label: String)] = []
+        for result in scanResults where result.isFlagged {
+            for seg in result.glitchSegments {
+                allGlitches.append((
+                    url: result.fileURL,
+                    frameIndex: seg.startFrame,
+                    timecode: seg.startTimecode,
+                    label: "\(seg.edge.rawValue.uppercased()) (\(seg.avgThickness)PX) @ \(seg.startTimecode)"
+                ))
+            }
+        }
+        
+        guard !allGlitches.isEmpty else { return }
+        
+        let currentURL = playerEngine.activeURL
+        let currentFrame = playerEngine.currentFrame
+        
+        var nextTarget: (url: URL, frameIndex: Int, timecode: String, label: String)? = nil
+        
+        if let currentURL = currentURL {
+            let inCurrentFile = allGlitches.filter { $0.url == currentURL }
+            if let ahead = inCurrentFile.first(where: { $0.frameIndex > currentFrame + 1 }) {
+                nextTarget = ahead
+            } else {
+                let distinctFlaggedFiles = scanResults.filter { $0.isFlagged && !$0.glitchSegments.isEmpty }.map { $0.fileURL }
+                if let currentFileIdx = distinctFlaggedFiles.firstIndex(of: currentURL) {
+                    let nextFileIdx = (currentFileIdx + 1) % distinctFlaggedFiles.count
+                    let targetURL = distinctFlaggedFiles[nextFileIdx]
+                    nextTarget = allGlitches.first(where: { $0.url == targetURL })
+                }
+            }
+        }
+        
+        let target = nextTarget ?? allGlitches[0]
+        jumpToGlitchInPlayer(fileURL: target.url, frameIndex: target.frameIndex)
+    }
+    
+    // MARK: - Native Finder Tagging
+    
+    func loadFinderTagsForQueue() {
+        for url in videoFiles {
+            if let tag = FinderTagManager.getTag(for: url) {
+                fileTagsMap[url] = tag
+            }
+        }
+    }
+    
+    func toggleFinderTag(_ tag: FinderTagColor, for url: URL) {
+        if fileTagsMap[url] == tag {
+            FinderTagManager.setTag(nil, for: url)
+            fileTagsMap.removeValue(forKey: url)
+        } else {
+            FinderTagManager.setTag(tag, for: url)
+            fileTagsMap[url] = tag
+        }
+    }
+    
+    func setFinderTag(_ tag: FinderTagColor?, for url: URL) {
+        FinderTagManager.setTag(tag, for: url)
+        if let tag = tag {
+            fileTagsMap[url] = tag
+        } else {
+            fileTagsMap.removeValue(forKey: url)
+        }
     }
 }

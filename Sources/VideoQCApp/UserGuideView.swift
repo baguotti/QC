@@ -70,8 +70,9 @@ struct UserGuideView: View {
                 // Tabs
                 HStack(spacing: 0) {
                     guideTabButton(title: "01 // LINE SCANNER", index: 0)
-                    guideTabButton(title: "02 // DELIVERABLES SPECS", index: 1)
-                    guideTabButton(title: "03 // BATCH RENAMER", index: 2)
+                    guideTabButton(title: "02 // PLAYER", index: 1)
+                    guideTabButton(title: "03 // DELIVERABLES SPECS", index: 2)
+                    guideTabButton(title: "04 // BATCH RENAMER", index: 3)
                     Spacer()
                 }
                 .padding(.horizontal, 14)
@@ -87,6 +88,8 @@ struct UserGuideView: View {
                         case 0:
                             tabOneGuide
                         case 1:
+                            tabFourGuide
+                        case 2:
                             tabTwoGuide
                         default:
                             tabThreeGuide
@@ -196,6 +199,27 @@ struct UserGuideView: View {
             guideRow(name: "STATUS BADGES", desc: "PENDING (ready), UNCHANGED (same name), EXCLUDED (skipped), COLLISION (duplicate name), OVERWRITE (file exists on disk).")
             guideRow(name: "[ RENAME SELECTED FILE(S) ]", desc: "Renames selected files on disk.")
             guideRow(name: "[ ⎌ UNDO / REVERT ]", desc: "Reverses the last rename operation on disk.")
+        }
+    }
+    
+    // MARK: - Tab 4 Guide
+    
+    private var tabFourGuide: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            guideRow(name: "J-K-L SHUTTLE PLAYBACK", desc: "Tap L to play forward (1x, 2x, 4x, 8x, 16x). Tap K to pause. Tap J to play reverse (-1x, -2x, -4x, -8x, -16x).")
+            guideRow(name: "SLOW FRAME-BY-FRAME (⇧ + L / ⇧ + J)", desc: "Plays automatically frame-by-frame. Pressing repeatedly accelerates playback speed (2, 4, 8, 15, 24, 30 FPS). Dedicated transport buttons are also available.")
+            guideRow(name: "SPACEBAR", desc: "Quick toggle between normal 1x Play and Pause.")
+            guideRow(name: "SINGLE FRAME STEPPING (← / →)", desc: "Left and right arrow keys step exactly 1 frame backward or forward.")
+            guideRow(name: "SECOND JUMP (⇧ + ← / →)", desc: "Shift + Left/Right arrow jumps 1 second backward or forward.")
+            guideRow(name: "HOME / END", desc: "Home key jumps directly to the first frame. End key jumps to the last frame.")
+            guideRow(name: "TIMELINE SCRUBBING", desc: "Drag the playhead or click anywhere on the SMPTE ruler to scrub frame-accurately.")
+            guideRow(name: "SCROLL ZOOM & HAND-PAN", desc: "Scroll your mouse wheel up or down directly to zoom into or out of the canvas (10% to 400%). Pinch on trackpad to zoom. Click and drag across the canvas with the hand tool to pan around.")
+            guideRow(name: "QUEUE NAVIGATION (↑ / ↓)", desc: "Up and down arrow keys navigate through the asset queue on the left, automatically loading each deliverable into the player.")
+            guideRow(name: "CENTER CROSSHAIR OVERLAY", desc: "Toggles top-to-bottom and left-to-right crosshair guide lines with a center precision reticle to inspect if elements, logos, and lower-thirds are perfectly centered.")
+            guideRow(name: "JUMP TO NEXT LINE (N / NEXT LINE)", desc: "Cycles through all detected line glitches across all deliverables from Tab 1, seeking frame-accurately and pausing playback for inspection.")
+            guideRow(name: "MACOS FINDER COLOR TAGS", desc: "Tag the active file with native macOS Finder color tags (Red, Orange, Yellow, Green, Blue, Purple, Gray) via the [TAGS] button or by right-clicking on any asset in the queue.")
+            guideRow(name: "SEAMLESS LOOP (⌘L)", desc: "Toggles automatic looping. Reaching the end seamlessly restarts from the beginning without stopping.")
+            guideRow(name: "AUDIO & MUTE", desc: "Master playback volume slider and instant audio mute button.")
         }
     }
     

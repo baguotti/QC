@@ -4,15 +4,17 @@ import SwiftUI
 
 enum AppTab: Int, CaseIterable, Identifiable {
     case lineScanner = 0
-    case deliverables = 1
-    case batchRenamer = 2
+    case player = 1
+    case deliverables = 2
+    case batchRenamer = 3
     
     var id: Int { rawValue }
     var title: String {
         switch self {
         case .lineScanner: return "01 // LINE SCANNER"
-        case .deliverables: return "02 // DELIVERABLES SPECS"
-        case .batchRenamer: return "03 // BATCH RENAMER"
+        case .player: return "02 // PLAYER"
+        case .deliverables: return "03 // DELIVERABLES SPECS"
+        case .batchRenamer: return "04 // BATCH RENAMER"
         }
     }
 }
