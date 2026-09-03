@@ -134,19 +134,23 @@ extension ContentView {
                 .clipped()
                 .border(borderLine, width: 1)
                 
-                // Timeline Scrubber & Transport Controls
+                // Timeline Scrubber & Transport Controls (Rigidly locked height to prevent any layout jitter)
                 VStack(spacing: 8) {
                     // Timecode, Play Info & Zoom (centered above timeline)
                     playerTimecodeBar
+                        .frame(height: 24)
                     
                     // Timeline Scrubber
                     TimelineScrubberView(engine: playerEngine, isLightMode: isLightMode)
+                        .frame(height: 46)
                         .disabled(playerEngine.activeURL == nil)
                     
                     // Transport Strip
                     playerTransportBar
+                        .frame(height: 28)
                 }
                 .padding(12)
+                .frame(height: 138)
                 .background(bgPanel)
                 .border(borderLine, width: 1)
             }
@@ -267,6 +271,43 @@ extension ContentView {
             }
             
             Spacer()
+            
+            // Fullscreen Buttons (Review with HUD & Clean Video Only)
+            HStack(spacing: 8) {
+                Button(action: { enterFullscreen(mode: .review) }) {
+                    HStack(spacing: 5) {
+                        Image(systemName: "rectangle.inset.filled.and.cursorarrow")
+                            .font(.system(size: 10, weight: .bold))
+                        Text("[ REVIEW FULLSCREEN ]")
+                            .font(.system(size: 10, weight: .bold, design: .monospaced))
+                    }
+                    .padding(.horizontal, 9)
+                    .padding(.vertical, 5)
+                    .background(playerEngine.activeURL == nil ? bgSubtle : bgPanel)
+                    .foregroundColor(playerEngine.activeURL == nil ? textMuted : textMain)
+                    .border(borderLine, width: 1)
+                }
+                .buttonStyle(.plain)
+                .disabled(playerEngine.activeURL == nil)
+                .explain("Fullscreen player with on-screen review HUD & timeline controls (⇧F).", binding: $hoverExplanation)
+                
+                Button(action: { enterFullscreen(mode: .videoOnly) }) {
+                    HStack(spacing: 5) {
+                        Image(systemName: "arrow.up.left.and.arrow.down.right")
+                            .font(.system(size: 10, weight: .bold))
+                        Text("[ VIDEO FULLSCREEN ]")
+                            .font(.system(size: 10, weight: .bold, design: .monospaced))
+                    }
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 5)
+                    .background(playerEngine.activeURL == nil ? bgSubtle : primaryBtnBg)
+                    .foregroundColor(playerEngine.activeURL == nil ? textMuted : primaryBtnFg)
+                    .border(borderLine, width: 1)
+                }
+                .buttonStyle(.plain)
+                .disabled(playerEngine.activeURL == nil)
+                .explain("Clean full screen video presentation with zero UI (F). Press ESC to exit.", binding: $hoverExplanation)
+            }
         }
     }
     
@@ -274,7 +315,7 @@ extension ContentView {
     
     private var playerTimecodeBar: some View {
         HStack(spacing: 12) {
-            // Left: Current SMPTE Timecode or Frame Count (Fixed width so switching modes or increasing digits never moves the UI)
+            // Left: Current SMPTE Timecode or Frame Count (Fixed 125px width)
             Menu {
                 Button(action: { playerEngine.displayTimeAsFrames = false }) {
                     HStack {
@@ -296,6 +337,7 @@ extension ContentView {
                 HStack(spacing: 5) {
                     Text(playerEngine.displayTimeAsFrames ? "\(playerEngine.currentFrame) frames" : playerEngine.currentTimecode)
                         .font(.system(size: 13, weight: .bold, design: .monospaced))
+                        .monospacedDigit()
                         .foregroundColor(accentPositive)
                         .tracking(0.5)
                         .lineLimit(1)
@@ -309,7 +351,7 @@ extension ContentView {
             }
             .buttonStyle(.plain)
             
-            // Zoom Dropdown Menu (Clean compact box with text + single small chevron; locked to 64px width for 3-digit consistency)
+            // Zoom Dropdown Menu (Fixed 64px width)
             Menu {
                 Button("Fit to Window") { playerEngine.setZoomFit() }
                 Divider()
@@ -344,34 +386,40 @@ extension ContentView {
             
             Spacer()
             
-            // Shuttle Speed Indicator (if active / playing)
-            if playerEngine.isPlaying || playerEngine.rate != 0 {
-                Text(playerEngine.shuttleStateText)
-                    .font(.system(size: 10, weight: .bold, design: .monospaced))
-                    .padding(.horizontal, 6)
-                    .frame(height: 20)
-                    .background(accentPositive.opacity(0.15))
-                    .foregroundColor(accentPositive)
-                    .border(accentPositive.opacity(0.6), width: 0.5)
+            // Center: Shuttle Speed Indicator (Fixed 100px container so showing/hiding NEVER shifts UI)
+            HStack {
+                if playerEngine.isPlaying || playerEngine.rate != 0 {
+                    Text(playerEngine.shuttleStateText)
+                        .font(.system(size: 10, weight: .bold, design: .monospaced))
+                        .padding(.horizontal, 6)
+                        .frame(height: 20)
+                        .background(accentPositive.opacity(0.15))
+                        .foregroundColor(accentPositive)
+                        .border(accentPositive.opacity(0.6), width: 0.5)
+                }
             }
+            .frame(width: 100, height: 20, alignment: .center)
             
-            // Right: Duration Timecode / Total Frames (Clean muted mono text, locked width for stability)
+            Spacer()
+            
+            // Right: Duration Timecode / Total Frames (Locked 125px width)
             Text(playerEngine.displayTimeAsFrames ? "\(playerEngine.totalFrames) frames" : playerEngine.durationTimecode)
                 .font(.system(size: 13, weight: .bold, design: .monospaced))
+                .monospacedDigit()
                 .foregroundColor(textMuted)
                 .tracking(0.5)
                 .lineLimit(1)
                 .frame(width: 125, alignment: .trailing)
         }
+        .frame(height: 24)
         .padding(.horizontal, 4)
-        .padding(.vertical, 2)
     }
     
     // MARK: - Transport Bar
     
     private var playerTransportBar: some View {
         HStack(spacing: 0) {
-            // Left: Audio Volume & Mute (Fixed 140px width)
+            // Left: Audio Volume & Mute (Fixed 186px width - matches 186px on right)
             HStack(spacing: 8) {
                 Button(action: { playerEngine.isMuted.toggle() }) {
                     Image(systemName: playerEngine.isMuted ? "speaker.slash.fill" : (playerEngine.volume > 0.5 ? "speaker.wave.3.fill" : "speaker.wave.1.fill"))
@@ -389,7 +437,7 @@ extension ContentView {
                 .tint(accentPositive)
                 .disabled(playerEngine.isMuted)
             }
-            .frame(width: 140, alignment: .leading)
+            .frame(width: 186, alignment: .leading)
             
             Spacer()
             
@@ -530,12 +578,41 @@ extension ContentView {
             
             Spacer()
             
-            // Right: Shortcuts Menu Dropdown (Fixed 140px cluster width, 110px button)
-            HStack {
+            // Right: Review Fullscreen, Video Fullscreen & Shortcuts Menu (Fixed 186px width)
+            HStack(spacing: 6) {
+                // Review Fullscreen Button
+                Button(action: { enterFullscreen(mode: .review) }) {
+                    Image(systemName: "rectangle.inset.filled.and.cursorarrow")
+                        .font(.system(size: 10, weight: .bold))
+                        .frame(width: 28, height: 28)
+                        .background(bgSubtle)
+                        .foregroundColor(playerEngine.activeURL == nil ? textMuted : textMain)
+                        .border(borderLine, width: 1)
+                }
+                .buttonStyle(.plain)
+                .disabled(playerEngine.activeURL == nil)
+                .explain("Review Fullscreen with HUD & timeline controls (⇧F).", binding: $hoverExplanation)
+                
+                // Video Fullscreen Button (Clean zero UI)
+                Button(action: { enterFullscreen(mode: .videoOnly) }) {
+                    Image(systemName: "arrow.up.left.and.arrow.down.right")
+                        .font(.system(size: 10, weight: .bold))
+                        .frame(width: 28, height: 28)
+                        .background(bgSubtle)
+                        .foregroundColor(playerEngine.activeURL == nil ? textMuted : textMain)
+                        .border(borderLine, width: 1)
+                }
+                .buttonStyle(.plain)
+                .disabled(playerEngine.activeURL == nil)
+                .explain("Clean Video Fullscreen with zero UI (F). Press ESC to exit.", binding: $hoverExplanation)
+                
                 Menu {
                     Text("KEYBOARD SHORTCUTS")
                     Divider()
                     Button("Spacebar: Play / Pause") {}
+                    Button("F: Toggle Video Fullscreen (Clean)") {}
+                    Button("⇧ + F: Review Fullscreen (with HUD)") {}
+                    Button("ESC: Exit Fullscreen") {}
                     Button("J / K / L: Shuttle Playback (-16x to 16x)") {}
                     Button("⇧ + J / L: Slow Frame-by-Frame") {}
                     Button("← / →: Step 1 Frame") {}
@@ -563,8 +640,9 @@ extension ContentView {
                 .menuStyle(.borderlessButton)
                 .explain("View all player keyboard shortcuts.", binding: $hoverExplanation)
             }
-            .frame(width: 140, alignment: .trailing)
+            .frame(width: 186, alignment: .trailing)
         }
+        .frame(height: 28)
     }
     
     private func transportBtn(icon: String, tooltip: String, isActive: Bool = false, action: @escaping () -> Void) -> some View {
@@ -638,4 +716,377 @@ extension ContentView {
         .padding(.vertical, 10)
         .background(bgPanel)
     }
+    
+    // MARK: - Fullscreen Video Presentation Overlays
+    
+    var fullscreenPlayerOverlay: some View {
+        FullscreenPlayerView(
+            engine: playerEngine,
+            scanResults: scanResults,
+            onExit: { exitFullscreen() },
+            onJumpNext: { jumpToNextGlitchFinding() },
+            onJumpPrev: { jumpToPreviousGlitchFinding() }
+        )
+    }
+    
+    var cleanVideoFullscreenOverlay: some View {
+        CleanVideoFullscreenView(
+            engine: playerEngine,
+            onExit: { exitFullscreen() }
+        )
+    }
 }
+
+// MARK: - Dedicated Studio Fullscreen Player View
+
+struct FullscreenPlayerView: View {
+    @ObservedObject var engine: PlayerEngine
+    var scanResults: [VideoQCResult]
+    var onExit: () -> Void
+    var onJumpNext: () -> Void
+    var onJumpPrev: () -> Void
+    
+    @State private var showControls: Bool = true
+    @State private var isHoveringControls: Bool = false
+    @State private var hideTask: Task<Void, Never>? = nil
+    
+    private let accentPositive = StudioTheme.positive
+    private let alertRed = StudioTheme.negative
+    
+    var body: some View {
+        ZStack {
+            Color.black
+                .ignoresSafeArea()
+            
+            // Fullscreen Video Viewport
+            if engine.activeURL != nil {
+                VideoViewportView(engine: engine, isLightMode: false)
+                    .ignoresSafeArea()
+                    .onTapGesture(count: 2) {
+                        onExit()
+                    }
+                    .onTapGesture(count: 1) {
+                        engine.togglePlayPause()
+                        userDidInteract()
+                    }
+            }
+            
+            // Floating Overlay Controls
+            if showControls {
+                VStack(spacing: 0) {
+                    topBar
+                        .transition(.move(edge: .top).combined(with: .opacity))
+                    
+                    Spacer()
+                    
+                    bottomBar
+                        .transition(.move(edge: .bottom).combined(with: .opacity))
+                }
+                .transition(.opacity)
+            }
+        }
+        .onContinuousHover { phase in
+            switch phase {
+            case .active(_):
+                userDidInteract()
+            case .ended:
+                break
+            }
+        }
+        .onAppear {
+            userDidInteract()
+        }
+        .onDisappear {
+            hideTask?.cancel()
+        }
+    }
+    
+    private func userDidInteract() {
+        if !showControls {
+            withAnimation(.easeInOut(duration: 0.15)) {
+                showControls = true
+            }
+        }
+        
+        hideTask?.cancel()
+        if engine.isPlaying && !isHoveringControls {
+            hideTask = Task { @MainActor in
+                try? await Task.sleep(nanoseconds: 3_000_000_000)
+                if !Task.isCancelled && engine.isPlaying && !isHoveringControls {
+                    withAnimation(.easeInOut(duration: 0.3)) {
+                        showControls = false
+                    }
+                    NSCursor.setHiddenUntilMouseMoves(true)
+                }
+            }
+        }
+    }
+    
+    // MARK: - Top Bar
+    
+    private var topBar: some View {
+        HStack(alignment: .center, spacing: 14) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(engine.activeFileName.isEmpty ? "NO ACTIVE ASSET" : engine.activeFileName.uppercased())
+                    .font(.system(size: 13, weight: .black, design: .monospaced))
+                    .foregroundColor(.white)
+                    .lineLimit(1)
+                
+                if !engine.activeResolution.isEmpty {
+                    Text("\(engine.activeResolution) // \(String(format: "%.1f", engine.activeFps)) FPS // \(engine.activeCodec)")
+                        .font(.system(size: 10, weight: .bold, design: .monospaced))
+                        .foregroundColor(Color(white: 0.6))
+                }
+            }
+            
+            Spacer()
+            
+            Button(action: onExit) {
+                HStack(spacing: 6) {
+                    Image(systemName: "arrow.down.right.and.arrow.up.left")
+                        .font(.system(size: 10, weight: .bold))
+                    Text("[ EXIT FULLSCREEN (ESC) ]")
+                        .font(.system(size: 11, weight: .bold, design: .monospaced))
+                }
+                .padding(.horizontal, 14)
+                .padding(.vertical, 8)
+                .background(Color(white: 0.15).opacity(0.85))
+                .foregroundColor(.white)
+                .border(Color(white: 0.35), width: 1)
+            }
+            .buttonStyle(.plain)
+            .help("Exit Fullscreen (ESC / F)")
+        }
+        .padding(.horizontal, 24)
+        .padding(.vertical, 16)
+        .background(
+            LinearGradient(
+                colors: [Color.black.opacity(0.85), Color.black.opacity(0.0)],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+        )
+        .onHover { isHovering in
+            isHoveringControls = isHovering
+            if isHovering { userDidInteract() }
+        }
+    }
+    
+    // MARK: - Bottom Control Bar
+    
+    private var bottomBar: some View {
+        VStack(spacing: 12) {
+            // Timeline Scrubber
+            TimelineScrubberView(engine: engine, isLightMode: false)
+                .frame(height: 46)
+            
+            // Transport & Timecode Bar
+            HStack(spacing: 12) {
+                // Left: Timecode / Frame Count + Shuttle Speed (Fixed 230px width)
+                HStack(spacing: 8) {
+                    Text(engine.displayTimeAsFrames ? "\(engine.currentFrame) frames" : engine.currentTimecode)
+                        .font(.system(size: 14, weight: .bold, design: .monospaced))
+                        .monospacedDigit()
+                        .foregroundColor(accentPositive)
+                        .frame(width: 130, alignment: .leading)
+                    
+                    HStack {
+                        if engine.isPlaying || engine.rate != 0 {
+                            Text(engine.shuttleStateText)
+                                .font(.system(size: 10, weight: .bold, design: .monospaced))
+                                .padding(.horizontal, 6)
+                                .frame(height: 20)
+                                .background(accentPositive.opacity(0.2))
+                                .foregroundColor(accentPositive)
+                                .border(accentPositive.opacity(0.6), width: 0.5)
+                        }
+                    }
+                    .frame(width: 90, height: 20, alignment: .leading)
+                }
+                .frame(width: 230, alignment: .leading)
+                
+                Spacer()
+                
+                // Center: Transport Buttons
+                HStack(spacing: 5) {
+                    transportBtn(icon: "backward.circle.fill", tooltip: "Slow Reverse (Shift + J)") {
+                        engine.pressSlowJ()
+                    }
+                    transportBtn(icon: "backward.fill", tooltip: "Shuttle Reverse (J)") {
+                        engine.pressJ()
+                    }
+                    transportBtn(icon: "backward.frame.fill", tooltip: "Step -1 Frame (Left Arrow)") {
+                        engine.stepFrame(forward: false)
+                    }
+                    
+                    // Play / Pause
+                    Button(action: { engine.togglePlayPause() }) {
+                        Image(systemName: engine.isPlaying ? "pause.fill" : "play.fill")
+                            .font(.system(size: 13, weight: .black))
+                            .frame(width: 48, height: 30)
+                            .background(Color.white)
+                            .foregroundColor(.black)
+                            .border(Color(white: 0.5), width: 1)
+                    }
+                    .buttonStyle(.plain)
+                    .help("Play / Pause (Spacebar / K)")
+                    
+                    transportBtn(icon: "forward.frame.fill", tooltip: "Step +1 Frame (Right Arrow)") {
+                        engine.stepFrame(forward: true)
+                    }
+                    transportBtn(icon: "forward.fill", tooltip: "Shuttle Forward (L)") {
+                        engine.pressL()
+                    }
+                    transportBtn(icon: "forward.circle.fill", tooltip: "Slow Forward (Shift + L)") {
+                        engine.pressSlowL()
+                    }
+                    transportBtn(icon: "repeat", tooltip: "Loop Playback (⌘L)", isActive: engine.isLooping) {
+                        engine.isLooping.toggle()
+                    }
+                    transportBtn(icon: "plus.viewfinder", tooltip: "Center Crosshair", isActive: engine.showCenterCrosshair) {
+                        engine.showCenterCrosshair.toggle()
+                    }
+                    
+                    let hasGlitches = scanResults.contains(where: { $0.isFlagged && !$0.glitchSegments.isEmpty })
+                    if hasGlitches {
+                        Button(action: onJumpPrev) {
+                            HStack(spacing: 4) {
+                                Image(systemName: "chevron.left.to.line")
+                                    .font(.system(size: 9, weight: .bold))
+                                Text("PREV LINE")
+                                    .font(.system(size: 9, weight: .bold, design: .monospaced))
+                            }
+                            .frame(width: 96, height: 30)
+                            .background(alertRed.opacity(0.2))
+                            .foregroundColor(alertRed)
+                            .border(alertRed.opacity(0.6), width: 1)
+                        }
+                        .buttonStyle(.plain)
+                        .help("Previous Glitch (⇧N)")
+                        
+                        Button(action: onJumpNext) {
+                            HStack(spacing: 4) {
+                                Image(systemName: "chevron.right.to.line")
+                                    .font(.system(size: 9, weight: .bold))
+                                Text("NEXT LINE")
+                                    .font(.system(size: 9, weight: .bold, design: .monospaced))
+                            }
+                            .frame(width: 96, height: 30)
+                            .background(alertRed.opacity(0.2))
+                            .foregroundColor(alertRed)
+                            .border(alertRed.opacity(0.6), width: 1)
+                        }
+                        .buttonStyle(.plain)
+                        .help("Next Glitch (N)")
+                    }
+                }
+                
+                Spacer()
+                
+                // Right: Duration Timecode & Exit Fullscreen Button (Fixed 230px width)
+                HStack(spacing: 12) {
+                    Text(engine.displayTimeAsFrames ? "\(engine.totalFrames) frames" : engine.durationTimecode)
+                        .font(.system(size: 13, weight: .bold, design: .monospaced))
+                        .monospacedDigit()
+                        .foregroundColor(Color(white: 0.6))
+                        .frame(width: 120, alignment: .trailing)
+                    
+                    Button(action: onExit) {
+                        Image(systemName: "arrow.down.right.and.arrow.up.left")
+                            .font(.system(size: 11, weight: .bold))
+                            .frame(width: 32, height: 30)
+                            .background(Color(white: 0.15))
+                            .foregroundColor(.white)
+                            .border(Color(white: 0.35), width: 1)
+                    }
+                    .buttonStyle(.plain)
+                    .help("Exit Fullscreen (ESC / F)")
+                }
+                .frame(width: 230, alignment: .trailing)
+            }
+            .frame(height: 32)
+        }
+        .padding(.horizontal, 24)
+        .padding(.top, 12)
+        .padding(.bottom, 22)
+        .background(
+            LinearGradient(
+                colors: [Color.black.opacity(0.0), Color.black.opacity(0.92)],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+        )
+        .onHover { isHovering in
+            isHoveringControls = isHovering
+            if isHovering { userDidInteract() }
+        }
+    }
+    
+    private func transportBtn(icon: String, tooltip: String, isActive: Bool = false, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: icon)
+                .font(.system(size: 11, weight: .bold))
+                .frame(width: 32, height: 30)
+                .background(isActive ? accentPositive.opacity(0.25) : Color(white: 0.15))
+                .foregroundColor(isActive ? accentPositive : .white)
+                .border(isActive ? accentPositive : Color(white: 0.35), width: 1)
+        }
+        .buttonStyle(.plain)
+        .help(tooltip)
+    }
+}
+
+// MARK: - Pure Video Fullscreen View (Zero UI)
+
+struct CleanVideoFullscreenView: View {
+    @ObservedObject var engine: PlayerEngine
+    var onExit: () -> Void
+    
+    @State private var hideCursorTask: Task<Void, Never>? = nil
+    
+    var body: some View {
+        ZStack {
+            Color.black
+                .ignoresSafeArea()
+            
+            if engine.activeURL != nil {
+                VideoViewportView(engine: engine, isLightMode: false, allowScrollZoom: false)
+                    .ignoresSafeArea()
+                    .onTapGesture(count: 2) {
+                        onExit()
+                    }
+                    .onTapGesture(count: 1) {
+                        engine.togglePlayPause()
+                    }
+            }
+        }
+        .onContinuousHover { phase in
+            switch phase {
+            case .active(_):
+                resetCursorTimer()
+            case .ended:
+                break
+            }
+        }
+        .onAppear {
+            engine.setZoomFit()
+            resetCursorTimer()
+        }
+        .onDisappear {
+            hideCursorTask?.cancel()
+        }
+    }
+    
+    private func resetCursorTimer() {
+        hideCursorTask?.cancel()
+        if engine.isPlaying {
+            hideCursorTask = Task { @MainActor in
+                try? await Task.sleep(nanoseconds: 2_000_000_000)
+                if !Task.isCancelled && engine.isPlaying {
+                    NSCursor.setHiddenUntilMouseMoves(true)
+                }
+            }
+        }
+    }
+}
+

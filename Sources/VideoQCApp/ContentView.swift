@@ -26,6 +26,7 @@ struct ContentView: View {
     @State var ignoreFullBlackFrames: Bool = true
     
     @State var isScanning: Bool = false
+    @State var isAuditBtnHovered: Bool = false
     @State var progressInfo: VideoScanner.ScanProgress? = nil
     @State var scanResults: [VideoQCResult] = []
     @State var lastScanConfig: QCConfig? = nil
@@ -63,6 +64,15 @@ struct ContentView: View {
     @State var fileTagsMap: [URL: FinderTagColor] = [:]
     @State var showTagPickerPopover: Bool = false
     @State private var hasSetupKeyboardMonitor: Bool = false
+    enum FullscreenMode: Equatable {
+        case none
+        case review
+        case videoOnly
+    }
+    
+    @State var fullscreenMode: FullscreenMode = .none
+    var isFullscreenVideo: Bool { fullscreenMode != .none }
+    @State var didToggleWindowForFullscreen: Bool = false
     
     var renameItems: [RenameItem] {
         RenamerEngine.generateProposedItems(
@@ -203,8 +213,26 @@ struct ContentView: View {
                     .transition(.opacity.combined(with: .scale(scale: 0.98)))
                     .zIndex(100)
             }
+            
+            // Dedicated Fullscreen Video Player Presentation
+            if fullscreenMode == .review {
+                fullscreenPlayerOverlay
+                    .transition(.opacity)
+                    .zIndex(200)
+            } else if fullscreenMode == .videoOnly {
+                cleanVideoFullscreenOverlay
+                    .transition(.opacity)
+                    .zIndex(200)
+            }
         }
         .animation(.easeInOut(duration: 0.15), value: showUserGuide)
+        .animation(.easeInOut(duration: 0.15), value: fullscreenMode)
+        .onReceive(NotificationCenter.default.publisher(for: NSWindow.didExitFullScreenNotification)) { _ in
+            if fullscreenMode != .none {
+                fullscreenMode = .none
+                didToggleWindowForFullscreen = false
+            }
+        }
         .onReceive(NotificationCenter.default.publisher(for: NSColorPanel.colorDidChangeNotification)) { _ in
             guard NSColorPanel.shared.isVisible else { return }
             if let srgb = NSColorPanel.shared.color.usingColorSpace(.sRGB) {
@@ -816,7 +844,35 @@ struct ContentView: View {
             .border(borderLine, width: 1)
     }
     
-    // MARK: - Global Player Keyboard Shortcuts (J-K-L, Space, Arrows)
+    // MARK: - Fullscreen Player Controls
+    
+    func enterFullscreen(mode: FullscreenMode = .videoOnly) {
+        guard playerEngine.activeURL != nil else { return }
+        fullscreenMode = mode
+        playerEngine.setZoomFit()
+        
+        if let window = NSApp.keyWindow ?? NSApp.mainWindow ?? NSApp.windows.first(where: { $0.isVisible && !$0.isMiniaturized }) {
+            if !window.styleMask.contains(.fullScreen) {
+                didToggleWindowForFullscreen = true
+                window.toggleFullScreen(nil)
+            } else {
+                didToggleWindowForFullscreen = false
+            }
+        }
+    }
+    
+    func exitFullscreen() {
+        fullscreenMode = .none
+        if didToggleWindowForFullscreen {
+            if let window = NSApp.keyWindow ?? NSApp.mainWindow ?? NSApp.windows.first(where: { $0.isVisible && !$0.isMiniaturized }),
+               window.styleMask.contains(.fullScreen) {
+                window.toggleFullScreen(nil)
+            }
+            didToggleWindowForFullscreen = false
+        }
+    }
+    
+    // MARK: - Global Player Keyboard Shortcuts (J-K-L, Space, Arrows, F, ESC)
     
     func setupKeyboardMonitor() {
         guard !hasSetupKeyboardMonitor else { return }
@@ -831,6 +887,14 @@ struct ContentView: View {
                let firstResponder = window.firstResponder,
                firstResponder is NSTextView {
                 return event
+            }
+            
+            // ESC key: Exit fullscreen if active
+            if event.keyCode == 53 {
+                if self.fullscreenMode != .none {
+                    self.exitFullscreen()
+                    return nil
+                }
             }
             
             let isShift = event.modifierFlags.contains(.shift)
@@ -860,6 +924,13 @@ struct ContentView: View {
                     return nil
                 } else if chars == " " { // Spacebar
                     self.playerEngine.togglePlayPause()
+                    return nil
+                } else if chars == "f" && !isCommand { // F: Toggle Video Fullscreen (Clean) / Shift+F: Review Fullscreen
+                    if self.fullscreenMode != .none {
+                        self.exitFullscreen()
+                    } else if self.playerEngine.activeURL != nil {
+                        self.enterFullscreen(mode: isShift ? .review : .videoOnly)
+                    }
                     return nil
                 } else if chars == "n" { // N: Jump to Next Line Finding / Shift+N: Previous Line Finding
                     if isShift {

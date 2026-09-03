@@ -473,6 +473,10 @@ public final class PlayerEngine: ObservableObject {
         }
     }
     
+    public func play() {
+        setPlaybackRate(1.0)
+    }
+    
     public func pause() {
         stopSlowStep()
         player.pause()

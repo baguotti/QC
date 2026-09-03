@@ -209,17 +209,27 @@ extension ContentView {
                 .buttonStyle(.plain)
                 .explain("Aborts the active video scan in progress.", binding: $hoverExplanation)
             } else {
+                let isReady = !videoFiles.isEmpty && RGBColor(hex: hexCode) != nil
                 Button(action: startScan) {
                     Text("[ START LINE QC AUDIT ]")
                         .font(.system(size: 12, weight: .black, design: .monospaced))
                         .tracking(1.0)
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 12)
-                        .background(videoFiles.isEmpty ? bgSubtle : primaryBtnBg)
+                        .background(
+                            videoFiles.isEmpty ? bgSubtle : (
+                                (isAuditBtnHovered && isReady) ? (isLightMode ? Color(white: 0.18) : Color(white: 0.88)) : primaryBtnBg
+                            )
+                        )
                         .foregroundColor(videoFiles.isEmpty ? textMuted : primaryBtnFg)
+                        .scaleEffect(isAuditBtnHovered && isReady ? 1.01 : 1.0)
+                        .animation(.easeInOut(duration: 0.15), value: isAuditBtnHovered)
                 }
                 .buttonStyle(.plain)
-                .disabled(videoFiles.isEmpty || RGBColor(hex: hexCode) == nil)
+                .disabled(!isReady)
+                .onHover { hovering in
+                    isAuditBtnHovered = hovering
+                }
                 .explain("Starts frame-by-frame edge analysis across all files in the batch.", binding: $hoverExplanation)
             }
         }

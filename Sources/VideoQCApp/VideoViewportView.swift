@@ -5,24 +5,29 @@ import AVFoundation
 public struct VideoViewportView: NSViewRepresentable {
     @ObservedObject var engine: PlayerEngine
     var isLightMode: Bool
+    var allowScrollZoom: Bool
     
-    public init(engine: PlayerEngine, isLightMode: Bool) {
+    public init(engine: PlayerEngine, isLightMode: Bool, allowScrollZoom: Bool = true) {
         self.engine = engine
         self.isLightMode = isLightMode
+        self.allowScrollZoom = allowScrollZoom
     }
     
     public func makeNSView(context: Context) -> PlayerContainerNSView {
         let view = PlayerContainerNSView()
         view.setup(engine: engine)
+        view.allowScrollZoom = allowScrollZoom
         return view
     }
     
     public func updateNSView(_ nsView: PlayerContainerNSView, context: Context) {
+        nsView.allowScrollZoom = allowScrollZoom
         nsView.update(engine: engine, isLightMode: isLightMode)
     }
 }
 
 public final class PlayerContainerNSView: NSView {
+    public var allowScrollZoom: Bool = true
     private let canvasLayer = CALayer()
     private let playerLayer = AVPlayerLayer()
     private let stillFrameLayer = CALayer()
@@ -333,7 +338,7 @@ public final class PlayerContainerNSView: NSView {
     // MARK: - Pinch Gesture & Scroll Wheel
     
     @objc private func handlePinch(_ gesture: NSMagnificationGestureRecognizer) {
-        guard let engine = engine else { return }
+        guard allowScrollZoom, let engine = engine else { return }
         if gesture.state == .changed {
             let factor = 1.0 + (gesture.magnification * 0.5)
             let newScale = min(10.0, max(0.05, engine.zoomScale * factor))
@@ -345,6 +350,10 @@ public final class PlayerContainerNSView: NSView {
     }
     
     public override func scrollWheel(with event: NSEvent) {
+        guard allowScrollZoom else {
+            super.scrollWheel(with: event)
+            return
+        }
         guard let engine = engine else {
             super.scrollWheel(with: event)
             return
