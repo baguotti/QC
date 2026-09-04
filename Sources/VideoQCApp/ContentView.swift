@@ -42,6 +42,7 @@ struct ContentView: View {
     @State var isInspectingDeliverables: Bool = false
     @State var manifestCSVURL: URL? = nil
     @State var manifestHTMLURL: URL? = nil
+    @State var deliverablesCollapsedFolderIDs: Set<String> = []
     
     // MARK: - Tab 3: Batch Renamer State
     @State var renameMode: RenameMode = .template
@@ -64,6 +65,7 @@ struct ContentView: View {
     // MARK: - Tab 2: Player State
     @StateObject var playerEngine = PlayerEngine()
     @State var playerFilterText: String = ""
+    @State var playerCollapsedFolderIDs: Set<String> = []
     @State var fileTagsMap: [URL: FinderTagColor] = [:]
     @State var showTagPickerPopover: Bool = false
     @State private var hasSetupKeyboardMonitor: Bool = false
@@ -633,6 +635,8 @@ struct ContentView: View {
             
             self.folderURL = detectedFolder
             self.videoFiles = uniqueVideos
+            self.playerCollapsedFolderIDs = []
+            self.deliverablesCollapsedFolderIDs = []
             self.scanResults = []
             self.generatedReportURL = nil
             self.generatedCSVURL = nil
@@ -710,6 +714,8 @@ struct ContentView: View {
             
             self.folderURL = detectedFolder
             self.videoFiles = uniqueVideos
+            self.playerCollapsedFolderIDs = []
+            self.deliverablesCollapsedFolderIDs = []
             self.scanResults = []
             self.generatedReportURL = nil
             self.generatedCSVURL = nil
@@ -850,7 +856,7 @@ struct ContentView: View {
     func exportDeliverablesManifest() {
         guard !deliverableAssets.isEmpty else { return }
         
-        let csvString = DeliverablesInspector.generateManifestCSV(assets: deliverableAssets)
+        let csvString = DeliverablesInspector.generateManifestCSV(assets: deliverableAssets, rootFolderURL: folderURL)
         let savePanel = NSSavePanel()
         savePanel.allowedContentTypes = [UTType.commaSeparatedText]
         savePanel.nameFieldStringValue = "Deliverables_Specs_\(Date().timeIntervalSince1970).csv"
@@ -866,7 +872,7 @@ struct ContentView: View {
         guard !deliverableAssets.isEmpty else { return }
         
         let folderName = (folderURL ?? deliverableAssets.first?.fileURL.deletingLastPathComponent())?.lastPathComponent ?? "DELIVERY_ASSETS"
-        let htmlString = DeliverablesInspector.generateManifestHTML(assets: deliverableAssets, folderName: folderName)
+        let htmlString = DeliverablesInspector.generateManifestHTML(assets: deliverableAssets, folderName: folderName, rootFolderURL: folderURL)
         let tempURL = FileManager.default.temporaryDirectory.appendingPathComponent("Deliverables_Specs_\(UUID().uuidString).html")
         
         do {

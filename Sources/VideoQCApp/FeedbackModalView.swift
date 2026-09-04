@@ -10,6 +10,9 @@ struct FeedbackModalView: View {
     @State private var feedbackText: String = ""
     @State private var includeSystemSpecs: Bool = true
     @State private var copySuccessNotice: Bool = false
+    @State private var isSending: Bool = false
+    @State private var sendSuccess: Bool = false
+    @State private var errorMessage: String? = nil
     
     enum FeedbackType: String, CaseIterable, Identifiable {
         case issue = "BUG / ISSUE"
@@ -39,8 +42,10 @@ struct FeedbackModalView: View {
     private var primaryBtnBg: Color { StudioTheme.primaryBtnBg(isLightMode) }
     private var primaryBtnFg: Color { StudioTheme.primaryBtnFg(isLightMode) }
     private var accentPositive: Color { StudioTheme.positive }
+    private var accentNegative: Color { StudioTheme.negative }
     
     private let targetEmail = "fusetti.riccardo@gmail.com"
+    private let web3FormsKey = "edc9392e-0f56-4fef-b67a-c3e277924813"
     
     private var systemSpecsString: String {
         let osVer = ProcessInfo.processInfo.operatingSystemVersionString
@@ -64,13 +69,19 @@ struct FeedbackModalView: View {
         return body
     }
     
+    private var isSendDisabled: Bool {
+        isSending || feedbackText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+    
     var body: some View {
         ZStack {
             // Backdrop Scrim
             Color.black.opacity(0.65)
                 .edgesIgnoringSafeArea(.all)
                 .onTapGesture {
-                    isPresented = false
+                    if !isSending {
+                        isPresented = false
+                    }
                 }
             
             // Modal Card Container
@@ -90,11 +101,14 @@ struct FeedbackModalView: View {
                             .foregroundColor(textMuted)
                             .padding(.horizontal, 6)
                             .padding(.vertical, 2)
-                            .foregroundColor(textMuted)
                             .studioBox(background: bgSubtle, border: borderLine)
                     }
                     Spacer()
-                    Button(action: { isPresented = false }) {
+                    Button(action: {
+                        if !isSending {
+                            isPresented = false
+                        }
+                    }) {
                         Text("CLOSE (ESC)")
                             .font(.system(size: 10, weight: .bold, design: .monospaced))
                             .padding(.horizontal, 9)
@@ -104,6 +118,7 @@ struct FeedbackModalView: View {
                     }
                     .buttonStyle(.plain)
                     .keyboardShortcut(.escape, modifiers: [])
+                    .disabled(isSending)
                 }
                 .padding(.horizontal, 18)
                 .padding(.vertical, 10)
@@ -111,99 +126,129 @@ struct FeedbackModalView: View {
                 
                 Rectangle().fill(borderLine).frame(height: 1)
                 
-                // Form Body
-                VStack(alignment: .leading, spacing: 14) {
-                    // Category Picker
-                    VStack(alignment: .leading, spacing: 6) {
-                        Text("CATEGORY")
-                            .font(.system(size: 10, weight: .bold, design: .monospaced))
-                            .foregroundColor(textMuted)
+                if sendSuccess {
+                    // Success View
+                    VStack(spacing: 16) {
+                        Image(systemName: "checkmark.seal.fill")
+                            .font(.system(size: 44))
+                            .foregroundColor(accentPositive)
                         
-                        HStack(spacing: 8) {
-                            ForEach(FeedbackType.allCases) { type in
-                                Button(action: { feedbackType = type }) {
-                                    HStack(spacing: 6) {
-                                        Image(systemName: type.icon)
-                                            .font(.system(size: 10))
-                                        Text(type.rawValue)
-                                            .font(.system(size: 10, weight: .bold, design: .monospaced))
+                        Text("FEEDBACK SENT AUTOMATICALLY")
+                            .font(.system(size: 13, weight: .black, design: .monospaced))
+                            .foregroundColor(textMain)
+                        
+                        Text("Thank you for helping improve QCpie!\nRiccardo has received your feedback via email.")
+                            .font(.system(size: 11, design: .monospaced))
+                            .foregroundColor(textMuted)
+                            .multilineTextAlignment(.center)
+                            .lineSpacing(4)
+                    }
+                    .padding(40)
+                    .frame(maxWidth: .infinity, minHeight: 320)
+                    .background(bgMain)
+                } else {
+                    // Form Body
+                    VStack(alignment: .leading, spacing: 14) {
+                        // Category Picker
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text("CATEGORY")
+                                .font(.system(size: 10, weight: .bold, design: .monospaced))
+                                .foregroundColor(textMuted)
+                            
+                            HStack(spacing: 8) {
+                                ForEach(FeedbackType.allCases) { type in
+                                    Button(action: { feedbackType = type }) {
+                                        HStack(spacing: 6) {
+                                            Image(systemName: type.icon)
+                                                .font(.system(size: 10))
+                                            Text(type.rawValue)
+                                                .font(.system(size: 10, weight: .bold, design: .monospaced))
+                                        }
+                                        .padding(.horizontal, 10)
+                                        .padding(.vertical, 6)
+                                        .foregroundColor(feedbackType == type ? primaryBtnFg : textMain)
+                                        .studioBox(background: feedbackType == type ? primaryBtnBg : bgSubtle, border: feedbackType == type ? borderStrong : borderLine)
                                     }
-                                    .padding(.horizontal, 10)
-                                    .padding(.vertical, 6)
-                                    .foregroundColor(feedbackType == type ? primaryBtnFg : textMain)
-                                    .studioBox(background: feedbackType == type ? primaryBtnBg : bgSubtle, border: feedbackType == type ? borderStrong : borderLine)
+                                    .buttonStyle(.plain)
+                                    .disabled(isSending)
                                 }
-                                .buttonStyle(.plain)
                             }
                         }
-                    }
-                    
-                    // Optional Reply Email
-                    VStack(alignment: .leading, spacing: 6) {
-                        HStack {
-                            Text("YOUR EMAIL (OPTIONAL)")
-                                .font(.system(size: 10, weight: .bold, design: .monospaced))
-                                .foregroundColor(textMuted)
-                            Spacer()
-                            Text("For follow-up replies")
-                                .font(.system(size: 9, design: .monospaced))
-                                .foregroundColor(textSubtle)
-                        }
                         
-                        TextField("your.email@example.com", text: $userEmail)
-                            .textFieldStyle(.plain)
-                            .font(.system(size: 11, design: .monospaced))
-                            .padding(8)
-                            .foregroundColor(textMain)
-                            .studioBox(background: bgSubtle, border: borderLine)
-                    }
-                    
-                    // Message Text Area
-                    VStack(alignment: .leading, spacing: 6) {
-                        HStack {
-                            Text("MESSAGE / NOTES")
-                                .font(.system(size: 10, weight: .bold, design: .monospaced))
-                                .foregroundColor(textMuted)
-                            Spacer()
-                            Text("\(feedbackText.count) CHARS")
-                                .font(.system(size: 9, design: .monospaced))
-                                .foregroundColor(textSubtle)
-                        }
-                        
-                        TextEditor(text: $feedbackText)
-                            .font(.system(size: 11, design: .monospaced))
-                            .scrollContentBackground(.hidden)
-                            .padding(8)
-                            .foregroundColor(textMain)
-                            .studioBox(background: bgSubtle, border: borderLine)
-                            .frame(minHeight: 140, maxHeight: 180)
-                    }
-                    
-                    // Include Diagnostic Specs Toggle
-                    HStack(spacing: 8) {
-                        Button(action: { includeSystemSpecs.toggle() }) {
-                            Image(systemName: includeSystemSpecs ? "checkmark.square.fill" : "square")
-                                .font(.system(size: 13))
-                                .foregroundColor(includeSystemSpecs ? textMain : textMuted)
-                        }
-                        .buttonStyle(.plain)
-                        
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("Include app version and macOS build specs")
-                                .font(.system(size: 10, weight: .bold, design: .monospaced))
+                        // Optional Reply Email
+                        VStack(alignment: .leading, spacing: 6) {
+                            HStack {
+                                Text("YOUR EMAIL (OPTIONAL)")
+                                    .font(.system(size: 10, weight: .bold, design: .monospaced))
+                                    .foregroundColor(textMuted)
+                                Spacer()
+                                Text("For follow-up replies")
+                                    .font(.system(size: 9, design: .monospaced))
+                                    .foregroundColor(textSubtle)
+                            }
+                            
+                            TextField("your.email@example.com", text: $userEmail)
+                                .textFieldStyle(.plain)
+                                .font(.system(size: 11, design: .monospaced))
+                                .padding(8)
                                 .foregroundColor(textMain)
-                            Text("QCpie v\(AppVersionInfo.version) • macOS \(ProcessInfo.processInfo.operatingSystemVersionString)")
-                                .font(.system(size: 9, design: .monospaced))
-                                .foregroundColor(textMuted)
+                                .studioBox(background: bgSubtle, border: borderLine)
+                                .disabled(isSending)
                         }
                         
-                        Spacer()
+                        // Message Text Area
+                        VStack(alignment: .leading, spacing: 6) {
+                            HStack {
+                                Text("MESSAGE / NOTES")
+                                    .font(.system(size: 10, weight: .bold, design: .monospaced))
+                                    .foregroundColor(textMuted)
+                                Spacer()
+                                Text("\(feedbackText.count) CHARS")
+                                    .font(.system(size: 9, design: .monospaced))
+                                    .foregroundColor(textSubtle)
+                            }
+                            
+                            TextEditor(text: $feedbackText)
+                                .font(.system(size: 11, design: .monospaced))
+                                .scrollContentBackground(.hidden)
+                                .padding(8)
+                                .foregroundColor(textMain)
+                                .studioBox(background: bgSubtle, border: borderLine)
+                                .frame(minHeight: 140, maxHeight: 180)
+                                .disabled(isSending)
+                        }
+                        
+                        // Include Diagnostic Specs Toggle
+                        HStack(spacing: 8) {
+                            Button(action: {
+                                if !isSending {
+                                    includeSystemSpecs.toggle()
+                                }
+                            }) {
+                                Image(systemName: includeSystemSpecs ? "checkmark.square.fill" : "square")
+                                    .font(.system(size: 13))
+                                    .foregroundColor(includeSystemSpecs ? textMain : textMuted)
+                            }
+                            .buttonStyle(.plain)
+                            .disabled(isSending)
+                            
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("Include app version and macOS build specs")
+                                    .font(.system(size: 10, weight: .bold, design: .monospaced))
+                                    .foregroundColor(textMain)
+                                Text("QCpie v\(AppVersionInfo.version) • macOS \(ProcessInfo.processInfo.operatingSystemVersionString)")
+                                    .font(.system(size: 9, design: .monospaced))
+                                    .foregroundColor(textMuted)
+                            }
+                            
+                            Spacer()
+                        }
+                        .padding(8)
+                        .studioBox(background: bgCardBody, border: borderLine)
                     }
-                    .padding(8)
-                    .studioBox(background: bgCardBody, border: borderLine)
+                    .padding(18)
+                    .background(bgMain)
                 }
-                .padding(18)
-                .background(bgMain)
                 
                 Rectangle().fill(borderLine).frame(height: 1)
                 
@@ -219,41 +264,72 @@ struct FeedbackModalView: View {
                                 .foregroundColor(accentPositive)
                         }
                         .transition(.opacity)
+                    } else if let err = errorMessage {
+                        HStack(spacing: 5) {
+                            Image(systemName: "exclamationmark.triangle.fill")
+                                .font(.system(size: 10))
+                                .foregroundColor(accentNegative)
+                            Text(err)
+                                .font(.system(size: 9, weight: .bold, design: .monospaced))
+                                .foregroundColor(accentNegative)
+                                .lineLimit(1)
+                        }
+                        .transition(.opacity)
                     }
                     
                     Spacer()
                     
-                    // Copy to Clipboard Fallback
-                    Button(action: copyToClipboard) {
-                        HStack(spacing: 6) {
-                            Image(systemName: "doc.on.doc")
-                                .font(.system(size: 10))
-                            Text("COPY MESSAGE")
-                                .font(.system(size: 10, weight: .bold, design: .monospaced))
+                    if !sendSuccess {
+                        // Copy to Clipboard Fallback
+                        Button(action: copyToClipboard) {
+                            HStack(spacing: 6) {
+                                Image(systemName: "doc.on.doc")
+                                    .font(.system(size: 10))
+                                Text("COPY")
+                                    .font(.system(size: 10, weight: .bold, design: .monospaced))
+                            }
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 7)
+                            .foregroundColor(textMain)
+                            .studioBox(background: bgSubtle, border: borderLine)
                         }
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 7)
-                        .foregroundColor(textMain)
-                        .studioBox(background: bgSubtle, border: borderLine)
-                    }
-                    .buttonStyle(.plain)
-                    .disabled(feedbackText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                    
-                    // Primary Send / Open Mail Button
-                    Button(action: sendFeedback) {
-                        HStack(spacing: 6) {
-                            Image(systemName: "paperplane.fill")
-                                .font(.system(size: 10))
-                            Text("SEND TO RICCARDO")
+                        .buttonStyle(.plain)
+                        .disabled(isSendDisabled)
+                        
+                        // Primary Background Send Button
+                        Button(action: sendFeedback) {
+                            HStack(spacing: 6) {
+                                if isSending {
+                                    ProgressView()
+                                        .scaleEffect(0.6)
+                                        .frame(width: 12, height: 12)
+                                    Text("SENDING...")
+                                        .font(.system(size: 10, weight: .heavy, design: .monospaced))
+                                } else {
+                                    Image(systemName: "paperplane.fill")
+                                        .font(.system(size: 10))
+                                    Text("SEND FEEDBACK")
+                                        .font(.system(size: 10, weight: .heavy, design: .monospaced))
+                                }
+                            }
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 7)
+                            .foregroundColor(isSendDisabled ? textMuted : primaryBtnFg)
+                            .studioBox(background: isSendDisabled ? bgSubtle : primaryBtnBg, border: borderLine)
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(isSendDisabled)
+                    } else {
+                        Button(action: { isPresented = false }) {
+                            Text("DONE")
                                 .font(.system(size: 10, weight: .heavy, design: .monospaced))
+                                .padding(.horizontal, 16)
+                                .padding(.vertical, 7)
+                                .foregroundColor(primaryBtnFg)
+                                .studioBox(background: primaryBtnBg, border: borderLine)
                         }
-                        .padding(.horizontal, 16)
-                        .padding(.vertical, 7)
-                        .foregroundColor(feedbackText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? textMuted : primaryBtnFg)
-                        .studioBox(background: feedbackText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? bgSubtle : primaryBtnBg, border: borderLine)
+                        .buttonStyle(.plain)
                     }
-                    .buttonStyle(.plain)
-                    .disabled(feedbackText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 }
                 .padding(.horizontal, 18)
                 .padding(.vertical, 12)
@@ -280,17 +356,70 @@ struct FeedbackModalView: View {
     }
     
     private func sendFeedback() {
-        let subject = "[QCpie Feedback] [\(feedbackType.rawValue)]"
-        let body = fullEmailBody
+        let trimmedText = feedbackText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedText.isEmpty else { return }
         
-        guard let encodedSubject = subject.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
-              let encodedBody = body.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
-              let mailtoURL = URL(string: "mailto:\(targetEmail)?subject=\(encodedSubject)&body=\(encodedBody)") else {
-            copyToClipboard()
+        isSending = true
+        errorMessage = nil
+        
+        let trimmedEmail = userEmail.trimmingCharacters(in: .whitespacesAndNewlines)
+        let subject = "[QCpie Feedback] [\(feedbackType.rawValue)]"
+        
+        var payload: [String: Any] = [
+            "access_key": web3FormsKey,
+            "subject": subject,
+            "message": fullEmailBody,
+            "from_name": "QCpie v\(AppVersionInfo.version)",
+            "name": trimmedEmail.isEmpty ? "QCpie User" : trimmedEmail
+        ]
+        
+        if !trimmedEmail.isEmpty {
+            payload["email"] = trimmedEmail
+            payload["replyto"] = trimmedEmail
+        }
+        
+        guard let url = URL(string: "https://api.web3forms.com/submit"),
+              let httpBody = try? JSONSerialization.data(withJSONObject: payload) else {
+            errorMessage = "Failed to construct request."
+            isSending = false
             return
         }
         
-        NSWorkspace.shared.open(mailtoURL)
-        isPresented = false
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        request.httpBody = httpBody
+        
+        URLSession.shared.dataTask(with: request) { data, response, error in
+            DispatchQueue.main.async {
+                self.isSending = false
+                
+                if let error = error {
+                    self.errorMessage = "Network error: \(error.localizedDescription)"
+                    return
+                }
+                
+                guard let data = data,
+                      let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+                    self.errorMessage = "Failed to parse response."
+                    return
+                }
+                
+                if let success = json["success"] as? Bool, success {
+                    withAnimation(.easeInOut(duration: 0.25)) {
+                        self.sendSuccess = true
+                    }
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
+                        withAnimation {
+                            self.isPresented = false
+                        }
+                    }
+                } else {
+                    let msg = json["message"] as? String ?? "Unable to submit feedback."
+                    self.errorMessage = msg
+                }
+            }
+        }.resume()
     }
 }

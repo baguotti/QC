@@ -489,8 +489,8 @@ public struct DeliverablesInspector: Sendable {
     
     // MARK: - CSV Generator
     
-    public static func generateManifestCSV(assets: [DeliverableAsset]) -> String {
-        var csv = "File Name,Status,Validation Notes,Timecode,Duration,Total Frames,Resolution,Aspect Ratio,FPS,File Size,Created Date,Subtitles / CC,Video Codec,Audio Codec,Audio Bitrate,Audio Details,Container\n"
+    public static func generateManifestCSV(assets: [DeliverableAsset], rootFolderURL: URL? = nil) -> String {
+        var csv = "Folder,File Name,Status,Validation Notes,Timecode,Duration,Total Frames,Resolution,Aspect Ratio,FPS,File Size,Created Date,Subtitles / CC,Video Codec,Audio Codec,Audio Bitrate,Audio Details,Container,File Path\n"
         
         func escapeCSV(_ str: String) -> String {
             if str.contains(",") || str.contains("\"") || str.contains("\n") {
@@ -501,9 +501,21 @@ public struct DeliverablesInspector: Sendable {
         }
         
         for a in assets {
+            var folderRel = ""
+            if let root = rootFolderURL {
+                let rootPath = root.standardizedFileURL.path
+                let filePath = a.fileURL.standardizedFileURL.path
+                if filePath.hasPrefix(rootPath) {
+                    let rel = String(filePath.dropFirst(rootPath.count)).trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+                    folderRel = (rel as NSString).deletingLastPathComponent
+                }
+            }
+            if folderRel.isEmpty {
+                folderRel = a.fileURL.deletingLastPathComponent().lastPathComponent
+            }
             let status = a.validation.hasAnyMismatch ? "MISMATCH FLAGGED" : "MATCHED"
             let notes = a.validation.summaryString
-            csv += "\(escapeCSV(a.fileName)),\(escapeCSV(status)),\(escapeCSV(notes)),\(escapeCSV(a.timecode)),\(escapeCSV(a.formattedDuration)),\(a.totalFrames),\(escapeCSV(a.resolutionString)),\(escapeCSV(a.aspectRatioString)),\(String(format: "%.2f", a.fps)),\(escapeCSV(a.formattedFileSize)),\(escapeCSV(a.formattedCreationDate)),\(escapeCSV(a.subtitlesInfo)),\(escapeCSV(a.videoCodec)),\(escapeCSV(a.audioCodec)),\(escapeCSV(a.audioBitrate)),\(escapeCSV(a.audioConfig)),\(escapeCSV(a.container))\n"
+            csv += "\(escapeCSV(folderRel)),\(escapeCSV(a.fileName)),\(escapeCSV(status)),\(escapeCSV(notes)),\(escapeCSV(a.timecode)),\(escapeCSV(a.formattedDuration)),\(a.totalFrames),\(escapeCSV(a.resolutionString)),\(escapeCSV(a.aspectRatioString)),\(String(format: "%.2f", a.fps)),\(escapeCSV(a.formattedFileSize)),\(escapeCSV(a.formattedCreationDate)),\(escapeCSV(a.subtitlesInfo)),\(escapeCSV(a.videoCodec)),\(escapeCSV(a.audioCodec)),\(escapeCSV(a.audioBitrate)),\(escapeCSV(a.audioConfig)),\(escapeCSV(a.container)),\(escapeCSV(a.fileURL.path))\n"
         }
         
         return csv
@@ -511,7 +523,7 @@ public struct DeliverablesInspector: Sendable {
     
     // MARK: - HTML Specs Generator
     
-    public static func generateManifestHTML(assets: [DeliverableAsset], folderName: String) -> String {
+    public static func generateManifestHTML(assets: [DeliverableAsset], folderName: String, rootFolderURL: URL? = nil) -> String {
         let dateFormatter = DateFormatter()
         dateFormatter.dateFormat = "yyyy.MM.dd // HH:mm:ss"
         let dateString = dateFormatter.string(from: Date())
@@ -519,7 +531,7 @@ public struct DeliverablesInspector: Sendable {
         let totalSize = assets.reduce(Int64(0)) { $0 + $1.fileSizeBytes }
         let formattedTotalSize = formatFileSize(bytes: totalSize)
         let mismatchCount = assets.filter { $0.validation.hasAnyMismatch }.count
-        let rawCSV = generateManifestCSV(assets: assets)
+        let rawCSV = generateManifestCSV(assets: assets, rootFolderURL: rootFolderURL)
         
         var html = """
         <!DOCTYPE html>
@@ -678,7 +690,7 @@ public struct DeliverablesInspector: Sendable {
                     border-bottom: 1px solid var(--border);
                     white-space: nowrap;
                 }
-                th:nth-child(2) {
+                th:nth-child(2), th:last-child {
                     text-align: left;
                 }
 
@@ -689,7 +701,7 @@ public struct DeliverablesInspector: Sendable {
                     vertical-align: middle;
                     text-align: center;
                 }
-                td:nth-child(2) {
+                td:nth-child(2), td:last-child {
                     text-align: left;
                 }
 
@@ -720,6 +732,7 @@ public struct DeliverablesInspector: Sendable {
                     font-size: 10px;
                     font-weight: 700;
                     white-space: nowrap;
+                    border-radius: 4px;
                 }
 
                 .tag-mismatch {
@@ -826,12 +839,34 @@ public struct DeliverablesInspector: Sendable {
                                 <th>SUBS / CC</th>
                                 <th>VIDEO</th>
                                 <th>AUDIO (CODEC • BITRATE)</th>
+                                <th>FILE PATH</th>
                             </tr>
                         </thead>
                         <tbody>
         """
         
+        var currentFolder = ""
         for (idx, a) in assets.enumerated() {
+            var folderRel = ""
+            if let root = rootFolderURL {
+                let rootPath = root.standardizedFileURL.path
+                let filePath = a.fileURL.standardizedFileURL.path
+                if filePath.hasPrefix(rootPath) {
+                    let rel = String(filePath.dropFirst(rootPath.count)).trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+                    folderRel = (rel as NSString).deletingLastPathComponent
+                }
+            }
+            if !folderRel.isEmpty && folderRel != currentFolder {
+                currentFolder = folderRel
+                html += """
+                                <tr class="folder-header-row">
+                                    <td colspan="12" style="background:var(--table-th-bg); font-weight:800; font-family:var(--font-mono); font-size:11px; text-align:left; border-top:2px solid var(--border-strong); border-bottom:1px solid var(--border); padding:10px 14px; color:var(--text);">
+                                        📁 /\(folderRel.uppercased())/
+                                    </td>
+                                </tr>
+                """
+            }
+            
             let rowClass = a.validation.hasAnyMismatch ? "class='mismatch-row'" : ""
             let statusTag = a.validation.hasAnyMismatch ? "<span class='tag tag-mismatch'>MISMATCH</span>" : "<span class='tag tag-ok'>OK</span>"
             let subTag = a.hasSubtitles ? "<span class='tag tag-ok'>\(a.subtitlesInfo)</span>" : "<span style='color:var(--text-muted); font-family:var(--font-mono); font-size:11px'>NONE</span>"
@@ -873,6 +908,7 @@ public struct DeliverablesInspector: Sendable {
                                 <td>\(subTag)</td>
                                 <td>\(a.videoCodec)</td>
                                 <td>\(audioDisplay)</td>
+                                <td class="mono-cell" style="font-size:11px; max-width:280px; overflow:hidden; text-overflow:ellipsis;" title="\(a.fileURL.path)">\(a.fileURL.path)</td>
                             </tr>
             """
         }

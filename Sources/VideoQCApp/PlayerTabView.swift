@@ -47,6 +47,17 @@ extension ContentView {
                         Text("QUEUE (\(filteredPlayerFiles.count))")
                             .font(.system(size: 10, weight: .black, design: .monospaced))
                             .foregroundColor(textMuted)
+                        
+                        if hasPlayerSubfolders {
+                            Button(action: toggleAllPlayerFolders) {
+                                Image(systemName: playerCollapsedFolderIDs.isEmpty ? "chevron.down.circle" : "chevron.right.circle")
+                                    .font(.system(size: 10, weight: .bold))
+                                    .foregroundColor(textMuted)
+                            }
+                            .buttonStyle(.plain)
+                            .explain(playerCollapsedFolderIDs.isEmpty ? "Collapse all folders in playback queue." : "Expand all folders in playback queue.", binding: $hoverExplanation)
+                        }
+                        
                         Spacer()
                         
                         // Slot Target Selector
@@ -113,9 +124,21 @@ extension ContentView {
                         ScrollViewReader { scrollProxy in
                             ScrollView {
                                 LazyVStack(spacing: 4) {
-                                    ForEach(filteredPlayerFiles, id: \.self) { url in
-                                        playerFileRow(url: url)
-                                            .id(url)
+                                    if hasPlayerSubfolders {
+                                        ForEach(flattenedPlayerNodes) { node in
+                                            if node.isDirectory {
+                                                playerFolderRow(node: node)
+                                                    .id(node.id)
+                                            } else {
+                                                playerFileRow(url: node.url, depth: node.depth)
+                                                    .id(node.url)
+                                            }
+                                        }
+                                    } else {
+                                        ForEach(filteredPlayerFiles, id: \.self) { url in
+                                            playerFileRow(url: url, depth: 0)
+                                                .id(url)
+                                        }
                                     }
                                 }
                             }
@@ -203,9 +226,58 @@ extension ContentView {
         }
     }
     
-    // MARK: - File Row
+    // MARK: - Folder & File Rows
     
-    private func playerFileRow(url: URL) -> some View {
+    private func playerFolderRow(node: FileSystemTreeNode) -> some View {
+        let isCollapsed = playerCollapsedFolderIDs.contains(node.id)
+        
+        return HStack(spacing: 6) {
+            Image(systemName: isCollapsed ? "chevron.right" : "chevron.down")
+                .font(.system(size: 9, weight: .bold))
+                .foregroundColor(textMuted)
+                .frame(width: 12)
+            
+            Image(systemName: "folder.fill")
+                .font(.system(size: 11))
+                .foregroundColor(accentPositive)
+            
+            Text(node.name.uppercased())
+                .font(.system(size: 10, weight: .bold, design: .monospaced))
+                .foregroundColor(textMain)
+                .lineLimit(1)
+            
+            Spacer()
+            
+            Text("\(node.videoCount)")
+                .font(.system(size: 8, weight: .black, design: .monospaced))
+                .foregroundColor(textSubtle)
+                .padding(.horizontal, 5)
+                .padding(.vertical, 1)
+                .background(RoundedRectangle(cornerRadius: 3).fill(bgSubtle))
+        }
+        .padding(.leading, CGFloat(node.depth * 14) + 6)
+        .padding(.trailing, 8)
+        .padding(.vertical, 5)
+        .contentShape(Rectangle())
+        .onTapGesture {
+            if isCollapsed {
+                playerCollapsedFolderIDs.remove(node.id)
+            } else {
+                playerCollapsedFolderIDs.insert(node.id)
+            }
+        }
+        .contextMenu {
+            Button("Reveal in Finder") {
+                NSWorkspace.shared.activateFileViewerSelecting([node.url])
+            }
+            Button("Copy Path") {
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString(node.url.path, forType: .string)
+            }
+        }
+    }
+    
+    private func playerFileRow(url: URL, depth: Int = 0) -> some View {
         let isSlotA = playerEngine.slotA.url == url
         let isSlotB = playerEngine.slotB.url == url
         let isSelected = isSlotA || isSlotB
@@ -224,6 +296,10 @@ extension ContentView {
                     Rectangle()
                         .fill(isSlotA ? accentPositive : (isSlotB ? Color.orange : Color.clear))
                         .frame(width: 3)
+                    
+                    if depth > 0 {
+                        Spacer().frame(width: CGFloat(depth * 14))
+                    }
                     
                     Image(systemName: isSlotA ? "a.circle.fill" : (isSlotB ? "b.circle.fill" : "play.circle.fill"))
                         .font(.system(size: 13))
@@ -828,11 +904,47 @@ extension ContentView {
         .explain(tooltip, binding: $hoverExplanation)
     }
     
+    var playerTreeNodes: [FileSystemTreeNode] {
+        FileSystemTreeBuilder.buildTree(rootURL: folderURL, files: videoFiles)
+    }
+    
+    var hasPlayerSubfolders: Bool {
+        FileSystemTreeBuilder.hasSubfolders(in: playerTreeNodes)
+    }
+    
+    var flattenedPlayerNodes: [FileSystemTreeNode] {
+        FileSystemTreeBuilder.flatten(
+            nodes: playerTreeNodes,
+            collapsedIDs: playerCollapsedFolderIDs,
+            filterText: playerFilterText
+        )
+    }
+    
     var filteredPlayerFiles: [URL] {
+        let treeOrder = FileSystemTreeBuilder.orderedVideoURLs(from: playerTreeNodes)
+        let baseFiles = treeOrder.isEmpty ? videoFiles : treeOrder
         if playerFilterText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            return videoFiles
+            return baseFiles
         }
-        return videoFiles.filter { $0.lastPathComponent.localizedCaseInsensitiveContains(playerFilterText) }
+        return baseFiles.filter { $0.lastPathComponent.localizedCaseInsensitiveContains(playerFilterText) }
+    }
+    
+    private func toggleAllPlayerFolders() {
+        if playerCollapsedFolderIDs.isEmpty {
+            func collectFolderIDs(_ node: FileSystemTreeNode) -> [String] {
+                var ids: [String] = []
+                if node.isDirectory {
+                    ids.append(node.id)
+                    for child in node.children {
+                        ids.append(contentsOf: collectFolderIDs(child))
+                    }
+                }
+                return ids
+            }
+            playerCollapsedFolderIDs = Set(playerTreeNodes.flatMap { collectFolderIDs($0) })
+        } else {
+            playerCollapsedFolderIDs.removeAll()
+        }
     }
     
     // MARK: - Screenshot Capture & Export

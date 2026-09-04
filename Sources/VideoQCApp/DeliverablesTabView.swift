@@ -212,8 +212,7 @@ extension ContentView {
                     }
                     .buttonStyle(.plain)
                     .explain("Generates and opens a formatted HTML delivery specs sheet in browser.", binding: $hoverExplanation)
-                    
-                    if let firstURL = deliverableAssets.first?.fileURL {
+                                   if let firstURL = deliverableAssets.first?.fileURL {
                         Button(action: { NSWorkspace.shared.activateFileViewerSelecting([firstURL]) }) {
                             Text("[ FINDER ]")
                                 .font(.system(size: 11, weight: .bold, design: .monospaced))
@@ -224,6 +223,19 @@ extension ContentView {
                         }
                         .buttonStyle(.plain)
                         .explain("Locates and highlights the first asset in macOS Finder.", binding: $hoverExplanation)
+                    }
+                    
+                    if hasDeliverablesSubfolders {
+                        Button(action: toggleAllDeliverablesFolders) {
+                            Text(deliverablesCollapsedFolderIDs.isEmpty ? "[ COLLAPSE ALL ]" : "[ EXPAND ALL ]")
+                                .font(.system(size: 11, weight: .bold, design: .monospaced))
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 8)
+                                .foregroundColor(textMain)
+                                .studioBox(background: bgSubtle, border: borderLine)
+                        }
+                        .buttonStyle(.plain)
+                        .explain(deliverablesCollapsedFolderIDs.isEmpty ? "Collapse all subfolders in the deliverables audit table." : "Expand all subfolders in the deliverables audit table.", binding: $hoverExplanation)
                     }
                 }
             }
@@ -241,7 +253,7 @@ extension ContentView {
                 // Table Header
                 HStack(spacing: 8) {
                     Text("#").frame(width: 25, alignment: .center)
-                    Text("FILE NAME").frame(minWidth: 160, maxWidth: .infinity, alignment: .leading)
+                    Text("FILE NAME").frame(minWidth: 140, maxWidth: 220, alignment: .leading)
                     Text("STATUS").frame(width: 75, alignment: .center)
                     Text("TIMECODE (TC)").frame(width: 130, alignment: .center)
                     Text("RATIO & SIZE").frame(width: 135, alignment: .center)
@@ -250,6 +262,7 @@ extension ContentView {
                     Text("CREATED").frame(width: 110, alignment: .center)
                     Text("VIDEO").frame(width: 85, alignment: .center)
                     Text("AUDIO SPEC").frame(width: 145, alignment: .center)
+                    Text("PATH").frame(minWidth: 160, maxWidth: .infinity, alignment: .leading)
                 }
                 .font(.system(size: 9, weight: .bold, design: .monospaced))
                 .foregroundColor(textMuted)
@@ -262,143 +275,27 @@ extension ContentView {
                 // Table Rows
                 ScrollView {
                     VStack(spacing: 0) {
-                        ForEach(Array(deliverableAssets.enumerated()), id: \.element.id) { idx, asset in
-                            let hasMismatch = asset.validation.hasAnyMismatch
-                            
-                            HStack(spacing: 8) {
-                                Text(String(format: "%02d", idx + 1))
-                                    .frame(width: 25, alignment: .center)
-                                    .foregroundColor(textMuted)
-                                
-                                Text(asset.fileName.uppercased())
-                                    .frame(minWidth: 160, maxWidth: .infinity, alignment: .leading)
-                                    .fontWeight(.bold)
-                                    .lineLimit(1)
-                                    .truncationMode(.middle)
-                                    .help(asset.fileName)
-                                
-                                // Validation Status Badge
-                                ZStack {
-                                    if hasMismatch {
-                                        Text("MISMATCH")
-                                            .font(.system(size: 8, weight: .black, design: .monospaced))
-                                            .padding(.horizontal, 6)
-                                            .padding(.vertical, 2)
-                                            .background(alertRed)
-                                            .foregroundColor(.white)
-                                            .help(asset.validation.summaryString)
-                                    } else {
-                                        Text("OK")
-                                            .font(.system(size: 8, weight: .black, design: .monospaced))
-                                            .padding(.horizontal, 8)
-                                            .padding(.vertical, 2)
-                                            .background(accentPositive)
-                                            .foregroundColor(.white)
-                                    }
+                        let assetMap = deliverableAssetsMap
+                        
+                        if hasDeliverablesSubfolders {
+                            ForEach(Array(flattenedDeliverableNodes.enumerated()), id: \.element.id) { idx, node in
+                                if node.isDirectory {
+                                    deliverablesFolderBannerRow(node: node, assetMap: assetMap)
+                                } else if let asset = assetMap[node.url] {
+                                    deliverablesAssetRow(idx: idx, asset: asset, depth: node.depth)
                                 }
-                                .frame(width: 75, alignment: .center)
                                 
-                                // Timecode Cell with Warning
-                                VStack(alignment: .center, spacing: 2) {
-                                    Text(asset.timecode)
-                                        .foregroundColor(asset.validation.isDurationMismatch ? alertRed : textSubtle)
-                                        .fontWeight(asset.validation.isDurationMismatch ? .bold : .regular)
-                                    
-                                    if let detail = asset.validation.durationMismatchDetail {
-                                        Text(detail)
-                                            .font(.system(size: 8, weight: .heavy, design: .monospaced))
-                                            .foregroundColor(alertRed)
-                                            .lineLimit(1)
-                                    }
-                                }
-                                .frame(width: 130, alignment: .center)
-                                
-                                // Ratio Cell with Warning
-                                VStack(alignment: .center, spacing: 2) {
-                                    HStack(spacing: 4) {
-                                        Text(asset.aspectRatioString)
-                                            .font(.system(size: 9, weight: .bold, design: .monospaced))
-                                            .padding(.horizontal, 4)
-                                            .padding(.vertical, 2)
-                                            .foregroundColor(asset.validation.isRatioMismatch ? .white : textMain)
-                                            .studioBox(background: asset.validation.isRatioMismatch ? alertRed : bgSubtle, border: asset.validation.isRatioMismatch ? alertRed : borderLine)
-                                        
-                                        Text(asset.resolutionString)
-                                            .foregroundColor(textSubtle)
-                                    }
-                                    
-                                    if let detail = asset.validation.ratioMismatchDetail {
-                                        Text(detail)
-                                            .font(.system(size: 8, weight: .heavy, design: .monospaced))
-                                            .foregroundColor(alertRed)
-                                            .lineLimit(1)
-                                    }
-                                }
-                                .frame(width: 135, alignment: .center)
-                                
-                                Text(String(format: "%.2f", asset.fps))
-                                    .frame(width: 60, alignment: .center)
-                                    .foregroundColor(textSubtle)
-                                
-                                Text(asset.formattedFileSize)
-                                    .frame(width: 75, alignment: .center)
-                                    .fontWeight(.semibold)
-                                
-                                // Creation Date Column
-                                Text(asset.formattedCreationDate)
-                                    .font(.system(size: 9, design: .monospaced))
-                                    .foregroundColor(textSubtle)
-                                    .frame(width: 110, alignment: .center)
-                                
-
-                                Text(asset.videoCodec)
-                                    .frame(width: 85, alignment: .center)
-                                    .foregroundColor(textMuted)
-                                    .lineLimit(1)
-                                
-                                // Audio Column
-                                if !asset.hasAudio {
-                                    Text("NONE")
-                                        .font(.system(size: 9, weight: .bold, design: .monospaced))
-                                        .foregroundColor(textMuted)
-                                        .frame(width: 145, alignment: .center)
-                                } else {
-                                    VStack(alignment: .center, spacing: 2) {
-                                        HStack(spacing: 4) {
-                                            Text(asset.audioCodec)
-                                                .font(.system(size: 10, weight: .bold, design: .monospaced))
-                                                .foregroundColor(textMain)
-                                            if asset.audioBitrate != "--" {
-                                                Text(asset.audioBitrate)
-                                                    .font(.system(size: 8, weight: .bold, design: .monospaced))
-                                                    .padding(.horizontal, 4)
-                                                    .padding(.vertical, 1)
-                                                    .foregroundColor(textSubtle)
-                                                    .studioBox(background: bgSubtle, border: borderLine)
-                                            }
-                                        }
-                                        if !asset.audioFormatDetail.isEmpty {
-                                            Text(asset.audioFormatDetail)
-                                                .font(.system(size: 8, weight: .medium, design: .monospaced))
-                                                .foregroundColor(textMuted)
-                                                .lineLimit(1)
-                                        }
-                                    }
-                                    .frame(width: 145, alignment: .center)
-                                    .help(asset.audioConfig)
+                                if idx < flattenedDeliverableNodes.count - 1 {
+                                    Rectangle().fill(borderLine.opacity(0.4)).frame(height: 1)
                                 }
                             }
-                            .font(.system(size: 11, design: .monospaced))
-                            .padding(.horizontal, 14)
-                            .padding(.vertical, 9)
-                            .background(hasMismatch ? alertRed.opacity(0.12) : (idx % 2 == 0 ? bgPanel : bgCardSubtle))
-                            .overlay(
-                                hasMismatch ? Rectangle().fill(alertRed).frame(width: 3) : nil,
-                                alignment: .leading
-                            )
-                            
-                            if idx < deliverableAssets.count - 1 {
-                                Rectangle().fill(borderLine.opacity(0.4)).frame(height: 1)
+                        } else {
+                            ForEach(Array(deliverableAssets.enumerated()), id: \.element.id) { idx, asset in
+                                deliverablesAssetRow(idx: idx, asset: asset, depth: 0)
+                                
+                                if idx < deliverableAssets.count - 1 {
+                                    Rectangle().fill(borderLine.opacity(0.4)).frame(height: 1)
+                                }
                             }
                         }
                     }
@@ -407,5 +304,285 @@ extension ContentView {
             .studioBox(background: bgPanel, border: borderLine)
         }
         .padding(28)
+    }
+    
+    // MARK: - Deliverables Hierarchy Helpers
+    
+    var deliverablesTree: [FileSystemTreeNode] {
+        FileSystemTreeBuilder.buildTree(rootURL: folderURL, files: deliverableAssets.map { $0.fileURL })
+    }
+    
+    var hasDeliverablesSubfolders: Bool {
+        FileSystemTreeBuilder.hasSubfolders(in: deliverablesTree)
+    }
+    
+    var flattenedDeliverableNodes: [FileSystemTreeNode] {
+        FileSystemTreeBuilder.flatten(
+            nodes: deliverablesTree,
+            collapsedIDs: deliverablesCollapsedFolderIDs
+        )
+    }
+    
+    var deliverableAssetsMap: [URL: DeliverableAsset] {
+        Dictionary(uniqueKeysWithValues: deliverableAssets.map { ($0.fileURL, $0) })
+    }
+    
+    private func toggleAllDeliverablesFolders() {
+        if deliverablesCollapsedFolderIDs.isEmpty {
+            func collectFolderIDs(_ node: FileSystemTreeNode) -> [String] {
+                var ids: [String] = []
+                if node.isDirectory {
+                    ids.append(node.id)
+                    for child in node.children {
+                        ids.append(contentsOf: collectFolderIDs(child))
+                    }
+                }
+                return ids
+            }
+            deliverablesCollapsedFolderIDs = Set(deliverablesTree.flatMap { collectFolderIDs($0) })
+        } else {
+            deliverablesCollapsedFolderIDs.removeAll()
+        }
+    }
+    
+    private func deliverablesFolderBannerRow(node: FileSystemTreeNode, assetMap: [URL: DeliverableAsset]) -> some View {
+        let isCollapsed = deliverablesCollapsedFolderIDs.contains(node.id)
+        let folderAssets = node.videoURLs.compactMap { assetMap[$0] }
+        let folderDuration = folderAssets.reduce(0.0) { $0 + $1.durationSeconds }
+        let folderBytes = folderAssets.reduce(Int64(0)) { $0 + $1.fileSizeBytes }
+        let folderMismatches = folderAssets.filter { $0.validation.hasAnyMismatch }.count
+        let formattedDur = TimecodeFormatter.format(frameIndex: Int(round(folderDuration * 25.0)), fps: 25.0)
+        let formattedSize = DeliverablesInspector.formatFileSize(bytes: folderBytes)
+        
+        return HStack(spacing: 8) {
+            Image(systemName: isCollapsed ? "chevron.right" : "chevron.down")
+                .font(.system(size: 9, weight: .bold))
+                .foregroundColor(textMuted)
+                .frame(width: 25, alignment: .center)
+            
+            HStack(spacing: 6) {
+                Image(systemName: "folder.fill")
+                    .font(.system(size: 11))
+                    .foregroundColor(accentPositive)
+                
+                Text(node.relativePath.isEmpty ? node.name.uppercased() : "\(node.relativePath.uppercased())/")
+                    .font(.system(size: 11, weight: .black, design: .monospaced))
+                    .foregroundColor(textMain)
+                    .lineLimit(1)
+                
+                Text("(\(node.videoCount) \(node.videoCount == 1 ? "ASSET" : "ASSETS"))")
+                    .font(.system(size: 9, weight: .bold, design: .monospaced))
+                    .foregroundColor(textMuted)
+            }
+            .padding(.leading, CGFloat(node.depth * 14))
+            
+            Spacer()
+            
+            HStack(spacing: 12) {
+                Text(formattedDur)
+                    .font(.system(size: 9, weight: .bold, design: .monospaced))
+                    .foregroundColor(textSubtle)
+                
+                Text(formattedSize)
+                    .font(.system(size: 9, weight: .bold, design: .monospaced))
+                    .foregroundColor(textSubtle)
+                
+                if folderMismatches > 0 {
+                    Text("\(folderMismatches) MISMATCH\(folderMismatches == 1 ? "" : "ES")")
+                        .font(.system(size: 8, weight: .black, design: .monospaced))
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(RoundedRectangle(cornerRadius: 4).fill(alertRed))
+                        .foregroundColor(.white)
+                } else {
+                    Text("ALL OK")
+                        .font(.system(size: 8, weight: .black, design: .monospaced))
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 2)
+                        .background(RoundedRectangle(cornerRadius: 4).fill(accentPositive))
+                        .foregroundColor(.white)
+                }
+            }
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 8)
+        .background(bgCardHeader)
+        .contentShape(Rectangle())
+        .onTapGesture {
+            if isCollapsed {
+                deliverablesCollapsedFolderIDs.remove(node.id)
+            } else {
+                deliverablesCollapsedFolderIDs.insert(node.id)
+            }
+        }
+        .contextMenu {
+            Button("Reveal in Finder") {
+                NSWorkspace.shared.activateFileViewerSelecting([node.url])
+            }
+            Button("Copy Folder Path") {
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString(node.url.path, forType: .string)
+            }
+        }
+    }
+    
+    private func deliverablesAssetRow(idx: Int, asset: DeliverableAsset, depth: Int = 0) -> some View {
+        let hasMismatch = asset.validation.hasAnyMismatch
+        
+        return HStack(spacing: 8) {
+            Text(String(format: "%02d", idx + 1))
+                .frame(width: 25, alignment: .center)
+                .foregroundColor(textMuted)
+            
+            HStack(spacing: 4) {
+                if hasDeliverablesSubfolders && depth > 0 {
+                    Spacer().frame(width: CGFloat((depth - 1) * 12 + 4))
+                    Image(systemName: "arrow.turn.down.right")
+                        .font(.system(size: 8, weight: .bold))
+                        .foregroundColor(textMuted.opacity(0.55))
+                }
+                Text(asset.fileName.uppercased())
+                    .fontWeight(.bold)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                    .help(asset.fileName)
+            }
+            .frame(minWidth: 140, maxWidth: 220, alignment: .leading)
+            
+            // Validation Status Badge
+            ZStack {
+                if hasMismatch {
+                    Text("MISMATCH")
+                        .font(.system(size: 8, weight: .black, design: .monospaced))
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(RoundedRectangle(cornerRadius: 4).fill(alertRed))
+                        .foregroundColor(.white)
+                        .help(asset.validation.summaryString)
+                } else {
+                    Text("OK")
+                        .font(.system(size: 8, weight: .black, design: .monospaced))
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 2)
+                        .background(RoundedRectangle(cornerRadius: 4).fill(accentPositive))
+                        .foregroundColor(.white)
+                }
+            }
+            .frame(width: 75, alignment: .center)
+            
+            // Timecode Cell with Warning
+            VStack(alignment: .center, spacing: 2) {
+                Text(asset.timecode)
+                    .foregroundColor(asset.validation.isDurationMismatch ? alertRed : textSubtle)
+                    .fontWeight(asset.validation.isDurationMismatch ? .bold : .regular)
+                
+                if let detail = asset.validation.durationMismatchDetail {
+                    Text(detail)
+                        .font(.system(size: 8, weight: .heavy, design: .monospaced))
+                        .foregroundColor(alertRed)
+                        .lineLimit(1)
+                }
+            }
+            .frame(width: 130, alignment: .center)
+            
+            // Ratio Cell with Warning
+            VStack(alignment: .center, spacing: 2) {
+                HStack(spacing: 4) {
+                    Text(asset.aspectRatioString)
+                        .font(.system(size: 9, weight: .bold, design: .monospaced))
+                        .padding(.horizontal, 4)
+                        .padding(.vertical, 2)
+                        .foregroundColor(asset.validation.isRatioMismatch ? .white : textMain)
+                        .studioBox(background: asset.validation.isRatioMismatch ? alertRed : bgSubtle, border: asset.validation.isRatioMismatch ? alertRed : borderLine)
+                    
+                    Text(asset.resolutionString)
+                        .foregroundColor(textSubtle)
+                }
+                
+                if let detail = asset.validation.ratioMismatchDetail {
+                    Text(detail)
+                        .font(.system(size: 8, weight: .heavy, design: .monospaced))
+                        .foregroundColor(alertRed)
+                        .lineLimit(1)
+                }
+            }
+            .frame(width: 135, alignment: .center)
+            
+            Text(String(format: "%.2f", asset.fps))
+                .frame(width: 60, alignment: .center)
+                .foregroundColor(textSubtle)
+            
+            Text(asset.formattedFileSize)
+                .frame(width: 75, alignment: .center)
+                .fontWeight(.semibold)
+            
+            // Creation Date Column
+            Text(asset.formattedCreationDate)
+                .font(.system(size: 9, design: .monospaced))
+                .foregroundColor(textSubtle)
+                .frame(width: 110, alignment: .center)
+            
+            Text(asset.videoCodec)
+                .frame(width: 85, alignment: .center)
+                .foregroundColor(textMuted)
+                .lineLimit(1)
+            
+            // Audio Column
+            if !asset.hasAudio {
+                Text("NONE")
+                    .font(.system(size: 9, weight: .bold, design: .monospaced))
+                    .foregroundColor(textMuted)
+                    .frame(width: 145, alignment: .center)
+            } else {
+                VStack(alignment: .center, spacing: 2) {
+                    HStack(spacing: 4) {
+                        Text(asset.audioCodec)
+                            .font(.system(size: 10, weight: .bold, design: .monospaced))
+                            .foregroundColor(textMain)
+                        if asset.audioBitrate != "--" {
+                            Text(asset.audioBitrate)
+                                .font(.system(size: 8, weight: .bold, design: .monospaced))
+                                .padding(.horizontal, 4)
+                                .padding(.vertical, 1)
+                                .foregroundColor(textSubtle)
+                                .studioBox(background: bgSubtle, border: borderLine)
+                        }
+                    }
+                    if !asset.audioFormatDetail.isEmpty {
+                        Text(asset.audioFormatDetail)
+                            .font(.system(size: 8, weight: .medium, design: .monospaced))
+                            .foregroundColor(textMuted)
+                            .lineLimit(1)
+                    }
+                }
+                .frame(width: 145, alignment: .center)
+                .help(asset.audioConfig)
+            }
+            
+            Text(asset.fileURL.path)
+                .font(.system(size: 10, design: .monospaced))
+                .foregroundColor(textSubtle)
+                .frame(minWidth: 160, maxWidth: .infinity, alignment: .leading)
+                .lineLimit(1)
+                .truncationMode(.middle)
+                .help(asset.fileURL.path)
+                .contextMenu {
+                    Button("Copy Path") {
+                        NSPasteboard.general.clearContents()
+                        NSPasteboard.general.setString(asset.fileURL.path, forType: .string)
+                    }
+                    Button("Reveal in Finder") {
+                        NSWorkspace.shared.activateFileViewerSelecting([asset.fileURL])
+                    }
+                }
+        }
+        .font(.system(size: 11, design: .monospaced))
+        .padding(.horizontal, 14)
+        .padding(.vertical, 9)
+        .background(hasMismatch ? alertRed.opacity(0.12) : (idx % 2 == 0 ? bgPanel : bgCardSubtle))
+        .overlay(
+            hasMismatch ? Rectangle().fill(alertRed).frame(width: 3) : nil,
+            alignment: .leading
+        )
     }
 }
