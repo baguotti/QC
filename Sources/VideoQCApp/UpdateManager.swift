@@ -35,8 +35,8 @@ public final class UpdateManager: NSObject, ObservableObject {
         return URLSession(configuration: config, delegate: self, delegateQueue: .main)
     }()
     
-    private let repoOwner = "baguotti"
-    private let repoName = "QC"
+    private let repoOwner = AppConfig.githubRepoOwner
+    private let repoName = AppConfig.githubRepoName
     
     private override init() {
         super.init()

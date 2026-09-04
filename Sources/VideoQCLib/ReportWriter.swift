@@ -7,7 +7,7 @@ public struct ReportWriter: Sendable {
     /// Marks a single video file in macOS Finder with a Red label/tag
     public static func setRedTag(for url: URL) {
         let nsURL = url as NSURL
-        try? nsURL.setResourceValue(["Red"] as NSArray, forKey: .tagNamesKey)
+        try? nsURL.setResourceValue(["Red\n6"] as NSArray, forKey: .tagNamesKey)
         var mutableURL = url
         var resourceValues = URLResourceValues()
         resourceValues.labelNumber = 6

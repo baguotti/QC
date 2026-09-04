@@ -3,7 +3,7 @@ import VideoQCLib
 
 extension ContentView {
     
-    // MARK: ==================== TAB 2: DELIVERABLES SPECS ====================
+    // MARK: ==================== TAB 3: DELIVERABLES SPECS ====================
     
     var deliverablesTabView: some View {
         HSplitView {
@@ -363,7 +363,7 @@ extension ContentView {
             HStack(spacing: 6) {
                 Image(systemName: "folder.fill")
                     .font(.system(size: 11))
-                    .foregroundColor(accentPositive)
+                    .foregroundColor(textSubtle)
                 
                 Text(node.relativePath.isEmpty ? node.name.uppercased() : "\(node.relativePath.uppercased())/")
                     .font(.system(size: 11, weight: .black, design: .monospaced))

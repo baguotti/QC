@@ -45,7 +45,6 @@ struct UserGuideView: View {
                         .foregroundColor(textMain)
                         .padding(.horizontal, 6)
                         .padding(.vertical, 2)
-                        .foregroundColor(textMain)
                         .studioBox(background: bgSubtle, border: borderLine)
                     }
                     Spacer()
@@ -85,13 +84,13 @@ struct UserGuideView: View {
                     VStack(alignment: .leading, spacing: 12) {
                         switch selectedGuideTab {
                         case 0:
-                            tabOneGuide
+                            lineScannerGuide
                         case 1:
-                            tabFourGuide
+                            playerGuide
                         case 2:
-                            tabTwoGuide
+                            deliverablesGuide
                         default:
-                            tabThreeGuide
+                            batchRenamerGuide
                         }
                     }
                     .padding(18)
@@ -139,11 +138,11 @@ struct UserGuideView: View {
         .buttonStyle(.plain)
     }
     
-    // MARK: - Tab 1 Guide
+    // MARK: - Tab 1 Guide // LINE SCANNER
     
-    private var tabOneGuide: some View {
+    private var lineScannerGuide: some View {
         VStack(alignment: .leading, spacing: 10) {
-            guideRow(name: "[ + CHOOSE FOLDER / FILES ]", desc: "Selects or drags in video files or folders to scan.")
+            guideRow(name: "LOAD ASSETS (CHANGE / ADD)", desc: "Selects, changes, or adds video files or folders to the working batch without losing existing assets.")
             guideRow(name: "TARGET COLOR & HEX", desc: "Sets the RGB target color for edge line detection. Hex value can be inputted at any time.")
             guideRow(name: "COLOR PRESETS & CUSTOM WHEEL", desc: "Quick targets: Green (#00FF00, default), Magenta (#FF00B4), Black (#000000), or Custom Color Wheel / Swatch.")
             guideRow(name: "TOLERANCE SLIDER", desc: "Threshold for color matching (0–100%). Default is 15%.")
@@ -159,49 +158,9 @@ struct UserGuideView: View {
         }
     }
     
-    // MARK: - Tab 2 Guide
+    // MARK: - Tab 2 Guide // PLAYER
     
-    private var tabTwoGuide: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            guideRow(name: "[ + SELECT DELIVERY FOLDER / FILES ]", desc: "Loads files or folders to read metadata without decoding video frames.")
-            guideRow(name: "FILE NAME", desc: "Name of the file.")
-            guideRow(name: "RESOLUTION & ASPECT RATIO", desc: "Pixel dimensions (e.g. 1920x1080) and ratio (16:9, 9:16, 1:1, 4:5).")
-            guideRow(name: "DURATION & TIMECODE", desc: "Total seconds and exact SMPTE timecode (HH:MM:SS:FF).")
-            guideRow(name: "FPS", desc: "Video track frame rate.")
-            guideRow(name: "VIDEO CODEC", desc: "Compression format (ProRes, H.264, HEVC) and profile.")
-            guideRow(name: "AUDIO CONFIGURATION", desc: "Channel layout (Stereo, 5.1, Mono), sample rate, and bit depth.")
-            guideRow(name: "FILE SIZE", desc: "File size in MB or GB.")
-            guideRow(name: "MISMATCH WARNINGS", desc: "Highlights files where filename tags (e.g. 16x9, 1080p, 15s) conflict with actual stream metadata.")
-            guideRow(name: "[ EXPORT CSV ]", desc: "Exports the metadata table to a CSV file.")
-            guideRow(name: "[ OPEN IN GOOGLE SHEETS ]", desc: "Copies data to clipboard and opens Google Sheets in your browser.")
-            guideRow(name: "[ EXPORT HTML SPECS SHEET ]", desc: "Exports a styled HTML specs sheet.")
-        }
-    }
-    
-    // MARK: - Tab 3 Guide
-    
-    private var tabThreeGuide: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            guideRow(name: "RENAMING MODES", desc: "Template (token-based), Find & Replace (text match), or Prefix / Suffix.")
-            guideRow(name: "PROJECT / ASSET NAME {NAME}", desc: "Custom text to replace the {NAME} token. Defaults to original filename if blank.")
-            guideRow(name: "TOKENS: {NAME}, {ORIGINAL}", desc: "{NAME} = Custom field value. {ORIGINAL} = Original filename without extension.")
-            guideRow(name: "TOKENS: {DUR}, {RATIO}, {TAG1-3}", desc: "{DUR} = Duration in seconds. {RATIO} = Ratio tag (16x9, 9x16). {TAG1}, {TAG2}, {TAG3} = Custom tags (empty by default, automatically added when filled).")
-            guideRow(name: "TOKENS: {RES}, {DIMS}, {FPS}", desc: "{RES} = 1080p/4K. {DIMS} = 1920x1080. {FPS} = Frame rate (e.g. 25fps).")
-            guideRow(name: "TOKENS: {CODEC}, {AUDIO}", desc: "{CODEC} = Video codec (e.g. ProRes422HQ). {AUDIO} = Audio channels (Stereo, 5.1).")
-            guideRow(name: "TOKENS: {INDEX}, {DATE}", desc: "{INDEX} = Sequential counter (01, 02). {DATE} = Current date (YYYYMMDD).")
-            guideRow(name: "CASING", desc: "Preserve, UPPERCASE, lowercase, or Capitalize.")
-            guideRow(name: "INDEX SETTINGS", desc: "Sets start number and digit padding (e.g. 01 vs 001).")
-            guideRow(name: "SELECT ALL / DESELECT ALL", desc: "Toggles selection for all files.")
-            guideRow(name: "ROW CLICK / CHECKBOXES", desc: "Click any row to include or exclude a file. Excluded files are not renamed on disk.")
-            guideRow(name: "STATUS BADGES", desc: "PENDING (ready), UNCHANGED (same name), EXCLUDED (skipped), COLLISION (duplicate name), OVERWRITE (file exists on disk).")
-            guideRow(name: "[ RENAME SELECTED FILE(S) ]", desc: "Renames selected files on disk.")
-            guideRow(name: "[ ⎌ UNDO / REVERT ]", desc: "Reverses the last rename operation on disk.")
-        }
-    }
-    
-    // MARK: - Tab 4 Guide
-    
-    private var tabFourGuide: some View {
+    private var playerGuide: some View {
         VStack(alignment: .leading, spacing: 10) {
             guideRow(name: "DUAL A/B & DIFFERENCE MODE", desc: "Option+Click any queue asset (or click +B) to load into Slot B. Compare using interactive Split Wipe (drag the tactile center handle), Side-by-Side (horizontal left/right or vertical stacked top/bottom), or GPU Difference Mode (|RGB_A - RGB_B|). Click [(TAB)] or press Tab for rapid flicker compare, X to Swap slots, C to cycle modes, and solo Slot A or B audio.")
             guideRow(name: "J-K-L SHUTTLE PLAYBACK", desc: "Tap L to play forward (1x, 2x, 4x, 8x, 16x). Tap K to pause. Tap J to play reverse (-1x, -2x, -4x, -8x, -16x).")
@@ -221,6 +180,46 @@ struct UserGuideView: View {
             guideRow(name: "FRAME SCREENSHOT (CAMERA ICON)", desc: "Click the square camera button in the transport bar to export the current video frame as a medium-quality JPEG to any folder.")
             guideRow(name: "SEAMLESS LOOP (⌘L)", desc: "Toggles automatic looping. Reaching the end seamlessly restarts from the beginning without stopping.")
             guideRow(name: "AUDIO & MUTE", desc: "Master playback volume slider and instant audio mute button.")
+        }
+    }
+    
+    // MARK: - Tab 3 Guide // DELIVERABLES SPECS
+    
+    private var deliverablesGuide: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            guideRow(name: "LOAD ASSETS (01)", desc: "Loads files or folders to read metadata without decoding video frames.")
+            guideRow(name: "FILE NAME", desc: "Name of the file.")
+            guideRow(name: "RESOLUTION & ASPECT RATIO", desc: "Pixel dimensions (e.g. 1920x1080) and ratio (16:9, 9:16, 1:1, 4:5).")
+            guideRow(name: "DURATION & TIMECODE", desc: "Total seconds and exact SMPTE timecode (HH:MM:SS:FF).")
+            guideRow(name: "FPS", desc: "Video track frame rate.")
+            guideRow(name: "VIDEO CODEC", desc: "Compression format (ProRes, H.264, HEVC) and profile.")
+            guideRow(name: "AUDIO CONFIGURATION", desc: "Channel layout (Stereo, 5.1, Mono), sample rate, and bit depth.")
+            guideRow(name: "FILE SIZE", desc: "File size in MB or GB.")
+            guideRow(name: "MISMATCH WARNINGS", desc: "Highlights files where filename tags (e.g. 16x9, 1080p, 15s) conflict with actual stream metadata.")
+            guideRow(name: "[ EXPORT CSV ]", desc: "Exports the metadata table to a CSV file.")
+            guideRow(name: "[ OPEN IN GOOGLE SHEETS ]", desc: "Copies data to clipboard and opens Google Sheets in your browser.")
+            guideRow(name: "[ EXPORT HTML SPECS SHEET ]", desc: "Exports a styled HTML specs sheet.")
+        }
+    }
+    
+    // MARK: - Tab 4 Guide // BATCH RENAMER
+    
+    private var batchRenamerGuide: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            guideRow(name: "RENAMING MODES", desc: "Template (token-based), Find & Replace (text match), or Prefix / Suffix.")
+            guideRow(name: "PROJECT / ASSET NAME {NAME}", desc: "Custom text to replace the {NAME} token. Defaults to original filename if blank.")
+            guideRow(name: "TOKENS: {NAME}, {ORIGINAL}", desc: "{NAME} = Custom field value. {ORIGINAL} = Original filename without extension.")
+            guideRow(name: "TOKENS: {DUR}, {RATIO}, {TAG1-3}", desc: "{DUR} = Duration in seconds. {RATIO} = Ratio tag (16x9, 9x16). {TAG1}, {TAG2}, {TAG3} = Custom tags (empty by default, automatically added when filled).")
+            guideRow(name: "TOKENS: {RES}, {DIMS}, {FPS}", desc: "{RES} = 1080p/4K. {DIMS} = 1920x1080. {FPS} = Frame rate (e.g. 25fps).")
+            guideRow(name: "TOKENS: {CODEC}, {AUDIO}", desc: "{CODEC} = Video codec (e.g. ProRes422HQ). {AUDIO} = Audio channels (Stereo, 5.1).")
+            guideRow(name: "TOKENS: {INDEX}, {DATE}", desc: "{INDEX} = Sequential counter (01, 02). {DATE} = Current date (YYYYMMDD).")
+            guideRow(name: "CASING", desc: "Preserve, UPPERCASE, lowercase, or Capitalize.")
+            guideRow(name: "INDEX SETTINGS", desc: "Sets start number and digit padding (e.g. 01 vs 001).")
+            guideRow(name: "SELECT ALL / DESELECT ALL", desc: "Toggles selection for all files.")
+            guideRow(name: "ROW CLICK / CHECKBOXES", desc: "Click any row to include or exclude a file. Excluded files are not renamed on disk.")
+            guideRow(name: "STATUS BADGES", desc: "PENDING (ready), UNCHANGED (same name), EXCLUDED (skipped), COLLISION (duplicate name), OVERWRITE (file exists on disk).")
+            guideRow(name: "[ RENAME SELECTED FILE(S) ]", desc: "Renames selected files on disk.")
+            guideRow(name: "[ ⎌ UNDO / REVERT ]", desc: "Reverses the last rename operation on disk.")
         }
     }
     

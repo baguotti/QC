@@ -5,7 +5,7 @@ import VideoQCLib
 
 extension ContentView {
     
-    // MARK: ==================== TAB 4: PREMIERE-STYLE PLAYER ====================
+    // MARK: ==================== TAB 2: PREMIERE-STYLE PLAYER ====================
     
     var playerTabView: some View {
         HSplitView {
@@ -16,17 +16,27 @@ extension ContentView {
                 
                 // Search Filter
                 if !videoFiles.isEmpty {
-                    HStack {
+                    HStack(spacing: 6) {
                         Image(systemName: "magnifyingglass")
                             .font(.system(size: 10))
                             .foregroundColor(textMuted)
-                        TextField("FILTER ASSETS...", text: $playerFilterText)
-                            .font(.system(size: 11, design: .monospaced))
-                            .textFieldStyle(.plain)
-                            .foregroundColor(textMain)
-                            .onSubmit {
-                                NSApp.keyWindow?.makeFirstResponder(nil)
+                        
+                        ZStack(alignment: .leading) {
+                            if playerFilterText.isEmpty {
+                                Text("FILTER ASSETS...")
+                                    .font(.system(size: 11, weight: .bold, design: .monospaced))
+                                    .foregroundColor(textMuted)
+                                    .allowsHitTesting(false)
                             }
+                            TextField("", text: $playerFilterText)
+                                .font(.system(size: 11, weight: .medium, design: .monospaced))
+                                .textFieldStyle(.plain)
+                                .foregroundColor(textMain)
+                                .onSubmit {
+                                    NSApp.keyWindow?.makeFirstResponder(nil)
+                                }
+                        }
+                        
                         if !playerFilterText.isEmpty {
                             Button(action: { playerFilterText = "" }) {
                                 Image(systemName: "xmark.circle.fill")
@@ -239,7 +249,7 @@ extension ContentView {
             
             Image(systemName: "folder.fill")
                 .font(.system(size: 11))
-                .foregroundColor(accentPositive)
+                .foregroundColor(textSubtle)
             
             Text(node.name.uppercased())
                 .font(.system(size: 10, weight: .bold, design: .monospaced))
@@ -663,12 +673,26 @@ extension ContentView {
         HStack(spacing: 0) {
             // Left: Audio Volume & Mute (Fixed 186px width - matches 186px on right)
             HStack(spacing: 8) {
+                let speakerIcon: String = {
+                    if playerEngine.isMuted || playerEngine.volume <= 0.001 {
+                        return "speaker.slash.fill"
+                    } else if playerEngine.volume > 0.66 {
+                        return "speaker.wave.3.fill"
+                    } else if playerEngine.volume > 0.33 {
+                        return "speaker.wave.2.fill"
+                    } else {
+                        return "speaker.wave.1.fill"
+                    }
+                }()
+                
                 Button(action: { playerEngine.isMuted.toggle() }) {
-                    Image(systemName: playerEngine.isMuted ? "speaker.slash.fill" : (playerEngine.volume > 0.5 ? "speaker.wave.3.fill" : "speaker.wave.1.fill"))
+                    Image(systemName: speakerIcon)
                         .font(.system(size: 11))
                         .foregroundColor(playerEngine.isMuted ? alertRed : textMain)
+                        .frame(width: 18, height: 18, alignment: .center)
                 }
                 .buttonStyle(.plain)
+                .frame(width: 18, height: 18)
                 .explain(playerEngine.isMuted ? "Unmute audio" : "Mute audio", binding: $hoverExplanation)
                 
                 Slider(value: Binding(
@@ -854,38 +878,21 @@ extension ContentView {
                 .disabled(playerEngine.activeURL == nil)
                 .explain("Clean Video Fullscreen with zero UI (F). Press ESC to exit.", binding: $hoverExplanation)
                 
-                Menu {
-                    Text("KEYBOARD SHORTCUTS")
-                    Divider()
-                    Button("Spacebar: Play / Pause") {}
-                    Button("F: Toggle Video Fullscreen (Clean)") {}
-                    Button("⇧ + F: Review Fullscreen (with HUD)") {}
-                    Button("ESC: Exit Fullscreen") {}
-                    Button("J / K / L: Shuttle Playback (-16x to 16x)") {}
-                    Button("⇧ + J / L: Slow Frame-by-Frame") {}
-                    Button("← / →: Step 1 Frame") {}
-                    Button("⇧ + ← / →: Jump 1 Second") {}
-                    Button("↑ / ↓: Previous / Next Deliverable") {}
-                    Button("Mouse Wheel: Canvas Zoom (10% - 400%)") {}
-                    Button("Drag Canvas: Pan Viewport Hand Tool") {}
-                    Button("⌘L: Toggle Seamless Loop") {}
-                    Button("N: Jump to Next Line Finding") {}
-                    Button("⇧ + N: Jump to Previous Line Finding") {}
-                } label: {
+                Button(action: { showShortcutsModal = true }) {
                     HStack(spacing: 5) {
                         Image(systemName: "command")
                             .font(.system(size: 9, weight: .bold))
                         Text("SHORTCUTS")
                             .font(.system(size: 9, weight: .bold, design: .monospaced))
-                        Image(systemName: "chevron.down")
-                            .font(.system(size: 7, weight: .bold))
+                        Image(systemName: "macwindow")
+                            .font(.system(size: 8, weight: .bold))
                     }
                     .frame(width: 110, height: 28)
                     .foregroundColor(textMain)
                     .studioBox(background: bgSubtle, border: borderLine)
                 }
-                .menuStyle(.borderlessButton)
-                .explain("View all player keyboard shortcuts.", binding: $hoverExplanation)
+                .buttonStyle(.plain)
+                .explain("View all player keyboard shortcuts in a centered pop-up reference window.", binding: $hoverExplanation)
             }
             .frame(width: 220, alignment: .trailing)
         }

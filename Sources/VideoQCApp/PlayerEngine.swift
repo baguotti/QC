@@ -151,6 +151,8 @@ public final class PlayerEngine: ObservableObject {
     private var cancellables = Set<AnyCancellable>()
     private var itemStatusCancellable: AnyCancellable? = nil
     private var itemStatusCancellableB: AnyCancellable? = nil
+    private var itemPresentationSizeCancellable: AnyCancellable? = nil
+    private var itemPresentationSizeCancellableB: AnyCancellable? = nil
     
     private var isSeeking: Bool = false
     private var pendingSeekTime: CMTime? = nil
@@ -235,7 +237,7 @@ public final class PlayerEngine: ObservableObject {
         slotA.player.replaceCurrentItem(with: item)
         slotA.player.automaticallyWaitsToMinimizeStalling = false
         
-        item.publisher(for: \.presentationSize)
+        itemPresentationSizeCancellable = item.publisher(for: \.presentationSize)
             .receive(on: DispatchQueue.main)
             .filter { $0.width > 0 && $0.height > 0 }
             .first()
@@ -244,7 +246,6 @@ public final class PlayerEngine: ObservableObject {
                 self.slotA.videoSize = size
                 self.videoSize = size
             }
-            .store(in: &cancellables)
         
         itemStatusCancellable = item.publisher(for: \.status)
             .receive(on: DispatchQueue.main)
@@ -284,7 +285,7 @@ public final class PlayerEngine: ObservableObject {
         slotB.player.replaceCurrentItem(with: item)
         slotB.player.automaticallyWaitsToMinimizeStalling = false
         
-        item.publisher(for: \.presentationSize)
+        itemPresentationSizeCancellableB = item.publisher(for: \.presentationSize)
             .receive(on: DispatchQueue.main)
             .filter { $0.width > 0 && $0.height > 0 }
             .first()
@@ -292,7 +293,6 @@ public final class PlayerEngine: ObservableObject {
                 guard let self = self, self.slotB.url == url else { return }
                 self.slotB.videoSize = size
             }
-            .store(in: &cancellables)
         
         itemStatusCancellableB = item.publisher(for: \.status)
             .receive(on: DispatchQueue.main)
@@ -522,6 +522,10 @@ public final class PlayerEngine: ObservableObject {
     public func clearSlotB() {
         slotB.player.pause()
         slotB.player.replaceCurrentItem(with: nil)
+        itemStatusCancellableB?.cancel()
+        itemStatusCancellableB = nil
+        itemPresentationSizeCancellableB?.cancel()
+        itemPresentationSizeCancellableB = nil
         slotB.url = nil
         slotB.fileName = ""
         slotB.resolution = ""

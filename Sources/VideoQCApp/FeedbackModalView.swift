@@ -44,8 +44,8 @@ struct FeedbackModalView: View {
     private var accentPositive: Color { StudioTheme.positive }
     private var accentNegative: Color { StudioTheme.negative }
     
-    private let targetEmail = "fusetti.riccardo@gmail.com"
-    private let web3FormsKey = "edc9392e-0f56-4fef-b67a-c3e277924813"
+    private let targetEmail = AppConfig.supportEmail
+    private let web3FormsKey = AppConfig.web3FormsAccessKey
     
     private var systemSpecsString: String {
         let osVer = ProcessInfo.processInfo.operatingSystemVersionString

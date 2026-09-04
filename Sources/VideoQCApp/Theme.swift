@@ -72,11 +72,16 @@ struct StudioTheme {
     // Negative Accent: #a14746 (Muted Brick Red)
     static let negative = Color(red: 161 / 255.0, green: 71 / 255.0, blue: 70 / 255.0)
     
-    static func alertRed(_ isLight: Bool = false) -> Color {
+    static var alertRed: Color { negative }
+    static var alertPositive: Color { positive }
+    
+    @available(*, deprecated, message: "Use StudioTheme.alertRed directly without isLight argument")
+    static func alertRed(_ isLight: Bool) -> Color {
         negative
     }
     
-    static func alertPositive(_ isLight: Bool = false) -> Color {
+    @available(*, deprecated, message: "Use StudioTheme.alertPositive directly without isLight argument")
+    static func alertPositive(_ isLight: Bool) -> Color {
         positive
     }
     
@@ -87,6 +92,32 @@ struct StudioTheme {
     static func primaryBtnFg(_ isLight: Bool) -> Color {
         isLight ? Color.white : Color.black
     }
+}
+
+// MARK: - Convenient Theme Palette Bundle
+
+public struct StudioPalette {
+    public let isLight: Bool
+    
+    public init(_ isLight: Bool) {
+        self.isLight = isLight
+    }
+    
+    public var bgMain: Color { StudioTheme.bgMain(isLight) }
+    public var bgPanel: Color { StudioTheme.bgPanel(isLight) }
+    public var bgSubtle: Color { StudioTheme.bgSubtle(isLight) }
+    public var bgCardHeader: Color { StudioTheme.bgCardHeader(isLight) }
+    public var bgCardSubtle: Color { StudioTheme.bgCardSubtle(isLight) }
+    public var borderLine: Color { StudioTheme.borderLine(isLight) }
+    public var borderStrong: Color { StudioTheme.borderStrong(isLight) }
+    public var textMain: Color { StudioTheme.textMain(isLight) }
+    public var textMuted: Color { StudioTheme.textMuted(isLight) }
+    public var textSubtle: Color { StudioTheme.textSubtle(isLight) }
+    public var primaryBtnBg: Color { StudioTheme.primaryBtnBg(isLight) }
+    public var primaryBtnFg: Color { StudioTheme.primaryBtnFg(isLight) }
+    public var positive: Color { StudioTheme.positive }
+    public var negative: Color { StudioTheme.negative }
+    public var alertRed: Color { StudioTheme.negative }
 }
 
 extension Color {

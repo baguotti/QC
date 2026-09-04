@@ -10,6 +10,7 @@ struct ContentView: View {
     @State var selectedTab: AppTab = .lineScanner
     @State var showUserGuide: Bool = false
     @State var showFeedbackModal: Bool = false
+    @State var showShortcutsModal: Bool = false
     @State var showSettingsPopover: Bool = false
     @ObservedObject private var updateManager = UpdateManager.shared
     @State var hoverExplanation: String = ""
@@ -37,14 +38,15 @@ struct ContentView: View {
     @State var generatedCSVURL: URL? = nil
     @State var scannerActor: VideoScanner? = nil
     
-    // MARK: - Tab 2: Deliverables Specs State
+    // MARK: - Tab 3: Deliverables Specs State
     @State var deliverableAssets: [DeliverableAsset] = []
     @State var isInspectingDeliverables: Bool = false
     @State var manifestCSVURL: URL? = nil
     @State var manifestHTMLURL: URL? = nil
     @State var deliverablesCollapsedFolderIDs: Set<String> = []
     
-    // MARK: - Tab 3: Batch Renamer State
+    // MARK: - Tab 4: Batch Renamer State
+    @State var renamerCollapsedFolderIDs: Set<String> = []
     @State var renameMode: RenameMode = .template
     @State var customNameText: String = ""
     @State var templateText: String = "{NAME}_{DUR}sec_{RATIO}"
@@ -69,6 +71,27 @@ struct ContentView: View {
     @State var fileTagsMap: [URL: FinderTagColor] = [:]
     @State var showTagPickerPopover: Bool = false
     @State private var hasSetupKeyboardMonitor: Bool = false
+    @State private var eventMonitors = EventMonitorCoordinator()
+    
+    final class EventMonitorCoordinator {
+        var mouseMonitor: Any? = nil
+        var keyMonitor: Any? = nil
+        
+        deinit {
+            cleanup()
+        }
+        
+        func cleanup() {
+            if let m = mouseMonitor {
+                NSEvent.removeMonitor(m)
+                mouseMonitor = nil
+            }
+            if let k = keyMonitor {
+                NSEvent.removeMonitor(k)
+                keyMonitor = nil
+            }
+        }
+    }
     enum FullscreenMode: Equatable {
         case none
         case review
@@ -226,6 +249,13 @@ struct ContentView: View {
                     .zIndex(150)
             }
             
+            // Keyboard Shortcuts Overlay Modal
+            if showShortcutsModal {
+                ShortcutsModalView(isPresented: $showShortcutsModal)
+                    .transition(.opacity.combined(with: .scale(scale: 0.98)))
+                    .zIndex(155)
+            }
+            
             // Software Update Overlay Modal
             if updateManager.showModal {
                 UpdateModalView(updateManager: updateManager, isPresented: $updateManager.showModal)
@@ -246,6 +276,7 @@ struct ContentView: View {
         }
         .animation(.easeInOut(duration: 0.15), value: showUserGuide)
         .animation(.easeInOut(duration: 0.15), value: showFeedbackModal)
+        .animation(.easeInOut(duration: 0.15), value: showShortcutsModal)
         .animation(.easeInOut(duration: 0.15), value: fullscreenMode)
         .onReceive(NotificationCenter.default.publisher(for: NSWindow.didExitFullScreenNotification)) { _ in
             if fullscreenMode != .none {
@@ -277,6 +308,10 @@ struct ContentView: View {
             setupKeyboardMonitor()
             loadFinderTagsForQueue()
             updateManager.checkForUpdates(userInitiated: false)
+        }
+        .onDisappear {
+            eventMonitors.cleanup()
+            hasSetupKeyboardMonitor = false
         }
     }
     
@@ -524,17 +559,18 @@ struct ContentView: View {
     
     func deliveryAssetsSection(forTab: AppTab) -> some View {
         VStack(alignment: .leading, spacing: 10) {
-            sectionHeader(num: "01", title: "DELIVERY ASSETS")
+            sectionHeader(num: "01", title: "LOAD ASSETS")
             
             VStack(alignment: .leading, spacing: 8) {
-                Button(action: { selectAssets(forTab: forTab) }) {
+                // Change / Select Button
+                Button(action: { selectAssets(forTab: forTab, append: false) }) {
                     HStack {
                         Text(folderURL == nil && videoFiles.isEmpty ? "SELECT FILES OR FOLDER..." : "CHANGE ASSETS...")
                             .font(.system(size: 11, weight: .bold, design: .monospaced))
                             .foregroundColor(textMain)
                             .tracking(0.5)
                         Spacer()
-                        Image(systemName: "folder.badge.plus")
+                        Image(systemName: folderURL == nil && videoFiles.isEmpty ? "folder.badge.plus" : "arrow.triangle.2.circlepath")
                             .font(.system(size: 11, weight: .bold))
                             .foregroundColor(textSubtle)
                     }
@@ -544,7 +580,29 @@ struct ContentView: View {
                 }
                 .buttonStyle(.plain)
                 .disabled(isScanning)
-                .explain("Opens file picker to select video files or a folder to inspect.", binding: $hoverExplanation)
+                .explain(folderURL == nil && videoFiles.isEmpty ? "Opens file picker to select video files or a folder to inspect." : "Replaces currently loaded assets with a new folder or file selection.", binding: $hoverExplanation)
+                
+                // Add Assets Button
+                if !videoFiles.isEmpty || folderURL != nil {
+                    Button(action: { selectAssets(forTab: forTab, append: true) }) {
+                        HStack {
+                            Text("ADD ASSETS...")
+                                .font(.system(size: 11, weight: .bold, design: .monospaced))
+                                .foregroundColor(textMain)
+                                .tracking(0.5)
+                            Spacer()
+                            Image(systemName: "folder.badge.plus")
+                                .font(.system(size: 11, weight: .bold))
+                                .foregroundColor(textSubtle)
+                        }
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 9)
+                        .studioBox(background: bgSubtle, border: borderLine)
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(isScanning)
+                    .explain("Opens file picker to add more video files or folders to the current list without losing existing assets.", binding: $hoverExplanation)
+                }
                 
                 if let folder = folderURL {
                     VStack(alignment: .leading, spacing: 3) {
@@ -591,13 +649,34 @@ struct ContentView: View {
     
     // MARK: - Asset Selection & Drop Handlers
     
-    func selectAssets(forTab: AppTab) {
+    func determineFolderURL(for videos: [URL], detectedFolder: URL?) -> URL? {
+        if let folder = detectedFolder {
+            let folderPath = folder.standardizedFileURL.path
+            let allInside = videos.allSatisfy { $0.standardizedFileURL.path.hasPrefix(folderPath) }
+            if allInside { return folder }
+        }
+        guard !videos.isEmpty else { return nil }
+        var common = videos[0].deletingLastPathComponent().standardizedFileURL
+        for v in videos.dropFirst() {
+            let parent = v.deletingLastPathComponent().standardizedFileURL
+            while !parent.path.hasPrefix(common.path) && common.path != "/" {
+                common = common.deletingLastPathComponent()
+            }
+        }
+        if common.path == "/" || common.path == "/Users" || common.path == "/Volumes" {
+            return nil
+        }
+        return common
+    }
+    
+    func selectAssets(forTab: AppTab, append: Bool = false) {
         let panel = NSOpenPanel()
         panel.canChooseFiles = true
         panel.canChooseDirectories = true
         panel.allowsMultipleSelection = true
         panel.allowedContentTypes = [UTType.movie, UTType.video, UTType.quickTimeMovie, UTType.mpeg4Movie, UTType.folder]
-        panel.prompt = "Select"
+        panel.prompt = append ? "Add" : "Select"
+        panel.message = append ? "Choose video files or folders to add to the current batch" : "Choose video files or a folder to load"
         
         if panel.runModal() == .OK, !panel.urls.isEmpty {
             var collectedVideos: [URL] = []
@@ -622,30 +701,59 @@ struct ContentView: View {
                 }
             }
             
-            var uniqueVideos: [URL] = []
-            var seen: Set<String> = []
-            for v in collectedVideos {
-                if !seen.contains(v.path) {
-                    seen.insert(v.path)
-                    uniqueVideos.append(v)
+            if append {
+                var mergedVideos = self.videoFiles
+                var seen = Set(self.videoFiles.map { $0.standardizedFileURL.path })
+                var newlyAdded: [URL] = []
+                
+                for v in collectedVideos {
+                    let stdPath = v.standardizedFileURL.path
+                    if !seen.contains(stdPath) {
+                        seen.insert(stdPath)
+                        mergedVideos.append(v)
+                        newlyAdded.append(v)
+                    }
                 }
-            }
-            
-            guard !uniqueVideos.isEmpty else { return }
-            
-            self.folderURL = detectedFolder
-            self.videoFiles = uniqueVideos
-            self.playerCollapsedFolderIDs = []
-            self.deliverablesCollapsedFolderIDs = []
-            self.scanResults = []
-            self.generatedReportURL = nil
-            self.generatedCSVURL = nil
-            
-            // Populate deliverables in background
-            inspectDeliverablesBatch(urls: uniqueVideos)
-            self.loadFinderTagsForQueue()
-            if self.playerEngine.activeURL == nil, let first = uniqueVideos.first {
-                self.playerEngine.loadVideo(url: first)
+                
+                guard !newlyAdded.isEmpty else { return }
+                
+                self.videoFiles = mergedVideos
+                self.folderURL = determineFolderURL(for: mergedVideos, detectedFolder: self.folderURL ?? detectedFolder)
+                
+                // Inspect only newly added deliverables and append to existing deliverables
+                inspectDeliverablesBatch(urls: newlyAdded, append: true)
+                self.loadFinderTagsForQueue()
+                if self.playerEngine.activeURL == nil, let first = newlyAdded.first {
+                    self.playerEngine.loadVideo(url: first)
+                }
+            } else {
+                var uniqueVideos: [URL] = []
+                var seen: Set<String> = []
+                for v in collectedVideos {
+                    let stdPath = v.standardizedFileURL.path
+                    if !seen.contains(stdPath) {
+                        seen.insert(stdPath)
+                        uniqueVideos.append(v)
+                    }
+                }
+                
+                guard !uniqueVideos.isEmpty else { return }
+                
+                self.folderURL = determineFolderURL(for: uniqueVideos, detectedFolder: detectedFolder)
+                self.videoFiles = uniqueVideos
+                self.playerCollapsedFolderIDs = []
+                self.deliverablesCollapsedFolderIDs = []
+                self.renamerCollapsedFolderIDs = []
+                self.scanResults = []
+                self.generatedReportURL = nil
+                self.generatedCSVURL = nil
+                
+                // Populate deliverables in background
+                inspectDeliverablesBatch(urls: uniqueVideos, append: false)
+                self.loadFinderTagsForQueue()
+                if self.playerEngine.activeURL == nil, let first = uniqueVideos.first {
+                    self.playerEngine.loadVideo(url: first)
+                }
             }
         }
     }
@@ -712,14 +820,15 @@ struct ContentView: View {
             
             guard !uniqueVideos.isEmpty else { return }
             
-            self.folderURL = detectedFolder
+            self.folderURL = self.determineFolderURL(for: uniqueVideos, detectedFolder: detectedFolder)
             self.videoFiles = uniqueVideos
             self.playerCollapsedFolderIDs = []
             self.deliverablesCollapsedFolderIDs = []
+            self.renamerCollapsedFolderIDs = []
             self.scanResults = []
             self.generatedReportURL = nil
             self.generatedCSVURL = nil
-            self.inspectDeliverablesBatch(urls: uniqueVideos)
+            self.inspectDeliverablesBatch(urls: uniqueVideos, append: false)
             self.loadFinderTagsForQueue()
             if self.playerEngine.activeURL == nil, let first = uniqueVideos.first {
                 self.playerEngine.loadVideo(url: first)
@@ -821,15 +930,26 @@ struct ContentView: View {
     
     func rescanDeliverables() {
         if let folder = folderURL {
-            let updatedFiles = VideoScanner.findVideoFiles(in: folder)
-            self.videoFiles = updatedFiles
-            inspectDeliverablesBatch(urls: updatedFiles)
+            let inFolder = VideoScanner.findVideoFiles(in: folder)
+            var merged = inFolder
+            var seen = Set(inFolder.map { $0.standardizedFileURL.path })
+            for v in videoFiles {
+                let std = v.standardizedFileURL.path
+                if !seen.contains(std) && FileManager.default.fileExists(atPath: v.path) {
+                    seen.insert(std)
+                    merged.append(v)
+                }
+            }
+            self.videoFiles = merged
+            inspectDeliverablesBatch(urls: merged, append: false)
         } else if !videoFiles.isEmpty {
-            inspectDeliverablesBatch(urls: videoFiles)
+            let valid = videoFiles.filter { FileManager.default.fileExists(atPath: $0.path) }
+            self.videoFiles = valid
+            inspectDeliverablesBatch(urls: valid, append: false)
         }
     }
     
-    func inspectDeliverablesBatch(urls: [URL]) {
+    func inspectDeliverablesBatch(urls: [URL], append: Bool = false) {
         guard !urls.isEmpty else { return }
         isInspectingDeliverables = true
         
@@ -845,9 +965,22 @@ struct ContentView: View {
             }
             
             DispatchQueue.main.async {
-                self.deliverableAssets = assets
-                self.directoryFilesCache = cache
-                self.selectedAssetIDs = Set(assets.map { $0.id })
+                if append {
+                    var existingMap = Dictionary(uniqueKeysWithValues: self.deliverableAssets.map { ($0.fileURL.standardizedFileURL, $0) })
+                    for asset in assets {
+                        let key = asset.fileURL.standardizedFileURL
+                        if existingMap[key] == nil {
+                            existingMap[key] = asset
+                            self.deliverableAssets.append(asset)
+                            self.selectedAssetIDs.insert(asset.id)
+                        }
+                    }
+                    self.directoryFilesCache.merge(cache) { _, new in new }
+                } else {
+                    self.deliverableAssets = assets
+                    self.directoryFilesCache = cache
+                    self.selectedAssetIDs = Set(assets.map { $0.id })
+                }
                 self.isInspectingDeliverables = false
             }
         }
@@ -911,15 +1044,19 @@ struct ContentView: View {
         .padding(.vertical, 4)
     }
     
-    func statItem(label: String, val: String, isAlert: Bool = false, isPositive: Bool = false) -> some View {
+    func statItem(label: String, val: String, width: CGFloat? = nil, isAlert: Bool = false, isPositive: Bool = false) -> some View {
         VStack(alignment: .leading, spacing: 2) {
             Text(label)
                 .font(.system(size: 8, weight: .bold, design: .monospaced))
                 .foregroundColor(textMuted)
+                .lineLimit(1)
             Text(val)
                 .font(.system(size: 13, weight: .bold, design: .monospaced))
+                .monospacedDigit()
                 .foregroundColor(isAlert ? alertRed : (isPositive ? accentPositive : textMain))
+                .lineLimit(1)
         }
+        .frame(width: width, alignment: .leading)
     }
     
     func formatTag(_ text: String) -> some View {
@@ -965,8 +1102,10 @@ struct ContentView: View {
         guard !hasSetupKeyboardMonitor else { return }
         hasSetupKeyboardMonitor = true
         
+        eventMonitors.cleanup()
+        
         // Click-away monitor: dismisses text field focus when clicking anywhere outside text inputs
-        NSEvent.addLocalMonitorForEvents(matching: .leftMouseDown) { event in
+        eventMonitors.mouseMonitor = NSEvent.addLocalMonitorForEvents(matching: .leftMouseDown) { event in
             if let window = NSApp.keyWindow,
                let firstResponder = window.firstResponder,
                firstResponder is NSTextView {
@@ -989,7 +1128,7 @@ struct ContentView: View {
             return event
         }
         
-        NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+        eventMonitors.keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
             // Only capture if on the player tab
             guard self.selectedTab == .player else { return event }
             
@@ -1008,12 +1147,21 @@ struct ContentView: View {
                 return event
             }
             
-            // ESC key: Exit fullscreen if active
+            // ESC key: Dismiss shortcuts modal or exit fullscreen
             if event.keyCode == 53 {
+                if self.showShortcutsModal {
+                    self.showShortcutsModal = false
+                    return nil
+                }
                 if self.fullscreenMode != .none {
                     self.exitFullscreen()
                     return nil
                 }
+            }
+            
+            // If shortcuts modal is active, block background player controls
+            if self.showShortcutsModal {
+                return event
             }
             
             let isShift = event.modifierFlags.contains(.shift)
@@ -1068,6 +1216,9 @@ struct ContentView: View {
                         self.playerEngine.cycleCompareMode()
                         return nil
                     }
+                } else if chars == "?" || (isCommand && chars == "/") {
+                    self.showShortcutsModal.toggle()
+                    return nil
                 }
             }
             
