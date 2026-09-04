@@ -96,6 +96,9 @@ public struct TimelineScrubberView: View {
             .gesture(
                 DragGesture(minimumDistance: 0)
                     .onChanged { value in
+                        if engine.isPlaying {
+                            engine.pause()
+                        }
                         engine.isScrubbing = true
                         let x = max(0, min(value.location.x, width))
                         let progress = Double(x / width)
@@ -105,6 +108,10 @@ public struct TimelineScrubberView: View {
                         let x = max(0, min(value.location.x, width))
                         let progress = Double(x / width)
                         engine.seek(toProgress: progress) {
+                            engine.isScrubbing = false
+                        }
+                        // Safety release to guarantee scrubber never locks playhead
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
                             engine.isScrubbing = false
                         }
                     }

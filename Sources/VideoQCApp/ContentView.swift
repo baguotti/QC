@@ -959,6 +959,30 @@ struct ContentView: View {
         guard !hasSetupKeyboardMonitor else { return }
         hasSetupKeyboardMonitor = true
         
+        // Click-away monitor: dismisses text field focus when clicking anywhere outside text inputs
+        NSEvent.addLocalMonitorForEvents(matching: .leftMouseDown) { event in
+            if let window = NSApp.keyWindow,
+               let firstResponder = window.firstResponder,
+               firstResponder is NSTextView {
+                let clickLoc = event.locationInWindow
+                if let hitView = window.contentView?.hitTest(clickLoc) {
+                    var isTextInput = false
+                    var curr: NSView? = hitView
+                    while let v = curr {
+                        if v is NSTextField || v is NSTextView {
+                            isTextInput = true
+                            break
+                        }
+                        curr = v.superview
+                    }
+                    if !isTextInput {
+                        window.makeFirstResponder(nil)
+                    }
+                }
+            }
+            return event
+        }
+        
         NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
             // Only capture if on the player tab
             guard self.selectedTab == .player else { return event }
@@ -967,6 +991,14 @@ struct ContentView: View {
             if let window = NSApp.keyWindow,
                let firstResponder = window.firstResponder,
                firstResponder is NSTextView {
+                if event.keyCode == 53 { // ESC key: dismiss search filter focus immediately
+                    window.makeFirstResponder(nil)
+                    return nil
+                }
+                if event.keyCode == 36 { // Return key: commit and dismiss search filter focus
+                    window.makeFirstResponder(nil)
+                    return nil
+                }
                 return event
             }
             
@@ -1020,10 +1052,25 @@ struct ContentView: View {
                         self.jumpToNextGlitchFinding()
                     }
                     return nil
+                } else if chars == "x" && !isCommand { // X: Swap Slot A and Slot B
+                    if self.selectedTab == .player && self.playerEngine.slotB.url != nil {
+                        self.playerEngine.swapSlots()
+                        return nil
+                    }
+                } else if chars == "c" && !isCommand { // C: Cycle compare modes
+                    if self.selectedTab == .player && self.playerEngine.slotB.url != nil {
+                        self.playerEngine.cycleCompareMode()
+                        return nil
+                    }
                 }
             }
             
             switch event.keyCode {
+            case 48: // Tab key: Rapid Blink / Flicker compare between Slot A and Slot B
+                if self.selectedTab == .player && self.playerEngine.slotB.url != nil {
+                    self.playerEngine.isBlinkCompareB.toggle()
+                    return nil
+                }
             case 126: // Up Arrow: Previous file in queue
                 self.playerSelectPreviousFile()
                 return nil
@@ -1061,22 +1108,26 @@ struct ContentView: View {
     func playerSelectPreviousFile() {
         let files = filteredPlayerFiles
         guard !files.isEmpty else { return }
-        if let currentURL = playerEngine.activeURL, let idx = files.firstIndex(of: currentURL) {
+        let target = playerEngine.activeTarget
+        let currentURL = (target == .slotB && playerEngine.slotB.url != nil) ? playerEngine.slotB.url : playerEngine.activeURL
+        if let currentURL = currentURL, let idx = files.firstIndex(of: currentURL) {
             let prevIdx = max(0, idx - 1)
-            playerEngine.loadVideo(url: files[prevIdx])
+            playerEngine.loadVideo(url: files[prevIdx], into: target)
         } else {
-            playerEngine.loadVideo(url: files[0])
+            playerEngine.loadVideo(url: files[0], into: target)
         }
     }
     
     func playerSelectNextFile() {
         let files = filteredPlayerFiles
         guard !files.isEmpty else { return }
-        if let currentURL = playerEngine.activeURL, let idx = files.firstIndex(of: currentURL) {
+        let target = playerEngine.activeTarget
+        let currentURL = (target == .slotB && playerEngine.slotB.url != nil) ? playerEngine.slotB.url : playerEngine.activeURL
+        if let currentURL = currentURL, let idx = files.firstIndex(of: currentURL) {
             let nextIdx = min(files.count - 1, idx + 1)
-            playerEngine.loadVideo(url: files[nextIdx])
+            playerEngine.loadVideo(url: files[nextIdx], into: target)
         } else {
-            playerEngine.loadVideo(url: files[0])
+            playerEngine.loadVideo(url: files[0], into: target)
         }
     }
     

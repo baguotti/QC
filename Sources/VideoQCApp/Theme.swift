@@ -137,6 +137,15 @@ extension View {
         self.modifier(StudioExplanationModifier(explanation: text, binding: binding))
     }
     
+    @ViewBuilder
+    func explain(_ text: String, binding: Binding<String>?) -> some View {
+        if let binding = binding {
+            self.modifier(StudioExplanationModifier(explanation: text, binding: binding))
+        } else {
+            self.help(text)
+        }
+    }
+    
     /// Applies the rounded studio box background and border using master corner radius
     func studioBox(background: Color, border: Color, radius: CGFloat = StudioTheme.cornerRadius, width: CGFloat = 1) -> some View {
         self

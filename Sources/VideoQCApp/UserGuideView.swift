@@ -203,10 +203,11 @@ struct UserGuideView: View {
     
     private var tabFourGuide: some View {
         VStack(alignment: .leading, spacing: 10) {
+            guideRow(name: "DUAL A/B & DIFFERENCE MODE", desc: "Option+Click any queue asset (or click +B) to load into Slot B. Compare using interactive Split Wipe (drag the tactile center handle), Side-by-Side (horizontal left/right or vertical stacked top/bottom), or GPU Difference Mode (|RGB_A - RGB_B|). Click [(TAB)] or press Tab for rapid flicker compare, X to Swap slots, C to cycle modes, and solo Slot A or B audio.")
             guideRow(name: "J-K-L SHUTTLE PLAYBACK", desc: "Tap L to play forward (1x, 2x, 4x, 8x, 16x). Tap K to pause. Tap J to play reverse (-1x, -2x, -4x, -8x, -16x).")
             guideRow(name: "SLOW FRAME-BY-FRAME (⇧ + L / ⇧ + J)", desc: "Plays automatically frame-by-frame. Pressing repeatedly accelerates playback speed (2, 4, 8, 15, 24, 30 FPS). Dedicated transport buttons are also available.")
             guideRow(name: "VIDEO FULLSCREEN (F / ESC)", desc: "Makes video completely full screen with zero UI. All keyboard shortcuts, zooming, and panning continue to work seamlessly. Double-click or press ESC to exit.")
-            guideRow(name: "REVIEW FULLSCREEN (⇧ + F)", desc: "Expands player to full screen with an on-screen cinema review HUD, full timeline scrubber, and transport controls that auto-hide when idle.")
+            guideRow(name: "REVIEW FULLSCREEN (⇧ + F)", desc: "Expands player to full screen with an on-screen cinema review HUD, full timeline scrubber, dual-video comparison toolbar, and transport controls that auto-hide when idle.")
             guideRow(name: "SPACEBAR", desc: "Quick toggle between normal 1x Play and Pause.")
             guideRow(name: "SINGLE FRAME STEPPING (← / →)", desc: "Left and right arrow keys step exactly 1 frame backward or forward.")
             guideRow(name: "SECOND JUMP (⇧ + ← / →)", desc: "Shift + Left/Right arrow jumps 1 second backward or forward.")
@@ -217,6 +218,7 @@ struct UserGuideView: View {
             guideRow(name: "CENTER CROSSHAIR OVERLAY", desc: "Toggles top-to-bottom and left-to-right crosshair guide lines with a center precision reticle to inspect if elements, logos, and lower-thirds are perfectly centered.")
             guideRow(name: "JUMP TO NEXT LINE (N / NEXT LINE)", desc: "Cycles through all detected line glitches across all deliverables from Tab 1, seeking frame-accurately and pausing playback for inspection.")
             guideRow(name: "MACOS FINDER COLOR TAGS", desc: "Tag the active file with native macOS Finder color tags (Red, Orange, Yellow, Green, Blue, Purple, Gray) via the [TAGS] button or by right-clicking on any asset in the queue.")
+            guideRow(name: "FRAME SCREENSHOT (CAMERA ICON)", desc: "Click the square camera button in the transport bar to export the current video frame as a medium-quality JPEG to any folder.")
             guideRow(name: "SEAMLESS LOOP (⌘L)", desc: "Toggles automatic looping. Reaching the end seamlessly restarts from the beginning without stopping.")
             guideRow(name: "AUDIO & MUTE", desc: "Master playback volume slider and instant audio mute button.")
         }
