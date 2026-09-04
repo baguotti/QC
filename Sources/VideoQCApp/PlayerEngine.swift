@@ -985,6 +985,47 @@ public final class PlayerEngine: ObservableObject {
     
     // MARK: - Scrubbing & Seeking
     
+    /// High-performance interactive scrubbing: updates UI synchronously at 120 FPS lockstep with mouse drag
+    public func scrubTo(progress: Double) {
+        let clamped = min(1.0, max(0.0, progress))
+        self.isScrubbing = true
+        self.currentProgress = clamped
+        
+        let durSecs = CMTimeGetSeconds(duration)
+        if durSecs > 0 {
+            let currSecs = clamped * durSecs
+            let fps = max(1.0, activeFps)
+            let frameIdx = max(0, min(max(0, totalFrames - 1), Int(floor(currSecs * fps + 1e-4))))
+            self.currentFrame = frameIdx
+            self.currentTimecode = TimecodeFormatter.format(frameIndex: frameIdx, fps: activeFps)
+            
+            let targetTime = CMTime(seconds: currSecs, preferredTimescale: 60000)
+            self.currentTime = targetTime
+            self.slotA.currentTime = targetTime
+        }
+        
+        seek(toProgress: clamped)
+    }
+    
+    /// Concludes interactive scrubbing: settles playhead and seeks to pixel-perfect frame with zero tolerance
+    public func endScrubbing(at progress: Double) {
+        let clamped = min(1.0, max(0.0, progress))
+        self.isScrubbing = false
+        self.currentProgress = clamped
+        
+        let durSecs = CMTimeGetSeconds(duration)
+        if durSecs > 0 {
+            let currSecs = clamped * durSecs
+            let fps = max(1.0, activeFps)
+            let frameIdx = max(0, min(max(0, totalFrames - 1), Int(floor(currSecs * fps + 1e-4))))
+            self.currentFrame = frameIdx
+            self.currentTimecode = TimecodeFormatter.format(frameIndex: frameIdx, fps: activeFps)
+            
+            // Final exact frame seek with zero tolerance
+            seek(toFrame: frameIdx)
+        }
+    }
+    
     public func seek(toProgress progress: Double, completion: (@MainActor @Sendable () -> Void)? = nil) {
         let durSecs = CMTimeGetSeconds(duration)
         guard durSecs > 0 else {
@@ -1013,13 +1054,19 @@ public final class PlayerEngine: ObservableObject {
         
         isSeeking = true
         let curCompletion = completion
-        slotA.player.seek(to: time, toleranceBefore: .zero, toleranceAfter: .zero) { [weak self] _ in
+        
+        // Fast seek during interactive scrubbing: 1-frame tolerance allows hardware decoder to stream at full speed
+        // Exact frame seeks (pause, arrow keys, end of scrub) use .zero tolerance.
+        let tol: CMTime = isScrubbing ? CMTime(seconds: 1.0 / max(1.0, activeFps), preferredTimescale: 60000) : .zero
+        
+        slotA.player.seek(to: time, toleranceBefore: tol, toleranceAfter: tol) { [weak self] _ in
             Task { @MainActor in
                 guard let self = self else { return }
                 self.isSeeking = false
                 
-                // Only update time if no newer seek is pending, avoiding retrograde timecode flicker
-                if self.pendingSeekTime == nil {
+                // When not scrubbing, update time and progress (e.g. playback, jumps, frame step)
+                // During scrubbing, scrubTo(progress:) already eagerly updates UI at 120 FPS
+                if !self.isScrubbing && self.pendingSeekTime == nil {
                     self.updateCurrentTime(time: time)
                 }
                 
@@ -1027,7 +1074,8 @@ public final class PlayerEngine: ObservableObject {
                     let offsetSeconds = Double(self.slotB.slipOffsetFrames) / max(1.0, self.slotB.fps)
                     let targetSecsB = max(0.0, CMTimeGetSeconds(time) + offsetSeconds)
                     let targetTimeB = CMTime(seconds: targetSecsB, preferredTimescale: 60000)
-                    self.seekSlotB(to: targetTimeB)
+                    let tolB = self.isScrubbing ? CMTime(seconds: 1.0 / max(1.0, self.slotB.fps), preferredTimescale: 60000) : .zero
+                    self.seekSlotB(to: targetTimeB, tolerance: tolB)
                 }
                 
                 curCompletion?()
