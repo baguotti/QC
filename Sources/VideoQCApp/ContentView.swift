@@ -12,7 +12,9 @@ struct ContentView: View {
     @State var showFeedbackModal: Bool = false
     @State var showShortcutsModal: Bool = false
     @State var showSettingsPopover: Bool = false
+    @State var showThemeModal: Bool = false
     @ObservedObject private var updateManager = UpdateManager.shared
+    @ObservedObject private var themeManager = ThemeManager.shared
     @State var hoverExplanation: String = ""
     
     // Shared Folder & Video Files
@@ -263,6 +265,13 @@ struct ContentView: View {
                     .zIndex(155)
             }
             
+            // Theme & Accent Colors Overlay Modal
+            if showThemeModal {
+                ThemeSettingsModalView(isPresented: $showThemeModal)
+                    .transition(.opacity.combined(with: .scale(scale: 0.98)))
+                    .zIndex(158)
+            }
+            
             // Software Update Overlay Modal
             if updateManager.showModal {
                 UpdateModalView(updateManager: updateManager, isPresented: $updateManager.showModal)
@@ -284,6 +293,7 @@ struct ContentView: View {
         .animation(.easeInOut(duration: 0.15), value: showUserGuide)
         .animation(.easeInOut(duration: 0.15), value: showFeedbackModal)
         .animation(.easeInOut(duration: 0.15), value: showShortcutsModal)
+        .animation(.easeInOut(duration: 0.15), value: showThemeModal)
         .animation(.easeInOut(duration: 0.15), value: fullscreenMode)
         .onReceive(NotificationCenter.default.publisher(for: NSWindow.didExitFullScreenNotification)) { _ in
             if fullscreenMode != .none {
@@ -408,6 +418,41 @@ struct ContentView: View {
                                 Text(updateManager.hasUpdate ? "Software Update (v\(updateManager.latestVersion) available)" : "Software Update (v\(AppVersionInfo.version))")
                                     .font(.system(size: 11, weight: .bold, design: .monospaced))
                                     .foregroundColor(updateManager.hasUpdate ? accentPositive : textMain)
+                            }
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 7)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        
+                        Rectangle().fill(borderLine).frame(height: 1)
+                        
+                        Button(action: {
+                            showSettingsPopover = false
+                            showThemeModal = true
+                        }) {
+                            HStack(spacing: 8) {
+                                Image(systemName: "paintpalette.fill")
+                                    .font(.system(size: 11, weight: .bold))
+                                    .foregroundColor(themeManager.currentTheme.blueColor)
+                                    .frame(width: 16)
+                                VStack(alignment: .leading, spacing: 1) {
+                                    Text("Theme & Accents")
+                                        .font(.system(size: 11, weight: .bold, design: .monospaced))
+                                        .foregroundColor(textMain)
+                                    Text(themeManager.currentTheme.name)
+                                        .font(.system(size: 9, weight: .medium, design: .monospaced))
+                                        .foregroundColor(themeManager.currentTheme.blueColor)
+                                        .lineLimit(1)
+                                }
+                                Spacer()
+                                HStack(spacing: 3) {
+                                    Circle().fill(themeManager.currentTheme.greenColor).frame(width: 5, height: 5)
+                                    Circle().fill(themeManager.currentTheme.blueColor).frame(width: 5, height: 5)
+                                    Circle().fill(themeManager.currentTheme.purpleColor).frame(width: 5, height: 5)
+                                    Circle().fill(themeManager.currentTheme.redColor).frame(width: 5, height: 5)
+                                }
                             }
                             .padding(.horizontal, 10)
                             .padding(.vertical, 7)

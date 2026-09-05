@@ -139,11 +139,11 @@ public struct TimelineScrubberView: View {
     private var progressGradient: LinearGradient {
         LinearGradient(
             colors: isLightMode ? [
-                Color(white: 0.64),
-                Color(white: 0.76)
+                StudioTheme.accentBlue(true).opacity(0.85),
+                StudioTheme.accentBlue(true)
             ] : [
-                Color(white: 0.18),
-                Color(white: 0.30)
+                StudioTheme.accentBlue(false).opacity(0.80),
+                StudioTheme.accentBlue(false)
             ],
             startPoint: .leading,
             endPoint: .trailing

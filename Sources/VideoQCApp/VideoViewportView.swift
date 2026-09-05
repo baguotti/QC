@@ -49,20 +49,31 @@ public final class PlayerContainerNSView: NSView {
     // Core Layers
     private let canvasLayer = CALayer()
     
+    // ARCHITECTURAL MANDATE (DO NOT REMOVE OR BYPASS):
+    // stillFrameLayerA & stillFrameLayerB backed by uncompressed CGImage textures MUST be used
+    // whenever playback is paused (!isPlaying && !isScrubbing).
+    // Apple's AVPlayerLayer compositor automatically downsamples video textures during interactive
+    // panning (motion proxying), washing out 1px edge lines into white. CALayer.contents is immune
+    // to CoreMedia motion downsampling. See AGENTS.md for full specification.
+    
     // Slot B (Underneath in comparison modes)
     private let playerLayerB = AVPlayerLayer()
+    private let stillFrameLayerB = CALayer()
     
     // Slot A (Master / Top layer)
     private let playerLayerA = AVPlayerLayer()
+    private let stillFrameLayerA = CALayer()
     private let maskLayerA = CAShapeLayer()
+    private let stillMaskLayerA = CAShapeLayer()
     
     // Split Divider & Handle
     private let splitDividerLayer = CALayer()
     private let splitHandleLayer = CALayer()
     private let splitHandleGripLayer = CAShapeLayer()
     
-    // Center Crosshair Guide
+    // Center Crosshair Guide & Title Safe Guide
     private let crosshairLayer = CAShapeLayer()
+    private let titleSafeLayer = CAShapeLayer()
     
     private weak var engine: PlayerEngine?
     private var isDraggingSplit: Bool = false
@@ -78,9 +89,16 @@ public final class PlayerContainerNSView: NSView {
     private var lastSplitPosition: CGFloat = -1
     private var lastIsBlink: Bool = false
     private var lastShowCrosshair: Bool = false
+    private var lastShowTitleSafe: Bool = false
     private var lastSlotAURL: URL? = nil
     private var lastSlotBURL: URL? = nil
     private var lastExposureEV: Double = 0.0
+    
+    // Still frame inspection caching to eliminate AVPlayerLayer motion-downsampling
+    private var lastCapturedTimeA: CMTime? = nil
+    private var lastCapturedTimeB: CMTime? = nil
+    private var isCapturingStillA: Bool = false
+    private var isCapturingStillB: Bool = false
     
     public override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -97,8 +115,8 @@ public final class PlayerContainerNSView: NSView {
         layer?.addSublayer(canvasLayer)
         
         // Slot B: Player Video Layer (active during comparison playback)
-        playerLayerB.videoGravity = .resizeAspect
-        playerLayerB.magnificationFilter = .linear
+        playerLayerB.videoGravity = .resize
+        playerLayerB.magnificationFilter = .nearest
         playerLayerB.minificationFilter = .linear
         playerLayerB.backgroundColor = NSColor.clear.cgColor
         playerLayerB.borderWidth = 0
@@ -107,9 +125,20 @@ public final class PlayerContainerNSView: NSView {
         playerLayerB.actions = ["hidden": NSNull(), "opacity": NSNull(), "position": NSNull(), "bounds": NSNull(), "frame": NSNull(), "filters": NSNull()]
         canvasLayer.addSublayer(playerLayerB)
         
+        // Still Frame Layer B (active when paused for 100% pixel-perfect inspection)
+        stillFrameLayerB.contentsGravity = .resize
+        stillFrameLayerB.magnificationFilter = .nearest
+        stillFrameLayerB.minificationFilter = .linear
+        stillFrameLayerB.backgroundColor = NSColor.clear.cgColor
+        stillFrameLayerB.borderWidth = 0
+        stillFrameLayerB.shadowOpacity = 0
+        stillFrameLayerB.isHidden = true
+        stillFrameLayerB.actions = ["hidden": NSNull(), "opacity": NSNull(), "contents": NSNull(), "position": NSNull(), "bounds": NSNull(), "frame": NSNull(), "filters": NSNull()]
+        canvasLayer.addSublayer(stillFrameLayerB)
+        
         // Slot A: Player Video Layer (Master playback)
-        playerLayerA.videoGravity = .resizeAspect
-        playerLayerA.magnificationFilter = .linear
+        playerLayerA.videoGravity = .resize
+        playerLayerA.magnificationFilter = .nearest
         playerLayerA.minificationFilter = .linear
         playerLayerA.backgroundColor = NSColor.clear.cgColor
         playerLayerA.borderWidth = 0
@@ -117,12 +146,25 @@ public final class PlayerContainerNSView: NSView {
         playerLayerA.actions = ["hidden": NSNull(), "opacity": NSNull(), "position": NSNull(), "bounds": NSNull(), "frame": NSNull(), "filters": NSNull()]
         canvasLayer.addSublayer(playerLayerA)
         
+        // Still Frame Layer A (active when paused for 100% pixel-perfect inspection)
+        stillFrameLayerA.contentsGravity = .resize
+        stillFrameLayerA.magnificationFilter = .nearest
+        stillFrameLayerA.minificationFilter = .linear
+        stillFrameLayerA.backgroundColor = NSColor.clear.cgColor
+        stillFrameLayerA.borderWidth = 0
+        stillFrameLayerA.shadowOpacity = 0
+        stillFrameLayerA.isHidden = true
+        stillFrameLayerA.actions = ["hidden": NSNull(), "opacity": NSNull(), "contents": NSNull(), "position": NSNull(), "bounds": NSNull(), "frame": NSNull(), "filters": NSNull()]
+        canvasLayer.addSublayer(stillFrameLayerA)
+        
         // Mask Layer for Layer A (disables implicit animation for instantaneous 120fps wipe tracking)
         maskLayerA.actions = ["position": NSNull(), "bounds": NSNull(), "path": NSNull(), "frame": NSNull()]
+        stillMaskLayerA.actions = ["position": NSNull(), "bounds": NSNull(), "path": NSNull(), "frame": NSNull()]
         
         // Split Divider Line Layer
         splitDividerLayer.backgroundColor = NSColor(red: 0.1, green: 0.95, blue: 0.85, alpha: 0.9).cgColor
         splitDividerLayer.isHidden = true
+        splitDividerLayer.zPosition = 90
         splitDividerLayer.actions = ["hidden": NSNull(), "opacity": NSNull(), "position": NSNull(), "bounds": NSNull(), "frame": NSNull()]
         canvasLayer.addSublayer(splitDividerLayer)
         
@@ -134,6 +176,7 @@ public final class PlayerContainerNSView: NSView {
         splitHandleLayer.shadowOpacity = 0.65
         splitHandleLayer.shadowOffset = .zero
         splitHandleLayer.shadowRadius = 4.0
+        splitHandleLayer.zPosition = 95
         splitHandleLayer.isHidden = true
         splitHandleLayer.actions = ["hidden": NSNull(), "opacity": NSNull(), "position": NSNull(), "bounds": NSNull(), "frame": NSNull()]
         canvasLayer.addSublayer(splitHandleLayer)
@@ -145,13 +188,23 @@ public final class PlayerContainerNSView: NSView {
         splitHandleGripLayer.actions = ["position": NSNull(), "bounds": NSNull(), "frame": NSNull(), "path": NSNull()]
         splitHandleLayer.addSublayer(splitHandleGripLayer)
         
-        // Center crosshair overlay (top-to-bottom centering guide)
+        // Center crosshair overlay (top-to-bottom centering guide in AB split screen cyan)
         crosshairLayer.fillColor = nil
-        crosshairLayer.strokeColor = NSColor(red: 0.20, green: 0.58, blue: 0.98, alpha: 0.9).cgColor
+        crosshairLayer.strokeColor = NSColor(red: 0.1, green: 0.95, blue: 0.85, alpha: 0.9).cgColor
         crosshairLayer.lineWidth = 1.0
         crosshairLayer.shadowOpacity = 0
         crosshairLayer.zPosition = 100
+        crosshairLayer.actions = ["hidden": NSNull(), "opacity": NSNull(), "position": NSNull(), "bounds": NSNull(), "frame": NSNull(), "path": NSNull(), "lineWidth": NSNull()]
         canvasLayer.addSublayer(crosshairLayer)
+        
+        // Title Safe & Action Safe overlay (Action Safe 90% and Title Safe 80% in crisp broadcast white)
+        titleSafeLayer.fillColor = nil
+        titleSafeLayer.strokeColor = NSColor(white: 1.0, alpha: 0.9).cgColor
+        titleSafeLayer.lineWidth = 1.0
+        titleSafeLayer.shadowOpacity = 0
+        titleSafeLayer.zPosition = 101
+        titleSafeLayer.actions = ["hidden": NSNull(), "opacity": NSNull(), "position": NSNull(), "bounds": NSNull(), "frame": NSNull(), "path": NSNull(), "lineWidth": NSNull()]
+        canvasLayer.addSublayer(titleSafeLayer)
         
         // Native trackpad pinch gesture for zoom in / zoom out
         let pinchGesture = NSMagnificationGestureRecognizer(target: self, action: #selector(handlePinch(_:)))
@@ -186,12 +239,34 @@ public final class PlayerContainerNSView: NSView {
             playerLayerB.player = engine.slotB.player
         }
         
+        if engine.slotA.url != lastSlotAURL {
+            lastSlotAURL = engine.slotA.url
+            lastCapturedTimeA = nil
+            CATransaction.begin()
+            CATransaction.setDisableActions(true)
+            stillFrameLayerA.contents = nil
+            stillFrameLayerA.isHidden = true
+            playerLayerA.isHidden = false
+            CATransaction.commit()
+        }
+        if engine.slotB.url != lastSlotBURL {
+            lastSlotBURL = engine.slotB.url
+            lastCapturedTimeB = nil
+            CATransaction.begin()
+            CATransaction.setDisableActions(true)
+            stillFrameLayerB.contents = nil
+            stillFrameLayerB.isHidden = true
+            playerLayerB.isHidden = true
+            CATransaction.commit()
+        }
+        
         let canvasColor = isLightMode ? NSColor(white: 0.88, alpha: 1.0).cgColor : NSColor(red: 0.08, green: 0.08, blue: 0.08, alpha: 1.0).cgColor
         layer?.backgroundColor = canvasColor
         
         layoutPlayerLayer()
         updateCompareLayers()
         updateExposure()
+        checkStillFrameDisplay()
     }
     
     public override func viewWillMove(toWindow newWindow: NSWindow?) {
@@ -211,7 +286,10 @@ public final class PlayerContainerNSView: NSView {
         canvasLayer.contentsScale = scale
         playerLayerA.contentsScale = scale
         playerLayerB.contentsScale = scale
+        stillFrameLayerA.contentsScale = scale
+        stillFrameLayerB.contentsScale = scale
         crosshairLayer.contentsScale = scale
+        titleSafeLayer.contentsScale = scale
         splitHandleGripLayer.contentsScale = scale
     }
     
@@ -220,6 +298,7 @@ public final class PlayerContainerNSView: NSView {
         layoutPlayerLayer()
         updateCompareLayers()
         updateExposure()
+        checkStillFrameDisplay()
     }
     
     // MARK: - Video Aspect Ratio & Layout
@@ -268,6 +347,7 @@ public final class PlayerContainerNSView: NSView {
         let panOffset = engine.isFitZoom ? .zero : engine.panOffset
         let isFitZoom = engine.isFitZoom
         let showCrosshair = engine.showCenterCrosshair
+        let showTitleSafe = engine.showTitleSafe
         let baseSize = getBaseFittedSize(in: viewBounds)
         
         // Fast path: skip expensive layer transforms & path reallocations if unchanged
@@ -276,6 +356,7 @@ public final class PlayerContainerNSView: NSView {
            panOffset == lastPanOffset &&
            isFitZoom == lastIsFitZoom &&
            showCrosshair == lastShowCrosshair &&
+           showTitleSafe == lastShowTitleSafe &&
            canvasLayer.bounds.size == baseSize {
             return
         }
@@ -285,6 +366,7 @@ public final class PlayerContainerNSView: NSView {
         lastPanOffset = panOffset
         lastIsFitZoom = isFitZoom
         lastShowCrosshair = showCrosshair
+        lastShowTitleSafe = showTitleSafe
         
         let scale = window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 2.0
         updateScale(for: scale)
@@ -292,9 +374,14 @@ public final class PlayerContainerNSView: NSView {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         
-        if canvasLayer.bounds.size != baseSize {
+        if canvasLayer.bounds.size != baseSize || crosshairLayer.path == nil || titleSafeLayer.path == nil {
             canvasLayer.bounds = CGRect(origin: .zero, size: baseSize)
+            playerLayerA.frame = canvasLayer.bounds
+            playerLayerB.frame = canvasLayer.bounds
+            stillFrameLayerA.frame = canvasLayer.bounds
+            stillFrameLayerB.frame = canvasLayer.bounds
             updateCrosshairPath(size: baseSize)
+            updateTitleSafePath(size: baseSize)
         }
         
         let centerX = viewBounds.midX + panOffset.width
@@ -305,6 +392,9 @@ public final class PlayerContainerNSView: NSView {
         
         crosshairLayer.lineWidth = 1.0 / max(0.01, zoomScale)
         crosshairLayer.isHidden = !showCrosshair
+        
+        titleSafeLayer.lineWidth = 1.0 / max(0.01, zoomScale)
+        titleSafeLayer.isHidden = !showTitleSafe
         
         CATransaction.commit()
     }
@@ -330,6 +420,7 @@ public final class PlayerContainerNSView: NSView {
            slotAURL == lastSlotAURL &&
            slotBURL == lastSlotBURL &&
            playerLayerA.frame.size == canvasLayer.bounds.size {
+            updateLayerVisibility()
             return
         }
         
@@ -345,20 +436,30 @@ public final class PlayerContainerNSView: NSView {
         // Blink compare: Rapidly show 100% Slot B when toggled
         if isBlink {
             playerLayerA.isHidden = true
+            stillFrameLayerA.isHidden = true
             if playerLayerA.mask != nil {
                 playerLayerA.mask = nil
             }
+            if stillFrameLayerA.mask != nil {
+                stillFrameLayerA.mask = nil
+            }
             playerLayerA.compositingFilter = nil
+            stillFrameLayerA.compositingFilter = nil
             playerLayerA.opacity = 1.0
+            stillFrameLayerA.opacity = 1.0
             playerLayerA.zPosition = 0
+            stillFrameLayerA.zPosition = 0
             
-            playerLayerB.isHidden = false
             playerLayerB.opacity = 1.0
+            stillFrameLayerB.opacity = 1.0
             playerLayerB.zPosition = 0
+            stillFrameLayerB.zPosition = 0
             playerLayerB.frame = canvasLayer.bounds
+            stillFrameLayerB.frame = canvasLayer.bounds
             
             splitDividerLayer.isHidden = true
             splitHandleLayer.isHidden = true
+            updateLayerVisibility()
             CATransaction.commit()
             return
         }
@@ -367,29 +468,39 @@ public final class PlayerContainerNSView: NSView {
         if mode != .overlay {
             playerLayerA.opacity = 1.0
             playerLayerB.opacity = 1.0
+            stillFrameLayerA.opacity = 1.0
+            stillFrameLayerB.opacity = 1.0
             playerLayerA.zPosition = 0
             playerLayerB.zPosition = 0
+            stillFrameLayerA.zPosition = 0
+            stillFrameLayerB.zPosition = 0
         }
         
         switch mode {
         case .single:
             playerLayerB.isHidden = true
-            playerLayerA.isHidden = false
+            stillFrameLayerB.isHidden = true
             if playerLayerA.mask != nil {
                 playerLayerA.mask = nil
             }
+            if stillFrameLayerA.mask != nil {
+                stillFrameLayerA.mask = nil
+            }
             playerLayerA.compositingFilter = nil
+            stillFrameLayerA.compositingFilter = nil
             playerLayerA.frame = canvasLayer.bounds
+            stillFrameLayerA.frame = canvasLayer.bounds
             
             splitDividerLayer.isHidden = true
             splitHandleLayer.isHidden = true
             
         case .splitVertical:
-            playerLayerB.isHidden = false
-            playerLayerA.isHidden = false
             playerLayerA.compositingFilter = nil
+            stillFrameLayerA.compositingFilter = nil
             playerLayerA.frame = canvasLayer.bounds
             playerLayerB.frame = canvasLayer.bounds
+            stillFrameLayerA.frame = canvasLayer.bounds
+            stillFrameLayerB.frame = canvasLayer.bounds
             
             let splitX = round(w * splitPos)
             let maskRect = CGRect(x: 0, y: 0, width: splitX, height: h)
@@ -398,6 +509,10 @@ public final class PlayerContainerNSView: NSView {
             maskLayerA.path = maskPath
             if playerLayerA.mask !== maskLayerA {
                 playerLayerA.mask = maskLayerA
+            }
+            stillMaskLayerA.path = maskPath
+            if stillFrameLayerA.mask !== stillMaskLayerA {
+                stillFrameLayerA.mask = stillMaskLayerA
             }
             
             splitDividerLayer.isHidden = false
@@ -428,11 +543,12 @@ public final class PlayerContainerNSView: NSView {
             splitHandleGripLayer.path = gripPathV
             
         case .splitHorizontal:
-            playerLayerB.isHidden = false
-            playerLayerA.isHidden = false
             playerLayerA.compositingFilter = nil
+            stillFrameLayerA.compositingFilter = nil
             playerLayerA.frame = canvasLayer.bounds
             playerLayerB.frame = canvasLayer.bounds
+            stillFrameLayerA.frame = canvasLayer.bounds
+            stillFrameLayerB.frame = canvasLayer.bounds
             
             // In AppKit, y=0 is at bottom. splitY from bottom.
             let splitY = round(h * splitPos)
@@ -442,6 +558,10 @@ public final class PlayerContainerNSView: NSView {
             maskLayerA.path = maskPath
             if playerLayerA.mask !== maskLayerA {
                 playerLayerA.mask = maskLayerA
+            }
+            stillMaskLayerA.path = maskPath
+            if stillFrameLayerA.mask !== stillMaskLayerA {
+                stillFrameLayerA.mask = stillMaskLayerA
             }
             
             splitDividerLayer.isHidden = false
@@ -472,12 +592,14 @@ public final class PlayerContainerNSView: NSView {
             splitHandleGripLayer.path = gripPathH
             
         case .sideBySide:
-            playerLayerB.isHidden = false
-            playerLayerA.isHidden = false
             if playerLayerA.mask != nil {
                 playerLayerA.mask = nil
             }
+            if stillFrameLayerA.mask != nil {
+                stillFrameLayerA.mask = nil
+            }
             playerLayerA.compositingFilter = nil
+            stillFrameLayerA.compositingFilter = nil
             
             let halfW = (w - 4) / 2
             let singleAspect = getVideoAspectRatio()
@@ -490,6 +612,8 @@ public final class PlayerContainerNSView: NSView {
             
             playerLayerA.frame = frameA
             playerLayerB.frame = frameB
+            stillFrameLayerA.frame = frameA
+            stillFrameLayerB.frame = frameB
             
             splitDividerLayer.isHidden = false
             splitDividerLayer.backgroundColor = NSColor(white: 0.35, alpha: 0.7).cgColor
@@ -497,12 +621,14 @@ public final class PlayerContainerNSView: NSView {
             splitHandleLayer.isHidden = true
             
         case .sideBySideVertical:
-            playerLayerB.isHidden = false
-            playerLayerA.isHidden = false
             if playerLayerA.mask != nil {
                 playerLayerA.mask = nil
             }
+            if stillFrameLayerA.mask != nil {
+                stillFrameLayerA.mask = nil
+            }
             playerLayerA.compositingFilter = nil
+            stillFrameLayerA.compositingFilter = nil
             
             let halfH = (h - 4) / 2
             let singleAspect = getVideoAspectRatio()
@@ -516,6 +642,8 @@ public final class PlayerContainerNSView: NSView {
             
             playerLayerA.frame = frameA
             playerLayerB.frame = frameB
+            stillFrameLayerA.frame = frameA
+            stillFrameLayerB.frame = frameB
             
             splitDividerLayer.isHidden = false
             splitDividerLayer.backgroundColor = NSColor(white: 0.35, alpha: 0.7).cgColor
@@ -524,44 +652,211 @@ public final class PlayerContainerNSView: NSView {
             
         case .difference:
             // Pure GPU difference blend (|RGB_A - RGB_B|) directly between playerLayerA and playerLayerB
-            playerLayerB.isHidden = false
-            playerLayerA.isHidden = false
             if playerLayerA.mask != nil {
                 playerLayerA.mask = nil
             }
+            if stillFrameLayerA.mask != nil {
+                stillFrameLayerA.mask = nil
+            }
             playerLayerA.frame = canvasLayer.bounds
             playerLayerB.frame = canvasLayer.bounds
+            stillFrameLayerA.frame = canvasLayer.bounds
+            stillFrameLayerB.frame = canvasLayer.bounds
             
             playerLayerA.compositingFilter = "differenceBlendMode"
+            stillFrameLayerA.compositingFilter = "differenceBlendMode"
             
             splitDividerLayer.isHidden = true
             splitHandleLayer.isHidden = true
             
         case .overlay:
             // 50% Opacity Overlay: Slot B reference is overlayed on top of Slot A at 50% opacity
-            playerLayerB.isHidden = false
-            playerLayerA.isHidden = false
             if playerLayerA.mask != nil {
                 playerLayerA.mask = nil
+            }
+            if stillFrameLayerA.mask != nil {
+                stillFrameLayerA.mask = nil
             }
             if playerLayerB.mask != nil {
                 playerLayerB.mask = nil
             }
+            if stillFrameLayerB.mask != nil {
+                stillFrameLayerB.mask = nil
+            }
             playerLayerA.compositingFilter = nil
+            stillFrameLayerA.compositingFilter = nil
             playerLayerB.compositingFilter = nil
+            stillFrameLayerB.compositingFilter = nil
             playerLayerA.frame = canvasLayer.bounds
             playerLayerB.frame = canvasLayer.bounds
+            stillFrameLayerA.frame = canvasLayer.bounds
+            stillFrameLayerB.frame = canvasLayer.bounds
             
             playerLayerB.zPosition = 1
+            stillFrameLayerB.zPosition = 1
             playerLayerA.zPosition = 0
+            stillFrameLayerA.zPosition = 0
             playerLayerB.opacity = 0.5
+            stillFrameLayerB.opacity = 0.5
             playerLayerA.opacity = 1.0
+            stillFrameLayerA.opacity = 1.0
             
             splitDividerLayer.isHidden = true
             splitHandleLayer.isHidden = true
         }
         
+        updateLayerVisibility()
         CATransaction.commit()
+    }
+    
+    // MARK: - Layer Visibility & Still Frame Inspection
+    
+    private func updateLayerVisibility() {
+        guard let engine = engine else { return }
+        let mode = (engine.slotB.url == nil) ? CompareMode.single : engine.compareMode
+        let isBlink = engine.isBlinkCompareB && engine.slotB.url != nil
+        let isPlayingOrScrubbing = engine.isPlaying || engine.isScrubbing || engine.isSeeking
+        
+        // Check if still frame A is truly ready AND matches current playhead timestamp (<0.03s tolerance)
+        let currentTimeSecsA = CMTimeGetSeconds(engine.currentTime)
+        let isStillReadyA: Bool
+        if let lastA = lastCapturedTimeA, stillFrameLayerA.contents != nil {
+            isStillReadyA = abs(CMTimeGetSeconds(lastA) - currentTimeSecsA) < 0.03
+        } else {
+            isStillReadyA = false
+        }
+        
+        // Check if still frame B is truly ready AND matches current playhead timestamp
+        let isStillReadyB: Bool
+        if let lastB = lastCapturedTimeB, stillFrameLayerB.contents != nil {
+            let timeSecsB = CMTimeGetSeconds(engine.slotB.player.currentTime())
+            isStillReadyB = abs(CMTimeGetSeconds(lastB) - timeSecsB) < 0.03
+        } else {
+            isStillReadyB = false
+        }
+        
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        
+        if isBlink {
+            stillFrameLayerA.isHidden = true
+            playerLayerA.isHidden = true
+            if !isPlayingOrScrubbing && isStillReadyB {
+                stillFrameLayerB.isHidden = false
+                playerLayerB.isHidden = true
+            } else {
+                stillFrameLayerB.isHidden = true
+                playerLayerB.isHidden = false
+            }
+            CATransaction.commit()
+            return
+        }
+        
+        // Slot A visibility:
+        // Only present stillFrameLayerA when stationary AND it holds the verified current frame.
+        // During seeks, scrubbing, or when a new frame is being extracted, playerLayerA displays the live frame seamlessly.
+        if !isPlayingOrScrubbing && isStillReadyA {
+            stillFrameLayerA.isHidden = false
+            playerLayerA.isHidden = true
+        } else {
+            stillFrameLayerA.isHidden = true
+            playerLayerA.isHidden = false
+        }
+        
+        // Slot B visibility
+        if mode == .single || engine.slotB.url == nil {
+            stillFrameLayerB.isHidden = true
+            playerLayerB.isHidden = true
+        } else {
+            if !isPlayingOrScrubbing && isStillReadyB {
+                stillFrameLayerB.isHidden = false
+                playerLayerB.isHidden = true
+            } else {
+                stillFrameLayerB.isHidden = true
+                playerLayerB.isHidden = false
+            }
+        }
+        
+        CATransaction.commit()
+    }
+    
+    private func checkStillFrameDisplay() {
+        guard let engine = engine, engine.slotA.url != nil else { return }
+        
+        // If playing or actively scrubbing or seeking, show live AVPlayerLayers
+        if engine.isPlaying || engine.isScrubbing || engine.isSeeking {
+            // When actively playing, purge the cached still frame so stale textures can never flash
+            if engine.isPlaying && stillFrameLayerA.contents != nil {
+                stillFrameLayerA.contents = nil
+                lastCapturedTimeA = nil
+                stillFrameLayerB.contents = nil
+                lastCapturedTimeB = nil
+            }
+            updateLayerVisibility()
+            return
+        }
+        
+        let timeA = engine.currentTime
+        let timeSecsA = CMTimeGetSeconds(timeA)
+        
+        // Slot A still frame check
+        if let lastA = lastCapturedTimeA, abs(CMTimeGetSeconds(lastA) - timeSecsA) < 0.03, stillFrameLayerA.contents != nil {
+            updateLayerVisibility()
+        } else if !isCapturingStillA {
+            isCapturingStillA = true
+            Task { [weak self] in
+                guard let self = self, let curEngine = self.engine else { return }
+                let img = await curEngine.captureCurrentFrame(for: .slotA, at: timeA)
+                await MainActor.run {
+                    self.isCapturingStillA = false
+                    guard let curEngine = self.engine else { return }
+                    if let img = img {
+                        if !curEngine.isPlaying && !curEngine.isScrubbing && !curEngine.isSeeking && abs(CMTimeGetSeconds(curEngine.currentTime) - timeSecsA) < 0.04 {
+                            self.lastCapturedTimeA = timeA
+                            self.stillFrameLayerA.contents = img
+                            self.updateLayerVisibility()
+                        } else if !curEngine.isPlaying && !curEngine.isScrubbing && !curEngine.isSeeking {
+                            self.checkStillFrameDisplay()
+                        }
+                    } else if !curEngine.isPlaying && !curEngine.isScrubbing && !curEngine.isSeeking {
+                        // Retry shortly if asset was warming up
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in
+                            self?.checkStillFrameDisplay()
+                        }
+                    }
+                }
+            }
+        }
+        
+        // Slot B still frame check if active comparison
+        if engine.slotB.url != nil && engine.compareMode != .single {
+            let timeB = engine.slotB.player.currentTime()
+            let timeSecsB = CMTimeGetSeconds(timeB)
+            if let lastB = lastCapturedTimeB, abs(CMTimeGetSeconds(lastB) - timeSecsB) < 0.03, stillFrameLayerB.contents != nil {
+                updateLayerVisibility()
+            } else if !isCapturingStillB {
+                isCapturingStillB = true
+                Task { [weak self] in
+                    guard let self = self, let curEngine = self.engine else { return }
+                    let imgB = await curEngine.captureCurrentFrame(for: .slotB, at: timeB)
+                    await MainActor.run {
+                        self.isCapturingStillB = false
+                        guard let curEngine = self.engine else { return }
+                        if let imgB = imgB {
+                            if !curEngine.isPlaying && !curEngine.isScrubbing && !curEngine.isSeeking {
+                                self.lastCapturedTimeB = timeB
+                                self.stillFrameLayerB.contents = imgB
+                                self.updateLayerVisibility()
+                            }
+                        } else if !curEngine.isPlaying && !curEngine.isScrubbing && !curEngine.isSeeking {
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in
+                                self?.checkStillFrameDisplay()
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
     
     private func updateCrosshairPath(size: CGSize) {
@@ -577,6 +872,57 @@ public final class PlayerContainerNSView: NSView {
         crosshairLayer.path = path
     }
     
+    private func updateTitleSafePath(size: CGSize) {
+        titleSafeLayer.frame = CGRect(origin: .zero, size: size)
+        let w = size.width
+        let h = size.height
+        guard w > 0, h > 0 else { return }
+        
+        let path = CGMutablePath()
+        
+        // 1. Action Safe: 90% (5% margin from each border)
+        let actionMarginX = w * 0.05
+        let actionMarginY = h * 0.05
+        let actionRect = CGRect(x: actionMarginX, y: actionMarginY, width: w * 0.90, height: h * 0.90)
+        path.addRect(actionRect)
+        
+        // 2. Title Safe: 80% (10% margin from each border)
+        let titleMarginX = w * 0.10
+        let titleMarginY = h * 0.10
+        let titleRect = CGRect(x: titleMarginX, y: titleMarginY, width: w * 0.80, height: h * 0.80)
+        path.addRect(titleRect)
+        
+        // 3. Center tick marks on Action Safe edges (10px length)
+        let midX = w / 2.0
+        let midY = h / 2.0
+        let tickLen: CGFloat = 10.0
+        
+        // Top tick
+        path.move(to: CGPoint(x: midX, y: actionMarginY))
+        path.addLine(to: CGPoint(x: midX, y: actionMarginY + tickLen))
+        
+        // Bottom tick
+        path.move(to: CGPoint(x: midX, y: h - actionMarginY))
+        path.addLine(to: CGPoint(x: midX, y: h - actionMarginY - tickLen))
+        
+        // Left tick
+        path.move(to: CGPoint(x: actionMarginX, y: midY))
+        path.addLine(to: CGPoint(x: actionMarginX + tickLen, y: midY))
+        
+        // Right tick
+        path.move(to: CGPoint(x: w - actionMarginX, y: midY))
+        path.addLine(to: CGPoint(x: w - actionMarginX - tickLen, y: midY))
+        
+        // 4. Subtle center cross tick (16px total)
+        let centerCrossLen: CGFloat = 8.0
+        path.move(to: CGPoint(x: midX - centerCrossLen, y: midY))
+        path.addLine(to: CGPoint(x: midX + centerCrossLen, y: midY))
+        path.move(to: CGPoint(x: midX, y: midY - centerCrossLen))
+        path.addLine(to: CGPoint(x: midX, y: midY + centerCrossLen))
+        
+        titleSafeLayer.path = path
+    }
+    
     // MARK: - Exposure Adjustment (After Effects Style EV Filter)
     
     private func updateExposure() {
@@ -590,15 +936,21 @@ public final class PlayerContainerNSView: NSView {
         if abs(ev) < 0.001 {
             playerLayerA.filters = nil
             playerLayerB.filters = nil
+            stillFrameLayerA.filters = nil
+            stillFrameLayerB.filters = nil
         } else {
             if let currentFilters = playerLayerA.filters as? [CIFilter],
                let filter = currentFilters.first(where: { $0.name == "exposureFilter" }) {
                 filter.setValue(ev, forKey: kCIInputEVKey)
                 playerLayerA.setValue(ev, forKeyPath: "filters.exposureFilter.inputEV")
                 playerLayerB.setValue(ev, forKeyPath: "filters.exposureFilter.inputEV")
+                stillFrameLayerA.setValue(ev, forKeyPath: "filters.exposureFilter.inputEV")
+                stillFrameLayerB.setValue(ev, forKeyPath: "filters.exposureFilter.inputEV")
             } else {
                 guard let filterA = CIFilter(name: "CIExposureAdjust"),
-                      let filterB = CIFilter(name: "CIExposureAdjust") else {
+                      let filterB = CIFilter(name: "CIExposureAdjust"),
+                      let filterStillA = CIFilter(name: "CIExposureAdjust"),
+                      let filterStillB = CIFilter(name: "CIExposureAdjust") else {
                     CATransaction.commit()
                     return
                 }
@@ -608,12 +960,22 @@ public final class PlayerContainerNSView: NSView {
                 filterB.name = "exposureFilter"
                 filterB.setValue(ev, forKey: kCIInputEVKey)
                 
+                filterStillA.name = "exposureFilter"
+                filterStillA.setValue(ev, forKey: kCIInputEVKey)
+                
+                filterStillB.name = "exposureFilter"
+                filterStillB.setValue(ev, forKey: kCIInputEVKey)
+                
                 playerLayerA.filters = [filterA]
                 playerLayerB.filters = [filterB]
+                stillFrameLayerA.filters = [filterStillA]
+                stillFrameLayerB.filters = [filterStillB]
             }
         }
         playerLayerA.setNeedsDisplay()
         playerLayerB.setNeedsDisplay()
+        stillFrameLayerA.setNeedsDisplay()
+        stillFrameLayerB.setNeedsDisplay()
         CATransaction.commit()
     }
     
@@ -731,6 +1093,7 @@ public final class PlayerContainerNSView: NSView {
             dragStartLocation = nil
         }
         updateCursor()
+        checkStillFrameDisplay()
         
         if event.clickCount == 1 && !wasDragging {
             onSingleClick?()

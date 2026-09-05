@@ -49,6 +49,67 @@ public enum SlotTarget: String, Sendable {
     case slotB
 }
 
+// ARCHITECTURAL MANDATE:
+// FrameExtractor provides thread-safe, sub-10ms uncompressed still frame captures for
+// VideoViewportView's stillFrameLayerA/B, eliminating CoreMedia motion-downsampling during panning.
+// Must maintain actor isolation to satisfy Swift 6 strict concurrency without data races.
+// See AGENTS.md for full specification.
+public actor FrameExtractor {
+    private var generator: AVAssetImageGenerator?
+    private var currentURL: URL?
+    
+    public init() {}
+    
+    public func setURL(_ url: URL?) {
+        self.currentURL = url
+        guard let url = url else {
+            self.generator = nil
+            return
+        }
+        let asset = AVURLAsset(url: url)
+        let gen = AVAssetImageGenerator(asset: asset)
+        gen.appliesPreferredTrackTransform = true
+        gen.requestedTimeToleranceBefore = .zero
+        gen.requestedTimeToleranceAfter = .zero
+        self.generator = gen
+    }
+    
+    public func capture(at time: CMTime, fallbackURL: URL? = nil) -> CGImage? {
+        if generator == nil, let url = fallbackURL ?? currentURL {
+            let asset = AVURLAsset(url: url)
+            let gen = AVAssetImageGenerator(asset: asset)
+            gen.appliesPreferredTrackTransform = true
+            gen.requestedTimeToleranceBefore = .zero
+            gen.requestedTimeToleranceAfter = .zero
+            self.generator = gen
+            self.currentURL = url
+        }
+        guard let gen = generator else { return nil }
+        
+        // 1. Try exact frame capture with zero tolerance
+        do {
+            var actualTime = CMTime.zero
+            let cgImage = try gen.copyCGImage(at: time, actualTime: &actualTime)
+            return cgImage
+        } catch {
+            // 2. If exact frame PTS failed (e.g. boundary offset), fallback with 0.02s tolerance
+            let fallbackTol = CMTime(seconds: 0.02, preferredTimescale: 60000)
+            gen.requestedTimeToleranceBefore = fallbackTol
+            gen.requestedTimeToleranceAfter = fallbackTol
+            defer {
+                gen.requestedTimeToleranceBefore = .zero
+                gen.requestedTimeToleranceAfter = .zero
+            }
+            do {
+                var actualTime = CMTime.zero
+                return try gen.copyCGImage(at: time, actualTime: &actualTime)
+            } catch {
+                return nil
+            }
+        }
+    }
+}
+
 @MainActor
 public final class PlayerSlot: ObservableObject {
     public let id: SlotTarget
@@ -63,6 +124,7 @@ public final class PlayerSlot: ObservableObject {
     @Published public var totalFrames: Int = 0
     @Published public var slipOffsetFrames: Int = 0
     
+    public let frameExtractor = FrameExtractor()
     public let player = AVPlayer()
     
     public init(id: SlotTarget) {
@@ -119,6 +181,7 @@ public final class PlayerEngine: ObservableObject {
     
     // Crosshair & Guides
     @Published public var showCenterCrosshair: Bool = false
+    @Published public var showTitleSafe: Bool = false
     
     // Video Exposure Adjustment (EV stops: -5.0 to +5.0)
     @Published public var exposureEV: Double = 0.0
@@ -163,11 +226,11 @@ public final class PlayerEngine: ObservableObject {
     private var itemPresentationSizeCancellable: AnyCancellable? = nil
     private var itemPresentationSizeCancellableB: AnyCancellable? = nil
     
-    private var isSeeking: Bool = false
+    @Published public var isSeeking: Bool = false
     private var pendingSeekTime: CMTime? = nil
     private var pendingSeekCompletion: (@MainActor @Sendable () -> Void)? = nil
     
-    private var isSeekingB: Bool = false
+    @Published public var isSeekingB: Bool = false
     private var pendingSeekTimeB: CMTime? = nil
     private var lastDriftCorrectionTime: Date = .distantPast
     
@@ -240,6 +303,10 @@ public final class PlayerEngine: ObservableObject {
         self.pendingSeekCompletion = nil
         
         let asset = AVURLAsset(url: url)
+        Task { [slotA] in
+            await slotA.frameExtractor.setURL(url)
+        }
+        
         let item = AVPlayerItem(asset: asset)
         item.canUseNetworkResourcesForLiveStreamingWhilePaused = false
         
@@ -288,6 +355,10 @@ public final class PlayerEngine: ObservableObject {
         slotB.slipOffsetFrames = 0
         
         let asset = AVURLAsset(url: url)
+        Task { [slotB] in
+            await slotB.frameExtractor.setURL(url)
+        }
+        
         let item = AVPlayerItem(asset: asset)
         item.canUseNetworkResourcesForLiveStreamingWhilePaused = false
         
@@ -357,7 +428,12 @@ public final class PlayerEngine: ObservableObject {
             
             let durSecs = CMTimeGetSeconds(dur)
             let roundedFps = max(1.0, detectedFps)
-            let totFrames = Int(round(durSecs * roundedFps))
+            let totFrames: Int
+            if durSecs.isFinite && !durSecs.isNaN && roundedFps.isFinite && !roundedFps.isNaN {
+                totFrames = max(0, Int(round(durSecs * roundedFps)))
+            } else {
+                totFrames = 0
+            }
             
             if target == .slotA {
                 self.slotA.duration = dur
@@ -504,6 +580,11 @@ public final class PlayerEngine: ObservableObject {
             slotB.player.seek(to: tempTime_A, toleranceBefore: .zero, toleranceAfter: .zero)
         }
         
+        Task { [slotA, slotB] in
+            await slotA.frameExtractor.setURL(tempURL_B)
+            await slotB.frameExtractor.setURL(tempURL_A)
+        }
+        
         self.activeURL = slotA.url
         self.activeFileName = slotA.fileName
         self.activeResolution = slotA.resolution
@@ -542,6 +623,9 @@ public final class PlayerEngine: ObservableObject {
         slotB.duration = .zero
         slotB.totalFrames = 0
         slotB.slipOffsetFrames = 0
+        Task { [slotB] in
+            await slotB.frameExtractor.setURL(nil)
+        }
         isSeekingB = false
         pendingSeekTimeB = nil
         compareMode = .single
@@ -563,6 +647,9 @@ public final class PlayerEngine: ObservableObject {
         slotA.codec = ""
         slotA.duration = .zero
         slotA.totalFrames = 0
+        Task { [slotA] in
+            await slotA.frameExtractor.setURL(nil)
+        }
         activeMarkers = []
         durationTimecode = "00:00:00:00"
         currentTimecode = "00:00:00:00"
@@ -642,25 +729,36 @@ public final class PlayerEngine: ObservableObject {
     }
     
     private func updateCurrentTime(time: CMTime) {
+        guard time.isValid && time.isNumeric else { return }
+        let currSecs = CMTimeGetSeconds(time)
+        guard currSecs.isFinite && !currSecs.isNaN else { return }
+        
         self.currentTime = time
         self.slotA.currentTime = time
         let durSecs = CMTimeGetSeconds(duration)
-        let currSecs = CMTimeGetSeconds(time)
         
-        if durSecs > 0 {
+        if durSecs > 0 && durSecs.isFinite && !durSecs.isNaN {
             self.currentProgress = min(1.0, max(0.0, currSecs / durSecs))
         } else {
             self.currentProgress = 0.0
         }
         
         let fps = max(1.0, activeFps)
-        let frameIdx = max(0, min(max(0, totalFrames - 1), Int(floor(currSecs * fps + 1e-4))))
+        let calcVal = currSecs * fps + 1e-4
+        let frameIdx: Int
+        if calcVal.isFinite && !calcVal.isNaN {
+            frameIdx = max(0, min(max(0, totalFrames - 1), Int(floor(calcVal))))
+        } else {
+            frameIdx = 0
+        }
         self.currentFrame = frameIdx
         self.currentTimecode = TimecodeFormatter.format(frameIndex: frameIdx, fps: activeFps)
         
         if slotB.url != nil && slotB.player.currentItem != nil {
             let timeB = slotB.player.currentTime()
-            self.slotB.currentTime = timeB
+            if timeB.isValid && timeB.isNumeric {
+                self.slotB.currentTime = timeB
+            }
             
             // Continuous drift correction during linked playback (throttled, only if drift > 0.15s)
             if self.isLinked && self.isPlaying && self.rate != 0 && !self.isSeekingB {
@@ -927,6 +1025,12 @@ public final class PlayerEngine: ObservableObject {
         self.isPlaying = false
         self.isScrubbing = false
         self.shuttleStateText = "PAUSE"
+        if let currentItem = slotA.player.currentItem, currentItem.status == .readyToPlay {
+            let pausedTime = slotA.player.currentTime()
+            if pausedTime.isValid && pausedTime.isNumeric {
+                updateCurrentTime(time: pausedTime)
+            }
+        }
     }
     
     public func setPlaybackRate(_ newRate: Float) {
@@ -1028,10 +1132,11 @@ public final class PlayerEngine: ObservableObject {
         self.currentProgress = clamped
         
         let durSecs = CMTimeGetSeconds(duration)
-        if durSecs > 0 {
+        if durSecs > 0 && durSecs.isFinite && !durSecs.isNaN {
             let currSecs = clamped * durSecs
             let fps = max(1.0, activeFps)
-            let frameIdx = max(0, min(max(0, totalFrames - 1), Int(floor(currSecs * fps + 1e-4))))
+            let calcVal = currSecs * fps + 1e-4
+            let frameIdx = (calcVal.isFinite && !calcVal.isNaN) ? max(0, min(max(0, totalFrames - 1), Int(floor(calcVal)))) : 0
             self.currentFrame = frameIdx
             self.currentTimecode = TimecodeFormatter.format(frameIndex: frameIdx, fps: activeFps)
             
@@ -1050,10 +1155,11 @@ public final class PlayerEngine: ObservableObject {
         self.currentProgress = clamped
         
         let durSecs = CMTimeGetSeconds(duration)
-        if durSecs > 0 {
+        if durSecs > 0 && durSecs.isFinite && !durSecs.isNaN {
             let currSecs = clamped * durSecs
             let fps = max(1.0, activeFps)
-            let frameIdx = max(0, min(max(0, totalFrames - 1), Int(floor(currSecs * fps + 1e-4))))
+            let calcVal = currSecs * fps + 1e-4
+            let frameIdx = (calcVal.isFinite && !calcVal.isNaN) ? max(0, min(max(0, totalFrames - 1), Int(floor(calcVal)))) : 0
             self.currentFrame = frameIdx
             self.currentTimecode = TimecodeFormatter.format(frameIndex: frameIdx, fps: activeFps)
             
@@ -1178,22 +1284,10 @@ public final class PlayerEngine: ObservableObject {
     // MARK: - Pixel-Perfect Still Frame Capture (For export)
     
     public func captureCurrentFrame(for slot: SlotTarget = .slotA, at time: CMTime? = nil) async -> CGImage? {
-        let targetURL = (slot == .slotA) ? slotA.url : slotB.url
-        guard let url = targetURL else { return nil }
-        let targetTime = time ?? ((slot == .slotA) ? slotA.player.currentTime() : slotB.player.currentTime())
-        return await Task.detached {
-            let asset = AVURLAsset(url: url)
-            let gen = AVAssetImageGenerator(asset: asset)
-            gen.appliesPreferredTrackTransform = true
-            gen.requestedTimeToleranceBefore = .zero
-            gen.requestedTimeToleranceAfter = .zero
-            do {
-                let (cgImage, _) = try await gen.image(at: targetTime)
-                return cgImage
-            } catch {
-                return nil
-            }
-        }.value
+        let currentSlot = (slot == .slotA) ? slotA : slotB
+        guard let url = currentSlot.url else { return nil }
+        let targetTime = time ?? currentSlot.player.currentTime()
+        return await currentSlot.frameExtractor.capture(at: targetTime, fallbackURL: url)
     }
     
     /// Exports the current video frame as a medium-quality JPEG (quality ~0.65)

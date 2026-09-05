@@ -107,7 +107,7 @@ struct PlayerTransportDeckView: View {
                 .frame(width: 1, height: 14)
                 .padding(.horizontal, 2)
             
-            // 2. Playback Utilities: Loop, Crosshair & Exposure
+            // 2. Playback Utilities: Loop, Title Safe, Crosshair & Exposure
             HStack(spacing: 4) {
                 transportBtn(
                     icon: "repeat",
@@ -118,6 +118,23 @@ struct PlayerTransportDeckView: View {
                     width: 26
                 ) {
                     engine.isLooping.toggle()
+                }
+                
+                customTransportBtn(
+                    tooltip: engine.showTitleSafe ? "Title & Action Safe: ON" : "Title & Action Safe: OFF",
+                    isActive: engine.showTitleSafe,
+                    width: 26
+                ) {
+                    engine.showTitleSafe.toggle()
+                } content: {
+                    ZStack {
+                        RoundedRectangle(cornerRadius: 1.5)
+                            .strokeBorder(lineWidth: 1.1)
+                            .frame(width: 16, height: 11.5)
+                        RoundedRectangle(cornerRadius: 0.8)
+                            .strokeBorder(lineWidth: 0.9)
+                            .frame(width: 10.5, height: 7)
+                    }
                 }
                 
                 transportBtn(
@@ -193,6 +210,7 @@ struct PlayerTransportDeckView: View {
         icon: String,
         tooltip: String,
         isActive: Bool = false,
+        activeColor: Color? = nil,
         size: CGFloat = 14,
         weight: Font.Weight = .bold,
         width: CGFloat = 30,
@@ -202,7 +220,25 @@ struct PlayerTransportDeckView: View {
             Image(systemName: icon)
                 .font(.system(size: size, weight: weight))
                 .frame(width: width, height: 28)
-                .foregroundColor(isActive ? accentBlue : textMain)
+                .foregroundColor(isActive ? (activeColor ?? accentBlue) : textMain)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(TransportIconButtonStyle())
+        .explain(tooltip, binding: hoverExplanation)
+    }
+    
+    private func customTransportBtn<Content: View>(
+        tooltip: String,
+        isActive: Bool = false,
+        activeColor: Color? = nil,
+        width: CGFloat = 26,
+        action: @escaping () -> Void,
+        @ViewBuilder content: () -> Content
+    ) -> some View {
+        Button(action: action) {
+            content()
+                .frame(width: width, height: 28)
+                .foregroundColor(isActive ? (activeColor ?? accentBlue) : textMain)
                 .contentShape(Rectangle())
         }
         .buttonStyle(TransportIconButtonStyle())

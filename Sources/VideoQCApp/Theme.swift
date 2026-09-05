@@ -21,10 +21,11 @@ enum AppTab: Int, CaseIterable, Identifiable {
 
 // MARK: - Dynamic Studio Palette & Styling Tokens
 
+@MainActor
 struct StudioTheme {
     /// Master corner radius controlling all boxes, buttons, cards, and input fields.
     /// Tweak this single value to adjust corner rounding across the entire app.
-    static let cornerRadius: CGFloat = 4.0
+    nonisolated static let cornerRadius: CGFloat = 4.0
     
     static func bgMain(_ isLight: Bool) -> Color {
         isLight ? Color(white: 0.96) : Color(red: 0.04, green: 0.04, blue: 0.04)
@@ -66,18 +67,21 @@ struct StudioTheme {
         isLight ? Color(white: 0.30) : Color(white: 0.65)
     }
     
-    // MARK: - Exclusive Color Accents (Only 2 Accents)
-    // Positive Accent: #2E6F40 (Forest Green)
-    static let positive = Color(red: 46 / 255.0, green: 111 / 255.0, blue: 64 / 255.0)
-    // Negative Accent: #a14746 (Muted Brick Red)
-    static let negative = Color(red: 161 / 255.0, green: 71 / 255.0, blue: 70 / 255.0)
-    // Slot B Accent: #715C83 (Muted Purple)
-    static let slotBAccent = Color(red: 0x71 / 255.0, green: 0x5C / 255.0, blue: 0x83 / 255.0)
-    // Neutral Interactive / Playhead Blue Accent (#338FFA / #3898EC)
-    static let accentBlue = Color(red: 0.20, green: 0.56, blue: 0.98)
+    // MARK: - Dynamic Core Accents (Customizable via ThemeManager)
+    // Positive Accent: Green (Pass / Slot A / Ready)
+    static var positive: Color { ThemeManager.shared.currentTheme.greenColor }
+    // Negative Accent: Red (Glitches / Warnings)
+    static var negative: Color { ThemeManager.shared.currentTheme.redColor }
+    // Slot B Accent: Purple (Reference Video / AB Compare)
+    static var slotBAccent: Color { ThemeManager.shared.currentTheme.purpleColor }
+    // Neutral Interactive Accent: Teal / Blue (Playhead / Timecode / Scrubber)
+    static var accentBlue: Color { ThemeManager.shared.currentTheme.blueColor }
     static func accentBlue(_ isLight: Bool) -> Color {
-        isLight ? Color(red: 0.08, green: 0.45, blue: 0.88) : Color(red: 0.20, green: 0.56, blue: 0.98)
+        accentBlue
     }
+    
+    // Crosshair Cyan Accent (#1AF2D9 - identical to AB split screen divider)
+    static let crosshairCyan = Color(red: 0.1, green: 0.95, blue: 0.85)
     
     static var alertRed: Color { negative }
     static var alertPositive: Color { positive }
@@ -94,6 +98,7 @@ struct StudioTheme {
 
 // MARK: - Convenient Theme Palette Bundle
 
+@MainActor
 public struct StudioPalette {
     public let isLight: Bool
     
@@ -120,13 +125,18 @@ public struct StudioPalette {
     public var alertPositive: Color { StudioTheme.positive }
     public var accentPositive: Color { StudioTheme.positive }
     public var accentNegative: Color { StudioTheme.negative }
+    public var accentSlotB: Color { StudioTheme.slotBAccent }
     public var accentBlue: Color { StudioTheme.accentBlue(isLight) }
+    public var crosshairCyan: Color { StudioTheme.crosshairCyan }
 }
 
+@MainActor
 extension Color {
-    static let studioPositive = StudioTheme.positive
-    static let studioNegative = StudioTheme.negative
-    static let studioBlue = StudioTheme.accentBlue
+    static var studioPositive: Color { StudioTheme.positive }
+    static var studioNegative: Color { StudioTheme.negative }
+    static var studioBlue: Color { StudioTheme.accentBlue }
+    static var studioSlotB: Color { StudioTheme.slotBAccent }
+    static let studioCrosshairCyan = StudioTheme.crosshairCyan
 }
 
 // MARK: - Minimal Borderless Transport Button Style

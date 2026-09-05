@@ -1189,9 +1189,9 @@ struct PlayerComparisonBar: View {
     private var textMuted: Color { StudioTheme.textMuted(isLightMode) }
     private var bgSubtle: Color { StudioTheme.bgSubtle(isLightMode) }
     private var borderLine: Color { StudioTheme.borderLine(isLightMode) }
-    private let accentPositive = StudioTheme.positive
-    private let accentSlotB = StudioTheme.slotBAccent
-    private let alertRed = StudioTheme.negative
+    private var accentPositive: Color { StudioTheme.positive }
+    private var accentSlotB: Color { StudioTheme.slotBAccent }
+    private var alertRed: Color { StudioTheme.negative }
     
     var body: some View {
         HStack(spacing: 8) {
@@ -1435,10 +1435,10 @@ struct FullscreenPlayerView: View {
     @State private var isHoveringControls: Bool = false
     @State private var hideTask: Task<Void, Never>? = nil
     
-    private let accentPositive = StudioTheme.positive
-    private let accentSlotB = StudioTheme.slotBAccent
-    private let alertRed = StudioTheme.negative
-    private let accentBlue = StudioTheme.accentBlue(false)
+    private var accentPositive: Color { StudioTheme.positive }
+    private var accentSlotB: Color { StudioTheme.slotBAccent }
+    private var alertRed: Color { StudioTheme.negative }
+    private var accentBlue: Color { StudioTheme.accentBlue(false) }
     
     var body: some View {
         ZStack {
