@@ -120,6 +120,13 @@ public final class PlayerEngine: ObservableObject {
     // Crosshair & Guides
     @Published public var showCenterCrosshair: Bool = false
     
+    // Video Exposure Adjustment (EV stops: -5.0 to +5.0)
+    @Published public var exposureEV: Double = 0.0
+    
+    public func resetExposure() {
+        self.exposureEV = 0.0
+    }
+    
     // Glitch Markers from Line Scanner
     @Published public var markersMap: [URL: [PlayerTimelineMarker]] = [:]
     @Published public var activeMarkers: [PlayerTimelineMarker] = []
@@ -625,7 +632,7 @@ public final class PlayerEngine: ObservableObject {
     private func setupTimeObserver() {
         let interval = CMTime(value: 1, timescale: 60)
         let token = slotA.player.addPeriodicTimeObserver(forInterval: interval, queue: .main) { [weak self] time in
-            Task { @MainActor in
+            MainActor.assumeIsolated {
                 guard let self = self, !self.isScrubbing else { return }
                 self.updateCurrentTime(time: time)
             }
@@ -993,15 +1000,7 @@ public final class PlayerEngine: ObservableObject {
         }
         seek(toFrame: targetFrame)
     }
-    
-    public func stepSeconds(_ delta: Double) {
-        pause()
-        let currSecs = CMTimeGetSeconds(currentTime)
-        let durSecs = CMTimeGetSeconds(duration)
-        let targetSecs = min(max(0.0, currSecs + delta), durSecs)
-        let targetTime = CMTime(seconds: targetSecs, preferredTimescale: 60000)
-        seek(toTime: targetTime)
-    }
+
     
     public func jumpToBeginning() {
         pause()
@@ -1139,10 +1138,7 @@ public final class PlayerEngine: ObservableObject {
         self.isFitZoom = false
         self.zoomScale = scale
     }
-    
-    public func resetPan() {
-        self.panOffset = .zero
-    }
+
     
     // MARK: - Frame-Accurate Seeking & Scan Markers
     

@@ -30,19 +30,20 @@ struct FeedbackModalView: View {
     }
     
     // Dynamic Studio Theme Palette
-    private var bgMain: Color { StudioTheme.bgMain(isLightMode) }
-    private var bgPanel: Color { StudioTheme.bgPanel(isLightMode) }
-    private var bgSubtle: Color { StudioTheme.bgSubtle(isLightMode) }
-    private var bgCardBody: Color { StudioTheme.bgCardSubtle(isLightMode) }
-    private var borderLine: Color { StudioTheme.borderLine(isLightMode) }
-    private var borderStrong: Color { StudioTheme.borderStrong(isLightMode) }
-    private var textMain: Color { StudioTheme.textMain(isLightMode) }
-    private var textMuted: Color { StudioTheme.textMuted(isLightMode) }
-    private var textSubtle: Color { StudioTheme.textSubtle(isLightMode) }
-    private var primaryBtnBg: Color { StudioTheme.primaryBtnBg(isLightMode) }
-    private var primaryBtnFg: Color { StudioTheme.primaryBtnFg(isLightMode) }
-    private var accentPositive: Color { StudioTheme.positive }
-    private var accentNegative: Color { StudioTheme.negative }
+    private var palette: StudioPalette { StudioPalette(isLightMode) }
+    private var bgMain: Color { palette.bgMain }
+    private var bgPanel: Color { palette.bgPanel }
+    private var bgSubtle: Color { palette.bgSubtle }
+    private var bgCardBody: Color { palette.bgCardBody }
+    private var borderLine: Color { palette.borderLine }
+    private var borderStrong: Color { palette.borderStrong }
+    private var textMain: Color { palette.textMain }
+    private var textMuted: Color { palette.textMuted }
+    private var textSubtle: Color { palette.textSubtle }
+    private var primaryBtnBg: Color { palette.primaryBtnBg }
+    private var primaryBtnFg: Color { palette.primaryBtnFg }
+    private var accentPositive: Color { palette.accentPositive }
+    private var accentNegative: Color { palette.accentNegative }
     
     private let targetEmail = AppConfig.supportEmail
     private let web3FormsKey = AppConfig.web3FormsAccessKey

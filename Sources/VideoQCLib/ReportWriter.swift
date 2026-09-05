@@ -677,38 +677,8 @@ public struct ReportWriter: Sendable {
         </body>
         </html>
         """
-        
+    
         return html
     }
-    
-    // MARK: - Save Reports
-    
-    /// Saves .html and .csv (Google Sheets compatible) reports and applies Red Finder tags to flagged videos
-    @discardableResult
-    public static func saveReport(
-        folderURL: URL,
-        config: QCConfig,
-        results: [VideoQCResult]
-    ) -> (htmlURL: URL?, csvURL: URL?) {
-        // 1. Tag flagged files with Red label in Finder
-        tagFlaggedFilesInFinder(results: results)
-        
-        let fileDateFormatter = DateFormatter()
-        fileDateFormatter.dateFormat = "yyyyMMdd_HHmmss"
-        let timestamp = fileDateFormatter.string(from: Date())
-        let csvFileName = "QC_Report_\(timestamp).csv"
-        
-        // 2. Save HTML Report (with embedded Google Sheets launcher and CSV downloader)
-        let htmlReportText = generateHTMLReport(folderURL: folderURL, config: config, results: results, csvFileName: csvFileName)
-        let htmlFileName = "QC_Report_\(timestamp).html"
-        let htmlFileURL = folderURL.appendingPathComponent(htmlFileName)
-        let savedHTML = (try? htmlReportText.write(to: htmlFileURL, atomically: true, encoding: .utf8)) != nil ? htmlFileURL : nil
-        
-        // 3. Save CSV Document (Google Sheets / Excel / Numbers compatible)
-        let csvReportText = generateCSVReport(results: results)
-        let csvFileURL = folderURL.appendingPathComponent(csvFileName)
-        let savedCSV = (try? csvReportText.write(to: csvFileURL, atomically: true, encoding: .utf8)) != nil ? csvFileURL : nil
-        
-        return (savedHTML, savedCSV)
-    }
 }
+

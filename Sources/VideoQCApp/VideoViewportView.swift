@@ -1,6 +1,7 @@
 import SwiftUI
 import AppKit
 import AVFoundation
+import CoreImage
 
 public struct VideoViewportView: NSViewRepresentable {
     @ObservedObject var engine: PlayerEngine
@@ -79,6 +80,7 @@ public final class PlayerContainerNSView: NSView {
     private var lastShowCrosshair: Bool = false
     private var lastSlotAURL: URL? = nil
     private var lastSlotBURL: URL? = nil
+    private var lastExposureEV: Double = 0.0
     
     public override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -102,7 +104,7 @@ public final class PlayerContainerNSView: NSView {
         playerLayerB.borderWidth = 0
         playerLayerB.shadowOpacity = 0
         playerLayerB.isHidden = true
-        playerLayerB.actions = ["hidden": NSNull(), "opacity": NSNull(), "position": NSNull(), "bounds": NSNull(), "frame": NSNull()]
+        playerLayerB.actions = ["hidden": NSNull(), "opacity": NSNull(), "position": NSNull(), "bounds": NSNull(), "frame": NSNull(), "filters": NSNull()]
         canvasLayer.addSublayer(playerLayerB)
         
         // Slot A: Player Video Layer (Master playback)
@@ -112,7 +114,7 @@ public final class PlayerContainerNSView: NSView {
         playerLayerA.backgroundColor = NSColor.clear.cgColor
         playerLayerA.borderWidth = 0
         playerLayerA.shadowOpacity = 0
-        playerLayerA.actions = ["hidden": NSNull(), "opacity": NSNull(), "position": NSNull(), "bounds": NSNull(), "frame": NSNull()]
+        playerLayerA.actions = ["hidden": NSNull(), "opacity": NSNull(), "position": NSNull(), "bounds": NSNull(), "frame": NSNull(), "filters": NSNull()]
         canvasLayer.addSublayer(playerLayerA)
         
         // Mask Layer for Layer A (disables implicit animation for instantaneous 120fps wipe tracking)
@@ -145,7 +147,7 @@ public final class PlayerContainerNSView: NSView {
         
         // Center crosshair overlay (top-to-bottom centering guide)
         crosshairLayer.fillColor = nil
-        crosshairLayer.strokeColor = NSColor(red: 0.1, green: 0.95, blue: 0.85, alpha: 0.9).cgColor
+        crosshairLayer.strokeColor = NSColor(red: 0.20, green: 0.58, blue: 0.98, alpha: 0.9).cgColor
         crosshairLayer.lineWidth = 1.0
         crosshairLayer.shadowOpacity = 0
         crosshairLayer.zPosition = 100
@@ -189,6 +191,7 @@ public final class PlayerContainerNSView: NSView {
         
         layoutPlayerLayer()
         updateCompareLayers()
+        updateExposure()
     }
     
     public override func viewWillMove(toWindow newWindow: NSWindow?) {
@@ -216,6 +219,7 @@ public final class PlayerContainerNSView: NSView {
         super.layout()
         layoutPlayerLayer()
         updateCompareLayers()
+        updateExposure()
     }
     
     // MARK: - Video Aspect Ratio & Layout
@@ -571,6 +575,46 @@ public final class PlayerContainerNSView: NSView {
         path.move(to: CGPoint(x: 0, y: midY))
         path.addLine(to: CGPoint(x: size.width, y: midY))
         crosshairLayer.path = path
+    }
+    
+    // MARK: - Exposure Adjustment (After Effects Style EV Filter)
+    
+    private func updateExposure() {
+        guard let engine = engine else { return }
+        let ev = engine.exposureEV
+        if abs(ev - lastExposureEV) < 0.001 { return }
+        lastExposureEV = ev
+        
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        if abs(ev) < 0.001 {
+            playerLayerA.filters = nil
+            playerLayerB.filters = nil
+        } else {
+            if let currentFilters = playerLayerA.filters as? [CIFilter],
+               let filter = currentFilters.first(where: { $0.name == "exposureFilter" }) {
+                filter.setValue(ev, forKey: kCIInputEVKey)
+                playerLayerA.setValue(ev, forKeyPath: "filters.exposureFilter.inputEV")
+                playerLayerB.setValue(ev, forKeyPath: "filters.exposureFilter.inputEV")
+            } else {
+                guard let filterA = CIFilter(name: "CIExposureAdjust"),
+                      let filterB = CIFilter(name: "CIExposureAdjust") else {
+                    CATransaction.commit()
+                    return
+                }
+                filterA.name = "exposureFilter"
+                filterA.setValue(ev, forKey: kCIInputEVKey)
+                
+                filterB.name = "exposureFilter"
+                filterB.setValue(ev, forKey: kCIInputEVKey)
+                
+                playerLayerA.filters = [filterA]
+                playerLayerB.filters = [filterB]
+            }
+        }
+        playerLayerA.setNeedsDisplay()
+        playerLayerB.setNeedsDisplay()
+        CATransaction.commit()
     }
     
     // MARK: - Interactive Split Wipe Drag & Canvas Pan

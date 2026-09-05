@@ -21,6 +21,6 @@ public struct AppConfig {
     
     /// Web URL for releases
     public static var githubReleasesWebURL: URL {
-        URL(string: "https://github.com/\(githubRepoOwner)/\(githubRepoName)/releases")!
+        URL(string: "https://github.com/\(githubRepoOwner)/\(githubRepoName)/releases") ?? URL(fileURLWithPath: "/")
     }
 }

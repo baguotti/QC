@@ -13,7 +13,7 @@ enum AppTab: Int, CaseIterable, Identifiable {
         switch self {
         case .lineScanner: return "01 // LINE SCANNER"
         case .player: return "02 // PLAYER"
-        case .deliverables: return "03 // DELIVERABLES SPECS"
+        case .deliverables: return "03 // SPECS"
         case .batchRenamer: return "04 // BATCH RENAMER"
         }
     }
@@ -73,19 +73,15 @@ struct StudioTheme {
     static let negative = Color(red: 161 / 255.0, green: 71 / 255.0, blue: 70 / 255.0)
     // Slot B Accent: #715C83 (Muted Purple)
     static let slotBAccent = Color(red: 0x71 / 255.0, green: 0x5C / 255.0, blue: 0x83 / 255.0)
+    // Neutral Interactive / Playhead Blue Accent (#338FFA / #3898EC)
+    static let accentBlue = Color(red: 0.20, green: 0.56, blue: 0.98)
+    static func accentBlue(_ isLight: Bool) -> Color {
+        isLight ? Color(red: 0.08, green: 0.45, blue: 0.88) : Color(red: 0.20, green: 0.56, blue: 0.98)
+    }
     
     static var alertRed: Color { negative }
     static var alertPositive: Color { positive }
-    
-    @available(*, deprecated, message: "Use StudioTheme.alertRed directly without isLight argument")
-    static func alertRed(_ isLight: Bool) -> Color {
-        negative
-    }
-    
-    @available(*, deprecated, message: "Use StudioTheme.alertPositive directly without isLight argument")
-    static func alertPositive(_ isLight: Bool) -> Color {
-        positive
-    }
+
     
     static func primaryBtnBg(_ isLight: Bool) -> Color {
         isLight ? Color.black : Color.white
@@ -110,6 +106,7 @@ public struct StudioPalette {
     public var bgSubtle: Color { StudioTheme.bgSubtle(isLight) }
     public var bgCardHeader: Color { StudioTheme.bgCardHeader(isLight) }
     public var bgCardSubtle: Color { StudioTheme.bgCardSubtle(isLight) }
+    public var bgCardBody: Color { StudioTheme.bgCardSubtle(isLight) }
     public var borderLine: Color { StudioTheme.borderLine(isLight) }
     public var borderStrong: Color { StudioTheme.borderStrong(isLight) }
     public var textMain: Color { StudioTheme.textMain(isLight) }
@@ -120,11 +117,27 @@ public struct StudioPalette {
     public var positive: Color { StudioTheme.positive }
     public var negative: Color { StudioTheme.negative }
     public var alertRed: Color { StudioTheme.negative }
+    public var alertPositive: Color { StudioTheme.positive }
+    public var accentPositive: Color { StudioTheme.positive }
+    public var accentNegative: Color { StudioTheme.negative }
+    public var accentBlue: Color { StudioTheme.accentBlue(isLight) }
 }
 
 extension Color {
     static let studioPositive = StudioTheme.positive
     static let studioNegative = StudioTheme.negative
+    static let studioBlue = StudioTheme.accentBlue
+}
+
+// MARK: - Minimal Borderless Transport Button Style
+
+struct TransportIconButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .opacity(configuration.isPressed ? 0.6 : 1.0)
+            .scaleEffect(configuration.isPressed ? 0.92 : 1.0)
+            .animation(.easeOut(duration: 0.1), value: configuration.isPressed)
+    }
 }
 
 // MARK: - Minimalist Studio Toggle Style
@@ -185,12 +198,6 @@ extension View {
             .background(background, in: RoundedRectangle(cornerRadius: radius))
             .overlay(RoundedRectangle(cornerRadius: radius).stroke(border, lineWidth: width))
     }
-    
-    /// Applies the rounded studio stroke border using master corner radius
-    func studioBorder(_ color: Color, radius: CGFloat = StudioTheme.cornerRadius, width: CGFloat = 1) -> some View {
-        self
-            .overlay(RoundedRectangle(cornerRadius: radius).stroke(color, lineWidth: width))
-            .clipShape(RoundedRectangle(cornerRadius: radius))
-    }
+
 }
 

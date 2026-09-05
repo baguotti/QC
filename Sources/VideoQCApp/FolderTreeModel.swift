@@ -43,13 +43,24 @@ public struct FileSystemTreeNode: Identifiable, Hashable, Sendable {
     }
 }
 
+@MainActor
 public struct FileSystemTreeBuilder {
+    
+    // Memoization cache to avoid 60Hz tree rebuilding during playback and UI interactions
+    private static var cachedRootURL: URL? = nil
+    private static var cachedFiles: [URL] = []
+    private static var cachedTree: [FileSystemTreeNode] = []
+    private static var cachedOrderedURLs: [URL] = []
     
     /// Builds a hierarchical tree of nodes representing the folder and file structure.
     /// If rootURL is provided, hierarchy is relative to rootURL.
     /// Otherwise, common parent directory is used if available.
     public static func buildTree(rootURL: URL?, files: [URL]) -> [FileSystemTreeNode] {
         guard !files.isEmpty else { return [] }
+        
+        if rootURL == cachedRootURL && files == cachedFiles {
+            return cachedTree
+        }
         
         let baseDirectory: URL
         if let root = rootURL {
@@ -170,8 +181,12 @@ public struct FileSystemTreeBuilder {
             
             return items
         }
-        
-        return convert(dir: rootNode, depth: 0)
+        let result = convert(dir: rootNode, depth: 0)
+        cachedRootURL = rootURL
+        cachedFiles = files
+        cachedTree = result
+        cachedOrderedURLs.removeAll()
+        return result
     }
     
     /// Checks if any directory nodes exist in the tree.
@@ -241,6 +256,10 @@ public struct FileSystemTreeBuilder {
     
     /// Extracts all video URLs in depth-first traversal order
     public static func orderedVideoURLs(from nodes: [FileSystemTreeNode]) -> [URL] {
+        if nodes == cachedTree && !cachedOrderedURLs.isEmpty {
+            return cachedOrderedURLs
+        }
+        
         var urls: [URL] = []
         func collect(_ list: [FileSystemTreeNode]) {
             for node in list {
@@ -252,6 +271,10 @@ public struct FileSystemTreeBuilder {
             }
         }
         collect(nodes)
+        
+        if nodes == cachedTree {
+            cachedOrderedURLs = urls
+        }
         return urls
     }
     

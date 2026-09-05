@@ -119,7 +119,7 @@ public final class UpdateManager: NSObject, ObservableObject {
                 self.state = .updateAvailable(
                     version: cleanRemoteTag,
                     dmgURL: self.remoteDMGURL,
-                    webURL: self.remoteWebURL ?? URL(string: "https://github.com/\(repoOwner)/\(repoName)/releases")!
+                    webURL: self.remoteWebURL ?? AppConfig.githubReleasesWebURL
                 )
                 if userInitiated {
                     self.showModal = true
@@ -165,7 +165,7 @@ public final class UpdateManager: NSObject, ObservableObject {
             state = .updateAvailable(
                 version: latestVersion,
                 dmgURL: remoteDMGURL,
-                webURL: remoteWebURL ?? URL(string: "https://github.com/\(repoOwner)/\(repoName)/releases")!
+                webURL: remoteWebURL ?? AppConfig.githubReleasesWebURL
             )
         } else {
             state = .idle

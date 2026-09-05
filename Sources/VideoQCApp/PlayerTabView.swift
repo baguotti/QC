@@ -1,16 +1,108 @@
 import SwiftUI
+import AppKit
 import AVFoundation
 import UniformTypeIdentifiers
 import VideoQCLib
 
-// MARK: - Minimal Borderless Transport Button Style
 
-struct TransportIconButtonStyle: ButtonStyle {
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .opacity(configuration.isPressed ? 0.6 : 1.0)
-            .scaleEffect(configuration.isPressed ? 0.92 : 1.0)
-            .animation(.easeOut(duration: 0.1), value: configuration.isPressed)
+// MARK: - Exposure Scrubber Control (After Effects Style)
+
+struct ExposureScrubberView: View {
+    @ObservedObject var engine: PlayerEngine
+    var isLightMode: Bool = false
+    var hoverExplanation: Binding<String>? = nil
+    
+    @State private var isDragging: Bool = false
+    @State private var dragStartEV: Double = 0.0
+    @State private var isHoveringNumber: Bool = false
+    
+    private var formattedEV: String {
+        let val = abs(engine.exposureEV) < 0.05 ? 0.0 : engine.exposureEV
+        return String(format: "%+.1f", val)
+    }
+    
+    private var isNonZero: Bool {
+        abs(engine.exposureEV) >= 0.05
+    }
+    
+    // AE blue accent for the scrubbable number
+    private var scrubberBlue: Color {
+        StudioTheme.accentBlue(isLightMode)
+    }
+    
+    private var iconColor: Color {
+        if isNonZero {
+            return scrubberBlue
+        } else {
+            return isLightMode ? Color(white: 0.12) : Color.white
+        }
+    }
+    
+    var body: some View {
+        HStack(spacing: 2) {
+            // Aperture Reset Button
+            Button(action: {
+                withAnimation(.easeOut(duration: 0.12)) {
+                    engine.resetExposure()
+                }
+            }) {
+                Image(systemName: "camera.aperture")
+                    .font(.system(size: 12.5, weight: .semibold))
+                    .foregroundColor(iconColor)
+                    .frame(width: 22, height: 26)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(TransportIconButtonStyle())
+            .explain("Reset Exposure to +0.0 EV", binding: hoverExplanation)
+            
+            // Drag-Scrub Number
+            Text(formattedEV)
+                .font(.system(size: 11, weight: .bold, design: .monospaced))
+                .foregroundColor(scrubberBlue)
+                .frame(height: 26)
+                .contentShape(Rectangle())
+                .gesture(
+                    DragGesture(minimumDistance: 1)
+                        .onChanged { value in
+                            if !isDragging {
+                                isDragging = true
+                                dragStartEV = engine.exposureEV
+                            }
+                            // 35 pt horizontal drag = 1.0 EV
+                            let delta = Double(value.translation.width) / 35.0
+                            let target = min(5.0, max(-5.0, dragStartEV + delta))
+                            let stepped = (target * 10.0).rounded() / 10.0
+                            if abs(engine.exposureEV - stepped) > 0.001 {
+                                engine.exposureEV = stepped
+                            }
+                        }
+                        .onEnded { _ in
+                            isDragging = false
+                        }
+                )
+                .onTapGesture(count: 2) {
+                    withAnimation(.easeOut(duration: 0.12)) {
+                        engine.resetExposure()
+                    }
+                }
+                .onHover { hovering in
+                    if hovering != isHoveringNumber {
+                        isHoveringNumber = hovering
+                        if hovering {
+                            NSCursor.resizeLeftRight.push()
+                        } else {
+                            NSCursor.pop()
+                        }
+                    }
+                }
+                .onDisappear {
+                    if isHoveringNumber {
+                        isHoveringNumber = false
+                        NSCursor.pop()
+                    }
+                }
+                .explain("Change Exposure (EV): Drag left/right to adjust, click aperture to reset (Current: \(formattedEV))", binding: hoverExplanation)
+        }
     }
 }
 
@@ -600,14 +692,22 @@ extension ContentView {
                 Text(playerEngine.shuttleStateText)
                     .font(.system(size: 10, weight: .bold, design: .monospaced))
                     .monospacedDigit()
-                    .foregroundColor(accentPositive)
+                    .foregroundColor(accentBlue)
                     .tracking(0.5)
             }
             
             // Outer Strip: Left Timecode + Zoom, Right Duration
             HStack(spacing: 12) {
-                // Left: Current SMPTE Timecode or Frame Count (Fixed 125px width)
+                // Left: Current SMPTE Timecode or Frame Count (Fixed width, locked frames alignment)
                 Menu {
+                    Button(action: {
+                        let text = playerEngine.displayTimeAsFrames ? "\(playerEngine.currentFrame)" : playerEngine.currentTimecode
+                        NSPasteboard.general.clearContents()
+                        NSPasteboard.general.setString(text, forType: .string)
+                    }) {
+                        Label("Copy \(playerEngine.displayTimeAsFrames ? "Frame (\(playerEngine.currentFrame))" : "Timecode (\(playerEngine.currentTimecode))")", systemImage: "doc.on.doc")
+                    }
+                    Divider()
                     Button(action: { playerEngine.displayTimeAsFrames = false }) {
                         HStack {
                             Text("SMPTE Timecode (HH:MM:SS:FF)")
@@ -625,22 +725,77 @@ extension ContentView {
                         }
                     }
                 } label: {
-                    HStack(spacing: 5) {
-                        Text(playerEngine.displayTimeAsFrames ? "\(playerEngine.currentFrame) frames" : playerEngine.currentTimecode)
-                            .font(.system(size: 13, weight: .bold, design: .monospaced))
-                            .monospacedDigit()
-                            .foregroundColor(accentPositive)
-                            .tracking(0.5)
-                            .lineLimit(1)
+                    HStack(spacing: 4) {
+                        if playerEngine.displayTimeAsFrames {
+                            let maxNum = max(playerEngine.totalFrames, playerEngine.currentFrame, 999)
+                            let digitCount = max(4, String(maxNum).count)
+                            let frameColWidth = CGFloat(digitCount) * 8.2
+                            
+                            Text("\(playerEngine.currentFrame)")
+                                .font(.system(size: 13, weight: .bold, design: .monospaced))
+                                .monospacedDigit()
+                                .foregroundColor(accentBlue)
+                                .frame(minWidth: frameColWidth, alignment: .trailing)
+                            
+                            Text("frames")
+                                .font(.system(size: 13, weight: .bold, design: .monospaced))
+                                .foregroundColor(accentBlue)
+                        } else {
+                            Text(playerEngine.currentTimecode)
+                                .font(.system(size: 13, weight: .bold, design: .monospaced))
+                                .monospacedDigit()
+                                .foregroundColor(accentBlue)
+                                .tracking(0.5)
+                                .lineLimit(1)
+                        }
                         
                         Image(systemName: "chevron.down")
                             .font(.system(size: 8, weight: .bold))
-                            .foregroundColor(accentPositive.opacity(0.8))
+                            .foregroundColor(accentBlue.opacity(0.8))
                     }
-                    .frame(width: 125, alignment: .leading)
+                    .frame(width: 140, alignment: .leading)
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
+                .contextMenu {
+                    Button(action: {
+                        let text = playerEngine.displayTimeAsFrames ? "\(playerEngine.currentFrame)" : playerEngine.currentTimecode
+                        NSPasteboard.general.clearContents()
+                        NSPasteboard.general.setString(text, forType: .string)
+                    }) {
+                        Label("Copy Value (\(playerEngine.displayTimeAsFrames ? "\(playerEngine.currentFrame)" : playerEngine.currentTimecode))", systemImage: "doc.on.doc")
+                    }
+                    Divider()
+                    Button(action: {
+                        NSPasteboard.general.clearContents()
+                        NSPasteboard.general.setString(playerEngine.currentTimecode, forType: .string)
+                    }) {
+                        Label("Copy SMPTE (\(playerEngine.currentTimecode))", systemImage: "clock")
+                    }
+                    Button(action: {
+                        NSPasteboard.general.clearContents()
+                        NSPasteboard.general.setString("\(playerEngine.currentFrame)", forType: .string)
+                    }) {
+                        Label("Copy Frame Number (\(playerEngine.currentFrame))", systemImage: "number")
+                    }
+                    Divider()
+                    Button(action: { playerEngine.displayTimeAsFrames = false }) {
+                        HStack {
+                            Text("SMPTE Timecode (HH:MM:SS:FF)")
+                            if !playerEngine.displayTimeAsFrames {
+                                Image(systemName: "checkmark")
+                            }
+                        }
+                    }
+                    Button(action: { playerEngine.displayTimeAsFrames = true }) {
+                        HStack {
+                            Text("Frames (Frame Count)")
+                            if playerEngine.displayTimeAsFrames {
+                                Image(systemName: "checkmark")
+                            }
+                        }
+                    }
+                }
                 
                 // Zoom Dropdown Menu (Fixed 64px width)
                 Menu {
@@ -723,7 +878,7 @@ extension ContentView {
                     set: { playerEngine.volume = Float($0) }
                 ), in: 0...1)
                 .frame(width: 70)
-                .tint(accentPositive)
+                .tint(accentBlue)
                 .disabled(playerEngine.isMuted)
             }
             .frame(width: 210, alignment: .leading)
@@ -732,134 +887,15 @@ extension ContentView {
             
             // Center: Playback, Shuttle & Frame Controls
             HStack(spacing: 8) {
-                // 1. Unified Transport Deck (Tight & Proportional)
-                HStack(spacing: 5) {
-                    // Slow Rev (Shift + J)
-                    transportBtn(icon: "backward", tooltip: "Slow Reverse (⇧J / Tap to accelerate)", size: 13, width: 26) {
-                        playerEngine.pressSlowJ()
-                    }
-                    
-                    // Step Back 1 Frame (Left Arrow)
-                    transportBtn(icon: "backward.frame.fill", tooltip: "Step Back 1 Frame (Left Arrow)", size: 13, width: 26) {
-                        playerEngine.stepFrame(forward: false)
-                    }
-                    
-                    // Shuttle Reverse (J)
-                    Button(action: { playerEngine.pressJ() }) {
-                        Image(systemName: "backward.fill")
-                            .font(.system(size: 14, weight: .bold))
-                            .frame(width: 28, height: 28)
-                            .foregroundColor(playerEngine.rate < 0 ? accentPositive : textMain)
-                            .contentShape(Rectangle())
-                    }
-                    .buttonStyle(TransportIconButtonStyle())
-                    .explain("Shuttle Reverse (J: -1x, -2x, -4x, -8x)", binding: $hoverExplanation)
-                    
-                    // Play / Pause (Space / K)
-                    Button(action: { playerEngine.togglePlayPause() }) {
-                        AnimatedPlayPauseIconView(
-                            isPlaying: playerEngine.isPlaying,
-                            color: textMain,
-                            size: 20
-                        )
-                        .frame(width: 30, height: 28)
-                        .contentShape(Rectangle())
-                    }
-                    .buttonStyle(TransportIconButtonStyle())
-                    .explain("Play / Pause (Spacebar / K)", binding: $hoverExplanation)
-                    
-                    // Shuttle Forward (L)
-                    Button(action: { playerEngine.pressL() }) {
-                        Image(systemName: "forward.fill")
-                            .font(.system(size: 14, weight: .bold))
-                            .frame(width: 28, height: 28)
-                            .foregroundColor(playerEngine.rate > 1.0 ? accentPositive : textMain)
-                            .contentShape(Rectangle())
-                    }
-                    .buttonStyle(TransportIconButtonStyle())
-                    .explain("Shuttle Forward (L: 1x, 2x, 4x, 8x)", binding: $hoverExplanation)
-                    
-                    // Step Forward 1 Frame (Right Arrow)
-                    transportBtn(icon: "forward.frame.fill", tooltip: "Step Forward 1 Frame (Right Arrow)", size: 13, width: 26) {
-                        playerEngine.stepFrame(forward: true)
-                    }
-                    
-                    // Slow Forward (Shift + L)
-                    transportBtn(icon: "forward", tooltip: "Slow Forward (Shift + L / Tap to accelerate)", size: 13, width: 26) {
-                        playerEngine.pressSlowL()
-                    }
-                }
-                
-                // Group Divider
-                Rectangle()
-                    .fill(borderLine.opacity(0.45))
-                    .frame(width: 1, height: 14)
-                    .padding(.horizontal, 2)
-                
-                // 2. Playback Utilities: Loop & Crosshair
-                HStack(spacing: 4) {
-                    transportBtn(
-                        icon: "repeat",
-                        tooltip: playerEngine.isLooping ? "Loop Playback: ON (⌘L)" : "Loop Playback: OFF (⌘L)",
-                        isActive: playerEngine.isLooping,
-                        size: 12,
-                        width: 26
-                    ) {
-                        playerEngine.isLooping.toggle()
-                    }
-                    
-                    transportBtn(
-                        icon: "plus.viewfinder",
-                        tooltip: playerEngine.showCenterCrosshair ? "Center Crosshair: ON" : "Center Crosshair: OFF",
-                        isActive: playerEngine.showCenterCrosshair,
-                        size: 12,
-                        width: 26
-                    ) {
-                        playerEngine.showCenterCrosshair.toggle()
-                    }
-                }
-                
-                // Group Divider
-                Rectangle()
-                    .fill(borderLine.opacity(0.45))
-                    .frame(width: 1, height: 14)
-                    .padding(.horizontal, 2)
-                
-                // 3. Compact Borderless Line Finding Navigation
-                let hasGlitches = scanResults.contains(where: { $0.isFlagged && !$0.glitchSegments.isEmpty })
-                HStack(spacing: 3) {
-                    Button(action: { jumpToPreviousGlitchFinding() }) {
-                        HStack(spacing: 3) {
-                            Image(systemName: "chevron.left.to.line")
-                                .font(.system(size: 9, weight: .bold))
-                            Text("PREV LINE")
-                                .font(.system(size: 9, weight: .bold, design: .monospaced))
-                        }
-                        .frame(height: 28)
-                        .padding(.horizontal, 5)
-                        .foregroundColor(hasGlitches ? alertRed : textMuted)
-                        .contentShape(Rectangle())
-                    }
-                    .buttonStyle(TransportIconButtonStyle())
-                    .disabled(!hasGlitches)
-                    .explain(hasGlitches ? "Jump to previous detected line glitch (⇧N / cycles backwards through findings of Tab 1)." : "No line glitches found in Tab 1 to cycle through.", binding: $hoverExplanation)
-                    
-                    Button(action: { jumpToNextGlitchFinding() }) {
-                        HStack(spacing: 3) {
-                            Text("NEXT LINE")
-                                .font(.system(size: 9, weight: .bold, design: .monospaced))
-                            Image(systemName: "chevron.right.to.line")
-                                .font(.system(size: 9, weight: .bold))
-                        }
-                        .frame(height: 28)
-                        .padding(.horizontal, 5)
-                        .foregroundColor(hasGlitches ? alertRed : textMuted)
-                        .contentShape(Rectangle())
-                    }
-                    .buttonStyle(TransportIconButtonStyle())
-                    .disabled(!hasGlitches)
-                    .explain(hasGlitches ? "Jump to next detected line glitch (N / cycles forwards through findings of Tab 1)." : "No line glitches found in Tab 1 to cycle through.", binding: $hoverExplanation)
-                }
+                PlayerTransportDeckView(
+                    engine: playerEngine,
+                    scanResults: scanResults,
+                    isLightMode: isLightMode,
+                    hoverExplanation: $hoverExplanation,
+                    hideGlitchNavWhenEmpty: false,
+                    onJumpPrevGlitch: { jumpToPreviousGlitchFinding() },
+                    onJumpNextGlitch: { jumpToNextGlitchFinding() }
+                )
                 
                 // Group Divider
                 Rectangle()
@@ -869,7 +905,7 @@ extension ContentView {
                 
                 // 4. Finder Tags Button (Border-free)
                 let activeURL = playerEngine.activeURL
-                let activeTag = activeURL != nil ? fileTagsMap[activeURL!] : nil
+                let activeTag = activeURL.flatMap { fileTagsMap[$0] }
                 Button(action: {
                     showTagPickerPopover.toggle()
                 }) {
@@ -887,7 +923,7 @@ extension ContentView {
                     }
                     .frame(height: 28)
                     .padding(.horizontal, 5)
-                    .foregroundColor(activeTag != nil ? activeTag!.color : (activeURL == nil ? textMuted : textMain.opacity(0.85)))
+                    .foregroundColor(activeTag?.color ?? (activeURL == nil ? textMuted : textMain.opacity(0.85)))
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(TransportIconButtonStyle())
@@ -959,17 +995,6 @@ extension ContentView {
         .frame(height: 28)
     }
     
-    private func transportBtn(icon: String, tooltip: String, isActive: Bool = false, size: CGFloat = 14, width: CGFloat = 30, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Image(systemName: icon)
-                .font(.system(size: size, weight: .bold))
-                .frame(width: width, height: 28)
-                .foregroundColor(isActive ? accentPositive : textMain)
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(TransportIconButtonStyle())
-        .explain(tooltip, binding: $hoverExplanation)
-    }
     
     var playerTreeNodes: [FileSystemTreeNode] {
         FileSystemTreeBuilder.buildTree(rootURL: folderURL, files: videoFiles)
@@ -1082,7 +1107,7 @@ extension ContentView {
     // MARK: - Tag Picker Popover
     
     private func tagPickerPopoverView(for url: URL?) -> some View {
-        let currentTag = url != nil ? fileTagsMap[url!] : nil
+        let currentTag = url.flatMap { fileTagsMap[$0] }
         return HStack(spacing: 12) {
             ForEach(FinderTagColor.allCases) { tag in
                 Button(action: {
@@ -1413,6 +1438,7 @@ struct FullscreenPlayerView: View {
     private let accentPositive = StudioTheme.positive
     private let accentSlotB = StudioTheme.slotBAccent
     private let alertRed = StudioTheme.negative
+    private let accentBlue = StudioTheme.accentBlue(false)
     
     var body: some View {
         ZStack {
@@ -1649,17 +1675,66 @@ struct FullscreenPlayerView: View {
             HStack(spacing: 12) {
                 // Left: Timecode / Frame Count + Shuttle Speed (Fixed 280px width)
                 HStack(spacing: 8) {
-                    Text(engine.displayTimeAsFrames ? "\(engine.currentFrame) frames" : engine.currentTimecode)
-                        .font(.system(size: 14, weight: .bold, design: .monospaced))
-                        .monospacedDigit()
-                        .foregroundColor(accentPositive)
-                        .frame(width: 120, alignment: .leading)
+                    if engine.displayTimeAsFrames {
+                        let maxNum = max(engine.totalFrames, engine.currentFrame, 999)
+                        let digitCount = max(4, String(maxNum).count)
+                        let frameColWidth = CGFloat(digitCount) * 8.8
+                        
+                        HStack(spacing: 4) {
+                            Text("\(engine.currentFrame)")
+                                .font(.system(size: 14, weight: .bold, design: .monospaced))
+                                .monospacedDigit()
+                                .foregroundColor(accentBlue)
+                                .frame(minWidth: frameColWidth, alignment: .trailing)
+                            
+                            Text("frames")
+                                .font(.system(size: 14, weight: .bold, design: .monospaced))
+                                .foregroundColor(accentBlue)
+                        }
+                        .frame(width: 130, alignment: .leading)
+                        .contentShape(Rectangle())
+                        .contextMenu {
+                            Button(action: {
+                                NSPasteboard.general.clearContents()
+                                NSPasteboard.general.setString("\(engine.currentFrame)", forType: .string)
+                            }) {
+                                Label("Copy Frame (\(engine.currentFrame))", systemImage: "doc.on.doc")
+                            }
+                            Button(action: {
+                                NSPasteboard.general.clearContents()
+                                NSPasteboard.general.setString(engine.currentTimecode, forType: .string)
+                            }) {
+                                Label("Copy SMPTE (\(engine.currentTimecode))", systemImage: "clock")
+                            }
+                        }
+                    } else {
+                        Text(engine.currentTimecode)
+                            .font(.system(size: 14, weight: .bold, design: .monospaced))
+                            .monospacedDigit()
+                            .foregroundColor(accentBlue)
+                            .frame(width: 120, alignment: .leading)
+                            .contentShape(Rectangle())
+                            .contextMenu {
+                                Button(action: {
+                                    NSPasteboard.general.clearContents()
+                                    NSPasteboard.general.setString(engine.currentTimecode, forType: .string)
+                                }) {
+                                    Label("Copy Timecode (\(engine.currentTimecode))", systemImage: "doc.on.doc")
+                                }
+                                Button(action: {
+                                    NSPasteboard.general.clearContents()
+                                    NSPasteboard.general.setString("\(engine.currentFrame)", forType: .string)
+                                }) {
+                                    Label("Copy Frame Number (\(engine.currentFrame))", systemImage: "number")
+                                }
+                            }
+                    }
                     
                     if engine.shuttleStateText != "PAUSE" && (engine.isPlaying || engine.rate != 0) {
                         Text(engine.shuttleStateText)
                             .font(.system(size: 10, weight: .bold, design: .monospaced))
                             .monospacedDigit()
-                            .foregroundColor(accentPositive)
+                            .foregroundColor(accentBlue)
                             .tracking(0.5)
                     }
                 }
@@ -1668,114 +1743,15 @@ struct FullscreenPlayerView: View {
                 Spacer()
                 
                 // Center: Transport Buttons
-                HStack(spacing: 8) {
-                    // 1. Unified Transport Deck (Tight & Proportional)
-                    HStack(spacing: 5) {
-                        transportBtn(icon: "backward", tooltip: "Slow Reverse (Shift + J)", size: 13, width: 26) {
-                            engine.pressSlowJ()
-                        }
-                        transportBtn(icon: "backward.frame.fill", tooltip: "Step -1 Frame (Left Arrow)", size: 13, width: 26) {
-                            engine.stepFrame(forward: false)
-                        }
-                        
-                        Button(action: { engine.pressJ() }) {
-                            Image(systemName: "backward.fill")
-                                .font(.system(size: 14, weight: .bold))
-                                .frame(width: 28, height: 28)
-                                .foregroundColor(engine.rate < 0 ? accentPositive : .white)
-                                .contentShape(Rectangle())
-                        }
-                        .buttonStyle(TransportIconButtonStyle())
-                        .help("Shuttle Reverse (J)")
-                        
-                        Button(action: { engine.togglePlayPause() }) {
-                            AnimatedPlayPauseIconView(
-                                isPlaying: engine.isPlaying,
-                                color: .white,
-                                size: 20
-                            )
-                            .frame(width: 30, height: 28)
-                            .contentShape(Rectangle())
-                        }
-                        .buttonStyle(TransportIconButtonStyle())
-                        .help("Play / Pause (Spacebar / K)")
-                        
-                        Button(action: { engine.pressL() }) {
-                            Image(systemName: "forward.fill")
-                                .font(.system(size: 14, weight: .bold))
-                                .frame(width: 28, height: 28)
-                                .foregroundColor(engine.rate > 1.0 ? accentPositive : .white)
-                                .contentShape(Rectangle())
-                        }
-                        .buttonStyle(TransportIconButtonStyle())
-                        .help("Shuttle Forward (L)")
-                        
-                        transportBtn(icon: "forward.frame.fill", tooltip: "Step +1 Frame (Right Arrow)", size: 13, width: 26) {
-                            engine.stepFrame(forward: true)
-                        }
-                        transportBtn(icon: "forward", tooltip: "Slow Forward (Shift + L)", size: 13, width: 26) {
-                            engine.pressSlowL()
-                        }
-                    }
-                    
-                    // Divider
-                    Rectangle()
-                        .fill(Color.white.opacity(0.2))
-                        .frame(width: 1, height: 14)
-                        .padding(.horizontal, 2)
-                    
-                    // 2. Playback Utilities
-                    HStack(spacing: 4) {
-                        transportBtn(icon: "repeat", tooltip: "Loop Playback (⌘L)", isActive: engine.isLooping, size: 12, width: 26) {
-                            engine.isLooping.toggle()
-                        }
-                        transportBtn(icon: "plus.viewfinder", tooltip: "Center Crosshair", isActive: engine.showCenterCrosshair, size: 12, width: 26) {
-                            engine.showCenterCrosshair.toggle()
-                        }
-                    }
-                    
-                    let hasGlitches = scanResults.contains(where: { $0.isFlagged && !$0.glitchSegments.isEmpty })
-                    if hasGlitches {
-                        // Divider
-                        Rectangle()
-                            .fill(Color.white.opacity(0.2))
-                            .frame(width: 1, height: 14)
-                            .padding(.horizontal, 2)
-                        
-                        // 3. Compact Borderless Glitch Findings Navigation
-                        HStack(spacing: 3) {
-                            Button(action: onJumpPrev) {
-                                HStack(spacing: 3) {
-                                    Image(systemName: "chevron.left.to.line")
-                                        .font(.system(size: 9, weight: .bold))
-                                    Text("PREV LINE")
-                                        .font(.system(size: 9, weight: .bold, design: .monospaced))
-                                }
-                                .frame(height: 28)
-                                .padding(.horizontal, 5)
-                                .foregroundColor(alertRed)
-                                .contentShape(Rectangle())
-                            }
-                            .buttonStyle(TransportIconButtonStyle())
-                            .help("Previous Glitch (⇧N)")
-                            
-                            Button(action: onJumpNext) {
-                                HStack(spacing: 3) {
-                                    Text("NEXT LINE")
-                                        .font(.system(size: 9, weight: .bold, design: .monospaced))
-                                    Image(systemName: "chevron.right.to.line")
-                                        .font(.system(size: 9, weight: .bold))
-                                }
-                                .frame(height: 28)
-                                .padding(.horizontal, 5)
-                                .foregroundColor(alertRed)
-                                .contentShape(Rectangle())
-                            }
-                            .buttonStyle(TransportIconButtonStyle())
-                            .help("Next Glitch (N)")
-                        }
-                    }
-                }
+                PlayerTransportDeckView(
+                    engine: engine,
+                    scanResults: scanResults,
+                    isLightMode: false,
+                    hoverExplanation: nil,
+                    hideGlitchNavWhenEmpty: true,
+                    onJumpPrevGlitch: onJumpPrev,
+                    onJumpNextGlitch: onJumpNext
+                )
                 
                 Spacer()
                 
@@ -1817,17 +1793,6 @@ struct FullscreenPlayerView: View {
         }
     }
     
-    private func transportBtn(icon: String, tooltip: String, isActive: Bool = false, size: CGFloat = 14, width: CGFloat = 30, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Image(systemName: icon)
-                .font(.system(size: size, weight: .bold))
-                .frame(width: width, height: 28)
-                .foregroundColor(isActive ? accentPositive : .white)
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(TransportIconButtonStyle())
-        .help(tooltip)
-    }
 }
 
 // MARK: - Pure Video Fullscreen View (Zero UI)

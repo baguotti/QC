@@ -290,22 +290,26 @@ extension ContentView {
                         let assetMap = deliverableAssetsMap
                         
                         if hasDeliverablesSubfolders {
-                            ForEach(Array(flattenedDeliverableNodes.enumerated()), id: \.element.id) { idx, node in
+                            let nodes = flattenedDeliverableNodes
+                            let nodeCount = nodes.count
+                            ForEach(Array(nodes.enumerated()), id: \.element.id) { idx, node in
                                 if node.isDirectory {
                                     deliverablesFolderBannerRow(node: node, assetMap: assetMap)
                                 } else if let asset = assetMap[node.url] {
                                     deliverablesAssetRow(idx: idx, asset: asset, depth: node.depth)
                                 }
                                 
-                                if idx < flattenedDeliverableNodes.count - 1 {
+                                if idx < nodeCount - 1 {
                                     Rectangle().fill(borderLine.opacity(0.4)).frame(height: 1)
                                 }
                             }
                         } else {
-                            ForEach(Array(deliverableAssets.enumerated()), id: \.element.id) { idx, asset in
+                            let assets = deliverableAssets
+                            let assetCount = assets.count
+                            ForEach(Array(assets.enumerated()), id: \.element.id) { idx, asset in
                                 deliverablesAssetRow(idx: idx, asset: asset, depth: 0)
                                 
-                                if idx < deliverableAssets.count - 1 {
+                                if idx < assetCount - 1 {
                                     Rectangle().fill(borderLine.opacity(0.4)).frame(height: 1)
                                 }
                             }

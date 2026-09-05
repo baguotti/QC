@@ -134,7 +134,7 @@ public struct TimelineScrubberView: View {
     private var trackGrooveBg: Color { isLightMode ? Color(white: 0.88) : Color(white: 0.035) }
     private var trackGrooveBorder: Color { isLightMode ? Color(white: 0.78) : Color(white: 0.10) }
     
-    private var playheadAccent: Color { Color(red: 0.15, green: 0.52, blue: 0.98) }
+    private var playheadAccent: Color { StudioTheme.accentBlue(isLightMode) }
     
     private var progressGradient: LinearGradient {
         LinearGradient(

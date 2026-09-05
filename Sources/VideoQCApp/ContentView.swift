@@ -174,6 +174,7 @@ struct ContentView: View {
     var accentPositive: Color { StudioTheme.positive }
     var accentNegative: Color { StudioTheme.negative }
     var accentSlotB: Color { StudioTheme.slotBAccent }
+    var accentBlue: Color { StudioTheme.accentBlue(isLightMode) }
     var primaryBtnBg: Color { StudioTheme.primaryBtnBg(isLightMode) }
     var primaryBtnFg: Color { StudioTheme.primaryBtnFg(isLightMode) }
     
@@ -487,7 +488,7 @@ struct ContentView: View {
     private func tabWidth(for tab: AppTab) -> CGFloat {
         switch tab {
         case .lineScanner: return 260
-        case .deliverables: return 260
+        case .deliverables: return 165
         case .batchRenamer: return 220
         case .player: return 165
         }
@@ -506,7 +507,7 @@ struct ContentView: View {
                 }) {
                     HStack(spacing: 8) {
                         Rectangle()
-                            .fill(selectedTab == tab ? accentPositive : Color.clear)
+                            .fill(selectedTab == tab ? accentBlue : Color.clear)
                             .frame(width: 4, height: 16)
                         
                         Text(tab.title)
@@ -1528,9 +1529,20 @@ struct ContentView: View {
     // MARK: - Native Finder Tagging
     
     func loadFinderTagsForQueue() {
-        for url in videoFiles {
-            if let tag = FinderTagManager.getTag(for: url) {
-                fileTagsMap[url] = tag
+        let files = videoFiles
+        guard !files.isEmpty else {
+            fileTagsMap.removeAll()
+            return
+        }
+        Task.detached(priority: .userInitiated) {
+            var newMap: [URL: FinderTagColor] = [:]
+            for url in files {
+                if let tag = FinderTagManager.getTag(for: url) {
+                    newMap[url] = tag
+                }
+            }
+            await MainActor.run {
+                self.fileTagsMap = newMap
             }
         }
     }

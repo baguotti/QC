@@ -6,15 +6,7 @@ struct UserGuideView: View {
     @State private var selectedGuideTab: Int = 0
     
     // Dynamic Studio Theme Palette
-    private var bgMain: Color { StudioTheme.bgMain(isLightMode) }
-    private var bgPanel: Color { StudioTheme.bgPanel(isLightMode) }
-    private var bgSubtle: Color { StudioTheme.bgSubtle(isLightMode) }
-    private var bgCardBody: Color { StudioTheme.bgCardSubtle(isLightMode) }
-    private var borderLine: Color { StudioTheme.borderLine(isLightMode) }
-    private var borderStrong: Color { StudioTheme.borderStrong(isLightMode) }
-    private var textMain: Color { StudioTheme.textMain(isLightMode) }
-    private var textMuted: Color { StudioTheme.textMuted(isLightMode) }
-    private var textSubtle: Color { StudioTheme.textSubtle(isLightMode) }
+    private var palette: StudioPalette { StudioPalette(isLightMode) }
 
     var body: some View {
         ZStack {
@@ -32,20 +24,20 @@ struct UserGuideView: View {
                     HStack(spacing: 8) {
                         Image(systemName: "info.circle.fill")
                             .font(.system(size: 13))
-                            .foregroundColor(textMain)
+                            .foregroundColor(palette.textMain)
                         Text("USER GUIDE // QCpie")
                             .font(.system(size: 12, weight: .black, design: .monospaced))
-                            .foregroundColor(textMain)
+                            .foregroundColor(palette.textMain)
                         
                         HStack(spacing: 4) {
                             Text("v\(AppVersionInfo.version)")
                                 .fontWeight(.heavy)
                         }
                         .font(.system(size: 9, design: .monospaced))
-                        .foregroundColor(textMain)
+                        .foregroundColor(palette.textMain)
                         .padding(.horizontal, 6)
                         .padding(.vertical, 2)
-                        .studioBox(background: bgSubtle, border: borderLine)
+                        .studioBox(background: palette.bgSubtle, border: palette.borderLine)
                     }
                     Spacer()
                     Button(action: { isPresented = false }) {
@@ -53,31 +45,31 @@ struct UserGuideView: View {
                             .font(.system(size: 10, weight: .bold, design: .monospaced))
                             .padding(.horizontal, 9)
                             .padding(.vertical, 5)
-                            .foregroundColor(textMain)
-                            .studioBox(background: bgSubtle, border: borderLine)
+                            .foregroundColor(palette.textMain)
+                            .studioBox(background: palette.bgSubtle, border: palette.borderLine)
                     }
                     .buttonStyle(.plain)
                     .keyboardShortcut(.escape, modifiers: [])
                 }
                 .padding(.horizontal, 18)
                 .padding(.vertical, 10)
-                .background(bgPanel)
+                .background(palette.bgPanel)
                 
-                Rectangle().fill(borderLine).frame(height: 1)
+                Rectangle().fill(palette.borderLine).frame(height: 1)
                 
                 // Tabs
                 HStack(spacing: 0) {
                     guideTabButton(title: "01 // LINE SCANNER", index: 0)
                     guideTabButton(title: "02 // PLAYER", index: 1)
-                    guideTabButton(title: "03 // DELIVERABLES SPECS", index: 2)
+                    guideTabButton(title: "03 // SPECS", index: 2)
                     guideTabButton(title: "04 // BATCH RENAMER", index: 3)
                     Spacer()
                 }
                 .padding(.horizontal, 14)
                 .padding(.vertical, 5)
-                .background(bgSubtle)
+                .background(palette.bgSubtle)
                 
-                Rectangle().fill(borderLine).frame(height: 1)
+                Rectangle().fill(palette.borderLine).frame(height: 1)
                 
                 // Content
                 ScrollView(.vertical, showsIndicators: true) {
@@ -95,32 +87,32 @@ struct UserGuideView: View {
                     }
                     .padding(18)
                 }
-                .background(bgMain)
+                .background(palette.bgMain)
                 
-                Rectangle().fill(borderLine).frame(height: 1)
+                Rectangle().fill(palette.borderLine).frame(height: 1)
                 
                 // Footer
                 HStack {
                     Text("PRESS ESC TO DISMISS")
                         .font(.system(size: 9, weight: .bold, design: .monospaced))
-                        .foregroundColor(textMuted)
+                        .foregroundColor(palette.textMuted)
                     Spacer()
                     Button(action: { isPresented = false }) {
                         Text("DONE")
                             .font(.system(size: 10, weight: .bold, design: .monospaced))
                             .padding(.horizontal, 16)
                             .padding(.vertical, 7)
-                            .foregroundColor(isLightMode ? Color.white : Color.black)
-                            .studioBox(background: isLightMode ? Color.black : Color.white, border: borderStrong)
+                            .foregroundColor(palette.primaryBtnFg)
+                            .studioBox(background: palette.primaryBtnBg, border: palette.borderStrong)
                     }
                     .buttonStyle(.plain)
                 }
                 .padding(.horizontal, 18)
                 .padding(.vertical, 8)
-                .background(bgPanel)
+                .background(palette.bgPanel)
             }
             .frame(minWidth: 800, maxWidth: 900, minHeight: 560, maxHeight: 680)
-            .studioBox(background: bgPanel, border: borderStrong)
+            .studioBox(background: palette.bgPanel, border: palette.borderStrong)
             .shadow(color: Color.black.opacity(0.5), radius: 20, x: 0, y: 10)
         }
     }
@@ -132,8 +124,8 @@ struct UserGuideView: View {
                 .font(.system(size: 10, weight: isSel ? .black : .bold, design: .monospaced))
                 .padding(.horizontal, 12)
                 .padding(.vertical, 6)
-                .foregroundColor(isSel ? textMain : textMuted)
-                .studioBox(background: isSel ? (isLightMode ? Color.white : Color(white: 0.22)) : Color.clear, border: isSel ? borderStrong : Color.clear)
+                .foregroundColor(isSel ? palette.textMain : palette.textMuted)
+                .studioBox(background: isSel ? (isLightMode ? Color.white : Color(white: 0.22)) : Color.clear, border: isSel ? palette.borderStrong : Color.clear)
         }
         .buttonStyle(.plain)
     }
@@ -175,6 +167,7 @@ struct UserGuideView: View {
             guideRow(name: "SCROLL ZOOM & HAND-PAN", desc: "Scroll your mouse wheel up or down directly to zoom into or out of the canvas (10% to 400%). Pinch on trackpad to zoom. Click and drag across the canvas with the hand tool to pan around.")
             guideRow(name: "QUEUE NAVIGATION (↑ / ↓)", desc: "Up and down arrow keys navigate through the asset queue on the left, automatically loading each deliverable into the player.")
             guideRow(name: "CENTER CROSSHAIR OVERLAY", desc: "Toggles top-to-bottom and left-to-right crosshair guide lines with a center precision reticle to inspect if elements, logos, and lower-thirds are perfectly centered.")
+            guideRow(name: "CHANGE EXPOSURE (AE STYLE)", desc: "Click and drag left or right on the +0.0 EV number to brighten shadows and reveal faint black line glitches or drop highlights (-5.0 to +5.0 EV). Click the camera aperture icon or double-click the number to reset back to +0.0 EV.")
             guideRow(name: "JUMP TO NEXT LINE (N / NEXT LINE)", desc: "Cycles through all detected line glitches across all deliverables from Tab 1, seeking frame-accurately and pausing playback for inspection.")
             guideRow(name: "MACOS FINDER COLOR TAGS", desc: "Tag the active file with native macOS Finder color tags (Red, Orange, Yellow, Green, Blue, Purple, Gray) via the [TAGS] button or by right-clicking on any asset in the queue.")
             guideRow(name: "FRAME SCREENSHOT (CAMERA ICON)", desc: "Click the square camera button in the transport bar to export the current video frame as a medium-quality JPEG to any folder.")
@@ -227,15 +220,15 @@ struct UserGuideView: View {
         VStack(alignment: .leading, spacing: 3) {
             Text(name)
                 .font(.system(size: 10, weight: .bold, design: .monospaced))
-                .foregroundColor(textMain)
+                .foregroundColor(palette.textMain)
             Text(desc)
                 .font(.system(size: 10, weight: .regular))
-                .foregroundColor(textSubtle)
+                .foregroundColor(palette.textSubtle)
                 .lineSpacing(2)
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 7)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .studioBox(background: bgCardBody, border: borderLine)
+        .studioBox(background: palette.bgCardBody, border: palette.borderLine)
     }
 }

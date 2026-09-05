@@ -6,16 +6,7 @@ struct ShortcutsModalView: View {
     @AppStorage("isLightMode") private var isLightMode: Bool = false
     
     // Dynamic Studio Theme Palette
-    private var bgMain: Color { StudioTheme.bgMain(isLightMode) }
-    private var bgPanel: Color { StudioTheme.bgPanel(isLightMode) }
-    private var bgSubtle: Color { StudioTheme.bgSubtle(isLightMode) }
-    private var bgCardBody: Color { StudioTheme.bgCardSubtle(isLightMode) }
-    private var borderLine: Color { StudioTheme.borderLine(isLightMode) }
-    private var borderStrong: Color { StudioTheme.borderStrong(isLightMode) }
-    private var textMain: Color { StudioTheme.textMain(isLightMode) }
-    private var textMuted: Color { StudioTheme.textMuted(isLightMode) }
-    private var textSubtle: Color { StudioTheme.textSubtle(isLightMode) }
-    private var accentPositive: Color { StudioTheme.positive }
+    private var palette: StudioPalette { StudioPalette(isLightMode) }
     
     struct ShortcutItem: Identifiable {
         let id = UUID()
@@ -141,13 +132,19 @@ struct ShortcutsModalView: View {
             keys: ["X"],
             icon: "arrow.left.arrow.right",
             title: "SWAP A / B SLOTS",
-            explanation: "Instantly swaps Slot A Master video and Slot B Reference video."
+            explanation: "Swaps active files between Slot A and Slot B."
         ),
         ShortcutItem(
-            keys: ["C"],
+            keys: ["W"],
             icon: "square.split.2x1",
-            title: "CYCLE COMPARE MODES",
-            explanation: "Cycles Single, Split Wipe, Side-by-Side (H/V), Difference RGB blend, and 50% Opacity Overlay."
+            title: "SPLIT-SCREEN SLIDER",
+            explanation: "Activates interactive wipe line slider compare mode."
+        ),
+        ShortcutItem(
+            keys: ["D"],
+            icon: "circle.lefthalf.filled",
+            title: "DIFFERENCE MATTE",
+            explanation: "Calculates mathematical per-pixel visual difference matte between A and B."
         )
     ]
     
@@ -167,10 +164,10 @@ struct ShortcutsModalView: View {
                     HStack(spacing: 8) {
                         Image(systemName: "command")
                             .font(.system(size: 13, weight: .bold))
-                            .foregroundColor(textMain)
+                            .foregroundColor(palette.textMain)
                         Text("STUDIO KEYBOARD SHORTCUTS // QCpie")
                             .font(.system(size: 12, weight: .black, design: .monospaced))
-                            .foregroundColor(textMain)
+                            .foregroundColor(palette.textMain)
                     }
                     
                     Spacer()
@@ -180,17 +177,17 @@ struct ShortcutsModalView: View {
                             .font(.system(size: 10, weight: .bold, design: .monospaced))
                             .padding(.horizontal, 9)
                             .padding(.vertical, 5)
-                            .foregroundColor(textMain)
-                            .studioBox(background: bgSubtle, border: borderLine)
+                            .foregroundColor(palette.textMain)
+                            .studioBox(background: palette.bgSubtle, border: palette.borderLine)
                     }
                     .buttonStyle(.plain)
                     .keyboardShortcut(.escape, modifiers: [])
                 }
                 .padding(.horizontal, 18)
                 .padding(.vertical, 12)
-                .background(bgPanel)
+                .background(palette.bgPanel)
                 
-                Rectangle().fill(borderLine).frame(height: 1)
+                Rectangle().fill(palette.borderLine).frame(height: 1)
                 
                 // Content Body
                 ScrollView {
@@ -202,10 +199,10 @@ struct ShortcutsModalView: View {
                     }
                     .padding(20)
                 }
-                .background(bgMain)
+                .background(palette.bgMain)
             }
             .frame(width: 740, height: 560)
-            .studioBox(background: bgPanel, border: borderStrong)
+            .studioBox(background: palette.bgPanel, border: palette.borderStrong)
             .shadow(color: Color.black.opacity(0.4), radius: 24, x: 0, y: 12)
         }
     }
@@ -214,7 +211,7 @@ struct ShortcutsModalView: View {
         VStack(alignment: .leading, spacing: 8) {
             Text(title)
                 .font(.system(size: 10, weight: .black, design: .monospaced))
-                .foregroundColor(textMuted)
+                .foregroundColor(palette.textMuted)
                 .tracking(0.5)
             
             VStack(spacing: 1) {
@@ -223,20 +220,20 @@ struct ShortcutsModalView: View {
                         // Icon Box
                         Image(systemName: item.icon)
                             .font(.system(size: 11, weight: .bold))
-                            .foregroundColor(textMain)
+                            .foregroundColor(palette.textMain)
                             .frame(width: 22, height: 22)
-                            .studioBox(background: bgSubtle, border: borderLine)
+                            .studioBox(background: palette.bgSubtle, border: palette.borderLine)
                         
                         // Key Badges
                         HStack(spacing: 4) {
                             ForEach(item.keys, id: \.self) { key in
                                 Text(key)
                                     .font(.system(size: 9, weight: .bold, design: .monospaced))
-                                    .foregroundColor(textMain)
+                                    .foregroundColor(palette.textMain)
                                     .padding(.horizontal, 6)
                                     .padding(.vertical, 3)
-                                    .background(RoundedRectangle(cornerRadius: 3).fill(bgSubtle))
-                                    .overlay(RoundedRectangle(cornerRadius: 3).stroke(borderLine, lineWidth: 1))
+                                    .background(RoundedRectangle(cornerRadius: 3).fill(palette.bgSubtle))
+                                    .overlay(RoundedRectangle(cornerRadius: 3).stroke(palette.borderLine, lineWidth: 1))
                             }
                         }
                         .frame(width: 140, alignment: .leading)
@@ -245,10 +242,10 @@ struct ShortcutsModalView: View {
                         VStack(alignment: .leading, spacing: 2) {
                             Text(item.title)
                                 .font(.system(size: 10, weight: .bold, design: .monospaced))
-                                .foregroundColor(textMain)
+                                .foregroundColor(palette.textMain)
                             Text(item.explanation)
                                 .font(.system(size: 10, weight: .regular))
-                                .foregroundColor(textSubtle)
+                                .foregroundColor(palette.textSubtle)
                                 .lineLimit(1)
                         }
                         
@@ -256,10 +253,10 @@ struct ShortcutsModalView: View {
                     }
                     .padding(.horizontal, 12)
                     .padding(.vertical, 7)
-                    .background(idx % 2 == 0 ? bgPanel : bgCardBody)
+                    .background(idx % 2 == 0 ? palette.bgPanel : palette.bgCardBody)
                 }
             }
-            .studioBox(background: bgPanel, border: borderLine)
+            .studioBox(background: palette.bgPanel, border: palette.borderLine)
         }
     }
 }

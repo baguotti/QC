@@ -416,22 +416,25 @@ extension ContentView {
                         let itemMap = renameItemsMap
                         
                         if hasRenamerSubfolders {
-                            ForEach(Array(flattenedRenamerNodes.enumerated()), id: \.element.id) { idx, node in
+                            let nodes = flattenedRenamerNodes
+                            let nodeCount = nodes.count
+                            ForEach(Array(nodes.enumerated()), id: \.element.id) { idx, node in
                                 if node.isDirectory {
                                     renamerFolderBannerRow(node: node, itemsMap: itemMap)
                                 } else if let item = itemMap[node.url] {
                                     renamerItemRow(idx: idx, item: item, depth: node.depth)
                                 }
                                 
-                                if idx < flattenedRenamerNodes.count - 1 {
+                                if idx < nodeCount - 1 {
                                     Rectangle().fill(borderLine.opacity(0.4)).frame(height: 1)
                                 }
                             }
                         } else {
+                            let itemCount = items.count
                             ForEach(Array(items.enumerated()), id: \.element.id) { idx, item in
                                 renamerItemRow(idx: idx, item: item, depth: 0)
                                 
-                                if idx < items.count - 1 {
+                                if idx < itemCount - 1 {
                                     Rectangle().fill(borderLine.opacity(0.4)).frame(height: 1)
                                 }
                             }
