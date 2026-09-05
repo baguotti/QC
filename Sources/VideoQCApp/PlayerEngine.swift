@@ -39,6 +39,7 @@ public enum CompareMode: String, CaseIterable, Identifiable, Sendable {
     case sideBySide = "Side-by-Side (H)"
     case sideBySideVertical = "Side-by-Side (V)"
     case difference = "Difference Mode"
+    case overlay = "50% Opacity Overlay"
     
     public var id: String { rawValue }
 }
@@ -87,6 +88,7 @@ public final class PlayerEngine: ObservableObject {
         }
     }
     @Published public var isBlinkCompareB: Bool = false
+    @Published public var showClipNamesOverlay: Bool = true
     
     // MARK: - Backwards Compatible Single-Player Properties (Reflects Slot A / Master)
     
@@ -973,10 +975,15 @@ public final class PlayerEngine: ObservableObject {
     // MARK: - Frame Stepping & Jumps
     
     public func stepFrame(forward: Bool) {
+        stepFrames(count: 1, forward: forward)
+    }
+    
+    public func stepFrames(count: Int, forward: Bool) {
         pause()
         guard slotA.player.currentItem != nil else { return }
         let currFrame = self.currentFrame
-        let targetFrame = max(0, min(max(0, self.totalFrames - 1), currFrame + (forward ? 1 : -1)))
+        let delta = forward ? count : -count
+        let targetFrame = max(0, min(max(0, self.totalFrames - 1), currFrame + delta))
         guard targetFrame != currFrame else { return }
         
         self.currentFrame = targetFrame

@@ -173,6 +173,7 @@ struct ContentView: View {
     var alertRed: Color { StudioTheme.negative }
     var accentPositive: Color { StudioTheme.positive }
     var accentNegative: Color { StudioTheme.negative }
+    var accentSlotB: Color { StudioTheme.slotBAccent }
     var primaryBtnBg: Color { StudioTheme.primaryBtnBg(isLightMode) }
     var primaryBtnFg: Color { StudioTheme.primaryBtnFg(isLightMode) }
     
@@ -567,67 +568,63 @@ struct ContentView: View {
             sectionHeader(num: "01", title: "LOAD ASSETS")
             
             VStack(alignment: .leading, spacing: 8) {
-                // Change / Select Button
-                Button(action: { selectAssets(forTab: forTab, append: false) }) {
-                    HStack {
-                        Text(folderURL == nil && videoFiles.isEmpty ? "SELECT FILES OR FOLDER..." : "CHANGE ASSETS...")
-                            .font(.system(size: 11, weight: .bold, design: .monospaced))
-                            .foregroundColor(textMain)
-                            .tracking(0.5)
-                        Spacer()
-                        Image(systemName: folderURL == nil && videoFiles.isEmpty ? "folder.badge.plus" : "arrow.triangle.2.circlepath")
-                            .font(.system(size: 11, weight: .bold))
-                            .foregroundColor(textSubtle)
-                    }
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 9)
-                    .studioBox(background: bgSubtle, border: borderLine)
-                }
-                .buttonStyle(.plain)
-                .disabled(isScanning)
-                .explain(folderURL == nil && videoFiles.isEmpty ? "Opens file picker to select video files or a folder to inspect." : "Replaces currently loaded assets with a new folder or file selection.", binding: $hoverExplanation)
-                
-                // Add Assets Button
-                if !videoFiles.isEmpty || folderURL != nil {
-                    Button(action: { selectAssets(forTab: forTab, append: true) }) {
-                        HStack {
-                            Text("ADD ASSETS...")
-                                .font(.system(size: 11, weight: .bold, design: .monospaced))
-                                .foregroundColor(textMain)
-                                .tracking(0.5)
-                            Spacer()
-                            Image(systemName: "folder.badge.plus")
-                                .font(.system(size: 11, weight: .bold))
-                                .foregroundColor(textSubtle)
+                // 3 Action Buttons on the same line: CHANGE, ADD, HIDE
+                HStack(spacing: 4) {
+                    // CHANGE / SELECT Button
+                    Button(action: { selectAssets(forTab: forTab, append: false) }) {
+                        HStack(spacing: 3) {
+                            Image(systemName: folderURL == nil && videoFiles.isEmpty ? "folder.badge.plus" : "arrow.triangle.2.circlepath")
+                                .font(.system(size: 8, weight: .bold))
+                            Text(folderURL == nil && videoFiles.isEmpty ? "SELECT" : "CHANGE")
+                                .font(.system(size: 9.5, weight: .bold, design: .monospaced))
+                                .lineLimit(1)
                         }
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 9)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 7)
+                        .foregroundColor(textMain)
                         .studioBox(background: bgSubtle, border: borderLine)
                     }
                     .buttonStyle(.plain)
                     .disabled(isScanning)
-                    .explain("Opens file picker to add more video files or folders to the current list without losing existing assets.", binding: $hoverExplanation)
-                }
-                
-                // Hide / Show Folders Button
-                if hasPlayerSubfolders {
-                    Button(action: toggleHideFolders) {
-                        HStack {
-                            Text(hideAllFolders || !hiddenFolderIDs.isEmpty ? "SHOW FOLDERS" : "HIDE FOLDERS")
-                                .font(.system(size: 11, weight: .bold, design: .monospaced))
-                                .foregroundColor(textMain)
-                                .tracking(0.5)
-                            Spacer()
-                            Image(systemName: hideAllFolders || !hiddenFolderIDs.isEmpty ? "folder" : "folder.badge.minus")
-                                .font(.system(size: 11, weight: .bold))
-                                .foregroundColor(textSubtle)
+                    .explain(folderURL == nil && videoFiles.isEmpty ? "Opens file picker to select video files or a folder to inspect." : "Replaces currently loaded assets with a new folder or file selection.", binding: $hoverExplanation)
+                    
+                    // ADD Button
+                    Button(action: { selectAssets(forTab: forTab, append: true) }) {
+                        HStack(spacing: 3) {
+                            Image(systemName: "plus")
+                                .font(.system(size: 8, weight: .bold))
+                            Text("ADD")
+                                .font(.system(size: 9.5, weight: .bold, design: .monospaced))
+                                .lineLimit(1)
                         }
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 9)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 7)
+                        .foregroundColor(textMain)
                         .studioBox(background: bgSubtle, border: borderLine)
                     }
                     .buttonStyle(.plain)
-                    .explain(hideAllFolders || !hiddenFolderIDs.isEmpty ? "Show all folder groupings in asset lists." : "Hide folder headers and display assets in a flat list.", binding: $hoverExplanation)
+                    .disabled(isScanning)
+                    .explain("Opens file picker to add more video files or folders to current list without losing existing assets.", binding: $hoverExplanation)
+                    
+                    // HIDE / SHOW Folders Button
+                    let isHidden = hideAllFolders || !hiddenFolderIDs.isEmpty
+                    let canToggle = hasPlayerSubfolders || !videoFiles.isEmpty
+                    Button(action: toggleHideFolders) {
+                        HStack(spacing: 3) {
+                            Image(systemName: isHidden ? "folder" : "folder.badge.minus")
+                                .font(.system(size: 8, weight: .bold))
+                            Text(isHidden ? "SHOW" : "HIDE")
+                                .font(.system(size: 9.5, weight: .bold, design: .monospaced))
+                                .lineLimit(1)
+                        }
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 7)
+                        .foregroundColor(canToggle ? textMain : textSubtle)
+                        .studioBox(background: bgSubtle, border: borderLine)
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(isScanning || !canToggle)
+                    .explain(isHidden ? "Show all folder headers in asset lists." : "Hide folder headers and display assets in a flat list.", binding: $hoverExplanation)
                 }
                 
                 if let folder = folderURL {
@@ -1377,14 +1374,14 @@ struct ContentView: View {
                 return nil
             case 123: // Left Arrow
                 if isShift {
-                    self.playerEngine.stepSeconds(-1.0)
+                    self.playerEngine.stepFrames(count: 5, forward: false)
                 } else {
                     self.playerEngine.stepFrame(forward: false)
                 }
                 return nil
             case 124: // Right Arrow
                 if isShift {
-                    self.playerEngine.stepSeconds(1.0)
+                    self.playerEngine.stepFrames(count: 5, forward: true)
                 } else {
                     self.playerEngine.stepFrame(forward: true)
                 }

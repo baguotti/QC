@@ -3,6 +3,17 @@ import AVFoundation
 import UniformTypeIdentifiers
 import VideoQCLib
 
+// MARK: - Minimal Borderless Transport Button Style
+
+struct TransportIconButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .opacity(configuration.isPressed ? 0.6 : 1.0)
+            .scaleEffect(configuration.isPressed ? 0.92 : 1.0)
+            .animation(.easeOut(duration: 0.1), value: configuration.isPressed)
+    }
+}
+
 extension ContentView {
     
     // MARK: ==================== TAB 2: PREMIERE-STYLE PLAYER ====================
@@ -91,9 +102,9 @@ extension ContentView {
                                 Text("B")
                                     .font(.system(size: 8, weight: .black, design: .monospaced))
                                     .frame(width: 18, height: 18)
-                                    .foregroundColor(playerEngine.activeTarget == .slotB ? Color.orange : textMuted)
-                                    .studioBox(background: playerEngine.activeTarget == .slotB ? Color.orange.opacity(0.18) : bgSubtle,
-                                               border: playerEngine.activeTarget == .slotB ? Color.orange : borderLine)
+                                    .foregroundColor(playerEngine.activeTarget == .slotB ? accentSlotB : textMuted)
+                                    .studioBox(background: playerEngine.activeTarget == .slotB ? accentSlotB.opacity(0.18) : bgSubtle,
+                                               border: playerEngine.activeTarget == .slotB ? accentSlotB : borderLine)
                             }
                             .buttonStyle(.plain)
                             .explain("Target Slot B (Compare) for queue clicks (or ⌥+Click)", binding: $hoverExplanation)
@@ -204,7 +215,7 @@ extension ContentView {
                 
                 // Program Monitor Viewport Canvas
                 GeometryReader { vpGeo in
-                    ZStack {
+                    ZStack(alignment: .topLeading) {
                         if playerEngine.slotA.url != nil || playerEngine.slotB.url != nil {
                             VideoViewportView(engine: playerEngine, isLightMode: isLightMode)
                                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -222,6 +233,43 @@ extension ContentView {
                             }
                             .frame(maxWidth: .infinity, maxHeight: .infinity)
                             .background(bgMain)
+                        }
+                        
+                        // Dual A/B Mode: Clip Names at top-left of canvas (Togglable)
+                        if playerEngine.slotB.url != nil && playerEngine.showClipNamesOverlay {
+                            VStack(alignment: .leading, spacing: 3) {
+                                HStack(spacing: 5) {
+                                    Text("A:")
+                                        .font(.system(size: 9, weight: .black, design: .monospaced))
+                                        .foregroundColor(accentPositive)
+                                    Text(playerEngine.slotA.fileName.isEmpty ? "--" : playerEngine.slotA.fileName.uppercased())
+                                        .font(.system(size: 10, weight: .bold, design: .monospaced))
+                                        .foregroundColor(.white)
+                                        .lineLimit(1)
+                                        .truncationMode(.middle)
+                                }
+                                HStack(spacing: 5) {
+                                    Text("B:")
+                                        .font(.system(size: 9, weight: .black, design: .monospaced))
+                                        .foregroundColor(accentSlotB)
+                                    Text(playerEngine.slotB.fileName.isEmpty ? "--" : playerEngine.slotB.fileName.uppercased())
+                                        .font(.system(size: 10, weight: .bold, design: .monospaced))
+                                        .foregroundColor(.white)
+                                        .lineLimit(1)
+                                        .truncationMode(.middle)
+                                }
+                            }
+                            .padding(.horizontal, 9)
+                            .padding(.vertical, 6)
+                            .background(Color.black.opacity(0.70))
+                            .cornerRadius(4)
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 4)
+                                    .stroke(Color.white.opacity(0.12), lineWidth: 1)
+                            )
+                            .padding(10)
+                            .allowsHitTesting(false)
+                            .transition(.opacity)
                         }
                     }
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -343,7 +391,7 @@ extension ContentView {
             }) {
                 HStack(spacing: 8) {
                     Rectangle()
-                        .fill(isSlotA ? accentPositive : (isSlotB ? Color.orange : Color.clear))
+                        .fill(isSlotA ? accentPositive : (isSlotB ? accentSlotB : Color.clear))
                         .frame(width: 3)
                     
                     if depth > 0 {
@@ -352,7 +400,7 @@ extension ContentView {
                     
                     Image(systemName: isSlotA ? "a.circle.fill" : (isSlotB ? "b.circle.fill" : "play.circle.fill"))
                         .font(.system(size: 13))
-                        .foregroundColor(isSlotA ? accentPositive : (isSlotB ? Color.orange : textMuted))
+                        .foregroundColor(isSlotA ? accentPositive : (isSlotB ? accentSlotB : textMuted))
                     
                     VStack(alignment: .leading, spacing: 2) {
                         HStack(spacing: 6) {
@@ -376,7 +424,7 @@ extension ContentView {
                         } else if isSlotB && !playerEngine.slotB.resolution.isEmpty {
                             Text("\(playerEngine.slotB.resolution) • \(String(format: "%.1f", playerEngine.slotB.fps))fps • \(playerEngine.slotB.codec)")
                                 .font(.system(size: 8, weight: .bold, design: .monospaced))
-                                .foregroundColor(Color.orange)
+                                .foregroundColor(accentSlotB)
                                 .lineLimit(1)
                         } else {
                             Text(" ")
@@ -420,8 +468,8 @@ extension ContentView {
                             .font(.system(size: 8, weight: .black, design: .monospaced))
                             .padding(.horizontal, 5)
                             .padding(.vertical, 3)
-                            .foregroundColor(Color.orange)
-                            .studioBox(background: Color.orange.opacity(0.18), border: Color.orange.opacity(0.8))
+                            .foregroundColor(accentSlotB)
+                            .studioBox(background: accentSlotB.opacity(0.18), border: accentSlotB.opacity(0.8))
                         
                         Button(action: { playerEngine.clearSlotB() }) {
                             Image(systemName: "xmark")
@@ -506,32 +554,9 @@ extension ContentView {
     private var playerMonitorHeader: some View {
         HStack(spacing: 12) {
             if playerEngine.slotB.url != nil {
-                // Dual Slot Specs
-                VStack(alignment: .leading, spacing: 2) {
-                    HStack(spacing: 4) {
-                        Text("A:")
-                            .font(.system(size: 9, weight: .black, design: .monospaced))
-                            .foregroundColor(accentPositive)
-                        Text(playerEngine.slotA.fileName.isEmpty ? "--" : playerEngine.slotA.fileName.uppercased())
-                            .font(.system(size: 10, weight: .bold, design: .monospaced))
-                            .foregroundColor(textMain)
-                            .lineLimit(1)
-                    }
-                    HStack(spacing: 4) {
-                        Text("B:")
-                            .font(.system(size: 9, weight: .black, design: .monospaced))
-                            .foregroundColor(Color.orange)
-                        Text(playerEngine.slotB.fileName.isEmpty ? "--" : playerEngine.slotB.fileName.uppercased())
-                            .font(.system(size: 10, weight: .bold, design: .monospaced))
-                            .foregroundColor(textMain)
-                            .lineLimit(1)
-                    }
-                }
-                .frame(maxWidth: 220, alignment: .leading)
-                
                 Spacer()
                 
-                // Comparison Controls Toolbar
+                // Centered Comparison Controls Toolbar
                 PlayerComparisonBar(
                     engine: playerEngine,
                     isLightMode: isLightMode,
@@ -555,41 +580,6 @@ extension ContentView {
                 }
                 
                 Spacer()
-            }
-            
-            // Fullscreen Buttons (Review with HUD & Clean Video Only)
-            HStack(spacing: 8) {
-                Button(action: { enterFullscreen(mode: .review) }) {
-                    HStack(spacing: 5) {
-                        Image(systemName: "rectangle.inset.filled.and.cursorarrow")
-                            .font(.system(size: 10, weight: .bold))
-                        Text("[ REVIEW FULLSCREEN ]")
-                            .font(.system(size: 10, weight: .bold, design: .monospaced))
-                    }
-                    .padding(.horizontal, 9)
-                    .padding(.vertical, 5)
-                    .foregroundColor(playerEngine.slotA.url == nil ? textMuted : textMain)
-                    .studioBox(background: playerEngine.slotA.url == nil ? bgSubtle : bgPanel, border: borderLine)
-                }
-                .buttonStyle(.plain)
-                .disabled(playerEngine.slotA.url == nil)
-                .explain("Fullscreen player with on-screen review HUD & timeline controls (⇧F).", binding: $hoverExplanation)
-                
-                Button(action: { enterFullscreen(mode: .videoOnly) }) {
-                    HStack(spacing: 5) {
-                        Image(systemName: "arrow.up.left.and.arrow.down.right")
-                            .font(.system(size: 10, weight: .bold))
-                        Text("[ VIDEO FULLSCREEN ]")
-                            .font(.system(size: 10, weight: .bold, design: .monospaced))
-                    }
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 5)
-                    .foregroundColor(playerEngine.slotA.url == nil ? textMuted : primaryBtnFg)
-                    .studioBox(background: playerEngine.slotA.url == nil ? bgSubtle : primaryBtnBg, border: borderLine)
-                }
-                .buttonStyle(.plain)
-                .disabled(playerEngine.slotA.url == nil)
-                .explain("Clean full screen video presentation with zero UI (F). Press ESC to exit.", binding: $hoverExplanation)
             }
         }
     }
@@ -736,134 +726,171 @@ extension ContentView {
                 .tint(accentPositive)
                 .disabled(playerEngine.isMuted)
             }
-            .frame(width: 186, alignment: .leading)
+            .frame(width: 210, alignment: .leading)
             
             Spacer()
             
             // Center: Playback, Shuttle & Frame Controls
-            HStack(spacing: 5) {
-                // Slow Frame-by-Frame Reverse (Shift + J)
-                transportBtn(icon: "backward.circle.fill", tooltip: "Slow Frame-by-Frame Reverse (Shift + J / Tap to accelerate)") {
-                    playerEngine.pressSlowJ()
-                }
-                
-                // Shuttle Reverse (J)
-                transportBtn(icon: "backward.fill", tooltip: "Shuttle Reverse (J: -1x, -2x, -4x, -8x)") {
-                    playerEngine.pressJ()
-                }
-                
-                // Step -1 Frame
-                transportBtn(icon: "backward.frame.fill", tooltip: "Step Back 1 Frame (Left Arrow)") {
-                    playerEngine.stepFrame(forward: false)
-                }
-                
-                // Play / Pause (Space / K)
-                Button(action: { playerEngine.togglePlayPause() }) {
-                    HStack {
-                        Image(systemName: playerEngine.isPlaying ? "pause.fill" : "play.fill")
-                            .font(.system(size: 12, weight: .black))
+            HStack(spacing: 8) {
+                // 1. Unified Transport Deck (Tight & Proportional)
+                HStack(spacing: 5) {
+                    // Slow Rev (Shift + J)
+                    transportBtn(icon: "backward", tooltip: "Slow Reverse (⇧J / Tap to accelerate)", size: 13, width: 26) {
+                        playerEngine.pressSlowJ()
                     }
-                    .frame(width: 44, height: 28)
-                    .foregroundColor(primaryBtnFg)
-                    .studioBox(background: primaryBtnBg, border: borderLine)
+                    
+                    // Step Back 1 Frame (Left Arrow)
+                    transportBtn(icon: "backward.frame.fill", tooltip: "Step Back 1 Frame (Left Arrow)", size: 13, width: 26) {
+                        playerEngine.stepFrame(forward: false)
+                    }
+                    
+                    // Shuttle Reverse (J)
+                    Button(action: { playerEngine.pressJ() }) {
+                        Image(systemName: "backward.fill")
+                            .font(.system(size: 14, weight: .bold))
+                            .frame(width: 28, height: 28)
+                            .foregroundColor(playerEngine.rate < 0 ? accentPositive : textMain)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(TransportIconButtonStyle())
+                    .explain("Shuttle Reverse (J: -1x, -2x, -4x, -8x)", binding: $hoverExplanation)
+                    
+                    // Play / Pause (Space / K)
+                    Button(action: { playerEngine.togglePlayPause() }) {
+                        AnimatedPlayPauseIconView(
+                            isPlaying: playerEngine.isPlaying,
+                            color: textMain,
+                            size: 20
+                        )
+                        .frame(width: 30, height: 28)
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(TransportIconButtonStyle())
+                    .explain("Play / Pause (Spacebar / K)", binding: $hoverExplanation)
+                    
+                    // Shuttle Forward (L)
+                    Button(action: { playerEngine.pressL() }) {
+                        Image(systemName: "forward.fill")
+                            .font(.system(size: 14, weight: .bold))
+                            .frame(width: 28, height: 28)
+                            .foregroundColor(playerEngine.rate > 1.0 ? accentPositive : textMain)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(TransportIconButtonStyle())
+                    .explain("Shuttle Forward (L: 1x, 2x, 4x, 8x)", binding: $hoverExplanation)
+                    
+                    // Step Forward 1 Frame (Right Arrow)
+                    transportBtn(icon: "forward.frame.fill", tooltip: "Step Forward 1 Frame (Right Arrow)", size: 13, width: 26) {
+                        playerEngine.stepFrame(forward: true)
+                    }
+                    
+                    // Slow Forward (Shift + L)
+                    transportBtn(icon: "forward", tooltip: "Slow Forward (Shift + L / Tap to accelerate)", size: 13, width: 26) {
+                        playerEngine.pressSlowL()
+                    }
                 }
-                .buttonStyle(.plain)
-                .explain("Play / Pause (Spacebar / K)", binding: $hoverExplanation)
                 
-                // Step +1 Frame
-                transportBtn(icon: "forward.frame.fill", tooltip: "Step Forward 1 Frame (Right Arrow)") {
-                    playerEngine.stepFrame(forward: true)
+                // Group Divider
+                Rectangle()
+                    .fill(borderLine.opacity(0.45))
+                    .frame(width: 1, height: 14)
+                    .padding(.horizontal, 2)
+                
+                // 2. Playback Utilities: Loop & Crosshair
+                HStack(spacing: 4) {
+                    transportBtn(
+                        icon: "repeat",
+                        tooltip: playerEngine.isLooping ? "Loop Playback: ON (⌘L)" : "Loop Playback: OFF (⌘L)",
+                        isActive: playerEngine.isLooping,
+                        size: 12,
+                        width: 26
+                    ) {
+                        playerEngine.isLooping.toggle()
+                    }
+                    
+                    transportBtn(
+                        icon: "plus.viewfinder",
+                        tooltip: playerEngine.showCenterCrosshair ? "Center Crosshair: ON" : "Center Crosshair: OFF",
+                        isActive: playerEngine.showCenterCrosshair,
+                        size: 12,
+                        width: 26
+                    ) {
+                        playerEngine.showCenterCrosshair.toggle()
+                    }
                 }
                 
-                // Shuttle Forward (L)
-                transportBtn(icon: "forward.fill", tooltip: "Shuttle Forward (L: 1x, 2x, 4x, 8x)") {
-                    playerEngine.pressL()
-                }
+                // Group Divider
+                Rectangle()
+                    .fill(borderLine.opacity(0.45))
+                    .frame(width: 1, height: 14)
+                    .padding(.horizontal, 2)
                 
-                // Slow Frame-by-Frame Forward (Shift + L)
-                transportBtn(icon: "forward.circle.fill", tooltip: "Slow Frame-by-Frame Forward (Shift + L / Tap to accelerate)") {
-                    playerEngine.pressSlowL()
-                }
-                
-                // Loop Playback Toggle (Icon only, no text)
-                transportBtn(
-                    icon: "repeat",
-                    tooltip: playerEngine.isLooping ? "Loop Playback: ON (⌘L)" : "Loop Playback: OFF (⌘L)",
-                    isActive: playerEngine.isLooping
-                ) {
-                    playerEngine.isLooping.toggle()
-                }
-                
-                // Center Crosshair Overlay Toggle (Icon only, no text)
-                transportBtn(
-                    icon: "plus.viewfinder",
-                    tooltip: playerEngine.showCenterCrosshair ? "Center Crosshair: ON" : "Center Crosshair: OFF",
-                    isActive: playerEngine.showCenterCrosshair
-                ) {
-                    playerEngine.showCenterCrosshair.toggle()
-                }
-                
+                // 3. Compact Borderless Line Finding Navigation
                 let hasGlitches = scanResults.contains(where: { $0.isFlagged && !$0.glitchSegments.isEmpty })
-                
-                // Jump to Previous Line Finding Button (Cycles backwards through Tab 1 findings - Fixed 96px width)
-                Button(action: {
-                    jumpToPreviousGlitchFinding()
-                }) {
-                    HStack(spacing: 4) {
-                        Image(systemName: "chevron.left.to.line")
-                            .font(.system(size: 9, weight: .bold))
-                        Text("PREV LINE")
-                            .font(.system(size: 9, weight: .bold, design: .monospaced))
+                HStack(spacing: 3) {
+                    Button(action: { jumpToPreviousGlitchFinding() }) {
+                        HStack(spacing: 3) {
+                            Image(systemName: "chevron.left.to.line")
+                                .font(.system(size: 9, weight: .bold))
+                            Text("PREV LINE")
+                                .font(.system(size: 9, weight: .bold, design: .monospaced))
+                        }
+                        .frame(height: 28)
+                        .padding(.horizontal, 5)
+                        .foregroundColor(hasGlitches ? alertRed : textMuted)
+                        .contentShape(Rectangle())
                     }
-                    .frame(width: 96, height: 28)
-                    .foregroundColor(hasGlitches ? alertRed : textMuted)
-                    .studioBox(background: hasGlitches ? alertRed.opacity(0.18) : bgSubtle, border: hasGlitches ? alertRed.opacity(0.6) : borderLine)
-                }
-                .buttonStyle(.plain)
-                .disabled(!hasGlitches)
-                .explain(hasGlitches ? "Jump to previous detected line glitch (⇧N / cycles backwards through findings of Tab 1)." : "No line glitches found in Tab 1 to cycle through.", binding: $hoverExplanation)
-                
-                // Jump to Next Line Finding Button (Cycles through Tab 1 findings - Fixed 96px width)
-                Button(action: {
-                    jumpToNextGlitchFinding()
-                }) {
-                    HStack(spacing: 4) {
-                        Image(systemName: "chevron.right.to.line")
-                            .font(.system(size: 9, weight: .bold))
-                        Text("NEXT LINE")
-                            .font(.system(size: 9, weight: .bold, design: .monospaced))
+                    .buttonStyle(TransportIconButtonStyle())
+                    .disabled(!hasGlitches)
+                    .explain(hasGlitches ? "Jump to previous detected line glitch (⇧N / cycles backwards through findings of Tab 1)." : "No line glitches found in Tab 1 to cycle through.", binding: $hoverExplanation)
+                    
+                    Button(action: { jumpToNextGlitchFinding() }) {
+                        HStack(spacing: 3) {
+                            Text("NEXT LINE")
+                                .font(.system(size: 9, weight: .bold, design: .monospaced))
+                            Image(systemName: "chevron.right.to.line")
+                                .font(.system(size: 9, weight: .bold))
+                        }
+                        .frame(height: 28)
+                        .padding(.horizontal, 5)
+                        .foregroundColor(hasGlitches ? alertRed : textMuted)
+                        .contentShape(Rectangle())
                     }
-                    .frame(width: 96, height: 28)
-                    .foregroundColor(hasGlitches ? alertRed : textMuted)
-                    .studioBox(background: hasGlitches ? alertRed.opacity(0.18) : bgSubtle, border: hasGlitches ? alertRed.opacity(0.6) : borderLine)
+                    .buttonStyle(TransportIconButtonStyle())
+                    .disabled(!hasGlitches)
+                    .explain(hasGlitches ? "Jump to next detected line glitch (N / cycles forwards through findings of Tab 1)." : "No line glitches found in Tab 1 to cycle through.", binding: $hoverExplanation)
                 }
-                .buttonStyle(.plain)
-                .disabled(!hasGlitches)
-                .explain(hasGlitches ? "Jump to next detected line glitch (N / cycles forwards through findings of Tab 1)." : "No line glitches found in Tab 1 to cycle through.", binding: $hoverExplanation)
                 
-                // Finder Tags Button (Fixed 78px width)
+                // Group Divider
+                Rectangle()
+                    .fill(borderLine.opacity(0.45))
+                    .frame(width: 1, height: 14)
+                    .padding(.horizontal, 2)
+                
+                // 4. Finder Tags Button (Border-free)
                 let activeURL = playerEngine.activeURL
                 let activeTag = activeURL != nil ? fileTagsMap[activeURL!] : nil
                 Button(action: {
                     showTagPickerPopover.toggle()
                 }) {
-                    HStack(spacing: 5) {
+                    HStack(spacing: 4) {
                         if let tag = activeTag {
                             Circle()
                                 .fill(tag.color)
-                                .frame(width: 8, height: 8)
+                                .frame(width: 7, height: 7)
                         } else {
-                            Image(systemName: "tag")
+                            Image(systemName: "tag.fill")
                                 .font(.system(size: 9, weight: .bold))
                         }
                         Text("TAGS")
                             .font(.system(size: 9, weight: .bold, design: .monospaced))
                     }
-                    .frame(width: 78, height: 28)
-                    .foregroundColor(activeTag != nil ? activeTag!.color : textMain)
-                    .studioBox(background: activeTag != nil ? activeTag!.color.opacity(0.18) : bgSubtle, border: activeTag != nil ? activeTag!.color.opacity(0.6) : borderLine)
+                    .frame(height: 28)
+                    .padding(.horizontal, 5)
+                    .foregroundColor(activeTag != nil ? activeTag!.color : (activeURL == nil ? textMuted : textMain.opacity(0.85)))
+                    .contentShape(Rectangle())
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(TransportIconButtonStyle())
                 .disabled(activeURL == nil)
                 .explain(activeURL != nil ? "Tag current file with native macOS Finder color tags." : "Load a file to apply Finder tags.", binding: $hoverExplanation)
                 .popover(isPresented: $showTagPickerPopover, arrowEdge: .top) {
@@ -875,39 +902,39 @@ extension ContentView {
             
             // Right: Screenshot, Review Fullscreen, Video Fullscreen & Shortcuts Menu
             HStack(spacing: 6) {
-                // Export Screenshot Button
+                // Export Screenshot Button (Border-free)
                 Button(action: { exportCurrentFrameScreenshot() }) {
                     Image(systemName: "camera.fill")
-                        .font(.system(size: 11, weight: .bold))
+                        .font(.system(size: 12, weight: .bold))
                         .frame(width: 28, height: 28)
                         .foregroundColor(playerEngine.activeURL == nil ? textMuted : textMain)
-                        .studioBox(background: bgSubtle, border: borderLine)
+                        .contentShape(Rectangle())
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(TransportIconButtonStyle())
                 .disabled(playerEngine.activeURL == nil)
                 .explain("Export screenshot of the current video frame as medium-quality JPG.", binding: $hoverExplanation)
                 
-                // Review Fullscreen Button
+                // Review Fullscreen Button (Border-free)
                 Button(action: { enterFullscreen(mode: .review) }) {
                     Image(systemName: "rectangle.inset.filled.and.cursorarrow")
-                        .font(.system(size: 10, weight: .bold))
+                        .font(.system(size: 12, weight: .bold))
                         .frame(width: 28, height: 28)
                         .foregroundColor(playerEngine.activeURL == nil ? textMuted : textMain)
-                        .studioBox(background: bgSubtle, border: borderLine)
+                        .contentShape(Rectangle())
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(TransportIconButtonStyle())
                 .disabled(playerEngine.activeURL == nil)
                 .explain("Review Fullscreen with HUD & timeline controls (⇧F).", binding: $hoverExplanation)
                 
-                // Video Fullscreen Button (Clean zero UI)
+                // Video Fullscreen Button (Clean zero UI, Border-free)
                 Button(action: { enterFullscreen(mode: .videoOnly) }) {
                     Image(systemName: "arrow.up.left.and.arrow.down.right")
-                        .font(.system(size: 10, weight: .bold))
+                        .font(.system(size: 12, weight: .bold))
                         .frame(width: 28, height: 28)
                         .foregroundColor(playerEngine.activeURL == nil ? textMuted : textMain)
-                        .studioBox(background: bgSubtle, border: borderLine)
+                        .contentShape(Rectangle())
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(TransportIconButtonStyle())
                 .disabled(playerEngine.activeURL == nil)
                 .explain("Clean Video Fullscreen with zero UI (F). Press ESC to exit.", binding: $hoverExplanation)
                 
@@ -932,15 +959,15 @@ extension ContentView {
         .frame(height: 28)
     }
     
-    private func transportBtn(icon: String, tooltip: String, isActive: Bool = false, action: @escaping () -> Void) -> some View {
+    private func transportBtn(icon: String, tooltip: String, isActive: Bool = false, size: CGFloat = 14, width: CGFloat = 30, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Image(systemName: icon)
-                .font(.system(size: 10, weight: .bold))
-                .frame(width: 30, height: 28)
+                .font(.system(size: size, weight: .bold))
+                .frame(width: width, height: 28)
                 .foregroundColor(isActive ? accentPositive : textMain)
-                .studioBox(background: isActive ? accentPositive.opacity(0.18) : bgSubtle, border: isActive ? accentPositive : borderLine)
+                .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(TransportIconButtonStyle())
         .explain(tooltip, binding: $hoverExplanation)
     }
     
@@ -1138,126 +1165,141 @@ struct PlayerComparisonBar: View {
     private var bgSubtle: Color { StudioTheme.bgSubtle(isLightMode) }
     private var borderLine: Color { StudioTheme.borderLine(isLightMode) }
     private let accentPositive = StudioTheme.positive
+    private let accentSlotB = StudioTheme.slotBAccent
     private let alertRed = StudioTheme.negative
     
     var body: some View {
-        HStack(spacing: 5) {
-            // Group 1: Comparison View Modes (Square 24x24 Icons, no words)
-            HStack(spacing: 2) {
+        HStack(spacing: 8) {
+            // Group 1: Comparison View Modes (Icons, no boxes)
+            HStack(spacing: 4) {
                 modeBtn(mode: .single, icon: "rectangle", helpText: "Single Mode: Display Slot A Master video in full viewport.")
                 modeBtn(mode: .splitVertical, icon: "rectangle.split.2x1", helpText: "Split Wipe (Vertical): Interactive vertical split divider comparing Slot A and Slot B.")
                 modeBtn(mode: .splitHorizontal, icon: "rectangle.split.1x2", helpText: "Split Wipe (Horizontal): Interactive horizontal split divider comparing Slot A and Slot B.")
                 modeBtn(mode: .sideBySide, icon: "square.split.2x1", helpText: "Side-by-Side (Horizontal): Scaled dual video comparison side by side (Left: Slot A, Right: Slot B).")
                 modeBtn(mode: .sideBySideVertical, icon: "square.split.1x2", helpText: "Side-by-Side (Vertical): Scaled dual video comparison stacked vertically (Top: Slot A, Bottom: Slot B).")
                 modeBtn(mode: .difference, icon: "circle.lefthalf.filled", helpText: "Difference Mode: RGB subtraction blend (|A - B|). Identical pixels appear black; discrepancies glow.")
+                modeBtn(mode: .overlay, icon: "square.2.layers.3d", helpText: "50% Opacity Overlay: Slot B reference video is overlaid on top of Slot A at 50% opacity.")
             }
             
             Rectangle()
-                .fill(borderLine)
-                .frame(width: 1, height: 16)
-                .padding(.horizontal, 1)
+                .fill(borderLine.opacity(0.6))
+                .frame(width: 1, height: 14)
+                .padding(.horizontal, 2)
             
-            // Group 2: Rapid Blink (Flicker) Button
+            // Group 2: Rapid Blink (Flicker) Button (Border-free, fixed width to prevent layout jitter)
             Button(action: {
                 engine.isBlinkCompareB.toggle()
                 onInteraction?()
             }) {
-                HStack(spacing: 3) {
+                HStack(spacing: 4) {
                     Image(systemName: engine.isBlinkCompareB ? "eye.fill" : "eye")
-                        .font(.system(size: 8, weight: .bold))
-                        .frame(width: 12)
+                        .font(.system(size: 10, weight: .bold))
+                        .frame(width: 14, alignment: .center)
                     Text("(TAB)")
                         .font(.system(size: 9, weight: .bold, design: .monospaced))
                 }
-                .frame(width: 54, height: 24)
-                .foregroundColor(engine.isBlinkCompareB ? Color.orange : textMuted)
-                .studioBox(background: engine.isBlinkCompareB ? Color.orange.opacity(0.18) : bgSubtle,
-                           border: engine.isBlinkCompareB ? Color.orange.opacity(0.6) : borderLine)
+                .frame(width: 54, height: 26, alignment: .center)
+                .foregroundColor(engine.isBlinkCompareB ? accentSlotB : textMuted)
+                .contentShape(Rectangle())
             }
-            .buttonStyle(.plain)
+            .buttonStyle(TransportIconButtonStyle())
             .explain("Rapid Blink / Flicker Compare (Tab): Click or press Tab to rapidly toggle between Slot A and Slot B.", binding: hoverExplanation)
             
             Rectangle()
-                .fill(borderLine)
-                .frame(width: 1, height: 16)
-                .padding(.horizontal, 1)
+                .fill(borderLine.opacity(0.6))
+                .frame(width: 1, height: 14)
+                .padding(.horizontal, 2)
             
-            // Group 3: Playback Sync & Audio Solo (Square 24x24 Icons, no words)
+            // Group 3: Playback Sync & Audio Solo (Icons, no boxes)
             HStack(spacing: 4) {
-                // Gang Link Toggle (Square 24x24)
+                // Gang Link Toggle
                 Button(action: {
                     engine.isLinked.toggle()
                     onInteraction?()
                 }) {
                     Image(systemName: "link")
-                        .font(.system(size: 11, weight: .bold))
-                        .frame(width: 24, height: 24)
-                        .foregroundColor(engine.isLinked ? accentPositive : textMuted)
-                        .studioBox(background: engine.isLinked ? accentPositive.opacity(0.18) : bgSubtle,
-                                   border: engine.isLinked ? accentPositive.opacity(0.6) : borderLine)
+                        .font(.system(size: 12, weight: .bold))
+                        .frame(width: 26, height: 26)
+                        .foregroundColor(engine.isLinked ? textMain : textMuted)
+                        .contentShape(Rectangle())
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(TransportIconButtonStyle())
                 .explain("Gang Playhead Link: Lock transport controls and scrubbers between Slot A and Slot B (Currently: \(engine.isLinked ? "ON" : "OFF")).", binding: hoverExplanation)
                 
-                // Audio Solo Selector (Square 24x24)
+                // Audio Solo Selector
                 Button(action: {
                     engine.audioSlot = (engine.audioSlot == .slotA ? .slotB : .slotA)
                     onInteraction?()
                 }) {
-                    Image(systemName: "speaker.wave.2.fill")
-                        .font(.system(size: 10, weight: .bold))
-                        .frame(width: 24, height: 24)
-                        .foregroundColor(engine.audioSlot == .slotA ? accentPositive : Color.orange)
-                        .studioBox(background: (engine.audioSlot == .slotA ? accentPositive : Color.orange).opacity(0.18),
-                                   border: (engine.audioSlot == .slotA ? accentPositive : Color.orange).opacity(0.6))
+                    HStack(spacing: 3) {
+                        Image(systemName: "speaker.wave.2.fill")
+                            .font(.system(size: 11, weight: .bold))
+                        Text(engine.audioSlot == .slotA ? "A" : "B")
+                            .font(.system(size: 9, weight: .black, design: .monospaced))
+                    }
+                    .frame(height: 26)
+                    .padding(.horizontal, 4)
+                    .foregroundColor(engine.audioSlot == .slotA ? accentPositive : accentSlotB)
+                    .contentShape(Rectangle())
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(TransportIconButtonStyle())
                 .explain("Solo Audio Output: Playing audio from Slot \(engine.audioSlot == .slotA ? "A (Master)" : "B (Compare)"). Click to switch.", binding: hoverExplanation)
             }
             
             Rectangle()
-                .fill(borderLine)
-                .frame(width: 1, height: 16)
-                .padding(.horizontal, 1)
+                .fill(borderLine.opacity(0.6))
+                .frame(width: 1, height: 14)
+                .padding(.horizontal, 2)
             
-            // Group 4: Slot Operations (Swap / Clear)
+            // Group 4: Slot Operations (Swap / Toggle Clip Names / Clear, Border-free)
             HStack(spacing: 4) {
-                // Swap Button (Fixed 58x24)
+                // Swap Button (Grey icon)
                 Button(action: {
                     engine.swapSlots()
                     onInteraction?()
                 }) {
-                    HStack(spacing: 3) {
-                        Image(systemName: "arrow.left.arrow.right")
-                            .font(.system(size: 8, weight: .bold))
-                            .frame(width: 12)
-                        Text("SWAP")
-                            .font(.system(size: 9, weight: .bold, design: .monospaced))
-                    }
-                    .frame(width: 58, height: 24)
-                    .foregroundColor(textMain)
-                    .studioBox(background: bgSubtle, border: borderLine)
+                    Image(systemName: "arrow.left.arrow.right")
+                        .font(.system(size: 11, weight: .bold))
+                        .frame(width: 26, height: 26)
+                        .foregroundColor(textMuted)
+                        .contentShape(Rectangle())
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(TransportIconButtonStyle())
                 .explain("Swap Slots (X): Swap Slot A (Master) and Slot B (Compare).", binding: hoverExplanation)
                 
-                // Clear B Button (Fixed 70x24)
+                // Show/Hide Deliverable Clip Names on Canvas (Next to SWAP, before CLEAR B)
+                Button(action: {
+                    withAnimation(.easeInOut(duration: 0.15)) {
+                        engine.showClipNamesOverlay.toggle()
+                    }
+                    onInteraction?()
+                }) {
+                    Image(systemName: "character.textbox")
+                        .font(.system(size: 11, weight: .bold))
+                        .frame(width: 26, height: 26)
+                        .foregroundColor(engine.showClipNamesOverlay ? textMain : textMuted)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(TransportIconButtonStyle())
+                .explain(engine.showClipNamesOverlay ? "Hide Clip Names: Hide deliverable names overlay on canvas." : "Show Clip Names: Display deliverable names overlay on canvas.", binding: hoverExplanation)
+                
+                // Clear B Button
                 Button(action: {
                     engine.clearSlotB()
                     onInteraction?()
                 }) {
-                    HStack(spacing: 3) {
+                    HStack(spacing: 4) {
                         Image(systemName: "xmark")
-                            .font(.system(size: 8, weight: .bold))
-                            .frame(width: 10)
+                            .font(.system(size: 9, weight: .bold))
                         Text("CLEAR B")
                             .font(.system(size: 9, weight: .bold, design: .monospaced))
                     }
-                    .frame(width: 70, height: 24)
+                    .frame(height: 26)
+                    .padding(.horizontal, 4)
                     .foregroundColor(alertRed)
-                    .studioBox(background: alertRed.opacity(0.12), border: alertRed.opacity(0.5))
+                    .contentShape(Rectangle())
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(TransportIconButtonStyle())
                 .explain("Clear Slot B: Close comparison video and return to single-video mode.", binding: hoverExplanation)
             }
         }
@@ -1269,15 +1311,88 @@ struct PlayerComparisonBar: View {
             engine.compareMode = mode
             onInteraction?()
         }) {
-            Image(systemName: icon)
-                .font(.system(size: 11, weight: .bold))
-                .frame(width: 24, height: 24)
-                .foregroundColor(isActive ? accentPositive : textMuted)
-                .studioBox(background: isActive ? accentPositive.opacity(0.18) : bgSubtle,
-                           border: isActive ? accentPositive : borderLine)
+            modeIconView(mode: mode, icon: icon, isActive: isActive)
+                .frame(width: 26, height: 26)
+                .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(TransportIconButtonStyle())
         .explain(helpText, binding: hoverExplanation)
+    }
+    
+    @ViewBuilder
+    private func modeIconView(mode: CompareMode, icon: String, isActive: Bool) -> some View {
+        if !isActive {
+            Image(systemName: icon)
+                .font(.system(size: 13, weight: .bold))
+                .foregroundColor(textMuted)
+        } else {
+            switch mode {
+            case .single:
+                Image(systemName: icon)
+                    .font(.system(size: 13, weight: .black))
+                    .foregroundColor(accentPositive)
+            case .splitVertical, .sideBySide:
+                Image(systemName: icon)
+                    .font(.system(size: 13, weight: .black))
+                    .foregroundStyle(
+                        LinearGradient(
+                            stops: [
+                                .init(color: accentPositive, location: 0.0),
+                                .init(color: accentPositive, location: 0.49),
+                                .init(color: accentSlotB, location: 0.51),
+                                .init(color: accentSlotB, location: 1.0)
+                            ],
+                            startPoint: .leading,
+                            endPoint: .trailing
+                        )
+                    )
+            case .splitHorizontal, .sideBySideVertical:
+                Image(systemName: icon)
+                    .font(.system(size: 13, weight: .black))
+                    .foregroundStyle(
+                        LinearGradient(
+                            stops: [
+                                .init(color: accentPositive, location: 0.0),
+                                .init(color: accentPositive, location: 0.49),
+                                .init(color: accentSlotB, location: 0.51),
+                                .init(color: accentSlotB, location: 1.0)
+                            ],
+                            startPoint: .top,
+                            endPoint: .bottom
+                        )
+                    )
+            case .difference:
+                Image(systemName: icon)
+                    .font(.system(size: 13, weight: .black))
+                    .foregroundStyle(
+                        LinearGradient(
+                            stops: [
+                                .init(color: accentPositive, location: 0.0),
+                                .init(color: accentPositive, location: 0.49),
+                                .init(color: accentSlotB, location: 0.51),
+                                .init(color: accentSlotB, location: 1.0)
+                            ],
+                            startPoint: .leading,
+                            endPoint: .trailing
+                        )
+                    )
+            case .overlay:
+                Image(systemName: icon)
+                    .font(.system(size: 13, weight: .black))
+                    .foregroundStyle(
+                        LinearGradient(
+                            stops: [
+                                .init(color: accentSlotB, location: 0.0),
+                                .init(color: accentSlotB, location: 0.49),
+                                .init(color: accentPositive, location: 0.51),
+                                .init(color: accentPositive, location: 1.0)
+                            ],
+                            startPoint: .top,
+                            endPoint: .bottom
+                        )
+                    )
+            }
+        }
     }
 }
 
@@ -1296,6 +1411,7 @@ struct FullscreenPlayerView: View {
     @State private var hideTask: Task<Void, Never>? = nil
     
     private let accentPositive = StudioTheme.positive
+    private let accentSlotB = StudioTheme.slotBAccent
     private let alertRed = StudioTheme.negative
     
     var body: some View {
@@ -1325,6 +1441,46 @@ struct FullscreenPlayerView: View {
                 VStack(spacing: 0) {
                     topBar
                         .transition(.move(edge: .top).combined(with: .opacity))
+                    
+                    if engine.slotB.url != nil && engine.showClipNamesOverlay {
+                        HStack {
+                            VStack(alignment: .leading, spacing: 3) {
+                                HStack(spacing: 5) {
+                                    Text("A:")
+                                        .font(.system(size: 9, weight: .black, design: .monospaced))
+                                        .foregroundColor(accentPositive)
+                                    Text(engine.slotA.fileName.isEmpty ? "--" : engine.slotA.fileName.uppercased())
+                                        .font(.system(size: 10, weight: .bold, design: .monospaced))
+                                        .foregroundColor(.white)
+                                        .lineLimit(1)
+                                        .truncationMode(.middle)
+                                }
+                                HStack(spacing: 5) {
+                                    Text("B:")
+                                        .font(.system(size: 9, weight: .black, design: .monospaced))
+                                        .foregroundColor(accentSlotB)
+                                    Text(engine.slotB.fileName.isEmpty ? "--" : engine.slotB.fileName.uppercased())
+                                        .font(.system(size: 10, weight: .bold, design: .monospaced))
+                                        .foregroundColor(.white)
+                                        .lineLimit(1)
+                                        .truncationMode(.middle)
+                                }
+                            }
+                            .padding(.horizontal, 9)
+                            .padding(.vertical, 6)
+                            .background(Color.black.opacity(0.70))
+                            .cornerRadius(4)
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 4)
+                                    .stroke(Color.white.opacity(0.12), lineWidth: 1)
+                            )
+                            .padding(.leading, 16)
+                            .padding(.top, 8)
+                            .allowsHitTesting(false)
+                            
+                            Spacer()
+                        }
+                    }
                     
                     Spacer()
                     
@@ -1376,32 +1532,9 @@ struct FullscreenPlayerView: View {
     private var topBar: some View {
         HStack(alignment: .center, spacing: 14) {
             if engine.slotB.url != nil {
-                // Dual Slot Specs
-                VStack(alignment: .leading, spacing: 3) {
-                    HStack(spacing: 5) {
-                        Text("A:")
-                            .font(.system(size: 10, weight: .black, design: .monospaced))
-                            .foregroundColor(accentPositive)
-                        Text(engine.slotA.fileName.isEmpty ? "--" : engine.slotA.fileName.uppercased())
-                            .font(.system(size: 11, weight: .bold, design: .monospaced))
-                            .foregroundColor(.white)
-                            .lineLimit(1)
-                    }
-                    HStack(spacing: 5) {
-                        Text("B:")
-                            .font(.system(size: 10, weight: .black, design: .monospaced))
-                            .foregroundColor(Color.orange)
-                        Text(engine.slotB.fileName.isEmpty ? "--" : engine.slotB.fileName.uppercased())
-                            .font(.system(size: 11, weight: .bold, design: .monospaced))
-                            .foregroundColor(.white)
-                            .lineLimit(1)
-                    }
-                }
-                .frame(maxWidth: 240, alignment: .leading)
-                
                 Spacer()
                 
-                // Comparison Controls Toolbar
+                // Centered Comparison Controls Toolbar
                 PlayerComparisonBar(
                     engine: engine,
                     isLightMode: false,
@@ -1452,8 +1585,8 @@ struct FullscreenPlayerView: View {
                     .padding(.horizontal, 10)
                     .padding(.vertical, 6)
                     .background(Color(white: 0.15).opacity(0.85))
-                    .foregroundColor(Color.orange)
-                    .border(Color.orange.opacity(0.6), width: 1)
+                    .foregroundColor(accentSlotB)
+                    .border(accentSlotB.opacity(0.6), width: 1)
                 }
                 .buttonStyle(.plain)
                 .help("Select a clip to compare side-by-side with current video in Slot B")
@@ -1535,73 +1668,112 @@ struct FullscreenPlayerView: View {
                 Spacer()
                 
                 // Center: Transport Buttons
-                HStack(spacing: 5) {
-                    transportBtn(icon: "backward.circle.fill", tooltip: "Slow Reverse (Shift + J)") {
-                        engine.pressSlowJ()
-                    }
-                    transportBtn(icon: "backward.fill", tooltip: "Shuttle Reverse (J)") {
-                        engine.pressJ()
-                    }
-                    transportBtn(icon: "backward.frame.fill", tooltip: "Step -1 Frame (Left Arrow)") {
-                        engine.stepFrame(forward: false)
+                HStack(spacing: 8) {
+                    // 1. Unified Transport Deck (Tight & Proportional)
+                    HStack(spacing: 5) {
+                        transportBtn(icon: "backward", tooltip: "Slow Reverse (Shift + J)", size: 13, width: 26) {
+                            engine.pressSlowJ()
+                        }
+                        transportBtn(icon: "backward.frame.fill", tooltip: "Step -1 Frame (Left Arrow)", size: 13, width: 26) {
+                            engine.stepFrame(forward: false)
+                        }
+                        
+                        Button(action: { engine.pressJ() }) {
+                            Image(systemName: "backward.fill")
+                                .font(.system(size: 14, weight: .bold))
+                                .frame(width: 28, height: 28)
+                                .foregroundColor(engine.rate < 0 ? accentPositive : .white)
+                                .contentShape(Rectangle())
+                        }
+                        .buttonStyle(TransportIconButtonStyle())
+                        .help("Shuttle Reverse (J)")
+                        
+                        Button(action: { engine.togglePlayPause() }) {
+                            AnimatedPlayPauseIconView(
+                                isPlaying: engine.isPlaying,
+                                color: .white,
+                                size: 20
+                            )
+                            .frame(width: 30, height: 28)
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(TransportIconButtonStyle())
+                        .help("Play / Pause (Spacebar / K)")
+                        
+                        Button(action: { engine.pressL() }) {
+                            Image(systemName: "forward.fill")
+                                .font(.system(size: 14, weight: .bold))
+                                .frame(width: 28, height: 28)
+                                .foregroundColor(engine.rate > 1.0 ? accentPositive : .white)
+                                .contentShape(Rectangle())
+                        }
+                        .buttonStyle(TransportIconButtonStyle())
+                        .help("Shuttle Forward (L)")
+                        
+                        transportBtn(icon: "forward.frame.fill", tooltip: "Step +1 Frame (Right Arrow)", size: 13, width: 26) {
+                            engine.stepFrame(forward: true)
+                        }
+                        transportBtn(icon: "forward", tooltip: "Slow Forward (Shift + L)", size: 13, width: 26) {
+                            engine.pressSlowL()
+                        }
                     }
                     
-                    // Play / Pause
-                    Button(action: { engine.togglePlayPause() }) {
-                        Image(systemName: engine.isPlaying ? "pause.fill" : "play.fill")
-                            .font(.system(size: 13, weight: .black))
-                            .frame(width: 48, height: 30)
-                            .foregroundColor(.black)
-                            .studioBox(background: Color.white, border: Color(white: 0.5))
-                    }
-                    .buttonStyle(.plain)
-                    .help("Play / Pause (Spacebar / K)")
+                    // Divider
+                    Rectangle()
+                        .fill(Color.white.opacity(0.2))
+                        .frame(width: 1, height: 14)
+                        .padding(.horizontal, 2)
                     
-                    transportBtn(icon: "forward.frame.fill", tooltip: "Step +1 Frame (Right Arrow)") {
-                        engine.stepFrame(forward: true)
-                    }
-                    transportBtn(icon: "forward.fill", tooltip: "Shuttle Forward (L)") {
-                        engine.pressL()
-                    }
-                    transportBtn(icon: "forward.circle.fill", tooltip: "Slow Forward (Shift + L)") {
-                        engine.pressSlowL()
-                    }
-                    transportBtn(icon: "repeat", tooltip: "Loop Playback (⌘L)", isActive: engine.isLooping) {
-                        engine.isLooping.toggle()
-                    }
-                    transportBtn(icon: "plus.viewfinder", tooltip: "Center Crosshair", isActive: engine.showCenterCrosshair) {
-                        engine.showCenterCrosshair.toggle()
+                    // 2. Playback Utilities
+                    HStack(spacing: 4) {
+                        transportBtn(icon: "repeat", tooltip: "Loop Playback (⌘L)", isActive: engine.isLooping, size: 12, width: 26) {
+                            engine.isLooping.toggle()
+                        }
+                        transportBtn(icon: "plus.viewfinder", tooltip: "Center Crosshair", isActive: engine.showCenterCrosshair, size: 12, width: 26) {
+                            engine.showCenterCrosshair.toggle()
+                        }
                     }
                     
                     let hasGlitches = scanResults.contains(where: { $0.isFlagged && !$0.glitchSegments.isEmpty })
                     if hasGlitches {
-                        Button(action: onJumpPrev) {
-                            HStack(spacing: 4) {
-                                Image(systemName: "chevron.left.to.line")
-                                    .font(.system(size: 9, weight: .bold))
-                                Text("PREV LINE")
-                                    .font(.system(size: 9, weight: .bold, design: .monospaced))
-                            }
-                            .frame(width: 96, height: 30)
-                            .foregroundColor(alertRed)
-                            .studioBox(background: alertRed.opacity(0.2), border: alertRed.opacity(0.6))
-                        }
-                        .buttonStyle(.plain)
-                        .help("Previous Glitch (⇧N)")
+                        // Divider
+                        Rectangle()
+                            .fill(Color.white.opacity(0.2))
+                            .frame(width: 1, height: 14)
+                            .padding(.horizontal, 2)
                         
-                        Button(action: onJumpNext) {
-                            HStack(spacing: 4) {
-                                Image(systemName: "chevron.right.to.line")
-                                    .font(.system(size: 9, weight: .bold))
-                                Text("NEXT LINE")
-                                    .font(.system(size: 9, weight: .bold, design: .monospaced))
+                        // 3. Compact Borderless Glitch Findings Navigation
+                        HStack(spacing: 3) {
+                            Button(action: onJumpPrev) {
+                                HStack(spacing: 3) {
+                                    Image(systemName: "chevron.left.to.line")
+                                        .font(.system(size: 9, weight: .bold))
+                                    Text("PREV LINE")
+                                        .font(.system(size: 9, weight: .bold, design: .monospaced))
+                                }
+                                .frame(height: 28)
+                                .padding(.horizontal, 5)
+                                .foregroundColor(alertRed)
+                                .contentShape(Rectangle())
                             }
-                            .frame(width: 96, height: 30)
-                            .foregroundColor(alertRed)
-                            .studioBox(background: alertRed.opacity(0.2), border: alertRed.opacity(0.6))
+                            .buttonStyle(TransportIconButtonStyle())
+                            .help("Previous Glitch (⇧N)")
+                            
+                            Button(action: onJumpNext) {
+                                HStack(spacing: 3) {
+                                    Text("NEXT LINE")
+                                        .font(.system(size: 9, weight: .bold, design: .monospaced))
+                                    Image(systemName: "chevron.right.to.line")
+                                        .font(.system(size: 9, weight: .bold))
+                                }
+                                .frame(height: 28)
+                                .padding(.horizontal, 5)
+                                .foregroundColor(alertRed)
+                                .contentShape(Rectangle())
+                            }
+                            .buttonStyle(TransportIconButtonStyle())
+                            .help("Next Glitch (N)")
                         }
-                        .buttonStyle(.plain)
-                        .help("Next Glitch (N)")
                     }
                 }
                 
@@ -1645,15 +1817,15 @@ struct FullscreenPlayerView: View {
         }
     }
     
-    private func transportBtn(icon: String, tooltip: String, isActive: Bool = false, action: @escaping () -> Void) -> some View {
+    private func transportBtn(icon: String, tooltip: String, isActive: Bool = false, size: CGFloat = 14, width: CGFloat = 30, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Image(systemName: icon)
-                .font(.system(size: 11, weight: .bold))
-                .frame(width: 32, height: 30)
+                .font(.system(size: size, weight: .bold))
+                .frame(width: width, height: 28)
                 .foregroundColor(isActive ? accentPositive : .white)
-                .studioBox(background: isActive ? accentPositive.opacity(0.25) : Color(white: 0.15), border: isActive ? accentPositive : Color(white: 0.35))
+                .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(TransportIconButtonStyle())
         .help(tooltip)
     }
 }

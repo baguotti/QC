@@ -52,7 +52,7 @@ struct ShortcutsModalView: View {
         ),
         ShortcutItem(
             keys: ["⇧ + J", "⇧ + L"],
-            icon: "backward.circle.fill",
+            icon: "backward",
             title: "SLOW-MOTION STEPPING",
             explanation: "Steps continuously in slow-motion (2, 4, 8, 15, 24, 30 FPS). Tap again to speed up."
         ),
@@ -65,8 +65,8 @@ struct ShortcutsModalView: View {
         ShortcutItem(
             keys: ["⇧ + ←", "⇧ + →"],
             icon: "gobackward",
-            title: "JUMP 1 SECOND",
-            explanation: "Skips backward or forward in the timeline by 1.0 second."
+            title: "STEP 5 FRAMES",
+            explanation: "Skips backward or forward in the timeline by 5 video frames."
         ),
         ShortcutItem(
             keys: ["⌘ + L"],
@@ -147,7 +147,7 @@ struct ShortcutsModalView: View {
             keys: ["C"],
             icon: "square.split.2x1",
             title: "CYCLE COMPARE MODES",
-            explanation: "Cycles Single, Split Wipe, Side-by-Side (H/V), and Difference RGB blend."
+            explanation: "Cycles Single, Split Wipe, Side-by-Side (H/V), Difference RGB blend, and 50% Opacity Overlay."
         )
     ]
     

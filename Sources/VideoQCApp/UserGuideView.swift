@@ -162,14 +162,14 @@ struct UserGuideView: View {
     
     private var playerGuide: some View {
         VStack(alignment: .leading, spacing: 10) {
-            guideRow(name: "DUAL A/B & DIFFERENCE MODE", desc: "Option+Click any queue asset (or click +B) to load into Slot B. Compare using interactive Split Wipe (drag the tactile center handle), Side-by-Side (horizontal left/right or vertical stacked top/bottom), or GPU Difference Mode (|RGB_A - RGB_B|). Click [(TAB)] or press Tab for rapid flicker compare, X to Swap slots, C to cycle modes, and solo Slot A or B audio.")
+            guideRow(name: "DUAL A/B & DIFFERENCE MODE", desc: "Option+Click any queue asset (or click +B) to load into Slot B. Compare using interactive Split Wipe (drag the tactile center handle), Side-by-Side (horizontal left/right or vertical stacked top/bottom), GPU Difference Mode (|RGB_A - RGB_B|), or 50% Opacity Overlay (Slot B over Slot A). Click [(TAB)] or press Tab for rapid flicker compare, X to Swap slots, C to cycle modes, and solo Slot A or B audio.")
             guideRow(name: "J-K-L SHUTTLE PLAYBACK", desc: "Tap L to play forward (1x, 2x, 4x, 8x, 16x). Tap K to pause. Tap J to play reverse (-1x, -2x, -4x, -8x, -16x).")
             guideRow(name: "SLOW FRAME-BY-FRAME (⇧ + L / ⇧ + J)", desc: "Plays automatically frame-by-frame. Pressing repeatedly accelerates playback speed (2, 4, 8, 15, 24, 30 FPS). Dedicated transport buttons are also available.")
             guideRow(name: "VIDEO FULLSCREEN (F / ESC)", desc: "Makes video completely full screen with zero UI. All keyboard shortcuts, zooming, and panning continue to work seamlessly. Double-click or press ESC to exit.")
             guideRow(name: "REVIEW FULLSCREEN (⇧ + F)", desc: "Expands player to full screen with an on-screen cinema review HUD, full timeline scrubber, dual-video comparison toolbar, and transport controls that auto-hide when idle.")
             guideRow(name: "SPACEBAR", desc: "Quick toggle between normal 1x Play and Pause.")
             guideRow(name: "SINGLE FRAME STEPPING (← / →)", desc: "Left and right arrow keys step exactly 1 frame backward or forward.")
-            guideRow(name: "SECOND JUMP (⇧ + ← / →)", desc: "Shift + Left/Right arrow jumps 1 second backward or forward.")
+            guideRow(name: "5 FRAME JUMP (⇧ + ← / →)", desc: "Shift + Left/Right arrow jumps 5 video frames backward or forward.")
             guideRow(name: "HOME / END", desc: "Home key jumps directly to the first frame. End key jumps to the last frame.")
             guideRow(name: "TIMELINE SCRUBBING", desc: "Drag the playhead or click anywhere on the SMPTE ruler to scrub frame-accurately.")
             guideRow(name: "SCROLL ZOOM & HAND-PAN", desc: "Scroll your mouse wheel up or down directly to zoom into or out of the canvas (10% to 400%). Pinch on trackpad to zoom. Click and drag across the canvas with the hand tool to pan around.")

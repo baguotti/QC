@@ -12,7 +12,7 @@ MACOS="${CONTENTS}/MacOS"
 RESOURCES="${CONTENTS}/Resources"
 
 # Version & Metadata
-APP_VERSION="0.2.6"
+APP_VERSION="0.2.7"
 GIT_COMMIT_COUNT=$(git rev-list --count HEAD 2>/dev/null || echo "1")
 
 echo "📌 Version: v${APP_VERSION} (Build: ${GIT_COMMIT_COUNT})"
@@ -41,6 +41,12 @@ cp "${BIN_DIR}/${BIN_NAME}" "${MACOS}/${BIN_NAME}"
 if [ -f "Resources/AppIcon.icns" ]; then
     echo "🎨 Bundling application icon (AppIcon.icns)..."
     cp "Resources/AppIcon.icns" "${RESOURCES}/AppIcon.icns"
+fi
+
+if [ -d "Resources/PlayAnimation" ]; then
+    echo "🎞️ Bundling PlayAnimation frames..."
+    mkdir -p "${RESOURCES}/PlayAnimation"
+    cp Resources/PlayAnimation/*.png "${RESOURCES}/PlayAnimation/"
 fi
 
 # 5. Create Info.plist

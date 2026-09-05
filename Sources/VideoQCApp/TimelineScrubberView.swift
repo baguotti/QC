@@ -10,96 +10,145 @@ public struct RulerTicksCanvasView: View, Equatable {
     let duration: Double
     let fps: Double
     let width: CGFloat
+    let trackInset: CGFloat
     let isLightMode: Bool
     
-    private var tickColor: Color { isLightMode ? Color(white: 0.65) : Color(white: 0.32) }
-    private var majorTickColor: Color { isLightMode ? Color(white: 0.45) : Color(white: 0.55) }
-    private var textColor: Color { isLightMode ? Color(white: 0.30) : Color(white: 0.68) }
+    private var tickColor: Color { isLightMode ? Color(white: 0.70) : Color(white: 0.28) }
+    private var majorTickColor: Color { isLightMode ? Color(white: 0.48) : Color(white: 0.46) }
+    private var textColor: Color { isLightMode ? Color(white: 0.38) : Color(white: 0.60) }
     
     public static nonisolated func == (lhs: RulerTicksCanvasView, rhs: RulerTicksCanvasView) -> Bool {
         abs(lhs.duration - rhs.duration) < 0.001 &&
         abs(lhs.fps - rhs.fps) < 0.001 &&
         abs(lhs.width - rhs.width) < 0.5 &&
+        lhs.trackInset == rhs.trackInset &&
         lhs.isLightMode == rhs.isLightMode
     }
     
     public var body: some View {
         Canvas { context, size in
             guard duration > 0 else { return }
+            let trackWidth = max(1.0, width - (trackInset * 2))
             
             // Adaptive interval for long master files so marks never overlap
             let intervalSecs: Double
-            if width / (duration / 5.0) >= 60 {
+            if trackWidth / (duration / 5.0) >= 60 {
                 intervalSecs = 5.0
-            } else if width / (duration / 10.0) >= 60 {
+            } else if trackWidth / (duration / 10.0) >= 60 {
                 intervalSecs = 10.0
-            } else if width / (duration / 15.0) >= 60 {
+            } else if trackWidth / (duration / 15.0) >= 60 {
                 intervalSecs = 15.0
             } else {
                 intervalSecs = 30.0
             }
             
-            // 1. Draw 1-second minor ticks
+            // 1. Draw 1-second minor & major ticks
             let minorStep: Double = intervalSecs <= 5.0 ? 1.0 : (intervalSecs / 5.0)
             var sec = 0.0
             while sec <= duration + 0.001 {
-                let x = width * CGFloat(sec / duration)
+                let x = trackInset + trackWidth * CGFloat(sec / duration)
                 let rem = sec.truncatingRemainder(dividingBy: intervalSecs)
                 let isMajor = rem < 0.001 || abs(rem - intervalSecs) < 0.001
                 
                 var tickPath = Path()
-                if isMajor {
-                    tickPath.move(to: CGPoint(x: x, y: size.height - 8))
-                    tickPath.addLine(to: CGPoint(x: x, y: size.height))
-                    context.stroke(tickPath, with: .color(majorTickColor), lineWidth: 1)
-                } else {
-                    tickPath.move(to: CGPoint(x: x, y: size.height - 4))
-                    tickPath.addLine(to: CGPoint(x: x, y: size.height))
-                    context.stroke(tickPath, with: .color(tickColor), lineWidth: 1)
-                }
+                let tickH: CGFloat = isMajor ? 5.5 : 3.0
+                tickPath.move(to: CGPoint(x: x, y: size.height - tickH))
+                tickPath.addLine(to: CGPoint(x: x, y: size.height))
+                context.stroke(tickPath, with: .color(isMajor ? majorTickColor : tickColor), lineWidth: 1)
                 sec += minorStep
             }
             
-            // 2. Draw 5-second timecode labels
+            // 2. Draw 5-second interval timecode labels
             var labelSec = 0.0
             while labelSec <= duration + 0.001 {
-                let x = width * CGFloat(labelSec / duration)
+                let x = trackInset + trackWidth * CGFloat(labelSec / duration)
                 let frame = Int(round(labelSec * max(1.0, fps)))
                 let tc = TimecodeFormatter.format(frameIndex: frame, fps: fps)
                 
                 let text = Text(tc)
-                    .font(.system(size: 7.5, weight: .bold, design: .monospaced))
+                    .font(.system(size: 7.5, weight: .semibold, design: .monospaced))
                     .foregroundColor(textColor)
                 
                 let anchor: UnitPoint
-                if x < 35 {
+                if x < 40 {
                     anchor = .leading
-                } else if x > width - 35 {
+                } else if x > width - 40 {
                     anchor = .trailing
                 } else {
                     anchor = .center
                 }
                 
-                context.draw(text, at: CGPoint(x: x, y: 5), anchor: anchor)
+                context.draw(text, at: CGPoint(x: x, y: 4), anchor: anchor)
                 labelSec += intervalSecs
             }
         }
-        .frame(width: width, height: 22)
+        .frame(width: width, height: 18)
     }
 }
 
-// MARK: - Main Timeline Scrubber View
+// MARK: - Downward-Pointing Playhead Chevron Shape (CTI)
+
+struct PlayheadChevronShape: Shape {
+    var tipProportion: CGFloat = 0.40 // 40% of height tapers into a crisp downward chevron
+    var cornerRadius: CGFloat = 1.5
+    
+    func path(in rect: CGRect) -> Path {
+        var path = Path()
+        let w = rect.width
+        let h = rect.height
+        let bodyH = h * (1.0 - tipProportion)
+        let r = min(cornerRadius, min(w / 4, bodyH / 4))
+        let midX = rect.midX
+        
+        path.move(to: CGPoint(x: r, y: 0))
+        path.addLine(to: CGPoint(x: w - r, y: 0))
+        path.addQuadCurve(to: CGPoint(x: w, y: r), control: CGPoint(x: w, y: 0))
+        path.addLine(to: CGPoint(x: w, y: bodyH))
+        path.addLine(to: CGPoint(x: midX, y: h))
+        path.addLine(to: CGPoint(x: 0, y: bodyH))
+        path.addLine(to: CGPoint(x: 0, y: r))
+        path.addQuadCurve(to: CGPoint(x: r, y: 0), control: CGPoint(x: 0, y: 0))
+        path.closeSubpath()
+        return path
+    }
+}
+
+// MARK: - Main Modern Minimal Timeline Scrubber View
 
 public struct TimelineScrubberView: View {
     @ObservedObject var engine: PlayerEngine
     var isLightMode: Bool
     
+    @State private var isDragging: Bool = false
+    @State private var hoverX: CGFloat? = nil
+    @State private var isHovering: Bool = false
+    
+    // Inset from outer container edges to float the pill track and protect playhead
+    private let trackInset: CGFloat = 6.0
+    
     // Theme colors
-    private var trackBg: Color { isLightMode ? Color(white: 0.86) : Color(white: 0.10) }
-    private var rulerBg: Color { isLightMode ? Color(white: 0.90) : Color(white: 0.13) }
-    private var playheadColor: Color { Color(red: 0.11, green: 0.44, blue: 0.96) } // Premiere Pro Blue (#1D70F5)
-    private var playedProgressColor: Color { isLightMode ? Color(white: 0.76) : Color(white: 0.18) }
-    private var borderColor: Color { isLightMode ? Color(white: 0.78) : Color(white: 0.22) }
+    private var containerBg: Color { isLightMode ? Color(white: 0.94) : Color(red: 0.055, green: 0.055, blue: 0.06) }
+    private var containerBorder: Color { isLightMode ? Color(white: 0.80) : Color(white: 0.15) }
+    private var rulerDivider: Color { isLightMode ? Color(white: 0.86) : Color(white: 0.11) }
+    
+    private var trackGrooveBg: Color { isLightMode ? Color(white: 0.88) : Color(white: 0.035) }
+    private var trackGrooveBorder: Color { isLightMode ? Color(white: 0.78) : Color(white: 0.10) }
+    
+    private var playheadAccent: Color { Color(red: 0.15, green: 0.52, blue: 0.98) }
+    
+    private var progressGradient: LinearGradient {
+        LinearGradient(
+            colors: isLightMode ? [
+                Color(white: 0.64),
+                Color(white: 0.76)
+            ] : [
+                Color(white: 0.18),
+                Color(white: 0.30)
+            ],
+            startPoint: .leading,
+            endPoint: .trailing
+        )
+    }
     
     public init(engine: PlayerEngine, isLightMode: Bool) {
         self.engine = engine
@@ -108,136 +157,182 @@ public struct TimelineScrubberView: View {
     
     public var body: some View {
         GeometryReader { geo in
-            let width = max(10, geo.size.width)
-            let playheadX = width * CGFloat(engine.currentProgress)
+            let width = max(20, geo.size.width)
+            let trackWidth = max(1.0, width - (trackInset * 2))
+            let playheadX = trackInset + trackWidth * CGFloat(engine.currentProgress)
             let durSecs = CMTimeGetSeconds(engine.duration)
             
-            VStack(spacing: 0) {
-                // MARK: - Time Ruler (Top Strip, 22px)
-                ZStack(alignment: .leading) {
-                    rulerBg
-                        .frame(height: 22)
-                    
-                    // Ruler Tick Marks & 5-Second Interval Timecodes (Memoized)
+            ZStack(alignment: .topLeading) {
+                // Unified Modern Rounded Bezel Container
+                RoundedRectangle(cornerRadius: 8)
+                    .fill(containerBg)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 8)
+                            .stroke(containerBorder, lineWidth: 1)
+                    )
+                
+                // Hairline Divider between Ruler and Scrubber Track
+                Rectangle()
+                    .fill(rulerDivider)
+                    .frame(height: 0.75)
+                    .offset(y: 19)
+                
+                // MARK: - Time Ruler (Top 19px)
+                ZStack(alignment: .topLeading) {
                     RulerTicksCanvasView(
                         duration: durSecs,
                         fps: engine.activeFps,
                         width: width,
+                        trackInset: trackInset,
                         isLightMode: isLightMode
                     )
                     .equatable()
                     
-                    // Glitch Markers on Ruler (Red alert diamonds at line error timecodes)
+                    // Glitch Markers on Ruler (Subtle, crisp neon pips)
                     ForEach(engine.activeMarkers) { marker in
                         if durSecs > 0 {
                             let fps = max(1.0, engine.activeFps)
                             let markerSecs = Double(marker.frameIndex) / fps
-                            let markerX = width * CGFloat(min(1.0, max(0.0, markerSecs / durSecs)))
-                            glitchMarkerIcon(marker: marker)
-                                .offset(x: markerX - 3.5, y: 13)
+                            let markerX = trackInset + trackWidth * CGFloat(min(1.0, max(0.0, markerSecs / durSecs)))
+                            Circle()
+                                .fill(Color(red: 1.0, green: 0.28, blue: 0.30))
+                                .frame(width: 3.5, height: 3.5)
+                                .shadow(color: Color.red.opacity(0.6), radius: 1.5)
+                                .position(x: markerX, y: 17)
                         }
                     }
-                    
-                    // Needle line in ruler below head
-                    Rectangle()
-                        .fill(playheadColor)
-                        .frame(width: 1, height: 10)
-                        .offset(x: playheadX - 0.5, y: 6)
-                    
-                    // Current Playhead Marker (Small, sharp Premiere CTI)
-                    playheadArrow
-                        .offset(x: playheadX - 4.5, y: 1)
                 }
-                .border(borderColor, width: 1)
+                .frame(height: 19)
                 
-                // MARK: - Timeline Track (Scrubbing Track, 24px)
+                // MARK: - Modern Floating Scrubber Track (Bottom, Height: 12px, centered in 26px area)
                 ZStack(alignment: .leading) {
-                    trackBg
-                        .frame(height: 24)
+                    // Recessed Pill Track Bed
+                    Capsule()
+                        .fill(trackGrooveBg)
+                        .overlay(
+                            Capsule()
+                                .stroke(trackGrooveBorder, lineWidth: 0.75)
+                        )
+                        .frame(width: trackWidth, height: 12)
                     
-                    // Played Region Background Fill (Strictly inside track, never overflows)
-                    Rectangle()
-                        .fill(playedProgressColor)
-                        .frame(width: max(0, playheadX), height: 24)
+                    // Played Progress Fill with Smooth Capsule Mask
+                    ZStack(alignment: .leading) {
+                        Rectangle()
+                            .fill(progressGradient)
+                            .frame(width: max(0, playheadX - trackInset), height: 12)
+                        
+                        // Subtle Glass Specular Top Highlight
+                        Rectangle()
+                            .fill(Color.white.opacity(0.25))
+                            .frame(width: max(0, playheadX - trackInset), height: 1)
+                            .offset(y: -5.5)
+                    }
+                    .frame(width: trackWidth, height: 12, alignment: .leading)
+                    .clipShape(Capsule())
                     
-                    // Glitch Markers across the track
+                    // Glitch Markers Inside Track (Radiant Coral Neon Bars)
                     ForEach(engine.activeMarkers) { marker in
                         if durSecs > 0 {
                             let fps = max(1.0, engine.activeFps)
                             let markerSecs = Double(marker.frameIndex) / fps
-                            let markerX = width * CGFloat(min(1.0, max(0.0, markerSecs / durSecs)))
-                            Rectangle()
-                                .fill(Color(red: 1.0, green: 0.25, blue: 0.25, opacity: 0.85))
-                                .frame(width: 1.5, height: 24)
-                                .offset(x: markerX - 0.75)
+                            let markerX = trackWidth * CGFloat(min(1.0, max(0.0, markerSecs / durSecs)))
+                            Capsule()
+                                .fill(Color(red: 1.0, green: 0.28, blue: 0.30))
+                                .frame(width: 2, height: 10)
+                                .shadow(color: Color.red.opacity(0.6), radius: 2)
+                                .position(x: markerX, y: 6)
                         }
                     }
-                    
-                    // Playhead Needle across the track
-                    Rectangle()
-                        .fill(playheadColor)
-                        .frame(width: 1, height: 24)
-                        .offset(x: playheadX - 0.5)
                 }
-                .border(borderColor, width: 1)
+                .frame(width: trackWidth, height: 12)
+                .offset(x: trackInset, y: 26)
+                
+                // MARK: - Hover Ghost Needle
+                if let hX = hoverX, isHovering && !isDragging && durSecs > 0 {
+                    let clampedHX = max(trackInset, min(hX, width - trackInset))
+                    
+                    // Subtle Ghost Needle (hairline guide)
+                    Rectangle()
+                        .fill(Color.white.opacity(0.18))
+                        .frame(width: 1, height: 36)
+                        .offset(x: clampedHX - 0.5, y: 5)
+                        .allowsHitTesting(false)
+                }
+                
+                // MARK: - Modern Tactile Playhead (CTI)
+                // 1. Full-Height Precision Needle (Clean, no glow)
+                Capsule()
+                    .fill(playheadAccent)
+                    .frame(width: isDragging ? 2.0 : 1.5, height: 38)
+                    .offset(x: playheadX - (isDragging ? 1.0 : 0.75), y: 4)
+                    .allowsHitTesting(false)
+                
+                // 2. Chevron-Style Tactile Head Badge (Clean, no glow)
+                ZStack {
+                    PlayheadChevronShape()
+                        .fill(
+                            LinearGradient(
+                                colors: [
+                                    Color(red: 0.25, green: 0.62, blue: 1.0),
+                                    Color(red: 0.12, green: 0.46, blue: 0.95)
+                                ],
+                                startPoint: .top,
+                                endPoint: .bottom
+                            )
+                        )
+                        .frame(width: 11, height: 13)
+                        .shadow(color: Color.black.opacity(0.4), radius: 1.5, x: 0, y: 1)
+                    
+                    PlayheadChevronShape()
+                        .stroke(Color.white.opacity(0.65), lineWidth: 0.75)
+                        .frame(width: 11, height: 13)
+                    
+                    // Micro-notch center line
+                    RoundedRectangle(cornerRadius: 0.5)
+                        .fill(Color.white.opacity(0.95))
+                        .frame(width: 1.2, height: 5.0)
+                        .offset(y: -1.5)
+                }
+                .scaleEffect(isDragging ? 1.15 : 1.0)
+                .animation(.spring(response: 0.2, dampingFraction: 0.7), value: isDragging)
+                .offset(x: playheadX - 5.5, y: 2)
+                .allowsHitTesting(false)
             }
+            .clipShape(RoundedRectangle(cornerRadius: 8))
             .contentShape(Rectangle())
+            // Smooth Hover Tracking
+            .onContinuousHover { phase in
+                switch phase {
+                case .active(let location):
+                    hoverX = location.x
+                    isHovering = true
+                case .ended:
+                    hoverX = nil
+                    isHovering = false
+                }
+            }
             // Instantaneous 120 FPS Drag Scrubbing
             .gesture(
                 DragGesture(minimumDistance: 0)
                     .onChanged { value in
+                        if !isDragging {
+                            isDragging = true
+                        }
                         if engine.isPlaying || engine.rate != 0 {
                             engine.pause()
                         }
-                        let x = max(0, min(value.location.x, width))
-                        let progress = Double(x / width)
+                        let x = max(trackInset, min(value.location.x, width - trackInset))
+                        let progress = Double((x - trackInset) / trackWidth)
                         engine.scrubTo(progress: progress)
                     }
                     .onEnded { value in
-                        let x = max(0, min(value.location.x, width))
-                        let progress = Double(x / width)
+                        isDragging = false
+                        let x = max(trackInset, min(value.location.x, width - trackInset))
+                        let progress = Double((x - trackInset) / trackWidth)
                         engine.endScrubbing(at: progress)
                     }
             )
         }
         .frame(height: 46)
-    }
-    
-    // MARK: - Playhead Arrow Head
-    
-    private var playheadArrow: some View {
-        Canvas { context, _ in
-            var path = Path()
-            path.move(to: CGPoint(x: 0, y: 0))
-            path.addLine(to: CGPoint(x: 9, y: 0))
-            path.addLine(to: CGPoint(x: 9, y: 5))
-            path.addLine(to: CGPoint(x: 4.5, y: 10))
-            path.addLine(to: CGPoint(x: 0, y: 5))
-            path.closeSubpath()
-            
-            context.fill(path, with: .color(playheadColor))
-            
-            var highlight = Path()
-            highlight.move(to: CGPoint(x: 0, y: 0))
-            highlight.addLine(to: CGPoint(x: 9, y: 0))
-            context.stroke(highlight, with: .color(.white.opacity(0.35)), lineWidth: 0.75)
-        }
-        .frame(width: 9, height: 10)
-    }
-    
-    // MARK: - Glitch Marker Icon (Alert Diamond)
-    
-    private func glitchMarkerIcon(marker: PlayerTimelineMarker) -> some View {
-        Canvas { context, _ in
-            var path = Path()
-            path.move(to: CGPoint(x: 3.5, y: 0))
-            path.addLine(to: CGPoint(x: 7, y: 3.5))
-            path.addLine(to: CGPoint(x: 3.5, y: 7))
-            path.addLine(to: CGPoint(x: 0, y: 3.5))
-            path.closeSubpath()
-            
-            context.fill(path, with: .color(Color(red: 1.0, green: 0.25, blue: 0.25)))
-        }
-        .frame(width: 7, height: 7)
     }
 }

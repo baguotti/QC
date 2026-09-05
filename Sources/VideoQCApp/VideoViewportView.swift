@@ -345,14 +345,26 @@ public final class PlayerContainerNSView: NSView {
                 playerLayerA.mask = nil
             }
             playerLayerA.compositingFilter = nil
+            playerLayerA.opacity = 1.0
+            playerLayerA.zPosition = 0
             
             playerLayerB.isHidden = false
+            playerLayerB.opacity = 1.0
+            playerLayerB.zPosition = 0
             playerLayerB.frame = canvasLayer.bounds
             
             splitDividerLayer.isHidden = true
             splitHandleLayer.isHidden = true
             CATransaction.commit()
             return
+        }
+        
+        // Reset layer opacities and zPositions for non-overlay modes
+        if mode != .overlay {
+            playerLayerA.opacity = 1.0
+            playerLayerB.opacity = 1.0
+            playerLayerA.zPosition = 0
+            playerLayerB.zPosition = 0
         }
         
         switch mode {
@@ -517,6 +529,29 @@ public final class PlayerContainerNSView: NSView {
             playerLayerB.frame = canvasLayer.bounds
             
             playerLayerA.compositingFilter = "differenceBlendMode"
+            
+            splitDividerLayer.isHidden = true
+            splitHandleLayer.isHidden = true
+            
+        case .overlay:
+            // 50% Opacity Overlay: Slot B reference is overlayed on top of Slot A at 50% opacity
+            playerLayerB.isHidden = false
+            playerLayerA.isHidden = false
+            if playerLayerA.mask != nil {
+                playerLayerA.mask = nil
+            }
+            if playerLayerB.mask != nil {
+                playerLayerB.mask = nil
+            }
+            playerLayerA.compositingFilter = nil
+            playerLayerB.compositingFilter = nil
+            playerLayerA.frame = canvasLayer.bounds
+            playerLayerB.frame = canvasLayer.bounds
+            
+            playerLayerB.zPosition = 1
+            playerLayerA.zPosition = 0
+            playerLayerB.opacity = 0.5
+            playerLayerA.opacity = 1.0
             
             splitDividerLayer.isHidden = true
             splitHandleLayer.isHidden = true

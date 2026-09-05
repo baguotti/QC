@@ -71,6 +71,8 @@ struct StudioTheme {
     static let positive = Color(red: 46 / 255.0, green: 111 / 255.0, blue: 64 / 255.0)
     // Negative Accent: #a14746 (Muted Brick Red)
     static let negative = Color(red: 161 / 255.0, green: 71 / 255.0, blue: 70 / 255.0)
+    // Slot B Accent: #715C83 (Muted Purple)
+    static let slotBAccent = Color(red: 0x71 / 255.0, green: 0x5C / 255.0, blue: 0x83 / 255.0)
     
     static var alertRed: Color { negative }
     static var alertPositive: Color { positive }
