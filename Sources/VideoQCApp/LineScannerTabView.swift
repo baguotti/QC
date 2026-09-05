@@ -356,28 +356,7 @@ extension ContentView {
                         ForEach(flagged) { result in
                             let segments = result.glitchSegments
                             VStack(alignment: .leading, spacing: 0) {
-                                HStack {
-                                    VStack(alignment: .leading, spacing: 3) {
-                                        Text(result.fileName.uppercased())
-                                            .font(.system(size: 14, weight: .heavy, design: .monospaced))
-                                            .foregroundColor(textMain)
-                                        Text("\(result.resolution) // \(String(format: "%.2f", result.fps)) FPS // \(result.totalFrames) FRAMES")
-                                            .font(.system(size: 10, weight: .bold, design: .monospaced))
-                                            .foregroundColor(textMuted)
-                                    }
-                                    Spacer()
-                                    
-                                    VStack(alignment: .trailing, spacing: 3) {
-                                        Text("[\(segments.count) OCCURRENCE(S) // \(result.errorFrames.count) FRAMES]")
-                                            .font(.system(size: 10, weight: .bold, design: .monospaced))
-                                            .foregroundColor(alertRed)
-                                        Text("FINDER RED TAG APPLIED")
-                                            .font(.system(size: 8, weight: .bold, design: .monospaced))
-                                            .foregroundColor(textMuted)
-                                    }
-                                }
-                                .padding(14)
-                                .background(bgCardHeader)
+                                flaggedResultHeader(result: result, segmentsCount: segments.count)
                                 
                                 Rectangle().fill(borderLine).frame(height: 1)
                                 
@@ -476,6 +455,42 @@ extension ContentView {
             }
         }
         .padding(28)
+    }
+    
+    private func flaggedResultHeader(result: VideoQCResult, segmentsCount: Int) -> some View {
+        HStack {
+            VStack(alignment: .leading, spacing: 3) {
+                Text(result.fileName.uppercased())
+                    .font(.system(size: 14, weight: .heavy, design: .monospaced))
+                    .foregroundColor(textMain)
+                Text("\(result.resolution) // \(String(format: "%.2f", result.fps)) FPS // \(result.totalFrames) FRAMES")
+                    .font(.system(size: 10, weight: .bold, design: .monospaced))
+                    .foregroundColor(textMuted)
+            }
+            Spacer()
+            
+            VStack(alignment: .trailing, spacing: 3) {
+                Text("[\(segmentsCount) OCCURRENCE(S) // \(result.errorFrames.count) FRAMES]")
+                    .font(.system(size: 10, weight: .bold, design: .monospaced))
+                    .foregroundColor(alertRed)
+                Text("FINDER RED TAG APPLIED")
+                    .font(.system(size: 8, weight: .bold, design: .monospaced))
+                    .foregroundColor(textMuted)
+            }
+        }
+        .padding(14)
+        .background(bgCardHeader)
+        .contentShape(Rectangle())
+        .explain(result.fileURL.path, binding: $hoverExplanation)
+        .contextMenu {
+            Button("Copy Path") {
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString(result.fileURL.path, forType: .string)
+            }
+            Button("Reveal in Finder") {
+                NSWorkspace.shared.activateFileViewerSelecting([result.fileURL])
+            }
+        }
     }
     
     var emptyStateView: some View {

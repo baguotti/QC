@@ -58,7 +58,7 @@ extension ContentView {
                             .font(.system(size: 10, weight: .black, design: .monospaced))
                             .foregroundColor(textMuted)
                         
-                        if hasPlayerSubfolders {
+                        if hasPlayerSubfolders && !hideAllFolders {
                             Button(action: toggleAllPlayerFolders) {
                                 Image(systemName: playerCollapsedFolderIDs.isEmpty ? "chevron.down.circle" : "chevron.right.circle")
                                     .font(.system(size: 10, weight: .bold))
@@ -154,13 +154,35 @@ extension ContentView {
                             }
                             .onChange(of: playerEngine.activeURL) { _, newURL in
                                 if let newURL = newURL {
+                                    revealPlayerFolderContaining(url: newURL)
                                     withAnimation(.easeInOut(duration: 0.15)) {
                                         scrollProxy.scrollTo(newURL, anchor: .center)
+                                    }
+                                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+                                        withAnimation(.easeInOut(duration: 0.15)) {
+                                            scrollProxy.scrollTo(newURL, anchor: .center)
+                                        }
+                                    }
+                                }
+                            }
+                            .onChange(of: playerEngine.slotB.url) { _, newURL in
+                                if let newURL = newURL, playerEngine.activeTarget == .slotB {
+                                    revealPlayerFolderContaining(url: newURL)
+                                    withAnimation(.easeInOut(duration: 0.15)) {
+                                        scrollProxy.scrollTo(newURL, anchor: .center)
+                                    }
+                                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+                                        withAnimation(.easeInOut(duration: 0.15)) {
+                                            scrollProxy.scrollTo(newURL, anchor: .center)
+                                        }
                                     }
                                 }
                             }
                         }
                         .studioBox(background: bgCardSubtle, border: borderLine)
+                        .onDrop(of: [UTType.fileURL.identifier], isTargeted: nil) { providers in
+                            handleDrop(providers: providers, forTab: .player)
+                        }
                     }
                 }
                 .frame(maxHeight: .infinity)
@@ -168,6 +190,9 @@ extension ContentView {
             .padding(22)
             .frame(minWidth: 360, idealWidth: 400, maxWidth: 440)
             .background(bgPanel)
+            .onDrop(of: [UTType.fileURL.identifier], isTargeted: nil) { providers in
+                handleDrop(providers: providers, forTab: .player)
+            }
             
             // MARK: - Right Panel: Program Monitor & Timeline
             VStack(spacing: 0) {
@@ -227,6 +252,12 @@ extension ContentView {
                 .studioBox(background: bgCardHeader, border: borderLine)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .onDrop(of: [UTType.fileURL.identifier], isTargeted: nil) { providers in
+                handleDrop(providers: providers, forTab: .player)
+            }
+        }
+        .onDrop(of: [UTType.fileURL.identifier], isTargeted: nil) { providers in
+            handleDrop(providers: providers, forTab: .player)
         }
         .onAppear {
             // Automatically select first file if none loaded
@@ -276,13 +307,21 @@ extension ContentView {
                 playerCollapsedFolderIDs.insert(node.id)
             }
         }
+        .explain(node.url.path, binding: $hoverExplanation)
         .contextMenu {
-            Button("Reveal in Finder") {
-                NSWorkspace.shared.activateFileViewerSelecting([node.url])
+            Button("Hide Folder") {
+                hideSpecificFolder(id: node.id)
             }
+            Button("Clear Folder") {
+                clearFolder(node: node)
+            }
+            Divider()
             Button("Copy Path") {
                 NSPasteboard.general.clearContents()
                 NSPasteboard.general.setString(node.url.path, forType: .string)
+            }
+            Button("Reveal in Finder") {
+                NSWorkspace.shared.activateFileViewerSelecting([node.url])
             }
         }
     }
@@ -412,7 +451,17 @@ extension ContentView {
         .frame(height: 42)
         .padding(.leading, 8)
         .studioBox(background: isSelected ? bgSubtle : Color.clear, border: isSelected ? borderLine : Color.clear)
+        .contentShape(Rectangle())
+        .explain(url.path, binding: $hoverExplanation)
         .contextMenu {
+            Button("Copy Path") {
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString(url.path, forType: .string)
+            }
+            Button("Reveal in Finder") {
+                NSWorkspace.shared.activateFileViewerSelecting([url])
+            }
+            Divider()
             Button("Set as Slot A (Master)") {
                 playerEngine.loadVideo(url: url, into: .slotA)
             }
@@ -448,10 +497,6 @@ extension ContentView {
                 }) {
                     Text("Remove Tag")
                 }
-            }
-            Divider()
-            Button("Reveal in Finder") {
-                NSWorkspace.shared.activateFileViewerSelecting([url])
             }
         }
     }
@@ -552,116 +597,104 @@ extension ContentView {
     // MARK: - Viewport Drop Zone Handler
     
     func handleViewportDrop(providers: [NSItemProvider], location: CGPoint, viewportWidth: CGFloat) -> Bool {
-        guard let provider = providers.first else { return false }
-        _ = provider.loadObject(ofClass: URL.self) { url, _ in
-            guard let url = url else { return }
-            DispatchQueue.main.async {
-                let target: SlotTarget = (location.x < viewportWidth / 2.0) ? .slotA : .slotB
-                if !self.videoFiles.contains(url) {
-                    self.videoFiles.append(url)
-                }
-                self.playerEngine.loadVideo(url: url, into: target)
-            }
-        }
-        return true
+        let target: SlotTarget = (location.x < viewportWidth / 2.0) ? .slotA : .slotB
+        return handleDrop(providers: providers, forTab: .player, targetSlot: target)
     }
     
     // MARK: - Timecode Bar (above timeline)
     
     private var playerTimecodeBar: some View {
-        HStack(spacing: 12) {
-            // Left: Current SMPTE Timecode or Frame Count (Fixed 125px width)
-            Menu {
-                Button(action: { playerEngine.displayTimeAsFrames = false }) {
-                    HStack {
-                        Text("SMPTE Timecode (HH:MM:SS:FF)")
-                        if !playerEngine.displayTimeAsFrames {
-                            Image(systemName: "checkmark")
+        ZStack {
+            // Center: Shuttle Speed Indicator (Truly centered horizontally, no box, hidden when paused)
+            if playerEngine.shuttleStateText != "PAUSE" && (playerEngine.isPlaying || playerEngine.rate != 0) {
+                Text(playerEngine.shuttleStateText)
+                    .font(.system(size: 10, weight: .bold, design: .monospaced))
+                    .monospacedDigit()
+                    .foregroundColor(accentPositive)
+                    .tracking(0.5)
+            }
+            
+            // Outer Strip: Left Timecode + Zoom, Right Duration
+            HStack(spacing: 12) {
+                // Left: Current SMPTE Timecode or Frame Count (Fixed 125px width)
+                Menu {
+                    Button(action: { playerEngine.displayTimeAsFrames = false }) {
+                        HStack {
+                            Text("SMPTE Timecode (HH:MM:SS:FF)")
+                            if !playerEngine.displayTimeAsFrames {
+                                Image(systemName: "checkmark")
+                            }
                         }
                     }
-                }
-                Button(action: { playerEngine.displayTimeAsFrames = true }) {
-                    HStack {
-                        Text("Frames (Frame Count)")
-                        if playerEngine.displayTimeAsFrames {
-                            Image(systemName: "checkmark")
+                    Button(action: { playerEngine.displayTimeAsFrames = true }) {
+                        HStack {
+                            Text("Frames (Frame Count)")
+                            if playerEngine.displayTimeAsFrames {
+                                Image(systemName: "checkmark")
+                            }
                         }
                     }
+                } label: {
+                    HStack(spacing: 5) {
+                        Text(playerEngine.displayTimeAsFrames ? "\(playerEngine.currentFrame) frames" : playerEngine.currentTimecode)
+                            .font(.system(size: 13, weight: .bold, design: .monospaced))
+                            .monospacedDigit()
+                            .foregroundColor(accentPositive)
+                            .tracking(0.5)
+                            .lineLimit(1)
+                        
+                        Image(systemName: "chevron.down")
+                            .font(.system(size: 8, weight: .bold))
+                            .foregroundColor(accentPositive.opacity(0.8))
+                    }
+                    .frame(width: 125, alignment: .leading)
+                    .contentShape(Rectangle())
                 }
-            } label: {
-                HStack(spacing: 5) {
-                    Text(playerEngine.displayTimeAsFrames ? "\(playerEngine.currentFrame) frames" : playerEngine.currentTimecode)
-                        .font(.system(size: 13, weight: .bold, design: .monospaced))
-                        .monospacedDigit()
-                        .foregroundColor(accentPositive)
-                        .tracking(0.5)
-                        .lineLimit(1)
-                    
-                    Image(systemName: "chevron.down")
-                        .font(.system(size: 8, weight: .bold))
-                        .foregroundColor(accentPositive.opacity(0.8))
+                .buttonStyle(.plain)
+                
+                // Zoom Dropdown Menu (Fixed 64px width)
+                Menu {
+                    Button("Fit to Window") { playerEngine.setZoomFit() }
+                    Divider()
+                    Button("10%") { playerEngine.setZoomLevel(0.10) }
+                    Button("25%") { playerEngine.setZoomLevel(0.25) }
+                    Button("50%") { playerEngine.setZoomLevel(0.50) }
+                    Button("75%") { playerEngine.setZoomLevel(0.75) }
+                    Button("100%") { playerEngine.setZoomLevel(1.0) }
+                    Button("150%") { playerEngine.setZoomLevel(1.50) }
+                    Button("200%") { playerEngine.setZoomLevel(2.0) }
+                    Button("400%") { playerEngine.setZoomLevel(4.0) }
+                } label: {
+                    HStack(spacing: 4) {
+                        Text(playerEngine.isFitZoom ? "Fit" : "\(Int(round(playerEngine.zoomScale * 100)))%")
+                            .font(.system(size: 11, weight: .medium, design: .monospaced))
+                            .foregroundColor(textMain)
+                            .lineLimit(1)
+                            .frame(maxWidth: .infinity, alignment: .center)
+                        
+                        Image(systemName: "chevron.down")
+                            .font(.system(size: 8, weight: .bold))
+                            .foregroundColor(textMuted)
+                    }
+                    .padding(.horizontal, 6)
+                    .frame(width: 64, height: 22)
+                    .studioBox(background: bgSubtle, border: borderLine)
+                    .contentShape(Rectangle())
                 }
-                .frame(width: 125, alignment: .leading)
-                .contentShape(Rectangle())
+                .buttonStyle(.plain)
+                .frame(width: 64)
+                
+                Spacer()
+                
+                // Right: Duration Timecode / Total Frames (Locked 125px width)
+                Text(playerEngine.displayTimeAsFrames ? "\(playerEngine.totalFrames) frames" : playerEngine.durationTimecode)
+                    .font(.system(size: 13, weight: .bold, design: .monospaced))
+                    .monospacedDigit()
+                    .foregroundColor(textMuted)
+                    .tracking(0.5)
+                    .lineLimit(1)
+                    .frame(width: 125, alignment: .trailing)
             }
-            .buttonStyle(.plain)
-            
-            // Zoom Dropdown Menu (Fixed 64px width)
-            Menu {
-                Button("Fit to Window") { playerEngine.setZoomFit() }
-                Divider()
-                Button("10% (Zoom Out)") { playerEngine.setZoomLevel(0.10) }
-                Button("25% (Zoom Out)") { playerEngine.setZoomLevel(0.25) }
-                Button("50% (Zoom Out)") { playerEngine.setZoomLevel(0.50) }
-                Button("75%") { playerEngine.setZoomLevel(0.75) }
-                Button("100% (1:1 Pixels)") { playerEngine.setZoomLevel(1.0) }
-                Button("150%") { playerEngine.setZoomLevel(1.50) }
-                Button("200% (Zoom In)") { playerEngine.setZoomLevel(2.0) }
-                Button("400% (Zoom In)") { playerEngine.setZoomLevel(4.0) }
-            } label: {
-                HStack(spacing: 4) {
-                    Text(playerEngine.isFitZoom ? "Fit" : "\(Int(round(playerEngine.zoomScale * 100)))%")
-                        .font(.system(size: 11, weight: .medium, design: .monospaced))
-                        .foregroundColor(textMain)
-                        .lineLimit(1)
-                        .frame(maxWidth: .infinity, alignment: .center)
-                    
-                    Image(systemName: "chevron.down")
-                        .font(.system(size: 8, weight: .bold))
-                        .foregroundColor(textMuted)
-                }
-                .padding(.horizontal, 6)
-                .frame(width: 64, height: 22)
-                .studioBox(background: bgSubtle, border: borderLine)
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .frame(width: 64)
-            
-            Spacer()
-            
-            // Center: Shuttle Speed Indicator (Fixed 136px box, never shifts, never changes size, never truncates)
-            Text(playerEngine.shuttleStateText)
-                .font(.system(size: 9.5, weight: .bold, design: .monospaced))
-                .monospacedDigit()
-                .frame(width: 136, height: 20)
-                .foregroundColor(playerEngine.isPlaying || playerEngine.rate != 0 ? accentPositive : textMuted)
-                .studioBox(
-                    background: (playerEngine.isPlaying || playerEngine.rate != 0 ? accentPositive : textMuted).opacity(0.12),
-                    border: (playerEngine.isPlaying || playerEngine.rate != 0 ? accentPositive : borderLine).opacity(0.6),
-                    width: 0.5
-                )
-            
-            Spacer()
-            
-            // Right: Duration Timecode / Total Frames (Locked 125px width)
-            Text(playerEngine.displayTimeAsFrames ? "\(playerEngine.totalFrames) frames" : playerEngine.durationTimecode)
-                .font(.system(size: 13, weight: .bold, design: .monospaced))
-                .monospacedDigit()
-                .foregroundColor(textMuted)
-                .tracking(0.5)
-                .lineLimit(1)
-                .frame(width: 125, alignment: .trailing)
         }
         .frame(height: 24)
         .padding(.horizontal, 4)
@@ -923,6 +956,8 @@ extension ContentView {
         FileSystemTreeBuilder.flatten(
             nodes: playerTreeNodes,
             collapsedIDs: playerCollapsedFolderIDs,
+            hiddenIDs: hiddenFolderIDs,
+            hideAllFolders: hideAllFolders,
             filterText: playerFilterText
         )
     }
@@ -934,6 +969,35 @@ extension ContentView {
             return baseFiles
         }
         return baseFiles.filter { $0.lastPathComponent.localizedCaseInsensitiveContains(playerFilterText) }
+    }
+    
+    func revealPlayerFolderContaining(url: URL) {
+        guard !playerCollapsedFolderIDs.isEmpty else { return }
+        let targetPath = url.standardizedFileURL.path
+        
+        var idsToExpand: Set<String> = []
+        func checkNode(_ node: FileSystemTreeNode) {
+            guard node.isDirectory else { return }
+            let dirPath = node.url.standardizedFileURL.path
+            let isAncestor = targetPath.hasPrefix(dirPath + "/") || node.videoURLs.contains(where: { $0.standardizedFileURL.path == targetPath })
+            if isAncestor {
+                idsToExpand.insert(node.id)
+                for child in node.children {
+                    checkNode(child)
+                }
+            }
+        }
+        
+        for root in playerTreeNodes {
+            checkNode(root)
+        }
+        
+        let intersection = playerCollapsedFolderIDs.intersection(idsToExpand)
+        if !intersection.isEmpty {
+            withAnimation(.easeInOut(duration: 0.2)) {
+                playerCollapsedFolderIDs.subtract(intersection)
+            }
+        }
     }
     
     private func toggleAllPlayerFolders() {
@@ -1458,16 +1522,13 @@ struct FullscreenPlayerView: View {
                         .foregroundColor(accentPositive)
                         .frame(width: 120, alignment: .leading)
                     
-                    Text(engine.shuttleStateText)
-                        .font(.system(size: 9.5, weight: .bold, design: .monospaced))
-                        .monospacedDigit()
-                        .frame(width: 136, height: 20)
-                        .foregroundColor(engine.isPlaying || engine.rate != 0 ? accentPositive : Color(white: 0.5))
-                        .studioBox(
-                            background: (engine.isPlaying || engine.rate != 0 ? accentPositive : Color(white: 0.3)).opacity(0.18),
-                            border: (engine.isPlaying || engine.rate != 0 ? accentPositive : Color(white: 0.3)).opacity(0.6),
-                            width: 0.5
-                        )
+                    if engine.shuttleStateText != "PAUSE" && (engine.isPlaying || engine.rate != 0) {
+                        Text(engine.shuttleStateText)
+                            .font(.system(size: 10, weight: .bold, design: .monospaced))
+                            .monospacedDigit()
+                            .foregroundColor(accentPositive)
+                            .tracking(0.5)
+                    }
                 }
                 .frame(width: 280, alignment: .leading)
                 

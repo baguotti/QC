@@ -179,10 +179,12 @@ public struct FileSystemTreeBuilder {
         return nodes.contains(where: { $0.isDirectory })
     }
     
-    /// Flattens a tree into a linear list of visible nodes respecting collapsed folder IDs and search filters.
+    /// Flattens a tree into a linear list of visible nodes respecting collapsed folder IDs, hidden folder IDs, global folder visibility, and search filters.
     public static func flatten(
         nodes: [FileSystemTreeNode],
         collapsedIDs: Set<String>,
+        hiddenIDs: Set<String> = [],
+        hideAllFolders: Bool = false,
         filterText: String = ""
     ) -> [FileSystemTreeNode] {
         let cleanFilter = filterText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
@@ -203,14 +205,32 @@ public struct FileSystemTreeBuilder {
             for node in list {
                 guard cleanFilter.isEmpty || nodeMatches(node) else { continue }
                 
-                result.append(node)
-                
                 if node.isDirectory {
-                    // If filter is active, auto-expand so matching contents are visible
-                    let isCollapsed = cleanFilter.isEmpty && collapsedIDs.contains(node.id)
+                    let isBannerHidden = hideAllFolders || hiddenIDs.contains(node.id)
+                    if !isBannerHidden {
+                        result.append(node)
+                    }
+                    let isCollapsed = !isBannerHidden && cleanFilter.isEmpty && collapsedIDs.contains(node.id)
                     if !isCollapsed {
                         traverse(node.children)
                     }
+                } else {
+                    let adjustedNode: FileSystemTreeNode
+                    if hideAllFolders {
+                        adjustedNode = FileSystemTreeNode(
+                            id: node.id,
+                            name: node.name,
+                            url: node.url,
+                            isDirectory: node.isDirectory,
+                            relativePath: node.relativePath,
+                            depth: 0,
+                            children: node.children,
+                            videoURLs: node.videoURLs
+                        )
+                    } else {
+                        adjustedNode = node
+                    }
+                    result.append(adjustedNode)
                 }
             }
         }

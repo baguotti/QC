@@ -458,7 +458,9 @@ extension ContentView {
     var flattenedRenamerNodes: [FileSystemTreeNode] {
         FileSystemTreeBuilder.flatten(
             nodes: renamerTree,
-            collapsedIDs: renamerCollapsedFolderIDs
+            collapsedIDs: renamerCollapsedFolderIDs,
+            hiddenIDs: hiddenFolderIDs,
+            hideAllFolders: hideAllFolders
         )
     }
     
@@ -565,7 +567,23 @@ extension ContentView {
                 renamerCollapsedFolderIDs.insert(node.id)
             }
         }
+        .explain(node.url.path, binding: $hoverExplanation)
         .contextMenu {
+            Button("Hide Folder") {
+                hideSpecificFolder(id: node.id)
+            }
+            Button("Clear Folder") {
+                clearFolder(node: node)
+            }
+            Divider()
+            Button("Copy Path") {
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString(node.url.path, forType: .string)
+            }
+            Button("Reveal in Finder") {
+                NSWorkspace.shared.activateFileViewerSelecting([node.url])
+            }
+            Divider()
             Button("Select All in Folder") {
                 for item in folderItems {
                     selectedAssetIDs.insert(item.asset.id)
@@ -575,14 +593,6 @@ extension ContentView {
                 for item in folderItems {
                     selectedAssetIDs.remove(item.asset.id)
                 }
-            }
-            Divider()
-            Button("Reveal in Finder") {
-                NSWorkspace.shared.activateFileViewerSelecting([node.url])
-            }
-            Button("Copy Folder Path") {
-                NSPasteboard.general.clearContents()
-                NSPasteboard.general.setString(node.url.path, forType: .string)
             }
         }
     }
@@ -689,26 +699,26 @@ extension ContentView {
                 selectedAssetIDs.insert(item.asset.id)
             }
         }
-        .help("Click row to include or exclude '\(item.originalName)' from renaming.")
+        .explain(item.originalURL.path, binding: $hoverExplanation)
         .overlay(
             isCollision ? Rectangle().fill(alertRed).frame(width: 3) : nil,
             alignment: .leading
         )
         .contextMenu {
+            Button("Copy Path") {
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString(item.originalURL.path, forType: .string)
+            }
+            Button("Reveal in Finder") {
+                NSWorkspace.shared.activateFileViewerSelecting([item.originalURL])
+            }
+            Divider()
             Button(isSelected ? "Exclude from Renaming" : "Include in Renaming") {
                 if isSelected {
                     selectedAssetIDs.remove(item.asset.id)
                 } else {
                     selectedAssetIDs.insert(item.asset.id)
                 }
-            }
-            Divider()
-            Button("Reveal in Finder") {
-                NSWorkspace.shared.activateFileViewerSelecting([item.originalURL])
-            }
-            Button("Copy File Path") {
-                NSPasteboard.general.clearContents()
-                NSPasteboard.general.setString(item.originalURL.path, forType: .string)
             }
         }
     }

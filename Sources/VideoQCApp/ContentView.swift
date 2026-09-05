@@ -64,6 +64,10 @@ struct ContentView: View {
     @State var selectedAssetIDs: Set<UUID> = []
     @State var directoryFilesCache: [URL: Set<String>] = [:]
     
+    // MARK: - Folder Grouping State
+    @State var hideAllFolders: Bool = false
+    @State var hiddenFolderIDs: Set<String> = []
+    
     // MARK: - Tab 2: Player State
     @StateObject var playerEngine = PlayerEngine()
     @State var playerFilterText: String = ""
@@ -220,6 +224,7 @@ struct ContentView: View {
                         .font(.system(size: 10, weight: hoverExplanation.isEmpty ? .regular : .semibold, design: .monospaced))
                         .foregroundColor(hoverExplanation.isEmpty ? textMuted : textMain)
                         .lineLimit(1)
+                        .truncationMode(.middle)
                     
                     Spacer()
                     
@@ -604,6 +609,27 @@ struct ContentView: View {
                     .explain("Opens file picker to add more video files or folders to the current list without losing existing assets.", binding: $hoverExplanation)
                 }
                 
+                // Hide / Show Folders Button
+                if hasPlayerSubfolders {
+                    Button(action: toggleHideFolders) {
+                        HStack {
+                            Text(hideAllFolders || !hiddenFolderIDs.isEmpty ? "SHOW FOLDERS" : "HIDE FOLDERS")
+                                .font(.system(size: 11, weight: .bold, design: .monospaced))
+                                .foregroundColor(textMain)
+                                .tracking(0.5)
+                            Spacer()
+                            Image(systemName: hideAllFolders || !hiddenFolderIDs.isEmpty ? "folder" : "folder.badge.minus")
+                                .font(.system(size: 11, weight: .bold))
+                                .foregroundColor(textSubtle)
+                        }
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 9)
+                        .studioBox(background: bgSubtle, border: borderLine)
+                    }
+                    .buttonStyle(.plain)
+                    .explain(hideAllFolders || !hiddenFolderIDs.isEmpty ? "Show all folder groupings in asset lists." : "Hide folder headers and display assets in a flat list.", binding: $hoverExplanation)
+                }
+                
                 if let folder = folderURL {
                     VStack(alignment: .leading, spacing: 3) {
                         Text(folder.lastPathComponent.uppercased())
@@ -617,20 +643,66 @@ struct ContentView: View {
                     .padding(10)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .studioBox(background: bgCardSubtle, border: borderLine)
-                    .explain("Active directory loaded: \(folder.path)", binding: $hoverExplanation)
+                    .contentShape(Rectangle())
+                    .explain(folder.path, binding: $hoverExplanation)
+                    .contextMenu {
+                        Button("Copy Path") {
+                            NSPasteboard.general.clearContents()
+                            NSPasteboard.general.setString(folder.path, forType: .string)
+                        }
+                        Button("Reveal in Finder") {
+                            NSWorkspace.shared.activateFileViewerSelecting([folder])
+                        }
+                    }
                 } else if !videoFiles.isEmpty {
                     VStack(alignment: .leading, spacing: 3) {
-                        Text("\(videoFiles.count) INDIVIDUAL FILE(S)")
-                            .font(.system(size: 12, weight: .black, design: .monospaced))
-                            .foregroundColor(textMain)
-                        Text("BATCH LOADED DIRECTLY")
-                            .font(.system(size: 9, weight: .bold, design: .monospaced))
-                            .foregroundColor(textMuted)
+                        if videoFiles.count == 1, let first = videoFiles.first {
+                            Text(first.lastPathComponent.uppercased())
+                                .font(.system(size: 12, weight: .black, design: .monospaced))
+                                .foregroundColor(textMain)
+                                .lineLimit(1)
+                            Text("1 ASSET LOADED DIRECTLY")
+                                .font(.system(size: 9, weight: .bold, design: .monospaced))
+                                .foregroundColor(textMuted)
+                        } else {
+                            Text("\(videoFiles.count) INDIVIDUAL FILE(S)")
+                                .font(.system(size: 12, weight: .black, design: .monospaced))
+                                .foregroundColor(textMain)
+                            Text("BATCH LOADED DIRECTLY")
+                                .font(.system(size: 9, weight: .bold, design: .monospaced))
+                                .foregroundColor(textMuted)
+                        }
                     }
                     .padding(10)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .studioBox(background: bgCardSubtle, border: borderLine)
-                    .explain("\(videoFiles.count) video files loaded into the working batch.", binding: $hoverExplanation)
+                    .contentShape(Rectangle())
+                    .explain(videoFiles.count == 1 ? (videoFiles.first?.path ?? "") : (videoFiles.first?.deletingLastPathComponent().path ?? ""), binding: $hoverExplanation)
+                    .contextMenu {
+                        if videoFiles.count == 1, let first = videoFiles.first {
+                            Button("Copy Path") {
+                                NSPasteboard.general.clearContents()
+                                NSPasteboard.general.setString(first.path, forType: .string)
+                            }
+                            Button("Reveal in Finder") {
+                                NSWorkspace.shared.activateFileViewerSelecting([first])
+                            }
+                        } else {
+                            Button("Copy All Paths") {
+                                NSPasteboard.general.clearContents()
+                                NSPasteboard.general.setString(videoFiles.map { $0.path }.joined(separator: "\n"), forType: .string)
+                            }
+                            if let first = videoFiles.first {
+                                Button("Copy Path (First File)") {
+                                    NSPasteboard.general.clearContents()
+                                    NSPasteboard.general.setString(first.path, forType: .string)
+                                }
+                            }
+                            Button("Reveal in Finder") {
+                                NSWorkspace.shared.activateFileViewerSelecting(videoFiles)
+                            }
+                        }
+                    }
                 } else {
                     Text("DRAG & DROP FOLDER OR VIDEO FILES HERE")
                         .font(.system(size: 10, weight: .medium, design: .monospaced))
@@ -644,6 +716,64 @@ struct ContentView: View {
         }
         .onDrop(of: [UTType.fileURL.identifier], isTargeted: nil) { providers in
             handleDrop(providers: providers, forTab: forTab)
+        }
+    }
+    
+    // MARK: - Folder Grouping Helpers
+    
+    func toggleHideFolders() {
+        withAnimation(.easeInOut(duration: 0.2)) {
+            if hideAllFolders || !hiddenFolderIDs.isEmpty {
+                hideAllFolders = false
+                hiddenFolderIDs.removeAll()
+            } else {
+                hideAllFolders = true
+            }
+        }
+    }
+    
+    func hideSpecificFolder(id: String) {
+        withAnimation(.easeInOut(duration: 0.2)) {
+            _ = hiddenFolderIDs.insert(id)
+        }
+    }
+    
+    func clearFolder(node: FileSystemTreeNode) {
+        let urlsToRemove = Set(node.videoURLs.map { $0.standardizedFileURL.path })
+        withAnimation(.easeInOut(duration: 0.2)) {
+            videoFiles.removeAll { urlsToRemove.contains($0.standardizedFileURL.path) }
+            deliverableAssets.removeAll { urlsToRemove.contains($0.fileURL.standardizedFileURL.path) }
+            scanResults.removeAll { urlsToRemove.contains($0.fileURL.standardizedFileURL.path) }
+            
+            func collectFolderIDs(_ n: FileSystemTreeNode) -> [String] {
+                var ids = [n.id]
+                for child in n.children where child.isDirectory {
+                    ids.append(contentsOf: collectFolderIDs(child))
+                }
+                return ids
+            }
+            let allFolderIDs = Set(collectFolderIDs(node))
+            playerCollapsedFolderIDs.subtract(allFolderIDs)
+            deliverablesCollapsedFolderIDs.subtract(allFolderIDs)
+            renamerCollapsedFolderIDs.subtract(allFolderIDs)
+            hiddenFolderIDs.subtract(allFolderIDs)
+            
+            if videoFiles.isEmpty {
+                folderURL = nil
+            } else {
+                folderURL = determineFolderURL(for: videoFiles, detectedFolder: folderURL)
+            }
+            
+            if let active = playerEngine.activeURL, urlsToRemove.contains(active.standardizedFileURL.path) {
+                if let next = videoFiles.first {
+                    playerEngine.loadVideo(url: next)
+                } else {
+                    playerEngine.unload()
+                }
+            }
+            if let slotB = playerEngine.slotB.url, urlsToRemove.contains(slotB.standardizedFileURL.path) {
+                playerEngine.clearSlotB()
+            }
         }
     }
     
@@ -758,7 +888,7 @@ struct ContentView: View {
         }
     }
     
-    func handleDrop(providers: [NSItemProvider], forTab: AppTab) -> Bool {
+    func handleDrop(providers: [NSItemProvider], forTab: AppTab, targetSlot: SlotTarget? = nil) -> Bool {
         guard !providers.isEmpty else { return false }
         
         final class URLCollector: @unchecked Sendable {
@@ -809,28 +939,39 @@ struct ContentView: View {
                 }
             }
             
-            var uniqueVideos: [URL] = []
-            var seen: Set<String> = []
+            var mergedVideos = self.videoFiles
+            var seen = Set(self.videoFiles.map { $0.standardizedFileURL.path })
+            var newlyAdded: [URL] = []
+            
             for v in collectedVideos {
-                if !seen.contains(v.path) {
-                    seen.insert(v.path)
-                    uniqueVideos.append(v)
+                let stdPath = v.standardizedFileURL.path
+                if !seen.contains(stdPath) {
+                    seen.insert(stdPath)
+                    mergedVideos.append(v)
+                    newlyAdded.append(v)
                 }
             }
             
-            guard !uniqueVideos.isEmpty else { return }
+            if newlyAdded.isEmpty {
+                // If dropping into a specific slot and the file was already in queue, still load it into target slot
+                if let targetSlot = targetSlot, let existing = collectedVideos.first {
+                    self.playerEngine.loadVideo(url: existing, into: targetSlot)
+                }
+                return
+            }
             
-            self.folderURL = self.determineFolderURL(for: uniqueVideos, detectedFolder: detectedFolder)
-            self.videoFiles = uniqueVideos
-            self.playerCollapsedFolderIDs = []
-            self.deliverablesCollapsedFolderIDs = []
-            self.renamerCollapsedFolderIDs = []
-            self.scanResults = []
-            self.generatedReportURL = nil
-            self.generatedCSVURL = nil
-            self.inspectDeliverablesBatch(urls: uniqueVideos, append: false)
+            self.videoFiles = mergedVideos
+            self.folderURL = self.determineFolderURL(for: mergedVideos, detectedFolder: self.folderURL ?? detectedFolder)
+            
+            // Inspect only newly added deliverables and append to existing deliverables
+            self.inspectDeliverablesBatch(urls: newlyAdded, append: true)
             self.loadFinderTagsForQueue()
-            if self.playerEngine.activeURL == nil, let first = uniqueVideos.first {
+            
+            if let targetSlot = targetSlot {
+                if let first = newlyAdded.first {
+                    self.playerEngine.loadVideo(url: first, into: targetSlot)
+                }
+            } else if self.playerEngine.activeURL == nil, let first = newlyAdded.first {
                 self.playerEngine.loadVideo(url: first)
             }
         }
@@ -1269,9 +1410,13 @@ struct ContentView: View {
         let currentURL = (target == .slotB && playerEngine.slotB.url != nil) ? playerEngine.slotB.url : playerEngine.activeURL
         if let currentURL = currentURL, let idx = files.firstIndex(of: currentURL) {
             let prevIdx = max(0, idx - 1)
-            playerEngine.loadVideo(url: files[prevIdx], into: target)
+            let selectedURL = files[prevIdx]
+            revealPlayerFolderContaining(url: selectedURL)
+            playerEngine.loadVideo(url: selectedURL, into: target)
         } else {
-            playerEngine.loadVideo(url: files[0], into: target)
+            let selectedURL = files[0]
+            revealPlayerFolderContaining(url: selectedURL)
+            playerEngine.loadVideo(url: selectedURL, into: target)
         }
     }
     
@@ -1282,9 +1427,13 @@ struct ContentView: View {
         let currentURL = (target == .slotB && playerEngine.slotB.url != nil) ? playerEngine.slotB.url : playerEngine.activeURL
         if let currentURL = currentURL, let idx = files.firstIndex(of: currentURL) {
             let nextIdx = min(files.count - 1, idx + 1)
-            playerEngine.loadVideo(url: files[nextIdx], into: target)
+            let selectedURL = files[nextIdx]
+            revealPlayerFolderContaining(url: selectedURL)
+            playerEngine.loadVideo(url: selectedURL, into: target)
         } else {
-            playerEngine.loadVideo(url: files[0], into: target)
+            let selectedURL = files[0]
+            revealPlayerFolderContaining(url: selectedURL)
+            playerEngine.loadVideo(url: selectedURL, into: target)
         }
     }
     
@@ -1292,6 +1441,7 @@ struct ContentView: View {
         if !videoFiles.contains(fileURL) {
             videoFiles.append(fileURL)
         }
+        revealPlayerFolderContaining(url: fileURL)
         playerEngine.loadVideo(url: fileURL, initialSeekFrame: frameIndex)
         playerEngine.pause()
         selectedTab = .player

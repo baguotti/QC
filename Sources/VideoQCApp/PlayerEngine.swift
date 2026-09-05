@@ -541,6 +541,32 @@ public final class PlayerEngine: ObservableObject {
         updateAudioVolumes()
     }
     
+    public func clearSlotA() {
+        slotA.player.pause()
+        slotA.player.replaceCurrentItem(with: nil)
+        itemStatusCancellable?.cancel()
+        itemStatusCancellable = nil
+        itemPresentationSizeCancellable?.cancel()
+        itemPresentationSizeCancellable = nil
+        slotA.url = nil
+        slotA.fileName = ""
+        slotA.resolution = ""
+        slotA.codec = ""
+        slotA.duration = .zero
+        slotA.totalFrames = 0
+        activeMarkers = []
+        durationTimecode = "00:00:00:00"
+        currentTimecode = "00:00:00:00"
+        isPlaying = false
+        rate = 0.0
+        updateAudioVolumes()
+    }
+    
+    public func unload() {
+        clearSlotA()
+        clearSlotB()
+    }
+    
     public func nudgeSlip(frames: Int) {
         slotB.slipOffsetFrames += frames
         syncSlotBToMaster()

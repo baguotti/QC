@@ -226,8 +226,8 @@ extension ContentView {
                     }
                     
                     if hasDeliverablesSubfolders {
-                        Button(action: toggleAllDeliverablesFolders) {
-                            Text(deliverablesCollapsedFolderIDs.isEmpty ? "[ COLLAPSE ALL ]" : "[ EXPAND ALL ]")
+                        Button(action: toggleHideFolders) {
+                            Text(hideAllFolders || !hiddenFolderIDs.isEmpty ? "[ SHOW FOLDERS ]" : "[ HIDE FOLDERS ]")
                                 .font(.system(size: 11, weight: .bold, design: .monospaced))
                                 .padding(.horizontal, 12)
                                 .padding(.vertical, 8)
@@ -235,7 +235,20 @@ extension ContentView {
                                 .studioBox(background: bgSubtle, border: borderLine)
                         }
                         .buttonStyle(.plain)
-                        .explain(deliverablesCollapsedFolderIDs.isEmpty ? "Collapse all subfolders in the deliverables audit table." : "Expand all subfolders in the deliverables audit table.", binding: $hoverExplanation)
+                        .explain(hideAllFolders || !hiddenFolderIDs.isEmpty ? "Show all folder banners in the deliverables audit table." : "Hide folder banners and display assets in a flat list.", binding: $hoverExplanation)
+                        
+                        if !hideAllFolders {
+                            Button(action: toggleAllDeliverablesFolders) {
+                                Text(deliverablesCollapsedFolderIDs.isEmpty ? "[ COLLAPSE ALL ]" : "[ EXPAND ALL ]")
+                                    .font(.system(size: 11, weight: .bold, design: .monospaced))
+                                    .padding(.horizontal, 12)
+                                    .padding(.vertical, 8)
+                                    .foregroundColor(textMain)
+                                    .studioBox(background: bgSubtle, border: borderLine)
+                            }
+                            .buttonStyle(.plain)
+                            .explain(deliverablesCollapsedFolderIDs.isEmpty ? "Collapse all subfolders in the deliverables audit table." : "Expand all subfolders in the deliverables audit table.", binding: $hoverExplanation)
+                        }
                     }
                 }
             }
@@ -254,7 +267,6 @@ extension ContentView {
                 HStack(spacing: 8) {
                     Text("#").frame(width: 25, alignment: .center)
                     Text("FILE NAME").frame(minWidth: 140, maxWidth: 220, alignment: .leading)
-                    Text("STATUS").frame(width: 75, alignment: .center)
                     Text("TIMECODE (TC)").frame(width: 130, alignment: .center)
                     Text("RATIO & SIZE").frame(width: 135, alignment: .center)
                     Text("FPS").frame(width: 60, alignment: .center)
@@ -319,7 +331,9 @@ extension ContentView {
     var flattenedDeliverableNodes: [FileSystemTreeNode] {
         FileSystemTreeBuilder.flatten(
             nodes: deliverablesTree,
-            collapsedIDs: deliverablesCollapsedFolderIDs
+            collapsedIDs: deliverablesCollapsedFolderIDs,
+            hiddenIDs: hiddenFolderIDs,
+            hideAllFolders: hideAllFolders
         )
     }
     
@@ -348,11 +362,11 @@ extension ContentView {
     private func deliverablesFolderBannerRow(node: FileSystemTreeNode, assetMap: [URL: DeliverableAsset]) -> some View {
         let isCollapsed = deliverablesCollapsedFolderIDs.contains(node.id)
         let folderAssets = node.videoURLs.compactMap { assetMap[$0] }
-        let folderDuration = folderAssets.reduce(0.0) { $0 + $1.durationSeconds }
-        let folderBytes = folderAssets.reduce(Int64(0)) { $0 + $1.fileSizeBytes }
         let folderMismatches = folderAssets.filter { $0.validation.hasAnyMismatch }.count
-        let formattedDur = TimecodeFormatter.format(frameIndex: Int(round(folderDuration * 25.0)), fps: 25.0)
-        let formattedSize = DeliverablesInspector.formatFileSize(bytes: folderBytes)
+        let totalBytes = folderAssets.reduce(Int64(0)) { $0 + $1.fileSizeBytes }
+        let totalSeconds = folderAssets.reduce(0.0) { $0 + $1.durationSeconds }
+        let formattedSize = DeliverablesInspector.formatFileSize(bytes: totalBytes)
+        let formattedDur = TimecodeFormatter.format(frameIndex: Int(round(totalSeconds * 25.0)), fps: 25.0)
         
         return HStack(spacing: 8) {
             Image(systemName: isCollapsed ? "chevron.right" : "chevron.down")
@@ -394,13 +408,6 @@ extension ContentView {
                         .padding(.vertical, 2)
                         .background(RoundedRectangle(cornerRadius: 4).fill(alertRed))
                         .foregroundColor(.white)
-                } else {
-                    Text("ALL OK")
-                        .font(.system(size: 8, weight: .black, design: .monospaced))
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 2)
-                        .background(RoundedRectangle(cornerRadius: 4).fill(accentPositive))
-                        .foregroundColor(.white)
                 }
             }
         }
@@ -415,13 +422,21 @@ extension ContentView {
                 deliverablesCollapsedFolderIDs.insert(node.id)
             }
         }
+        .explain(node.url.path, binding: $hoverExplanation)
         .contextMenu {
-            Button("Reveal in Finder") {
-                NSWorkspace.shared.activateFileViewerSelecting([node.url])
+            Button("Hide Folder") {
+                hideSpecificFolder(id: node.id)
             }
-            Button("Copy Folder Path") {
+            Button("Clear Folder") {
+                clearFolder(node: node)
+            }
+            Divider()
+            Button("Copy Path") {
                 NSPasteboard.general.clearContents()
                 NSPasteboard.general.setString(node.url.path, forType: .string)
+            }
+            Button("Reveal in Finder") {
+                NSWorkspace.shared.activateFileViewerSelecting([node.url])
             }
         }
     }
@@ -435,7 +450,7 @@ extension ContentView {
                 .foregroundColor(textMuted)
             
             HStack(spacing: 4) {
-                if hasDeliverablesSubfolders && depth > 0 {
+                if hasDeliverablesSubfolders && depth > 0 && !hideAllFolders {
                     Spacer().frame(width: CGFloat((depth - 1) * 12 + 4))
                     Image(systemName: "arrow.turn.down.right")
                         .font(.system(size: 8, weight: .bold))
@@ -448,27 +463,6 @@ extension ContentView {
                     .help(asset.fileName)
             }
             .frame(minWidth: 140, maxWidth: 220, alignment: .leading)
-            
-            // Validation Status Badge
-            ZStack {
-                if hasMismatch {
-                    Text("MISMATCH")
-                        .font(.system(size: 8, weight: .black, design: .monospaced))
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 2)
-                        .background(RoundedRectangle(cornerRadius: 4).fill(alertRed))
-                        .foregroundColor(.white)
-                        .help(asset.validation.summaryString)
-                } else {
-                    Text("OK")
-                        .font(.system(size: 8, weight: .black, design: .monospaced))
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 2)
-                        .background(RoundedRectangle(cornerRadius: 4).fill(accentPositive))
-                        .foregroundColor(.white)
-                }
-            }
-            .frame(width: 75, alignment: .center)
             
             // Timecode Cell with Warning
             VStack(alignment: .center, spacing: 2) {
@@ -565,16 +559,6 @@ extension ContentView {
                 .frame(minWidth: 160, maxWidth: .infinity, alignment: .leading)
                 .lineLimit(1)
                 .truncationMode(.middle)
-                .help(asset.fileURL.path)
-                .contextMenu {
-                    Button("Copy Path") {
-                        NSPasteboard.general.clearContents()
-                        NSPasteboard.general.setString(asset.fileURL.path, forType: .string)
-                    }
-                    Button("Reveal in Finder") {
-                        NSWorkspace.shared.activateFileViewerSelecting([asset.fileURL])
-                    }
-                }
         }
         .font(.system(size: 11, design: .monospaced))
         .padding(.horizontal, 14)
@@ -584,5 +568,16 @@ extension ContentView {
             hasMismatch ? Rectangle().fill(alertRed).frame(width: 3) : nil,
             alignment: .leading
         )
+        .contentShape(Rectangle())
+        .explain(asset.fileURL.path, binding: $hoverExplanation)
+        .contextMenu {
+            Button("Copy Path") {
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString(asset.fileURL.path, forType: .string)
+            }
+            Button("Reveal in Finder") {
+                NSWorkspace.shared.activateFileViewerSelecting([asset.fileURL])
+            }
+        }
     }
 }
