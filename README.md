@@ -1,4 +1,4 @@
-# QCpie // The LineFinder 5000
+# QCpie
 **Version 0.2.2** • [GitHub Repository](https://github.com/baguotti/QC)
 
 Video QC, metadata inspection, and batch renaming for macOS (Apple Silicon).
