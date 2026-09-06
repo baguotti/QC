@@ -184,10 +184,70 @@ public final class PlayerEngine: ObservableObject {
     @Published public var showTitleSafe: Bool = false
     
     // Video Exposure Adjustment (EV stops: -5.0 to +5.0)
-    @Published public var exposureEV: Double = 0.0
+    @Published public var exposureEV: Double = 0.0 {
+        didSet {
+            updateVideoCompositions()
+        }
+    }
     
     public func resetExposure() {
         self.exposureEV = 0.0
+    }
+    
+    // MARK: - Exposure Video Composition (Hardware-Accelerated Playback)
+    
+    public func updateVideoCompositions() {
+        updateComposition(for: slotA)
+        updateComposition(for: slotB)
+    }
+    
+    private func updateComposition(for slot: PlayerSlot) {
+        guard let item = slot.player.currentItem else { return }
+        if abs(exposureEV) < 0.001 {
+            if item.videoComposition != nil {
+                item.videoComposition = nil
+            }
+            return
+        }
+        let ev = self.exposureEV
+        let asset = item.asset
+        if #available(macOS 15.0, *) {
+            AVVideoComposition.videoComposition(with: asset, applyingCIFiltersWithHandler: { request in
+                let source = request.sourceImage
+                guard let filter = CIFilter(name: "CIExposureAdjust") else {
+                    request.finish(with: source, context: nil)
+                    return
+                }
+                filter.setValue(source, forKey: kCIInputImageKey)
+                filter.setValue(ev, forKey: kCIInputEVKey)
+                if let output = filter.outputImage {
+                    request.finish(with: output, context: nil)
+                } else {
+                    request.finish(with: source, context: nil)
+                }
+            }, completionHandler: { [weak self, weak item, weak slot] comp, _ in
+                Task { @MainActor in
+                    guard let _ = self, let comp = comp, let item = item, let slot = slot, item === slot.player.currentItem else { return }
+                    item.videoComposition = comp
+                }
+            })
+        } else {
+            let comp = AVVideoComposition(asset: asset, applyingCIFiltersWithHandler: { request in
+                let source = request.sourceImage
+                guard let filter = CIFilter(name: "CIExposureAdjust") else {
+                    request.finish(with: source, context: nil)
+                    return
+                }
+                filter.setValue(source, forKey: kCIInputImageKey)
+                filter.setValue(ev, forKey: kCIInputEVKey)
+                if let output = filter.outputImage {
+                    request.finish(with: output, context: nil)
+                } else {
+                    request.finish(with: source, context: nil)
+                }
+            })
+            item.videoComposition = comp
+        }
     }
     
     // Glitch Markers from Line Scanner
@@ -312,6 +372,7 @@ public final class PlayerEngine: ObservableObject {
         
         slotA.player.replaceCurrentItem(with: item)
         slotA.player.automaticallyWaitsToMinimizeStalling = false
+        updateComposition(for: slotA)
         
         itemPresentationSizeCancellable = item.publisher(for: \.presentationSize)
             .receive(on: DispatchQueue.main)
@@ -364,6 +425,7 @@ public final class PlayerEngine: ObservableObject {
         
         slotB.player.replaceCurrentItem(with: item)
         slotB.player.automaticallyWaitsToMinimizeStalling = false
+        updateComposition(for: slotB)
         
         itemPresentationSizeCancellableB = item.publisher(for: \.presentationSize)
             .receive(on: DispatchQueue.main)
@@ -1296,7 +1358,8 @@ public final class PlayerEngine: ObservableObject {
             throw NSError(domain: "PlayerEngine", code: -1, userInfo: [NSLocalizedDescriptionKey: "Failed to capture video frame at current playhead."])
         }
         
-        let bitmapRep = NSBitmapImageRep(cgImage: cgImage)
+        let exposedImage = ExposureAdjuster.shared.applyExposure(to: cgImage, ev: exposureEV)
+        let bitmapRep = NSBitmapImageRep(cgImage: exposedImage)
         guard let jpegData = bitmapRep.representation(using: .jpeg, properties: [.compressionFactor: quality]) else {
             throw NSError(domain: "PlayerEngine", code: -2, userInfo: [NSLocalizedDescriptionKey: "Failed to encode image to JPEG format."])
         }

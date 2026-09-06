@@ -97,12 +97,15 @@ public final class PlayerContainerNSView: NSView {
     // Still frame inspection caching to eliminate AVPlayerLayer motion-downsampling
     private var lastCapturedTimeA: CMTime? = nil
     private var lastCapturedTimeB: CMTime? = nil
+    private var rawStillFrameA: CGImage? = nil
+    private var rawStillFrameB: CGImage? = nil
     private var isCapturingStillA: Bool = false
     private var isCapturingStillB: Bool = false
     
     public override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
         wantsLayer = true
+        layerUsesCoreImageFilters = true
         layer?.masksToBounds = true
         layer?.backgroundColor = NSColor(red: 0.08, green: 0.08, blue: 0.08, alpha: 1.0).cgColor
         
@@ -242,6 +245,7 @@ public final class PlayerContainerNSView: NSView {
         if engine.slotA.url != lastSlotAURL {
             lastSlotAURL = engine.slotA.url
             lastCapturedTimeA = nil
+            rawStillFrameA = nil
             CATransaction.begin()
             CATransaction.setDisableActions(true)
             stillFrameLayerA.contents = nil
@@ -252,6 +256,7 @@ public final class PlayerContainerNSView: NSView {
         if engine.slotB.url != lastSlotBURL {
             lastSlotBURL = engine.slotB.url
             lastCapturedTimeB = nil
+            rawStillFrameB = nil
             CATransaction.begin()
             CATransaction.setDisableActions(true)
             stillFrameLayerB.contents = nil
@@ -788,8 +793,10 @@ public final class PlayerContainerNSView: NSView {
             // When actively playing, purge the cached still frame so stale textures can never flash
             if engine.isPlaying && stillFrameLayerA.contents != nil {
                 stillFrameLayerA.contents = nil
+                rawStillFrameA = nil
                 lastCapturedTimeA = nil
                 stillFrameLayerB.contents = nil
+                rawStillFrameB = nil
                 lastCapturedTimeB = nil
             }
             updateLayerVisibility()
@@ -813,7 +820,9 @@ public final class PlayerContainerNSView: NSView {
                     if let img = img {
                         if !curEngine.isPlaying && !curEngine.isScrubbing && !curEngine.isSeeking && abs(CMTimeGetSeconds(curEngine.currentTime) - timeSecsA) < 0.04 {
                             self.lastCapturedTimeA = timeA
-                            self.stillFrameLayerA.contents = img
+                            self.rawStillFrameA = img
+                            let exposedImg = ExposureAdjuster.shared.applyExposure(to: img, ev: curEngine.exposureEV)
+                            self.stillFrameLayerA.contents = exposedImg
                             self.updateLayerVisibility()
                         } else if !curEngine.isPlaying && !curEngine.isScrubbing && !curEngine.isSeeking {
                             self.checkStillFrameDisplay()
@@ -845,7 +854,9 @@ public final class PlayerContainerNSView: NSView {
                         if let imgB = imgB {
                             if !curEngine.isPlaying && !curEngine.isScrubbing && !curEngine.isSeeking {
                                 self.lastCapturedTimeB = timeB
-                                self.stillFrameLayerB.contents = imgB
+                                self.rawStillFrameB = imgB
+                                let exposedImgB = ExposureAdjuster.shared.applyExposure(to: imgB, ev: curEngine.exposureEV)
+                                self.stillFrameLayerB.contents = exposedImgB
                                 self.updateLayerVisibility()
                             }
                         } else if !curEngine.isPlaying && !curEngine.isScrubbing && !curEngine.isSeeking {
@@ -933,49 +944,23 @@ public final class PlayerContainerNSView: NSView {
         
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        if abs(ev) < 0.001 {
-            playerLayerA.filters = nil
-            playerLayerB.filters = nil
-            stillFrameLayerA.filters = nil
-            stillFrameLayerB.filters = nil
-        } else {
-            if let currentFilters = playerLayerA.filters as? [CIFilter],
-               let filter = currentFilters.first(where: { $0.name == "exposureFilter" }) {
-                filter.setValue(ev, forKey: kCIInputEVKey)
-                playerLayerA.setValue(ev, forKeyPath: "filters.exposureFilter.inputEV")
-                playerLayerB.setValue(ev, forKeyPath: "filters.exposureFilter.inputEV")
-                stillFrameLayerA.setValue(ev, forKeyPath: "filters.exposureFilter.inputEV")
-                stillFrameLayerB.setValue(ev, forKeyPath: "filters.exposureFilter.inputEV")
-            } else {
-                guard let filterA = CIFilter(name: "CIExposureAdjust"),
-                      let filterB = CIFilter(name: "CIExposureAdjust"),
-                      let filterStillA = CIFilter(name: "CIExposureAdjust"),
-                      let filterStillB = CIFilter(name: "CIExposureAdjust") else {
-                    CATransaction.commit()
-                    return
-                }
-                filterA.name = "exposureFilter"
-                filterA.setValue(ev, forKey: kCIInputEVKey)
-                
-                filterB.name = "exposureFilter"
-                filterB.setValue(ev, forKey: kCIInputEVKey)
-                
-                filterStillA.name = "exposureFilter"
-                filterStillA.setValue(ev, forKey: kCIInputEVKey)
-                
-                filterStillB.name = "exposureFilter"
-                filterStillB.setValue(ev, forKey: kCIInputEVKey)
-                
-                playerLayerA.filters = [filterA]
-                playerLayerB.filters = [filterB]
-                stillFrameLayerA.filters = [filterStillA]
-                stillFrameLayerB.filters = [filterStillB]
-            }
+        
+        // Ensure no legacy layer filters are lingering (playback is handled by AVVideoComposition)
+        playerLayerA.filters = nil
+        playerLayerB.filters = nil
+        stillFrameLayerA.filters = nil
+        stillFrameLayerB.filters = nil
+        
+        // Re-bake cached still frames on GPU with new EV (~3ms execution)
+        if let rawA = rawStillFrameA {
+            let exposedA = ExposureAdjuster.shared.applyExposure(to: rawA, ev: ev)
+            stillFrameLayerA.contents = exposedA
         }
-        playerLayerA.setNeedsDisplay()
-        playerLayerB.setNeedsDisplay()
-        stillFrameLayerA.setNeedsDisplay()
-        stillFrameLayerB.setNeedsDisplay()
+        if let rawB = rawStillFrameB {
+            let exposedB = ExposureAdjuster.shared.applyExposure(to: rawB, ev: ev)
+            stillFrameLayerB.contents = exposedB
+        }
+        
         CATransaction.commit()
     }
     

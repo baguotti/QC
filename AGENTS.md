@@ -62,12 +62,32 @@
 
 ---
 
-## 4. Pre-Commit Checklist for Future Amends
+## 4. Exposure (EV) Adjustment Architecture & Prohibitions
+
+1. **NO `CALayer.filters` on `AVPlayerLayer`**:
+   - `AVPlayerLayer` relies on CoreMedia hardware video decode pipelines (`FigVideoContainerLayer` / `IOSurface`).
+   - Assigning a `CIFilter` to `AVPlayerLayer.filters` is unsupported by CoreMedia for hardware video streams on macOS and causes WindowServer / compositor failure, **making the entire video layer blank out or disappear**.
+2. **NO `setNeedsDisplay()` on Player or Still Layers**:
+   - Calling `layer.setNeedsDisplay()` on a `CALayer` backed directly by `layer.contents = cgImage` invokes Core Animation's default display cycle, which **immediately wipes `layer.contents` to `nil`** if no custom delegate `draw(in:)` is present.
+   - Calling `setNeedsDisplay()` on `AVPlayerLayer` similarly disrupts hardware frame presentation.
+3. **Hardware Playback Exposure (`AVVideoComposition`)**:
+   - During live playback (`isPlaying`), exposure adjustment ($I \times 2^{\text{EV}}$) is applied via `slot.player.currentItem.videoComposition` using `CIExposureAdjust`.
+   - When EV is reset to 0.0, `item.videoComposition` is set to `nil` for zero playback overhead.
+4. **Instant Still Frame Exposure (`ExposureAdjuster`)**:
+   - When paused, `ExposureAdjuster.shared.applyExposure(to:ev:)` computes the exposure on the pristine uncompressed `CGImage` using GPU-accelerated `CIContext` (<3.2ms per 1080p frame).
+   - The resulting exposed `CGImage` is set directly to `stillFrameLayer.contents`, maintaining an immutable GPU texture that remains 100% immune to motion-downsampling during canvas panning and zooming.
+
+---
+
+## 5. Pre-Commit Checklist for Future Amends
 
 Before committing any changes affecting `VideoViewportView.swift`, `PlayerEngine.swift`, or `PlayerTransportDeckView.swift`:
 - [ ] Ensure `stillFrameLayerA` and `stillFrameLayerB` are present in `VideoViewportView`.
 - [ ] Verify `updateLayerVisibility()` displays still frame layers when paused and live player layers when playing.
 - [ ] Verify `videoGravity` and `contentsGravity` remain `.resize`.
 - [ ] Verify `magnificationFilter` remains `.nearest`.
+- [ ] Verify `layer.setNeedsDisplay()` is NEVER called on `playerLayer` or `stillFrameLayer`.
+- [ ] Verify `playerLayer.filters` is NEVER assigned a `CIFilter` (live video filtering belongs in `AVVideoComposition`).
 - [ ] Run `swift build` with 0 warnings/errors under Swift 6.
 - [ ] Test in canvas mode: Zoom into an edge line, pause, and drag the canvas around with the hand tool. Verify the line **does not** turn white during motion.
+- [ ] Test exposure slider: Scrub EV from -5.0 to +5.0 EV while paused and while playing. Verify video never disappears and exposure brightens/darkens smoothly.
