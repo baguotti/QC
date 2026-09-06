@@ -317,9 +317,7 @@ public struct TimelineScrubberView: View {
                     .onChanged { value in
                         if !isDragging {
                             isDragging = true
-                        }
-                        if engine.isPlaying || engine.rate != 0 {
-                            engine.pause()
+                            engine.startScrubbing()
                         }
                         let x = max(trackInset, min(value.location.x, width - trackInset))
                         let progress = Double((x - trackInset) / trackWidth)

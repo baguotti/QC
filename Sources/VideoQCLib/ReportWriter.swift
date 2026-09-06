@@ -68,6 +68,51 @@ public struct ReportWriter: Sendable {
         return csv
     }
     
+    // MARK: - Google Sheets / TSV Report Generator (Clipboard)
+    
+    /// Generates a tab-separated values (TSV) report listing every file, lines found, timecodes, and locations, optimized for direct clipboard paste into Google Sheets
+    public static func generateTSVReport(
+        results: [VideoQCResult]
+    ) -> String {
+        var tsv = "File Name\tLines Found\tTimecode\tLocation\tDuration\tDetected Color\n"
+        
+        func escapeTSV(_ str: String) -> String {
+            if str.contains("\t") || str.contains("\"") || str.contains("\n") {
+                let escaped = str.replacingOccurrences(of: "\"", with: "\"\"")
+                return "\"\(escaped)\""
+            }
+            return str
+        }
+        
+        for result in results {
+            let fileName = result.fileName
+            if !result.isFlagged || result.glitchSegments.isEmpty {
+                // Clean file
+                tsv += "\(escapeTSV(fileName))\tNo\t--\t--\t--\t--\n"
+            } else {
+                let segments = result.glitchSegments
+                for (idx, seg) in segments.enumerated() {
+                    let displayName = segments.count > 1 ? "\(fileName) (Segment \(idx + 1))" : fileName
+                    let linesFound = "Yes (\(segments.count) total)"
+                    let timecode = seg.startTimecode == seg.endTimecode ? seg.startTimecode : "\(seg.startTimecode) -> \(seg.endTimecode)"
+                    let location: String
+                    switch seg.edge {
+                    case .top, .bottom, .left, .right:
+                        location = "\(seg.edge.rawValue.capitalized) Edge (\(seg.avgThickness)px)"
+                    case .splitHorizontal, .splitVertical:
+                        location = "\(seg.edge.rawValue) (\(seg.avgThickness)px)"
+                    }
+                    let duration = seg.frameCount == 1 ? "1 frame (0.04s)" : "\(seg.frameCount) frames (\(String(format: "%.2f", seg.durationSeconds))s)"
+                    let color = seg.detectedColor.hexString.uppercased()
+                    
+                    tsv += "\(escapeTSV(displayName))\t\(escapeTSV(linesFound))\t\(escapeTSV(timecode))\t\(escapeTSV(location))\t\(escapeTSV(duration))\t\(escapeTSV(color))\n"
+                }
+            }
+        }
+        
+        return tsv
+    }
+    
     // MARK: - Minimalist Studio HTML Report Generator
     
     /// Generates a sleek, minimal, Helvetica-styled Swiss/editorial QC report with Light & Dark theme support and direct Google Sheets CSV integration
@@ -90,6 +135,7 @@ public struct ReportWriter: Sendable {
         let tolPercent = Int(config.tolerance * 100)
         
         let rawCSV = generateCSVReport(results: results)
+        let rawTSV = generateTSVReport(results: results)
         let directCSVLink = csvFileName ?? "QC_Report.csv"
         
         var html = """
@@ -635,6 +681,7 @@ public struct ReportWriter: Sendable {
 
             <script>
                 const csvData = `\(rawCSV.replacingOccurrences(of: "`", with: "\\`").replacingOccurrences(of: "${", with: "\\${"))`;
+                const tsvData = `\(rawTSV.replacingOccurrences(of: "`", with: "\\`").replacingOccurrences(of: "${", with: "\\${"))`;
                 const csvFilename = "\(directCSVLink)";
 
                 function toggleTheme() {
@@ -663,10 +710,10 @@ public struct ReportWriter: Sendable {
                 }
 
                 function openGoogleSheets() {
-                    // Copy CSV table to clipboard and open Google Sheets in new tab for instant paste / import
-                    navigator.clipboard.writeText(csvData).then(() => {
+                    // Copy TSV table to clipboard and open Google Sheets in new tab for instant paste / import
+                    navigator.clipboard.writeText(tsvData).then(() => {
                         window.open('https://sheets.new', '_blank');
-                        showToast('CSV COPIED TO CLIPBOARD // OPENING GOOGLE SHEETS (PASTE WITH CMD+V)');
+                        showToast('REPORT COPIED TO CLIPBOARD // OPENING GOOGLE SHEETS (PRESS CMD+V)');
                     }).catch(() => {
                         // Fallback: download CSV and open sheets
                         downloadCSV();

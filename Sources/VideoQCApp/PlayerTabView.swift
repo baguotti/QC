@@ -191,47 +191,6 @@ extension ContentView {
                         }
                         .buttonStyle(.plain)
                         .explain(playerEngine.isAutoplayEnabled ? "Autoplay: ON (Videos play from start when clicked or navigating with ↑/↓)" : "Autoplay: OFF (Videos load paused at frame 0)", binding: $hoverExplanation)
-                        
-                        // Slot Target Selector
-                        HStack(spacing: 3) {
-                            Text("TARGET:")
-                                .font(.system(size: 8, weight: .bold, design: .monospaced))
-                                .foregroundColor(textMuted)
-                            
-                            Button(action: { playerEngine.activeTarget = .slotA }) {
-                                Text("A")
-                                    .font(.system(size: 8, weight: .black, design: .monospaced))
-                                    .frame(width: 18, height: 18)
-                                    .foregroundColor(playerEngine.activeTarget == .slotA ? accentPositive : textMuted)
-                                    .studioBox(background: playerEngine.activeTarget == .slotA ? accentPositive.opacity(0.18) : bgSubtle,
-                                               border: playerEngine.activeTarget == .slotA ? accentPositive : borderLine)
-                            }
-                            .buttonStyle(.plain)
-                            .explain("Target Slot A (Master) for queue clicks", binding: $hoverExplanation)
-                            
-                            Button(action: { playerEngine.activeTarget = .slotB }) {
-                                Text("B")
-                                    .font(.system(size: 8, weight: .black, design: .monospaced))
-                                    .frame(width: 18, height: 18)
-                                    .foregroundColor(playerEngine.activeTarget == .slotB ? accentSlotB : textMuted)
-                                    .studioBox(background: playerEngine.activeTarget == .slotB ? accentSlotB.opacity(0.18) : bgSubtle,
-                                               border: playerEngine.activeTarget == .slotB ? accentSlotB : borderLine)
-                            }
-                            .buttonStyle(.plain)
-                            .explain("Target Slot B (Compare) for queue clicks (or ⌥+Click)", binding: $hoverExplanation)
-                            
-                            if playerEngine.slotB.url != nil {
-                                Button(action: { playerEngine.swapSlots() }) {
-                                    Image(systemName: "arrow.left.arrow.right")
-                                        .font(.system(size: 8, weight: .bold))
-                                        .frame(width: 18, height: 18)
-                                        .foregroundColor(textMain)
-                                        .studioBox(background: bgSubtle, border: borderLine)
-                                }
-                                .buttonStyle(.plain)
-                                .explain("Swap Slot A and Slot B (X)", binding: $hoverExplanation)
-                            }
-                        }
                     }
                     
                     if videoFiles.isEmpty {
@@ -389,7 +348,7 @@ extension ContentView {
                     }
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .studioBox(background: Color(white: 0.08), border: borderLine)
+                .studioBox(background: isLightMode ? Color(white: 0.88) : Color(white: 0.08), border: borderLine)
                 
                 // Timeline Scrubber & Transport Controls (Rigidly locked height to prevent any layout jitter)
                 VStack(spacing: 8) {
@@ -497,7 +456,7 @@ extension ContentView {
                 if NSEvent.modifierFlags.contains(.option) {
                     playerEngine.loadVideo(url: url, into: .slotB, autoplay: true)
                 } else {
-                    playerEngine.loadVideo(url: url, into: playerEngine.activeTarget, autoplay: true)
+                    playerEngine.loadVideo(url: url, into: .slotA, autoplay: true)
                 }
             }) {
                 HStack(spacing: 8) {

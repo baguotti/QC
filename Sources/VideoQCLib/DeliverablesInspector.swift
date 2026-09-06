@@ -521,6 +521,40 @@ public struct DeliverablesInspector: Sendable {
         return csv
     }
     
+    // MARK: - TSV Generator (Google Sheets / Clipboard)
+    
+    public static func generateManifestTSV(assets: [DeliverableAsset], rootFolderURL: URL? = nil) -> String {
+        var tsv = "Folder\tFile Name\tStatus\tValidation Notes\tTimecode\tDuration\tTotal Frames\tResolution\tAspect Ratio\tFPS\tFile Size\tCreated Date\tSubtitles / CC\tVideo Codec\tAudio Codec\tAudio Bitrate\tAudio Details\tContainer\tFile Path\n"
+        
+        func escapeTSV(_ str: String) -> String {
+            if str.contains("\t") || str.contains("\"") || str.contains("\n") {
+                let escaped = str.replacingOccurrences(of: "\"", with: "\"\"")
+                return "\"\(escaped)\""
+            }
+            return str
+        }
+        
+        for a in assets {
+            var folderRel = ""
+            if let root = rootFolderURL {
+                let rootPath = root.standardizedFileURL.path
+                let filePath = a.fileURL.standardizedFileURL.path
+                if filePath.hasPrefix(rootPath) {
+                    let rel = String(filePath.dropFirst(rootPath.count)).trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+                    folderRel = (rel as NSString).deletingLastPathComponent
+                }
+            }
+            if folderRel.isEmpty {
+                folderRel = a.fileURL.deletingLastPathComponent().lastPathComponent
+            }
+            let status = a.validation.hasAnyMismatch ? "MISMATCH FLAGGED" : "MATCHED"
+            let notes = a.validation.summaryString
+            tsv += "\(escapeTSV(folderRel))\t\(escapeTSV(a.fileName))\t\(escapeTSV(status))\t\(escapeTSV(notes))\t\(escapeTSV(a.timecode))\t\(escapeTSV(a.formattedDuration))\t\(a.totalFrames)\t\(escapeTSV(a.resolutionString))\t\(escapeTSV(a.aspectRatioString))\t\(String(format: "%.2f", a.fps))\t\(escapeTSV(a.formattedFileSize))\t\(escapeTSV(a.formattedCreationDate))\t\(escapeTSV(a.subtitlesInfo))\t\(escapeTSV(a.videoCodec))\t\(escapeTSV(a.audioCodec))\t\(escapeTSV(a.audioBitrate))\t\(escapeTSV(a.audioConfig))\t\(escapeTSV(a.container))\t\(escapeTSV(a.fileURL.path))\n"
+        }
+        
+        return tsv
+    }
+    
     // MARK: - HTML Specs Generator
     
     public static func generateManifestHTML(assets: [DeliverableAsset], folderName: String, rootFolderURL: URL? = nil) -> String {
@@ -532,6 +566,7 @@ public struct DeliverablesInspector: Sendable {
         let formattedTotalSize = formatFileSize(bytes: totalSize)
         let mismatchCount = assets.filter { $0.validation.hasAnyMismatch }.count
         let rawCSV = generateManifestCSV(assets: assets, rootFolderURL: rootFolderURL)
+        let rawTSV = generateManifestTSV(assets: assets, rootFolderURL: rootFolderURL)
         
         var html = """
         <!DOCTYPE html>
@@ -928,6 +963,7 @@ public struct DeliverablesInspector: Sendable {
 
             <script>
                 const csvData = `\(rawCSV.replacingOccurrences(of: "`", with: "\\`").replacingOccurrences(of: "${", with: "\\${"))`;
+                const tsvData = `\(rawTSV.replacingOccurrences(of: "`", with: "\\`").replacingOccurrences(of: "${", with: "\\${"))`;
 
                 function toggleTheme() {
                     const current = document.documentElement.getAttribute('data-theme') || 'dark';
@@ -955,9 +991,9 @@ public struct DeliverablesInspector: Sendable {
                 }
 
                 function openGoogleSheets() {
-                    navigator.clipboard.writeText(csvData).then(() => {
+                    navigator.clipboard.writeText(tsvData).then(() => {
                         window.open('https://sheets.new', '_blank');
-                        showToast('CSV COPIED // OPENING GOOGLE SHEETS (PASTE WITH CMD+V)');
+                        showToast('SPECS COPIED TO CLIPBOARD // OPENING GOOGLE SHEETS (PRESS CMD+V)');
                     }).catch(() => {
                         downloadCSV();
                         window.open('https://sheets.new', '_blank');

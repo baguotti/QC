@@ -49,6 +49,14 @@ public enum SlotTarget: String, Sendable {
     case slotB
 }
 
+public enum SafeAreaMode: String, CaseIterable, Identifiable, Sendable {
+    case off = "Off"
+    case standard = "Title & Action Safe"
+    case tikTok = "TikTok Safe Area"
+    
+    public var id: String { rawValue }
+}
+
 // ARCHITECTURAL MANDATE:
 // FrameExtractor provides thread-safe, sub-10ms uncompressed still frame captures for
 // VideoViewportView's stillFrameLayerA/B, eliminating CoreMedia motion-downsampling during panning.
@@ -137,6 +145,10 @@ public final class PlayerSlot: ObservableObject {
         return 16.0 / 9.0
     }
     
+    public var isNineBySixteen: Bool {
+        return abs(aspectRatio - (9.0 / 16.0)) < 0.03
+    }
+    
     public var aspectRatioDescription: String {
         let w = Int(round(videoSize.width))
         let h = Int(round(videoSize.height))
@@ -184,7 +196,11 @@ public final class PlayerEngine: ObservableObject {
     
     @Published public var slotA = PlayerSlot(id: .slotA)
     @Published public var slotB = PlayerSlot(id: .slotB)
-    @Published public var activeTarget: SlotTarget = .slotA
+    @Published public var activeTarget: SlotTarget = .slotA {
+        didSet {
+            enforceCompatibleSafeAreaMode()
+        }
+    }
     @Published public var compareMode: CompareMode = .single {
         didSet {
             if !hasMatchingAspectRatios && (compareMode == .splitVertical || compareMode == .splitHorizontal || compareMode == .difference || compareMode == .overlay) {
@@ -206,7 +222,42 @@ public final class PlayerEngine: ObservableObject {
         return hasMatchingAspectRatios
     }
     
+    public var isNineBySixteen: Bool {
+        if (compareMode == .sideBySide || compareMode == .sideBySideVertical) && slotB.url != nil {
+            return slotA.isNineBySixteen || slotB.isNineBySixteen
+        }
+        let slot = (activeTarget == .slotB && compareMode != .single) ? slotB : slotA
+        return slot.isNineBySixteen
+    }
+    
+    public func enforceCompatibleSafeAreaMode() {
+        if !isNineBySixteen && safeAreaMode == .tikTok {
+            safeAreaMode = .standard
+        }
+    }
+    
+    public func cycleSafeAreaMode() {
+        if isNineBySixteen {
+            switch safeAreaMode {
+            case .off:
+                safeAreaMode = .standard
+            case .standard:
+                safeAreaMode = .tikTok
+            case .tikTok:
+                safeAreaMode = .off
+            }
+        } else {
+            switch safeAreaMode {
+            case .off, .tikTok:
+                safeAreaMode = .standard
+            case .standard:
+                safeAreaMode = .off
+            }
+        }
+    }
+    
     public func enforceCompatibleCompareMode() {
+        enforceCompatibleSafeAreaMode()
         guard slotB.url != nil else {
             if compareMode != .single {
                 compareMode = .single
@@ -261,7 +312,12 @@ public final class PlayerEngine: ObservableObject {
     
     // Crosshair & Guides
     @Published public var showCenterCrosshair: Bool = false
-    @Published public var showTitleSafe: Bool = false
+    @Published public var safeAreaMode: SafeAreaMode = .off
+    
+    public var showTitleSafe: Bool {
+        get { safeAreaMode != .off }
+        set { safeAreaMode = newValue ? .standard : .off }
+    }
     
     // Video Exposure Adjustment (EV stops: -5.0 to +5.0)
     @Published public var exposureEV: Double = 0.0 {
@@ -363,6 +419,8 @@ public final class PlayerEngine: ObservableObject {
     
     @Published public var shuttleStateText: String = "PAUSE"
     @Published public var isScrubbing: Bool = false
+    public private(set) var wasPlayingBeforeScrub: Bool = false
+    private var playbackRateBeforeScrub: Float = 1.0
     
     // Direct reference to Master player for backwards compatibility
     public var player: AVPlayer {
@@ -382,6 +440,7 @@ public final class PlayerEngine: ObservableObject {
     
     @Published public var isSeeking: Bool = false
     private var pendingSeekTime: CMTime? = nil
+    private var pendingSeekTolerance: CMTime? = nil
     private var pendingSeekCompletion: (@MainActor @Sendable () -> Void)? = nil
     
     @Published public var isSeekingB: Bool = false
@@ -459,8 +518,10 @@ public final class PlayerEngine: ObservableObject {
         self.currentTimecode = "00:00:00:00"
         self.panOffset = .zero
         self.isScrubbing = false
+        self.wasPlayingBeforeScrub = false
         self.isSeeking = false
         self.pendingSeekTime = nil
+        self.pendingSeekTolerance = nil
         self.pendingSeekCompletion = nil
         
         let asset = AVURLAsset(url: url)
@@ -1273,6 +1334,7 @@ public final class PlayerEngine: ObservableObject {
         self.rate = 0.0
         self.isPlaying = false
         self.isScrubbing = false
+        self.wasPlayingBeforeScrub = false
         self.shuttleStateText = "PAUSE"
         if let currentItem = slotA.player.currentItem, currentItem.status == .readyToPlay {
             let pausedTime = slotA.player.currentTime()
@@ -1374,10 +1436,29 @@ public final class PlayerEngine: ObservableObject {
     
     // MARK: - Scrubbing & Seeking
     
+    /// Initiates interactive scrubbing: remembers active playback state and temporarily halts playback during dragging
+    public func startScrubbing() {
+        guard !self.isScrubbing else { return }
+        self.wasPlayingBeforeScrub = (self.isPlaying || self.rate != 0.0 || self.isSlowStepping)
+        self.playbackRateBeforeScrub = (self.rate != 0.0) ? self.rate : 1.0
+        self.isScrubbing = true
+        
+        if self.wasPlayingBeforeScrub {
+            stopSlowStep()
+            slotA.player.pause()
+            slotB.player.pause()
+            self.rate = 0.0
+            // Keep isPlaying = true so UI controls (e.g. Play/Pause button) stay in playing context
+            self.isPlaying = true
+        }
+    }
+    
     /// High-performance interactive scrubbing: updates UI synchronously at 120 FPS lockstep with mouse drag
     public func scrubTo(progress: Double) {
+        if !self.isScrubbing {
+            startScrubbing()
+        }
         let clamped = min(1.0, max(0.0, progress))
-        self.isScrubbing = true
         self.currentProgress = clamped
         
         let durSecs = CMTimeGetSeconds(duration)
@@ -1397,22 +1478,43 @@ public final class PlayerEngine: ObservableObject {
         seek(toProgress: clamped)
     }
     
-    /// Concludes interactive scrubbing: settles playhead and seeks to pixel-perfect frame with zero tolerance
+    /// Concludes interactive scrubbing: if previously playing, resumes playback from the new point; if paused, stays paused
     public func endScrubbing(at progress: Double) {
         let clamped = min(1.0, max(0.0, progress))
         self.isScrubbing = false
         self.currentProgress = clamped
         
         let durSecs = CMTimeGetSeconds(duration)
-        if durSecs > 0 && durSecs.isFinite && !durSecs.isNaN {
-            let currSecs = clamped * durSecs
-            let fps = max(1.0, activeFps)
-            let calcVal = currSecs * fps + 1e-4
-            let frameIdx = (calcVal.isFinite && !calcVal.isNaN) ? max(0, min(max(0, totalFrames - 1), Int(floor(calcVal)))) : 0
-            self.currentFrame = frameIdx
-            self.currentTimecode = TimecodeFormatter.format(frameIndex: frameIdx, fps: activeFps)
-            
-            // Final exact frame seek with zero tolerance
+        let fps = max(1.0, activeFps)
+        let currSecs = (durSecs > 0 && durSecs.isFinite && !durSecs.isNaN) ? clamped * durSecs : 0.0
+        let calcVal = currSecs * fps + 1e-4
+        let frameIdx = (calcVal.isFinite && !calcVal.isNaN) ? max(0, min(max(0, totalFrames - 1), Int(floor(calcVal)))) : 0
+        self.currentFrame = frameIdx
+        self.currentTimecode = TimecodeFormatter.format(frameIndex: frameIdx, fps: activeFps)
+        
+        let targetTime = CMTime(seconds: currSecs, preferredTimescale: 60000)
+        self.currentTime = targetTime
+        self.slotA.currentTime = targetTime
+        
+        let shouldResume = self.wasPlayingBeforeScrub
+        let resumeRate = self.playbackRateBeforeScrub
+        self.wasPlayingBeforeScrub = false
+        
+        if shouldResume {
+            let isNearEnd = (durSecs > 0 && currSecs >= durSecs - 0.05)
+            if isNearEnd && !isLooping {
+                pause()
+            } else {
+                self.isPlaying = true
+                let resumeTol = CMTime(seconds: 1.0 / max(1.0, activeFps), preferredTimescale: 60000)
+                seek(toTime: targetTime, tolerance: resumeTol) { [weak self] in
+                    guard let self = self else { return }
+                    self.setPlaybackRate(resumeRate)
+                }
+            }
+        } else {
+            // Stay paused: exact frame seek with zero tolerance
+            pause()
             seek(toFrame: frameIdx)
         }
     }
@@ -1429,7 +1531,7 @@ public final class PlayerEngine: ObservableObject {
         seek(toTime: targetTime, completion: completion)
     }
     
-    public func seek(toTime time: CMTime, completion: (@MainActor @Sendable () -> Void)? = nil) {
+    public func seek(toTime time: CMTime, tolerance: CMTime? = nil, completion: (@MainActor @Sendable () -> Void)? = nil) {
         guard slotA.player.currentItem != nil else {
             completion?()
             return
@@ -1437,6 +1539,7 @@ public final class PlayerEngine: ObservableObject {
         
         if isSeeking {
             pendingSeekTime = time
+            pendingSeekTolerance = tolerance
             if let completion = completion {
                 pendingSeekCompletion = completion
             }
@@ -1446,9 +1549,9 @@ public final class PlayerEngine: ObservableObject {
         isSeeking = true
         let curCompletion = completion
         
-        // Fast seek during interactive scrubbing: 1-frame tolerance allows hardware decoder to stream at full speed
-        // Exact frame seeks (pause, arrow keys, end of scrub) use .zero tolerance.
-        let tol: CMTime = isScrubbing ? CMTime(seconds: 1.0 / max(1.0, activeFps), preferredTimescale: 60000) : .zero
+        // Fast seek during interactive scrubbing or playback resumption: 1-frame tolerance allows hardware decoder to stream at full speed
+        // Exact frame seeks (pause, arrow keys, end of scrub while paused) use .zero tolerance.
+        let tol: CMTime = tolerance ?? (isScrubbing ? CMTime(seconds: 1.0 / max(1.0, activeFps), preferredTimescale: 60000) : .zero)
         
         slotA.player.seek(to: time, toleranceBefore: tol, toleranceAfter: tol) { [weak self] _ in
             Task { @MainActor in
@@ -1465,7 +1568,7 @@ public final class PlayerEngine: ObservableObject {
                     let offsetSeconds = Double(self.slotB.slipOffsetFrames) / max(1.0, self.slotB.fps)
                     let targetSecsB = max(0.0, CMTimeGetSeconds(time) + offsetSeconds)
                     let targetTimeB = CMTime(seconds: targetSecsB, preferredTimescale: 60000)
-                    let tolB = self.isScrubbing ? CMTime(seconds: 1.0 / max(1.0, self.slotB.fps), preferredTimescale: 60000) : .zero
+                    let tolB = tolerance ?? (self.isScrubbing ? CMTime(seconds: 1.0 / max(1.0, self.slotB.fps), preferredTimescale: 60000) : .zero)
                     self.seekSlotB(to: targetTimeB, tolerance: tolB)
                 }
                 
@@ -1473,9 +1576,11 @@ public final class PlayerEngine: ObservableObject {
                 
                 if let nextTime = self.pendingSeekTime {
                     let nextComp = self.pendingSeekCompletion
+                    let nextTol = self.pendingSeekTolerance
                     self.pendingSeekTime = nil
+                    self.pendingSeekTolerance = nil
                     self.pendingSeekCompletion = nil
-                    self.seek(toTime: nextTime, completion: nextComp)
+                    self.seek(toTime: nextTime, tolerance: nextTol, completion: nextComp)
                 }
             }
         }

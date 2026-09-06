@@ -36,35 +36,59 @@ extension ContentView {
                     
                     Button(action: {
                         if !deliverableAssets.isEmpty {
-                            exportDeliverablesManifest()
+                            openDeliverablesInGoogleSheets()
                         }
                     }) {
-                        Text("[ EXPORT GOOGLE SHEETS / CSV ]")
-                            .font(.system(size: 11, weight: .black, design: .monospaced))
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 10)
-                            .foregroundColor(deliverableAssets.isEmpty ? textMuted : primaryBtnFg)
-                            .studioBox(background: deliverableAssets.isEmpty ? bgSubtle : primaryBtnBg, border: borderLine)
+                        HStack {
+                            Text("[ OPEN IN GOOGLE SHEETS ]")
+                                .font(.system(size: 11, weight: .black, design: .monospaced))
+                            Spacer()
+                            Image(systemName: "arrow.up.right.square")
+                                .font(.system(size: 11, weight: .bold))
+                        }
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 10)
+                        .padding(.horizontal, 10)
+                        .foregroundColor(deliverableAssets.isEmpty ? textMuted : primaryBtnFg)
+                        .studioBox(background: deliverableAssets.isEmpty ? bgSubtle : primaryBtnBg, border: borderLine)
                     }
                     .buttonStyle(.plain)
                     .disabled(deliverableAssets.isEmpty)
-                    .explain("Exports the deliverables metadata table to a CSV file.", binding: $hoverExplanation)
+                    .explain("Copies specs as spreadsheet data and opens Google Sheets ready to paste (⌘V).", binding: $hoverExplanation)
                     
-                    Button(action: {
-                        if !deliverableAssets.isEmpty {
-                            openManifestHTML()
+                    HStack(spacing: 8) {
+                        Button(action: {
+                            if !deliverableAssets.isEmpty {
+                                exportDeliverablesManifest()
+                            }
+                        }) {
+                            Text("[ SAVE CSV ]")
+                                .font(.system(size: 10, weight: .bold, design: .monospaced))
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 8)
+                                .foregroundColor(deliverableAssets.isEmpty ? textMuted : textMain)
+                                .studioBox(background: bgSubtle, border: borderLine)
                         }
-                    }) {
-                        Text("[ OPEN HTML SPECS ]")
-                            .font(.system(size: 11, weight: .bold, design: .monospaced))
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 9)
-                            .foregroundColor(deliverableAssets.isEmpty ? textMuted : textMain)
-                            .studioBox(background: bgSubtle, border: borderLine)
+                        .buttonStyle(.plain)
+                        .disabled(deliverableAssets.isEmpty)
+                        .explain("Saves the deliverables metadata table to a local CSV file.", binding: $hoverExplanation)
+                        
+                        Button(action: {
+                            if !deliverableAssets.isEmpty {
+                                openManifestHTML()
+                            }
+                        }) {
+                            Text("[ OPEN HTML ]")
+                                .font(.system(size: 10, weight: .bold, design: .monospaced))
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 8)
+                                .foregroundColor(deliverableAssets.isEmpty ? textMuted : textMain)
+                                .studioBox(background: bgSubtle, border: borderLine)
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(deliverableAssets.isEmpty)
+                        .explain("Generates and opens a formatted HTML delivery specs sheet in browser.", binding: $hoverExplanation)
                     }
-                    .buttonStyle(.plain)
-                    .disabled(deliverableAssets.isEmpty)
-                    .explain("Generates and opens a formatted HTML delivery specs sheet in browser.", binding: $hoverExplanation)
                     
                     if let firstURL = deliverableAssets.first?.fileURL {
                         Button(action: {
@@ -175,80 +199,96 @@ extension ContentView {
                 Spacer()
                 
                 HStack(spacing: 8) {
+                    // Rescan Icon Button
                     Button(action: rescanDeliverables) {
-                        HStack(spacing: 5) {
-                            Image(systemName: "arrow.clockwise")
-                                .font(.system(size: 9, weight: .bold))
-                            Text("[ RESCAN ]")
-                                .font(.system(size: 11, weight: .bold, design: .monospaced))
-                        }
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 8)
-                        .foregroundColor(textMain)
-                        .studioBox(background: bgSubtle, border: borderLine)
-                    }
-                    .buttonStyle(.plain)
-                    .disabled(isInspectingDeliverables)
-                    .explain("Re-inspects all video files and refreshes stream metadata.", binding: $hoverExplanation)
-                    
-                    Button(action: exportDeliverablesManifest) {
-                        Text("[ EXPORT GOOGLE SHEETS / CSV ]")
-                            .font(.system(size: 11, weight: .bold, design: .monospaced))
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 8)
-                            .foregroundColor(primaryBtnFg)
-                            .studioBox(background: primaryBtnBg, border: primaryBtnBg)
-                    }
-                    .buttonStyle(.plain)
-                    .explain("Exports the deliverables metadata table to a CSV file.", binding: $hoverExplanation)
-                    
-                    Button(action: openManifestHTML) {
-                        Text("[ OPEN HTML SPECS ]")
-                            .font(.system(size: 11, weight: .bold, design: .monospaced))
-                            .padding(.horizontal, 12)
+                        Image(systemName: "arrow.clockwise")
+                            .font(.system(size: 10, weight: .bold))
+                            .padding(.horizontal, 10)
                             .padding(.vertical, 8)
                             .foregroundColor(textMain)
                             .studioBox(background: bgSubtle, border: borderLine)
                     }
                     .buttonStyle(.plain)
-                    .explain("Generates and opens a formatted HTML delivery specs sheet in browser.", binding: $hoverExplanation)
-                                   if let firstURL = deliverableAssets.first?.fileURL {
-                        Button(action: { NSWorkspace.shared.activateFileViewerSelecting([firstURL]) }) {
-                            Text("[ FINDER ]")
-                                .font(.system(size: 11, weight: .bold, design: .monospaced))
-                                .padding(.horizontal, 14)
-                                .padding(.vertical, 8)
-                                .foregroundColor(textMain)
-                                .studioBox(background: bgSubtle, border: borderLine)
-                        }
-                        .buttonStyle(.plain)
-                        .explain("Locates and highlights the first asset in macOS Finder.", binding: $hoverExplanation)
-                    }
+                    .disabled(isInspectingDeliverables)
+                    .explain("Re-inspects all video files and refreshes stream metadata.", binding: $hoverExplanation)
                     
-                    if hasDeliverablesSubfolders {
-                        Button(action: toggleHideFolders) {
-                            Text(hideAllFolders || !hiddenFolderIDs.isEmpty ? "[ SHOW FOLDERS ]" : "[ HIDE FOLDERS ]")
-                                .font(.system(size: 11, weight: .bold, design: .monospaced))
-                                .padding(.horizontal, 12)
-                                .padding(.vertical, 8)
-                                .foregroundColor(textMain)
-                                .studioBox(background: bgSubtle, border: borderLine)
+                    // Primary Action: Google Sheets
+                    Button(action: openDeliverablesInGoogleSheets) {
+                        HStack(spacing: 5) {
+                            Text("[ GOOGLE SHEETS ]")
+                                .font(.system(size: 11, weight: .black, design: .monospaced))
+                            Image(systemName: "arrow.up.right.square")
+                                .font(.system(size: 10, weight: .bold))
                         }
-                        .buttonStyle(.plain)
-                        .explain(hideAllFolders || !hiddenFolderIDs.isEmpty ? "Show all folder banners in the deliverables audit table." : "Hide folder banners and display assets in a flat list.", binding: $hoverExplanation)
-                        
-                        if !hideAllFolders {
-                            Button(action: toggleAllDeliverablesFolders) {
-                                Text(deliverablesCollapsedFolderIDs.isEmpty ? "[ COLLAPSE ALL ]" : "[ EXPAND ALL ]")
-                                    .font(.system(size: 11, weight: .bold, design: .monospaced))
-                                    .padding(.horizontal, 12)
-                                    .padding(.vertical, 8)
-                                    .foregroundColor(textMain)
-                                    .studioBox(background: bgSubtle, border: borderLine)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 8)
+                        .foregroundColor(primaryBtnFg)
+                        .studioBox(background: primaryBtnBg, border: primaryBtnBg)
+                    }
+                    .buttonStyle(.plain)
+                    .explain("Copies specs as spreadsheet data and opens Google Sheets ready to paste (⌘V).", binding: $hoverExplanation)
+                    
+                    // Consolidated Export Dropdown
+                    Menu {
+                        Button(action: exportDeliverablesManifest) {
+                            Label("Save CSV Manifest...", systemImage: "doc.text")
+                        }
+                        Button(action: openManifestHTML) {
+                            Label("Open HTML Specs Report", systemImage: "safari")
+                        }
+                        if let firstURL = deliverableAssets.first?.fileURL {
+                            Divider()
+                            Button(action: { NSWorkspace.shared.activateFileViewerSelecting([firstURL]) }) {
+                                Label("Reveal in Finder", systemImage: "folder")
                             }
-                            .buttonStyle(.plain)
-                            .explain(deliverablesCollapsedFolderIDs.isEmpty ? "Collapse all subfolders in the deliverables audit table." : "Expand all subfolders in the deliverables audit table.", binding: $hoverExplanation)
                         }
+                    } label: {
+                        HStack(spacing: 5) {
+                            Text("EXPORT")
+                                .font(.system(size: 11, weight: .bold, design: .monospaced))
+                            Image(systemName: "chevron.down")
+                                .font(.system(size: 8, weight: .bold))
+                        }
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 8)
+                        .foregroundColor(textMain)
+                        .studioBox(background: bgSubtle, border: borderLine)
+                    }
+                    .menuStyle(.borderlessButton)
+                    .fixedSize()
+                    .explain("Export options: Save CSV manifest, open HTML specs report, or reveal in Finder.", binding: $hoverExplanation)
+                    
+                    // Consolidated Folder View Controls
+                    if hasDeliverablesSubfolders {
+                        Menu {
+                            Button(action: toggleHideFolders) {
+                                Label(hideAllFolders || !hiddenFolderIDs.isEmpty ? "Show Folder Groups" : "Hide Folder Groups (Flat List)",
+                                      systemImage: hideAllFolders || !hiddenFolderIDs.isEmpty ? "folder.badge.plus" : "list.bullet")
+                            }
+                            if !hideAllFolders {
+                                Divider()
+                                Button(action: toggleAllDeliverablesFolders) {
+                                    Label(deliverablesCollapsedFolderIDs.isEmpty ? "Collapse All Folders" : "Expand All Folders",
+                                          systemImage: deliverablesCollapsedFolderIDs.isEmpty ? "chevron.down.square" : "chevron.right.square")
+                                }
+                            }
+                        } label: {
+                            HStack(spacing: 5) {
+                                Image(systemName: "folder")
+                                    .font(.system(size: 9, weight: .bold))
+                                Text("FOLDERS")
+                                    .font(.system(size: 11, weight: .bold, design: .monospaced))
+                                Image(systemName: "chevron.down")
+                                    .font(.system(size: 8, weight: .bold))
+                            }
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 8)
+                            .foregroundColor(textMain)
+                            .studioBox(background: bgSubtle, border: borderLine)
+                        }
+                        .menuStyle(.borderlessButton)
+                        .fixedSize()
+                        .explain("Folder view options: Toggle folder groups vs flat list, collapse or expand all.", binding: $hoverExplanation)
                     }
                 }
             }

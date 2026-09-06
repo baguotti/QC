@@ -307,27 +307,45 @@ extension ContentView {
                 Spacer()
                 
                 HStack(spacing: 8) {
-                    Button(action: { exportScanHTML() }) {
-                        Text("[ SAVE HTML REPORT ]")
-                            .font(.system(size: 11, weight: .bold, design: .monospaced))
-                            .padding(.horizontal, 14)
-                            .padding(.vertical, 8)
-                            .foregroundColor(primaryBtnFg)
-                            .studioBox(background: primaryBtnBg, border: primaryBtnBg)
+                    // Primary Action: Google Sheets
+                    Button(action: { openScanReportInGoogleSheets() }) {
+                        HStack(spacing: 5) {
+                            Text("[ GOOGLE SHEETS ]")
+                                .font(.system(size: 11, weight: .black, design: .monospaced))
+                            Image(systemName: "arrow.up.right.square")
+                                .font(.system(size: 10, weight: .bold))
+                        }
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 8)
+                        .foregroundColor(primaryBtnFg)
+                        .studioBox(background: primaryBtnBg, border: primaryBtnBg)
                     }
                     .buttonStyle(.plain)
-                    .explain("Saves the interactive visual HTML glitch report to a chosen location.", binding: $hoverExplanation)
+                    .explain("Copies glitch report as spreadsheet data and opens Google Sheets ready to paste (⌘V).", binding: $hoverExplanation)
                     
-                    Button(action: { exportScanCSV() }) {
-                        Text("[ EXPORT CSV ]")
-                            .font(.system(size: 11, weight: .bold, design: .monospaced))
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 8)
-                            .foregroundColor(textMain)
-                            .studioBox(background: bgSubtle, border: borderLine)
+                    // Consolidated Export Dropdown
+                    Menu {
+                        Button(action: { exportScanHTML() }) {
+                            Label("Save HTML Glitch Report...", systemImage: "safari")
+                        }
+                        Button(action: { exportScanCSV() }) {
+                            Label("Save CSV File...", systemImage: "doc.text")
+                        }
+                    } label: {
+                        HStack(spacing: 5) {
+                            Text("EXPORT")
+                                .font(.system(size: 11, weight: .bold, design: .monospaced))
+                            Image(systemName: "chevron.down")
+                                .font(.system(size: 8, weight: .bold))
+                        }
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 8)
+                        .foregroundColor(textMain)
+                        .studioBox(background: bgSubtle, border: borderLine)
                     }
-                    .buttonStyle(.plain)
-                    .explain("Exports the glitch occurrence data as a CSV file.", binding: $hoverExplanation)
+                    .menuStyle(.borderlessButton)
+                    .fixedSize()
+                    .explain("Export options: Save interactive HTML glitch report or CSV spreadsheet.", binding: $hoverExplanation)
                 }
             }
             

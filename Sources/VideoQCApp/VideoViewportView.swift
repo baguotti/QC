@@ -2,6 +2,7 @@ import SwiftUI
 import AppKit
 import AVFoundation
 import CoreImage
+import ImageIO
 
 public struct VideoViewportView: NSViewRepresentable {
     @ObservedObject var engine: PlayerEngine
@@ -71,9 +72,13 @@ public final class PlayerContainerNSView: NSView {
     private let splitHandleLayer = CALayer()
     private let splitHandleGripLayer = CAShapeLayer()
     
-    // Center Crosshair Guide & Title Safe Guide
-    private let crosshairLayer = CAShapeLayer()
-    private let titleSafeLayer = CAShapeLayer()
+    // Center Crosshair Guides, Title Safe Guides & TikTok Safe Area Overlays (Slots A & B)
+    private let crosshairLayerA = CAShapeLayer()
+    private let crosshairLayerB = CAShapeLayer()
+    private let titleSafeLayerA = CAShapeLayer()
+    private let titleSafeLayerB = CAShapeLayer()
+    private let tikTokOverlayLayerA = CALayer()
+    private let tikTokOverlayLayerB = CALayer()
     
     private weak var engine: PlayerEngine?
     private var isDraggingSplit: Bool = false
@@ -90,12 +95,16 @@ public final class PlayerContainerNSView: NSView {
     private var lastIsBlink: Bool = false
     private var lastShowCrosshair: Bool = false
     private var lastShowTitleSafe: Bool = false
+    private var lastSafeAreaMode: SafeAreaMode = .off
+    private var lastIsNineBySixteen: Bool = false
     private var lastSlotAURL: URL? = nil
     private var lastSlotBURL: URL? = nil
     private var lastExposureEV: Double = 0.0
     private var lastCanvasBoundsSize: CGSize = CGSize(width: -1, height: -1)
     private var lastAspectA: CGFloat = -1
     private var lastAspectB: CGFloat = -1
+    private var lastFrameASize: CGSize = CGSize(width: -1, height: -1)
+    private var lastFrameBSize: CGSize = CGSize(width: -1, height: -1)
     
     // Still frame inspection caching to eliminate AVPlayerLayer motion-downsampling
     private var lastCapturedTimeA: CMTime? = nil
@@ -104,6 +113,34 @@ public final class PlayerContainerNSView: NSView {
     private var rawStillFrameB: CGImage? = nil
     private var isCapturingStillA: Bool = false
     private var isCapturingStillB: Bool = false
+    
+    private static var tikTokImage: CGImage? = {
+        let name = "TikTokSafeAreaTemplateBlack"
+        if let url = Bundle.main.url(forResource: name, withExtension: "png"),
+           let source = CGImageSourceCreateWithURL(url as CFURL, nil),
+           let img = CGImageSourceCreateImageAtIndex(source, 0, nil) {
+            return img
+        }
+        let appBundleResourceURL = Bundle.main.bundleURL.appendingPathComponent("Contents/Resources/\(name).png")
+        if FileManager.default.fileExists(atPath: appBundleResourceURL.path),
+           let source = CGImageSourceCreateWithURL(appBundleResourceURL as CFURL, nil),
+           let img = CGImageSourceCreateImageAtIndex(source, 0, nil) {
+            return img
+        }
+        let devPaths = [
+            URL(fileURLWithPath: FileManager.default.currentDirectoryPath).appendingPathComponent("Resources/\(name).png"),
+            URL(fileURLWithPath: FileManager.default.currentDirectoryPath).appendingPathComponent("_icon/\(name).png"),
+            URL(fileURLWithPath: "/Users/riccardofusetti/Documents/Coding/The LineFinder 5000/_icon/TikTokSafeAreaTemplateBlack.png")
+        ]
+        for url in devPaths {
+            if FileManager.default.fileExists(atPath: url.path),
+               let source = CGImageSourceCreateWithURL(url as CFURL, nil),
+               let img = CGImageSourceCreateImageAtIndex(source, 0, nil) {
+                return img
+            }
+        }
+        return nil
+    }()
     
     public override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -194,23 +231,63 @@ public final class PlayerContainerNSView: NSView {
         splitHandleGripLayer.actions = ["position": NSNull(), "bounds": NSNull(), "frame": NSNull(), "path": NSNull()]
         splitHandleLayer.addSublayer(splitHandleGripLayer)
         
-        // Center crosshair overlay (top-to-bottom centering guide in AB split screen cyan)
-        crosshairLayer.fillColor = nil
-        crosshairLayer.strokeColor = NSColor(red: 0.1, green: 0.95, blue: 0.85, alpha: 0.9).cgColor
-        crosshairLayer.lineWidth = 1.0
-        crosshairLayer.shadowOpacity = 0
-        crosshairLayer.zPosition = 100
-        crosshairLayer.actions = ["hidden": NSNull(), "opacity": NSNull(), "position": NSNull(), "bounds": NSNull(), "frame": NSNull(), "path": NSNull(), "lineWidth": NSNull()]
-        canvasLayer.addSublayer(crosshairLayer)
+        // Film A Center Crosshair Guide (top-to-bottom centering guide in AB split screen cyan)
+        crosshairLayerA.fillColor = nil
+        crosshairLayerA.strokeColor = NSColor(red: 0.1, green: 0.95, blue: 0.85, alpha: 0.9).cgColor
+        crosshairLayerA.lineWidth = 1.0
+        crosshairLayerA.shadowOpacity = 0
+        crosshairLayerA.zPosition = 100
+        crosshairLayerA.actions = ["hidden": NSNull(), "opacity": NSNull(), "position": NSNull(), "bounds": NSNull(), "frame": NSNull(), "path": NSNull(), "lineWidth": NSNull()]
+        canvasLayer.addSublayer(crosshairLayerA)
         
-        // Title Safe & Action Safe overlay (Action Safe 90% and Title Safe 80% in crisp broadcast white)
-        titleSafeLayer.fillColor = nil
-        titleSafeLayer.strokeColor = NSColor(white: 1.0, alpha: 0.9).cgColor
-        titleSafeLayer.lineWidth = 1.0
-        titleSafeLayer.shadowOpacity = 0
-        titleSafeLayer.zPosition = 101
-        titleSafeLayer.actions = ["hidden": NSNull(), "opacity": NSNull(), "position": NSNull(), "bounds": NSNull(), "frame": NSNull(), "path": NSNull(), "lineWidth": NSNull()]
-        canvasLayer.addSublayer(titleSafeLayer)
+        // Film B Center Crosshair Guide
+        crosshairLayerB.fillColor = nil
+        crosshairLayerB.strokeColor = NSColor(red: 0.1, green: 0.95, blue: 0.85, alpha: 0.9).cgColor
+        crosshairLayerB.lineWidth = 1.0
+        crosshairLayerB.shadowOpacity = 0
+        crosshairLayerB.zPosition = 100
+        crosshairLayerB.actions = ["hidden": NSNull(), "opacity": NSNull(), "position": NSNull(), "bounds": NSNull(), "frame": NSNull(), "path": NSNull(), "lineWidth": NSNull()]
+        canvasLayer.addSublayer(crosshairLayerB)
+        
+        // Film A Title Safe & Action Safe overlay (Action Safe 90% and Title Safe 80% in crisp broadcast white)
+        titleSafeLayerA.fillColor = nil
+        titleSafeLayerA.strokeColor = NSColor(white: 1.0, alpha: 0.9).cgColor
+        titleSafeLayerA.lineWidth = 1.0
+        titleSafeLayerA.shadowOpacity = 0
+        titleSafeLayerA.zPosition = 101
+        titleSafeLayerA.actions = ["hidden": NSNull(), "opacity": NSNull(), "position": NSNull(), "bounds": NSNull(), "frame": NSNull(), "path": NSNull(), "lineWidth": NSNull()]
+        canvasLayer.addSublayer(titleSafeLayerA)
+        
+        // Film B Title Safe & Action Safe overlay
+        titleSafeLayerB.fillColor = nil
+        titleSafeLayerB.strokeColor = NSColor(white: 1.0, alpha: 0.9).cgColor
+        titleSafeLayerB.lineWidth = 1.0
+        titleSafeLayerB.shadowOpacity = 0
+        titleSafeLayerB.zPosition = 101
+        titleSafeLayerB.actions = ["hidden": NSNull(), "opacity": NSNull(), "position": NSNull(), "bounds": NSNull(), "frame": NSNull(), "path": NSNull(), "lineWidth": NSNull()]
+        canvasLayer.addSublayer(titleSafeLayerB)
+        
+        // Film A TikTok Safe Area Template overlay (50% opacity, 9:16 only)
+        tikTokOverlayLayerA.contentsGravity = .resize
+        tikTokOverlayLayerA.opacity = 0.5
+        tikTokOverlayLayerA.zPosition = 102
+        tikTokOverlayLayerA.isHidden = true
+        tikTokOverlayLayerA.actions = ["hidden": NSNull(), "opacity": NSNull(), "position": NSNull(), "bounds": NSNull(), "frame": NSNull(), "contents": NSNull()]
+        if let img = PlayerContainerNSView.tikTokImage {
+            tikTokOverlayLayerA.contents = img
+        }
+        canvasLayer.addSublayer(tikTokOverlayLayerA)
+        
+        // Film B TikTok Safe Area Template overlay (50% opacity, 9:16 only)
+        tikTokOverlayLayerB.contentsGravity = .resize
+        tikTokOverlayLayerB.opacity = 0.5
+        tikTokOverlayLayerB.zPosition = 102
+        tikTokOverlayLayerB.isHidden = true
+        tikTokOverlayLayerB.actions = ["hidden": NSNull(), "opacity": NSNull(), "position": NSNull(), "bounds": NSNull(), "frame": NSNull(), "contents": NSNull()]
+        if let img = PlayerContainerNSView.tikTokImage {
+            tikTokOverlayLayerB.contents = img
+        }
+        canvasLayer.addSublayer(tikTokOverlayLayerB)
         
         // Native trackpad pinch gesture for zoom in / zoom out
         let pinchGesture = NSMagnificationGestureRecognizer(target: self, action: #selector(handlePinch(_:)))
@@ -269,6 +346,8 @@ public final class PlayerContainerNSView: NSView {
             lastAspectA = -1
             lastAspectB = -1
             lastCompareMode = nil
+            lastFrameASize = CGSize(width: -1, height: -1)
+            lastFrameBSize = CGSize(width: -1, height: -1)
             CATransaction.commit()
         }
         
@@ -301,8 +380,12 @@ public final class PlayerContainerNSView: NSView {
         playerLayerB.contentsScale = scale
         stillFrameLayerA.contentsScale = scale
         stillFrameLayerB.contentsScale = scale
-        crosshairLayer.contentsScale = scale
-        titleSafeLayer.contentsScale = scale
+        crosshairLayerA.contentsScale = scale
+        crosshairLayerB.contentsScale = scale
+        titleSafeLayerA.contentsScale = scale
+        titleSafeLayerB.contentsScale = scale
+        tikTokOverlayLayerA.contentsScale = scale
+        tikTokOverlayLayerB.contentsScale = scale
         splitHandleGripLayer.contentsScale = scale
     }
     
@@ -341,8 +424,28 @@ public final class PlayerContainerNSView: NSView {
         return getVideoAspectRatioA()
     }
     
+    // MARK: - Subpixel & Display Alignment Helpers
+    
+    private func currentBackingScale() -> CGFloat {
+        return window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 2.0
+    }
+    
+    /// Snaps a point coordinate to exact physical display pixels (1.0 / scale)
+    private func snapToPixel(_ value: CGFloat, scale: CGFloat) -> CGFloat {
+        return round(value * scale) / scale
+    }
+    
+    /// Snaps a size to physical display pixels, ensuring physical pixel dimensions are even integers
+    /// (necessary for YUV 4:2:0 hardware video decoders and eliminating CoreMedia letterboxing).
+    private func snapToEvenPixels(_ value: CGFloat, scale: CGFloat) -> CGFloat {
+        let pixels = floor(value * scale)
+        let evenPixels = floor(pixels / 2.0) * 2.0
+        return max(2.0 / scale, evenPixels / scale)
+    }
+    
     private func getBaseFittedSize(in bounds: CGRect) -> CGSize {
         guard let engine = engine else { return bounds.size }
+        let scale = currentBackingScale()
         let isSideBySideH = (engine.compareMode == .sideBySide && engine.slotB.url != nil)
         let isSideBySideV = (engine.compareMode == .sideBySideVertical && engine.slotB.url != nil)
         
@@ -354,12 +457,12 @@ public final class PlayerContainerNSView: NSView {
             let slotAvailW = max(1.0, (availW - 4.0) / 2.0)
             
             let scaleA = min(slotAvailW / aspectA, availH)
-            let fitWidthA = round(scaleA * aspectA)
-            let fitHeightA = round(scaleA)
+            let fitHeightA = snapToEvenPixels(scaleA, scale: scale)
+            let fitWidthA = snapToEvenPixels(fitHeightA * aspectA, scale: scale)
             
             let scaleB = min(slotAvailW / aspectB, availH)
-            let fitWidthB = round(scaleB * aspectB)
-            let fitHeightB = round(scaleB)
+            let fitHeightB = snapToEvenPixels(scaleB, scale: scale)
+            let fitWidthB = snapToEvenPixels(fitHeightB * aspectB, scale: scale)
             
             let canvasH = max(fitHeightA, fitHeightB)
             let canvasW = (max(fitWidthA, fitWidthB) * 2.0) + 4.0
@@ -372,12 +475,12 @@ public final class PlayerContainerNSView: NSView {
             let slotAvailH = max(1.0, (availH - 4.0) / 2.0)
             
             let scaleA = min(availW, slotAvailH * aspectA)
-            let fitWidthA = round(scaleA)
-            let fitHeightA = round(scaleA / aspectA)
+            let fitWidthA = snapToEvenPixels(scaleA, scale: scale)
+            let fitHeightA = snapToEvenPixels(fitWidthA / aspectA, scale: scale)
             
             let scaleB = min(availW, slotAvailH * aspectB)
-            let fitWidthB = round(scaleB)
-            let fitHeightB = round(scaleB / aspectB)
+            let fitWidthB = snapToEvenPixels(scaleB, scale: scale)
+            let fitHeightB = snapToEvenPixels(fitWidthB / aspectB, scale: scale)
             
             let canvasW = max(fitWidthA, fitWidthB)
             let canvasH = (max(fitHeightA, fitHeightB) * 2.0) + 4.0
@@ -390,12 +493,12 @@ public final class PlayerContainerNSView: NSView {
             
             let boundsAspect = bounds.width / bounds.height
             if boundsAspect > aspect {
-                let h = round(bounds.height)
-                let w = round(h * aspect)
+                let h = snapToEvenPixels(bounds.height, scale: scale)
+                let w = snapToEvenPixels(h * aspect, scale: scale)
                 return CGSize(width: w, height: h)
             } else {
-                let w = round(bounds.width)
-                let h = round(w / aspect)
+                let w = snapToEvenPixels(bounds.width, scale: scale)
+                let h = snapToEvenPixels(w / aspect, scale: scale)
                 return CGSize(width: w, height: h)
             }
         }
@@ -406,13 +509,16 @@ public final class PlayerContainerNSView: NSView {
         let viewBounds = bounds
         guard viewBounds.width > 0 && viewBounds.height > 0 else { return }
         
+        let scale = currentBackingScale()
+        updateScale(for: scale)
         updateMagnificationFilters()
         
         let zoomScale: CGFloat = engine.isFitZoom ? 1.0 : engine.zoomScale
         let panOffset = engine.isFitZoom ? .zero : engine.panOffset
         let isFitZoom = engine.isFitZoom
         let showCrosshair = engine.showCenterCrosshair
-        let showTitleSafe = engine.showTitleSafe
+        let safeAreaMode = engine.safeAreaMode
+        let isNineBySixteen = engine.isNineBySixteen
         let baseSize = getBaseFittedSize(in: viewBounds)
         
         // Fast path: skip expensive layer transforms & path reallocations if unchanged
@@ -421,7 +527,8 @@ public final class PlayerContainerNSView: NSView {
            panOffset == lastPanOffset &&
            isFitZoom == lastIsFitZoom &&
            showCrosshair == lastShowCrosshair &&
-           showTitleSafe == lastShowTitleSafe &&
+           safeAreaMode == lastSafeAreaMode &&
+           isNineBySixteen == lastIsNineBySixteen &&
            canvasLayer.bounds.size == baseSize {
             return
         }
@@ -431,38 +538,40 @@ public final class PlayerContainerNSView: NSView {
         lastPanOffset = panOffset
         lastIsFitZoom = isFitZoom
         lastShowCrosshair = showCrosshair
-        lastShowTitleSafe = showTitleSafe
-        
-        let scale = window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 2.0
-        updateScale(for: scale)
+        lastSafeAreaMode = safeAreaMode
+        lastIsNineBySixteen = isNineBySixteen
         
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         
-        if canvasLayer.bounds.size != baseSize || crosshairLayer.path == nil || titleSafeLayer.path == nil {
+        if canvasLayer.bounds.size != baseSize {
             canvasLayer.bounds = CGRect(origin: .zero, size: baseSize)
-            let isSideBySide = (engine.compareMode == .sideBySide || engine.compareMode == .sideBySideVertical) && engine.slotB.url != nil
-            if !isSideBySide {
-                playerLayerA.frame = canvasLayer.bounds
-                playerLayerB.frame = canvasLayer.bounds
-                stillFrameLayerA.frame = canvasLayer.bounds
-                stillFrameLayerB.frame = canvasLayer.bounds
-            }
-            updateCrosshairPath(size: baseSize)
-            updateTitleSafePath(size: baseSize)
+        }
+        let isSideBySide = (engine.compareMode == .sideBySide || engine.compareMode == .sideBySideVertical) && engine.slotB.url != nil
+        if !isSideBySide {
+            playerLayerA.frame = canvasLayer.bounds
+            playerLayerB.frame = canvasLayer.bounds
+            stillFrameLayerA.frame = canvasLayer.bounds
+            stillFrameLayerB.frame = canvasLayer.bounds
         }
         
-        let centerX = viewBounds.midX + panOffset.width
-        let centerY = viewBounds.midY + panOffset.height
+        // Pixel-aligned positioning:
+        // Snap the raw top-left origin of canvasLayer to the physical display pixel grid,
+        // then derive the layer position from the snapped origin. This guarantees that canvasLayer.frame.origin
+        // is at whole display pixel boundaries, eliminating subpixel jitter between CALayer and AVPlayerLayer.
+        let scaledW = baseSize.width * zoomScale
+        let scaledH = baseSize.height * zoomScale
+        let rawOriginX = viewBounds.midX - (scaledW / 2.0) + panOffset.width
+        let rawOriginY = viewBounds.midY - (scaledH / 2.0) + panOffset.height
+        let snappedOriginX = snapToPixel(rawOriginX, scale: scale)
+        let snappedOriginY = snapToPixel(rawOriginY, scale: scale)
+        let centerX = snappedOriginX + (scaledW / 2.0)
+        let centerY = snappedOriginY + (scaledH / 2.0)
         
         canvasLayer.position = CGPoint(x: centerX, y: centerY)
         canvasLayer.setAffineTransform(CGAffineTransform(scaleX: zoomScale, y: zoomScale))
         
-        crosshairLayer.lineWidth = 1.0 / max(0.01, zoomScale)
-        crosshairLayer.isHidden = !showCrosshair
-        
-        titleSafeLayer.lineWidth = 1.0 / max(0.01, zoomScale)
-        titleSafeLayer.isHidden = !showTitleSafe
+        updateGuideOverlays()
         
         CATransaction.commit()
     }
@@ -682,24 +791,25 @@ public final class PlayerContainerNSView: NSView {
             playerLayerB.compositingFilter = nil
             stillFrameLayerB.compositingFilter = nil
             
-            let halfW = (w - 4) / 2
+            let scale = currentBackingScale()
+            let halfW = snapToEvenPixels((w - 4) / 2, scale: scale)
             let aspectA = max(0.01, getVideoAspectRatioA())
             let aspectB = max(0.01, getVideoAspectRatioB())
             
             // Fit Slot A in left half (halfW, h)
             let scaleA = min(halfW / aspectA, h)
-            let fitWidthA = round(scaleA * aspectA)
-            let fitHeightA = round(scaleA)
-            let yPosA = round((h - fitHeightA) / 2)
-            let xPosA = round((halfW - fitWidthA) / 2)
+            let fitHeightA = snapToEvenPixels(scaleA, scale: scale)
+            let fitWidthA = snapToEvenPixels(fitHeightA * aspectA, scale: scale)
+            let yPosA = snapToPixel((h - fitHeightA) / 2, scale: scale)
+            let xPosA = snapToPixel((halfW - fitWidthA) / 2, scale: scale)
             let frameA = CGRect(x: xPosA, y: yPosA, width: fitWidthA, height: fitHeightA)
             
             // Fit Slot B in right half (halfW, h)
             let scaleB = min(halfW / aspectB, h)
-            let fitWidthB = round(scaleB * aspectB)
-            let fitHeightB = round(scaleB)
-            let yPosB = round((h - fitHeightB) / 2)
-            let xPosB = round(w / 2 + 2 + (halfW - fitWidthB) / 2)
+            let fitHeightB = snapToEvenPixels(scaleB, scale: scale)
+            let fitWidthB = snapToEvenPixels(fitHeightB * aspectB, scale: scale)
+            let yPosB = snapToPixel((h - fitHeightB) / 2, scale: scale)
+            let xPosB = snapToPixel(w / 2 + 2 + (halfW - fitWidthB) / 2, scale: scale)
             let frameB = CGRect(x: xPosB, y: yPosB, width: fitWidthB, height: fitHeightB)
             
             playerLayerA.frame = frameA
@@ -709,7 +819,7 @@ public final class PlayerContainerNSView: NSView {
             
             splitDividerLayer.isHidden = false
             splitDividerLayer.backgroundColor = NSColor(white: 0.35, alpha: 0.7).cgColor
-            splitDividerLayer.frame = CGRect(x: round(w / 2 - 0.75), y: 0, width: 1.5, height: h)
+            splitDividerLayer.frame = CGRect(x: snapToPixel(w / 2 - 0.75, scale: scale), y: 0, width: 1.5, height: h)
             splitHandleLayer.isHidden = true
             
         case .sideBySideVertical:
@@ -722,25 +832,26 @@ public final class PlayerContainerNSView: NSView {
             playerLayerB.compositingFilter = nil
             stillFrameLayerB.compositingFilter = nil
             
-            let halfH = (h - 4) / 2
+            let scale = currentBackingScale()
+            let halfH = snapToEvenPixels((h - 4) / 2, scale: scale)
             let aspectA = max(0.01, getVideoAspectRatioA())
             let aspectB = max(0.01, getVideoAspectRatioB())
             
             // In AppKit, y=0 is bottom (Slot B), y=h is top (Slot A)
             // Fit Slot A in top half (w, halfH)
             let scaleA = min(w, halfH * aspectA)
-            let fitWidthA = round(scaleA)
-            let fitHeightA = round(scaleA / aspectA)
-            let xPosA = round((w - fitWidthA) / 2)
-            let yPosA = round(h / 2 + 2 + (halfH - fitHeightA) / 2)
+            let fitHeightA = snapToEvenPixels(scaleA / aspectA, scale: scale)
+            let fitWidthA = snapToEvenPixels(scaleA, scale: scale)
+            let xPosA = snapToPixel((w - fitWidthA) / 2, scale: scale)
+            let yPosA = snapToPixel(h / 2 + 2 + (halfH - fitHeightA) / 2, scale: scale)
             let frameA = CGRect(x: xPosA, y: yPosA, width: fitWidthA, height: fitHeightA)
             
             // Fit Slot B in bottom half (w, halfH)
             let scaleB = min(w, halfH * aspectB)
-            let fitWidthB = round(scaleB)
-            let fitHeightB = round(scaleB / aspectB)
-            let xPosB = round((w - fitWidthB) / 2)
-            let yPosB = round((halfH - fitHeightB) / 2)
+            let fitHeightB = snapToEvenPixels(scaleB / aspectB, scale: scale)
+            let fitWidthB = snapToEvenPixels(scaleB, scale: scale)
+            let xPosB = snapToPixel((w - fitWidthB) / 2, scale: scale)
+            let yPosB = snapToPixel((halfH - fitHeightB) / 2, scale: scale)
             let frameB = CGRect(x: xPosB, y: yPosB, width: fitWidthB, height: fitHeightB)
             
             playerLayerA.frame = frameA
@@ -808,6 +919,7 @@ public final class PlayerContainerNSView: NSView {
             splitHandleLayer.isHidden = true
         }
         
+        updateGuideOverlays()
         updateLayerVisibility()
         CATransaction.commit()
     }
@@ -995,24 +1107,23 @@ public final class PlayerContainerNSView: NSView {
         }
     }
     
-    private func updateCrosshairPath(size: CGSize) {
-        crosshairLayer.frame = CGRect(origin: .zero, size: size)
-        let midX = size.width / 2.0
-        let midY = size.height / 2.0
-        
+    private func buildCrosshairPath(size: CGSize) -> CGPath {
         let path = CGMutablePath()
+        guard size.width > 0, size.height > 0 else { return path }
+        let midX = round(size.width / 2.0)
+        let midY = round(size.height / 2.0)
+        
         path.move(to: CGPoint(x: midX, y: 0))
         path.addLine(to: CGPoint(x: midX, y: size.height))
         path.move(to: CGPoint(x: 0, y: midY))
         path.addLine(to: CGPoint(x: size.width, y: midY))
-        crosshairLayer.path = path
+        return path
     }
     
-    private func updateTitleSafePath(size: CGSize) {
-        titleSafeLayer.frame = CGRect(origin: .zero, size: size)
+    private func buildTitleSafePath(size: CGSize) -> CGPath? {
         let w = size.width
         let h = size.height
-        guard w > 0, h > 0 else { return }
+        guard w > 0, h > 0 else { return nil }
         
         let path = CGMutablePath()
         
@@ -1056,7 +1167,146 @@ public final class PlayerContainerNSView: NSView {
         path.move(to: CGPoint(x: midX, y: midY - centerCrossLen))
         path.addLine(to: CGPoint(x: midX, y: midY + centerCrossLen))
         
-        titleSafeLayer.path = path
+        return path
+    }
+    
+    private func updateGuideOverlays() {
+        guard let engine = engine else { return }
+        
+        let showCrosshair = engine.showCenterCrosshair
+        let safeAreaMode = engine.safeAreaMode
+        let zoomScale = engine.isFitZoom ? 1.0 : engine.zoomScale
+        let lineWidth = 1.0 / max(0.01, zoomScale)
+        let isBlink = engine.isBlinkCompareB && engine.slotB.url != nil
+        let isSideBySide = (engine.compareMode == .sideBySide || engine.compareMode == .sideBySideVertical) && engine.slotB.url != nil
+        
+        if isBlink {
+            // Rapidly blink compare: Slot B at 100% full canvas
+            crosshairLayerA.isHidden = true
+            titleSafeLayerA.isHidden = true
+            tikTokOverlayLayerA.isHidden = true
+            
+            let frameB = canvasLayer.bounds
+            crosshairLayerB.frame = frameB
+            crosshairLayerB.lineWidth = lineWidth
+            if crosshairLayerB.path == nil || frameB.size != lastFrameBSize {
+                crosshairLayerB.path = buildCrosshairPath(size: frameB.size)
+            }
+            crosshairLayerB.isHidden = !showCrosshair
+            
+            titleSafeLayerB.frame = frameB
+            titleSafeLayerB.lineWidth = lineWidth
+            if titleSafeLayerB.path == nil || frameB.size != lastFrameBSize {
+                titleSafeLayerB.path = buildTitleSafePath(size: frameB.size)
+            }
+            
+            tikTokOverlayLayerB.frame = frameB
+            switch safeAreaMode {
+            case .off:
+                titleSafeLayerB.isHidden = true
+                tikTokOverlayLayerB.isHidden = true
+            case .standard:
+                titleSafeLayerB.isHidden = false
+                tikTokOverlayLayerB.isHidden = true
+            case .tikTok:
+                if engine.slotB.isNineBySixteen {
+                    if tikTokOverlayLayerB.contents == nil {
+                        tikTokOverlayLayerB.contents = PlayerContainerNSView.tikTokImage
+                    }
+                    titleSafeLayerB.isHidden = true
+                    tikTokOverlayLayerB.isHidden = false
+                } else {
+                    titleSafeLayerB.isHidden = false
+                    tikTokOverlayLayerB.isHidden = true
+                }
+            }
+            lastFrameBSize = frameB.size
+            return
+        }
+        
+        let frameA = isSideBySide ? playerLayerA.frame : canvasLayer.bounds
+        let frameB = isSideBySide ? playerLayerB.frame : .zero
+        
+        // --- FILM A GUIDES ---
+        crosshairLayerA.frame = frameA
+        crosshairLayerA.lineWidth = lineWidth
+        if crosshairLayerA.path == nil || frameA.size != lastFrameASize {
+            crosshairLayerA.path = buildCrosshairPath(size: frameA.size)
+        }
+        crosshairLayerA.isHidden = !showCrosshair
+        
+        titleSafeLayerA.frame = frameA
+        titleSafeLayerA.lineWidth = lineWidth
+        if titleSafeLayerA.path == nil || frameA.size != lastFrameASize {
+            titleSafeLayerA.path = buildTitleSafePath(size: frameA.size)
+        }
+        
+        tikTokOverlayLayerA.frame = frameA
+        
+        switch safeAreaMode {
+        case .off:
+            titleSafeLayerA.isHidden = true
+            tikTokOverlayLayerA.isHidden = true
+        case .standard:
+            titleSafeLayerA.isHidden = false
+            tikTokOverlayLayerA.isHidden = true
+        case .tikTok:
+            if engine.slotA.isNineBySixteen {
+                if tikTokOverlayLayerA.contents == nil {
+                    tikTokOverlayLayerA.contents = PlayerContainerNSView.tikTokImage
+                }
+                titleSafeLayerA.isHidden = true
+                tikTokOverlayLayerA.isHidden = false
+            } else {
+                titleSafeLayerA.isHidden = false
+                tikTokOverlayLayerA.isHidden = true
+            }
+        }
+        
+        // --- FILM B GUIDES ---
+        if isSideBySide && frameB.width > 0 && frameB.height > 0 {
+            crosshairLayerB.frame = frameB
+            crosshairLayerB.lineWidth = lineWidth
+            if crosshairLayerB.path == nil || frameB.size != lastFrameBSize {
+                crosshairLayerB.path = buildCrosshairPath(size: frameB.size)
+            }
+            crosshairLayerB.isHidden = !showCrosshair
+            
+            titleSafeLayerB.frame = frameB
+            titleSafeLayerB.lineWidth = lineWidth
+            if titleSafeLayerB.path == nil || frameB.size != lastFrameBSize {
+                titleSafeLayerB.path = buildTitleSafePath(size: frameB.size)
+            }
+            
+            tikTokOverlayLayerB.frame = frameB
+            
+            switch safeAreaMode {
+            case .off:
+                titleSafeLayerB.isHidden = true
+                tikTokOverlayLayerB.isHidden = true
+            case .standard:
+                titleSafeLayerB.isHidden = false
+                tikTokOverlayLayerB.isHidden = true
+            case .tikTok:
+                if engine.slotB.isNineBySixteen {
+                    if tikTokOverlayLayerB.contents == nil {
+                        tikTokOverlayLayerB.contents = PlayerContainerNSView.tikTokImage
+                    }
+                    titleSafeLayerB.isHidden = true
+                    tikTokOverlayLayerB.isHidden = false
+                } else {
+                    titleSafeLayerB.isHidden = false
+                    tikTokOverlayLayerB.isHidden = true
+                }
+            }
+        } else {
+            crosshairLayerB.isHidden = true
+            titleSafeLayerB.isHidden = true
+            tikTokOverlayLayerB.isHidden = true
+        }
+        
+        lastFrameASize = frameA.size
+        lastFrameBSize = frameB.size
     }
     
     // MARK: - Exposure Adjustment (After Effects Style EV Filter)

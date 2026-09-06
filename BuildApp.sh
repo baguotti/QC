@@ -12,7 +12,7 @@ MACOS="${CONTENTS}/MacOS"
 RESOURCES="${CONTENTS}/Resources"
 
 # Version & Metadata
-APP_VERSION="0.3.0"
+APP_VERSION="0.3.1"
 GIT_COMMIT_COUNT=$(git rev-list --count HEAD 2>/dev/null || echo "1")
 
 echo "📌 Version: v${APP_VERSION} (Build: ${GIT_COMMIT_COUNT})"
@@ -47,6 +47,11 @@ if [ -d "Resources/PlayAnimation" ]; then
     echo "🎞️ Bundling PlayAnimation frames..."
     mkdir -p "${RESOURCES}/PlayAnimation"
     cp Resources/PlayAnimation/*.png "${RESOURCES}/PlayAnimation/"
+fi
+
+if [ -f "Resources/TikTokSafeAreaTemplateBlack.png" ]; then
+    echo "📱 Bundling TikTok safe area overlay..."
+    cp "Resources/TikTokSafeAreaTemplateBlack.png" "${RESOURCES}/TikTokSafeAreaTemplateBlack.png"
 fi
 
 # 5. Create Info.plist

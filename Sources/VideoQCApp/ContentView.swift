@@ -79,6 +79,10 @@ struct ContentView: View {
     @State var hideAllFolders: Bool = false
     @State var hiddenFolderIDs: Set<String> = []
     
+    // MARK: - Toast Notification HUD State
+    @State var toastMessage: String? = nil
+    @State var toastDismissTask: Task<Void, Never>? = nil
+    
     final class EventMonitorCoordinator {
         var mouseMonitor: Any? = nil
         var keyMonitor: Any? = nil
@@ -183,21 +187,14 @@ struct ContentView: View {
     var body: some View {
         ZStack {
             VStack(spacing: 0) {
-                // 1. Top Masthead
-                headerView
-                
-                Rectangle()
-                    .fill(borderLine)
-                    .frame(height: 1)
-                
-                // 2. Dedicated Prominent Tab Navigation Bar
+                // 1. Dedicated Prominent Tab Navigation Bar with Right-Hand Controls
                 tabBarStrip
                 
                 Rectangle()
                     .fill(borderLine)
                     .frame(height: 1)
                 
-                // 3. Main Tab Content
+                // 2. Main Tab Content
                 switch selectedTab {
                 case .player:
                     playerTabView
@@ -294,12 +291,41 @@ struct ContentView: View {
                     .transition(.opacity)
                     .zIndex(200)
             }
+            
+            // Floating Notification Toast HUD
+            if let toast = toastMessage {
+                VStack {
+                    Spacer()
+                    HStack(spacing: 10) {
+                        Image(systemName: "checkmark.circle.fill")
+                            .font(.system(size: 13, weight: .bold))
+                            .foregroundColor(accentPositive)
+                        Text(toast)
+                            .font(.system(size: 11, weight: .bold, design: .monospaced))
+                            .foregroundColor(textMain)
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 10)
+                    .background(bgPanel.opacity(0.96))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 6)
+                            .stroke(accentPositive.opacity(0.6), lineWidth: 1)
+                    )
+                    .cornerRadius(6)
+                    .shadow(color: Color.black.opacity(0.5), radius: 12, y: 6)
+                    .padding(.bottom, 24)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+                }
+                .zIndex(250)
+                .allowsHitTesting(false)
+            }
         }
         .animation(.easeInOut(duration: 0.15), value: showUserGuide)
         .animation(.easeInOut(duration: 0.15), value: showFeedbackModal)
         .animation(.easeInOut(duration: 0.15), value: showShortcutsModal)
         .animation(.easeInOut(duration: 0.15), value: showThemeModal)
         .animation(.easeInOut(duration: 0.15), value: fullscreenMode)
+        .animation(.spring(response: 0.3, dampingFraction: 0.7), value: toastMessage)
         .onChange(of: showThemeModal) { _, newValue in
             if !newValue {
                 DispatchQueue.main.async {
@@ -387,216 +413,191 @@ struct ContentView: View {
         }
     }
     
-    // MARK: - Header & Navigation
+    // MARK: - Navigation & Controls Bar
     
-    private var headerView: some View {
-        HStack(alignment: .center) {
-            HStack(spacing: 12) {
-                Rectangle()
-                    .fill(textMain)
-                    .frame(width: 4, height: 26)
-                
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("QCpie")
-                        .font(.system(size: 16, weight: .black, design: .monospaced))
-                        .tracking(1.5)
-                        .foregroundColor(textMain)
-                    
-                    Text("STUDIO PLAYER • ASSET SPECS • LINE FINDER • BATCH RENAMER")
-                        .font(.system(size: 9, weight: .bold, design: .monospaced))
-                        .foregroundColor(textMuted)
-                        .tracking(0.5)
+    private var topControls: some View {
+        HStack(spacing: 8) {
+            // Update Badge (if update available, keep prominent banner)
+            if updateManager.hasUpdate {
+                Button(action: { updateManager.showModal = true }) {
+                    HStack(spacing: 5) {
+                        Image(systemName: "arrow.down.circle.fill")
+                            .font(.system(size: 10))
+                        Text("UPDATE v\(updateManager.latestVersion)")
+                            .font(.system(size: 10, weight: .black, design: .monospaced))
+                    }
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 5)
+                    .studioBox(background: accentPositive, border: borderStrong)
                 }
+                .buttonStyle(.plain)
+                .explain("New update v\(updateManager.latestVersion) available! Click to update.", binding: $hoverExplanation)
             }
             
-            Spacer()
+            // Theme Toggle (Square 28x28 with Sun / Moon icon)
+            Button(action: { isLightMode.toggle() }) {
+                Image(systemName: isLightMode ? "sun.max.fill" : "moon.stars.fill")
+                    .font(.system(size: 12, weight: .bold))
+                    .frame(width: 28, height: 28)
+                    .foregroundColor(textMain)
+                    .studioBox(background: bgSubtle, border: borderLine)
+            }
+            .buttonStyle(.plain)
+            .explain("Switch to \(isLightMode ? "Dark" : "Light") mode theme.", binding: $hoverExplanation)
             
-            HStack(spacing: 10) {
-                // Update Badge (if update available, keep prominent banner)
-                if updateManager.hasUpdate {
-                    Button(action: { updateManager.showModal = true }) {
-                        HStack(spacing: 5) {
-                            Image(systemName: "arrow.down.circle.fill")
-                                .font(.system(size: 10))
-                            Text("UPDATE v\(updateManager.latestVersion)")
-                                .font(.system(size: 10, weight: .black, design: .monospaced))
-                        }
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 5)
-                        .studioBox(background: accentPositive, border: borderStrong)
-                    }
-                    .buttonStyle(.plain)
-                    .explain("New update v\(updateManager.latestVersion) available! Click to update.", binding: $hoverExplanation)
-                }
-                
-                // Theme Toggle (Square 26x26 with Sun / Moon icon)
-                Button(action: { isLightMode.toggle() }) {
-                    Image(systemName: isLightMode ? "sun.max.fill" : "moon.stars.fill")
+            // Settings Menu Button (Clean square gear button with zero chevron)
+            Button(action: { showSettingsPopover.toggle() }) {
+                ZStack(alignment: .topTrailing) {
+                    Image(systemName: "gearshape.fill")
                         .font(.system(size: 12, weight: .bold))
-                        .frame(width: 26, height: 26)
+                        .frame(width: 28, height: 28)
                         .foregroundColor(textMain)
                         .studioBox(background: bgSubtle, border: borderLine)
-                }
-                .buttonStyle(.plain)
-                .explain("Switch to \(isLightMode ? "Dark" : "Light") mode theme.", binding: $hoverExplanation)
-                
-                // Settings Menu Button (Clean square gear button with zero chevron)
-                Button(action: { showSettingsPopover.toggle() }) {
-                    ZStack(alignment: .topTrailing) {
-                        Image(systemName: "gearshape.fill")
-                            .font(.system(size: 12, weight: .bold))
-                            .frame(width: 26, height: 26)
-                            .foregroundColor(textMain)
-                            .studioBox(background: bgSubtle, border: borderLine)
-                        
-                        if updateManager.hasUpdate {
-                            Circle()
-                                .fill(accentPositive)
-                                .frame(width: 6, height: 6)
-                                .offset(x: -2, y: 2)
-                        }
+                    
+                    if updateManager.hasUpdate {
+                        Circle()
+                            .fill(accentPositive)
+                            .frame(width: 6, height: 6)
+                            .offset(x: -2, y: 2)
                     }
                 }
-                .buttonStyle(.plain)
-                .explain("Settings: Software Update, Info & Guide, and Feedback.", binding: $hoverExplanation)
-                .popover(isPresented: $showSettingsPopover, arrowEdge: .bottom) {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Button(action: {
-                            showSettingsPopover = false
-                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) {
-                                updateManager.checkForUpdates(userInitiated: true)
-                            }
-                        }) {
-                            HStack(spacing: 8) {
-                                Image(systemName: updateManager.hasUpdate ? "arrow.down.circle.fill" : "arrow.triangle.2.circlepath")
-                                    .font(.system(size: 11, weight: .bold))
-                                    .foregroundColor(updateManager.hasUpdate ? accentPositive : textMain)
-                                    .frame(width: 16)
-                                Text(updateManager.hasUpdate ? "Software Update (v\(updateManager.latestVersion) available)" : "Software Update (v\(AppVersionInfo.version))")
-                                    .font(.system(size: 11, weight: .bold, design: .monospaced))
-                                    .foregroundColor(updateManager.hasUpdate ? accentPositive : textMain)
-                            }
-                            .padding(.horizontal, 10)
-                            .padding(.vertical, 7)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .contentShape(Rectangle())
-                        }
-                        .buttonStyle(.plain)
-                        
-                        Rectangle().fill(borderLine).frame(height: 1)
-                        
-                        Button(action: {
-                            showSettingsPopover = false
-                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) {
-                                withAnimation(.easeInOut(duration: 0.15)) {
-                                    showThemeModal = true
-                                }
-                            }
-                        }) {
-                            HStack(spacing: 8) {
-                                Image(systemName: "paintpalette.fill")
-                                    .font(.system(size: 11, weight: .bold))
-                                    .foregroundColor(themeManager.currentTheme.blueColor)
-                                    .frame(width: 16)
-                                VStack(alignment: .leading, spacing: 1) {
-                                    Text("Theme & Accents")
-                                        .font(.system(size: 11, weight: .bold, design: .monospaced))
-                                        .foregroundColor(textMain)
-                                    Text(themeManager.currentTheme.name)
-                                        .font(.system(size: 9, weight: .medium, design: .monospaced))
-                                        .foregroundColor(themeManager.currentTheme.blueColor)
-                                        .lineLimit(1)
-                                }
-                                Spacer()
-                                HStack(spacing: 3) {
-                                    Circle().fill(themeManager.currentTheme.greenColor).frame(width: 5, height: 5)
-                                    Circle().fill(themeManager.currentTheme.blueColor).frame(width: 5, height: 5)
-                                    Circle().fill(themeManager.currentTheme.purpleColor).frame(width: 5, height: 5)
-                                    Circle().fill(themeManager.currentTheme.redColor).frame(width: 5, height: 5)
-                                }
-                            }
-                            .padding(.horizontal, 10)
-                            .padding(.vertical, 7)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .contentShape(Rectangle())
-                        }
-                        .buttonStyle(.plain)
-                        
-                        Rectangle().fill(borderLine).frame(height: 1)
-                        
-                        Button(action: {
-                            showSettingsPopover = false
-                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) {
-                                withAnimation(.easeInOut(duration: 0.15)) {
-                                    showUserGuide = true
-                                }
-                            }
-                        }) {
-                            HStack(spacing: 8) {
-                                Image(systemName: "info.circle")
-                                    .font(.system(size: 11, weight: .bold))
-                                    .foregroundColor(textMain)
-                                    .frame(width: 16)
-                                Text("Info / Guide")
-                                    .font(.system(size: 11, weight: .bold, design: .monospaced))
-                                    .foregroundColor(textMain)
-                            }
-                            .padding(.horizontal, 10)
-                            .padding(.vertical, 7)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .contentShape(Rectangle())
-                        }
-                        .buttonStyle(.plain)
-                        
-                        Rectangle().fill(borderLine).frame(height: 1)
-                        
-                        Button(action: {
-                            showSettingsPopover = false
-                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) {
-                                withAnimation(.easeInOut(duration: 0.15)) {
-                                    showFeedbackModal = true
-                                }
-                            }
-                        }) {
-                            HStack(spacing: 8) {
-                                Image(systemName: "envelope")
-                                    .font(.system(size: 11, weight: .bold))
-                                    .foregroundColor(textMain)
-                                    .frame(width: 16)
-                                Text("Feedback & Support")
-                                    .font(.system(size: 11, weight: .bold, design: .monospaced))
-                                    .foregroundColor(textMain)
-                            }
-                            .padding(.horizontal, 10)
-                            .padding(.vertical, 7)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .contentShape(Rectangle())
-                        }
-                        .buttonStyle(.plain)
-                    }
-                    .padding(6)
-                    .frame(width: 250)
-                    .background(bgPanel)
-                }
-                
-                // Engine Status Indicator (Fixed 76px width)
-                HStack(spacing: 6) {
-                    Circle()
-                        .fill(isScanning || isInspectingDeliverables ? textMain : accentPositive)
-                        .frame(width: 7, height: 7)
-                    Text(isScanning || isInspectingDeliverables ? "BUSY" : "READY")
-                        .font(.system(size: 10, weight: .bold, design: .monospaced))
-                        .foregroundColor(isScanning || isInspectingDeliverables ? textSubtle : accentPositive)
-                        .tracking(1.0)
-                }
-                .frame(width: 76, height: 26)
-                .studioBox(background: bgSubtle, border: borderLine)
-                .explain(isScanning || isInspectingDeliverables ? "Engine is currently processing video files." : "Engine is idle and ready for new jobs.", binding: $hoverExplanation)
             }
+            .buttonStyle(.plain)
+            .explain("Settings: Software Update, Info & Guide, and Feedback.", binding: $hoverExplanation)
+            .popover(isPresented: $showSettingsPopover, arrowEdge: .bottom) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Button(action: {
+                        showSettingsPopover = false
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) {
+                            updateManager.checkForUpdates(userInitiated: true)
+                        }
+                    }) {
+                        HStack(spacing: 8) {
+                            Image(systemName: updateManager.hasUpdate ? "arrow.down.circle.fill" : "arrow.triangle.2.circlepath")
+                                .font(.system(size: 11, weight: .bold))
+                                .foregroundColor(updateManager.hasUpdate ? accentPositive : textMain)
+                                .frame(width: 16)
+                            Text(updateManager.hasUpdate ? "Software Update (v\(updateManager.latestVersion) available)" : "Software Update (v\(AppVersionInfo.version))")
+                                .font(.system(size: 11, weight: .bold, design: .monospaced))
+                                .foregroundColor(updateManager.hasUpdate ? accentPositive : textMain)
+                        }
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 7)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    
+                    Rectangle().fill(borderLine).frame(height: 1)
+                    
+                    Button(action: {
+                        showSettingsPopover = false
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) {
+                            withAnimation(.easeInOut(duration: 0.15)) {
+                                showThemeModal = true
+                            }
+                        }
+                    }) {
+                        HStack(spacing: 8) {
+                            Image(systemName: "paintpalette.fill")
+                                .font(.system(size: 11, weight: .bold))
+                                .foregroundColor(themeManager.currentTheme.blueColor)
+                                .frame(width: 16)
+                            VStack(alignment: .leading, spacing: 1) {
+                                Text("Theme & Accents")
+                                    .font(.system(size: 11, weight: .bold, design: .monospaced))
+                                    .foregroundColor(textMain)
+                                Text(themeManager.currentTheme.name)
+                                    .font(.system(size: 9, weight: .medium, design: .monospaced))
+                                    .foregroundColor(themeManager.currentTheme.blueColor)
+                                    .lineLimit(1)
+                            }
+                            Spacer()
+                            HStack(spacing: 3) {
+                                Circle().fill(themeManager.currentTheme.greenColor).frame(width: 5, height: 5)
+                                Circle().fill(themeManager.currentTheme.blueColor).frame(width: 5, height: 5)
+                                Circle().fill(themeManager.currentTheme.purpleColor).frame(width: 5, height: 5)
+                                Circle().fill(themeManager.currentTheme.redColor).frame(width: 5, height: 5)
+                            }
+                        }
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 7)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    
+                    Rectangle().fill(borderLine).frame(height: 1)
+                    
+                    Button(action: {
+                        showSettingsPopover = false
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) {
+                            withAnimation(.easeInOut(duration: 0.15)) {
+                                showUserGuide = true
+                            }
+                        }
+                    }) {
+                        HStack(spacing: 8) {
+                            Image(systemName: "info.circle")
+                                .font(.system(size: 11, weight: .bold))
+                                .foregroundColor(textMain)
+                                .frame(width: 16)
+                            Text("Info / Guide")
+                                .font(.system(size: 11, weight: .bold, design: .monospaced))
+                                .foregroundColor(textMain)
+                        }
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 7)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    
+                    Rectangle().fill(borderLine).frame(height: 1)
+                    
+                    Button(action: {
+                        showSettingsPopover = false
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) {
+                            withAnimation(.easeInOut(duration: 0.15)) {
+                                showFeedbackModal = true
+                            }
+                        }
+                    }) {
+                        HStack(spacing: 8) {
+                            Image(systemName: "envelope")
+                                .font(.system(size: 11, weight: .bold))
+                                .foregroundColor(textMain)
+                                .frame(width: 16)
+                            Text("Feedback & Support")
+                                .font(.system(size: 11, weight: .bold, design: .monospaced))
+                                .foregroundColor(textMain)
+                        }
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 7)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                }
+                .padding(6)
+                .frame(width: 250)
+                .background(bgPanel)
+            }
+            
+            // Engine Status Indicator (Fixed 76px width)
+            HStack(spacing: 6) {
+                Circle()
+                    .fill(isScanning || isInspectingDeliverables ? textMain : accentPositive)
+                    .frame(width: 7, height: 7)
+                Text(isScanning || isInspectingDeliverables ? "BUSY" : "READY")
+                    .font(.system(size: 10, weight: .bold, design: .monospaced))
+                    .foregroundColor(isScanning || isInspectingDeliverables ? textSubtle : accentPositive)
+                    .tracking(1.0)
+            }
+            .frame(width: 76, height: 28)
+            .studioBox(background: bgSubtle, border: borderLine)
+            .explain(isScanning || isInspectingDeliverables ? "Engine is currently processing video files." : "Engine is idle and ready for new jobs.", binding: $hoverExplanation)
         }
-        .padding(.horizontal, 24)
-        .padding(.vertical, 12)
-        .background(bgPanel)
     }
     
     private func tabWidth(for tab: AppTab) -> CGFloat {
@@ -670,10 +671,12 @@ struct ContentView: View {
             }
             
             Spacer()
+            
+            topControls
         }
-        .padding(.horizontal, 24)
-        .padding(.vertical, 10)
-        .background(bgCardHeader)
+        .padding(.horizontal, 20)
+        .padding(.vertical, 8)
+        .background(bgPanel)
     }
     
     // MARK: - Reusable Unified Asset Selection Section
@@ -1179,6 +1182,19 @@ struct ContentView: View {
         }
     }
     
+    func openScanReportInGoogleSheets() {
+        guard !scanResults.isEmpty else { return }
+        let tsvString = ReportWriter.generateTSVReport(results: scanResults)
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        pasteboard.setString(tsvString, forType: .string)
+        
+        if let url = URL(string: "https://sheets.new") {
+            NSWorkspace.shared.open(url)
+        }
+        showToast("Scan report copied! Press ⌘V in Google Sheets.")
+    }
+    
     // MARK: - Deliverables Specs Execution
     
     func rescanDeliverables() {
@@ -1267,6 +1283,33 @@ struct ContentView: View {
             NSWorkspace.shared.open(tempURL)
         } catch {
             print("Failed to open Deliverables HTML: \(error)")
+        }
+    }
+    
+    func openDeliverablesInGoogleSheets() {
+        guard !deliverableAssets.isEmpty else { return }
+        let tsvString = DeliverablesInspector.generateManifestTSV(assets: deliverableAssets, rootFolderURL: folderURL)
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        pasteboard.setString(tsvString, forType: .string)
+        
+        if let url = URL(string: "https://sheets.new") {
+            NSWorkspace.shared.open(url)
+        }
+        showToast("Specs copied! Press ⌘V in Google Sheets.")
+    }
+    
+    func showToast(_ message: String) {
+        toastDismissTask?.cancel()
+        withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
+            self.toastMessage = message
+        }
+        toastDismissTask = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 3_500_000_000)
+            guard !Task.isCancelled else { return }
+            withAnimation(.easeOut(duration: 0.25)) {
+                self.toastMessage = nil
+            }
         }
     }
     

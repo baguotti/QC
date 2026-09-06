@@ -131,20 +131,42 @@ struct PlayerTransportDeckView: View {
                     engine.isAutoplayEnabled.toggle()
                 }
                 
+                let safeAreaTooltip: String = {
+                    switch engine.safeAreaMode {
+                    case .off:
+                        return engine.isNineBySixteen ? "Safe Area: OFF (Click for Title & Action)" : "Title & Action Safe: OFF"
+                    case .standard:
+                        return engine.isNineBySixteen ? "Safe Area: Title & Action (Click for TikTok)" : "Title & Action Safe: ON"
+                    case .tikTok:
+                        return "Safe Area: TikTok 9:16 (50% Opacity) (Click to turn OFF)"
+                    }
+                }()
+                
                 customTransportBtn(
-                    tooltip: engine.showTitleSafe ? "Title & Action Safe: ON" : "Title & Action Safe: OFF",
-                    isActive: engine.showTitleSafe,
+                    tooltip: safeAreaTooltip,
+                    isActive: engine.safeAreaMode != .off,
                     width: 26
                 ) {
-                    engine.showTitleSafe.toggle()
+                    engine.cycleSafeAreaMode()
                 } content: {
-                    ZStack {
-                        RoundedRectangle(cornerRadius: 1.5)
-                            .strokeBorder(lineWidth: 1.1)
-                            .frame(width: 16, height: 11.5)
-                        RoundedRectangle(cornerRadius: 0.8)
-                            .strokeBorder(lineWidth: 0.9)
-                            .frame(width: 10.5, height: 7)
+                    if engine.safeAreaMode == .tikTok {
+                        ZStack {
+                            RoundedRectangle(cornerRadius: 1.8)
+                                .strokeBorder(lineWidth: 1.1)
+                                .frame(width: 9.5, height: 15)
+                            RoundedRectangle(cornerRadius: 0.8)
+                                .strokeBorder(lineWidth: 0.8)
+                                .frame(width: 6.5, height: 11)
+                        }
+                    } else {
+                        ZStack {
+                            RoundedRectangle(cornerRadius: 1.5)
+                                .strokeBorder(lineWidth: 1.1)
+                                .frame(width: 16, height: 11.5)
+                            RoundedRectangle(cornerRadius: 0.8)
+                                .strokeBorder(lineWidth: 0.9)
+                                .frame(width: 10.5, height: 7)
+                        }
                     }
                 }
                 
