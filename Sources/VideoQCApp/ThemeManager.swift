@@ -80,11 +80,11 @@ public struct StudioThemeConfig: Identifiable, Codable, Equatable, Sendable {
     public var purpleNSColor: NSColor { NSColor(purpleColor) }
     public var redNSColor: NSColor { NSColor(redColor) }
     
-    // MARK: - Built-in Factory Presets
+    // MARK: - Built-in Factory Presets (Muted & Vivid)
     
-    public static let studioTeal = StudioThemeConfig(
-        id: "preset-studio-teal",
-        name: "Studio Teal (Default)",
+    public static let muted = StudioThemeConfig(
+        id: "preset-muted",
+        name: "Muted",
         isPreset: true,
         greenHex: "#2E6F40",
         blueHex: "#4A7C9D",
@@ -92,39 +92,9 @@ public struct StudioThemeConfig: Identifiable, Codable, Equatable, Sendable {
         redHex: "#B35454"
     )
     
-    public static let studioBlue = StudioThemeConfig(
-        id: "preset-studio-blue",
-        name: "Studio Blue",
-        isPreset: true,
-        greenHex: "#2E6F40",
-        blueHex: "#338FFA",
-        purpleHex: "#715C83",
-        redHex: "#A14746"
-    )
-    
-    public static let cyberpunkNeon = StudioThemeConfig(
-        id: "preset-cyberpunk",
-        name: "Cyberpunk Neon",
-        isPreset: true,
-        greenHex: "#00E676",
-        blueHex: "#00D2FF",
-        purpleHex: "#D500F9",
-        redHex: "#FF1744"
-    )
-    
-    public static let amberWarmth = StudioThemeConfig(
-        id: "preset-amber-warmth",
-        name: "Amber Warmth",
-        isPreset: true,
-        greenHex: "#5A7D50",
-        blueHex: "#D97706",
-        purpleHex: "#84687C",
-        redHex: "#BA4C4C"
-    )
-    
-    public static let broadcastVivid = StudioThemeConfig(
-        id: "preset-broadcast-vivid",
-        name: "Broadcast Vivid",
+    public static let vivid = StudioThemeConfig(
+        id: "preset-vivid",
+        name: "Vivid",
         isPreset: true,
         greenHex: "#00C853",
         blueHex: "#0084FF",
@@ -132,12 +102,13 @@ public struct StudioThemeConfig: Identifiable, Codable, Equatable, Sendable {
         redHex: "#E62E2E"
     )
     
+    // Backwards-compatible aliases
+    public static let studioTeal = muted
+    public static let broadcastVivid = vivid
+    
     public static let presets: [StudioThemeConfig] = [
-        studioTeal,
-        studioBlue,
-        cyberpunkNeon,
-        amberWarmth,
-        broadcastVivid
+        muted,
+        vivid
     ]
 }
 
@@ -149,7 +120,6 @@ public final class ThemeManager: ObservableObject {
     
     private let activeThemeKey = "QCpie_ActiveThemeID"
     private let currentThemeDataKey = "QCpie_CurrentThemeData"
-    private let customThemesKey = "QCpie_CustomThemes"
     
     @Published public var currentTheme: StudioThemeConfig {
         didSet {
@@ -157,102 +127,37 @@ public final class ThemeManager: ObservableObject {
         }
     }
     
-    @Published public var customThemes: [StudioThemeConfig] = [] {
-        didSet {
-            saveCustomThemes()
-        }
-    }
-    
     public var allThemes: [StudioThemeConfig] {
-        StudioThemeConfig.presets + customThemes
+        StudioThemeConfig.presets
     }
     
     public init() {
-        // 1. Load custom themes from UserDefaults
-        var loadedCustomThemes: [StudioThemeConfig] = []
-        if let data = UserDefaults.standard.data(forKey: customThemesKey),
-           let decoded = try? JSONDecoder().decode([StudioThemeConfig].self, from: data) {
-            loadedCustomThemes = decoded
-        }
-        self.customThemes = loadedCustomThemes
-        
-        // 2. Load active theme
-        if let activeID = UserDefaults.standard.string(forKey: activeThemeKey),
-           activeID == "preset-nordic-slate" || activeID == "preset-studio-teal" {
-            // User had default Studio Teal or Nordic Slate; upgrade to new Studio Teal
-            self.currentTheme = StudioThemeConfig.studioTeal
+        if let activeID = UserDefaults.standard.string(forKey: activeThemeKey) {
+            if activeID == "preset-vivid" || activeID == "preset-broadcast-vivid" {
+                self.currentTheme = StudioThemeConfig.vivid
+            } else {
+                self.currentTheme = StudioThemeConfig.muted
+            }
         } else if let data = UserDefaults.standard.data(forKey: currentThemeDataKey),
-           let decoded = try? JSONDecoder().decode(StudioThemeConfig.self, from: data),
-           decoded.id != "preset-nordic-slate" {
-            self.currentTheme = decoded
-        } else if let activeID = UserDefaults.standard.string(forKey: activeThemeKey),
-                  let matched = (StudioThemeConfig.presets + loadedCustomThemes).first(where: { $0.id == activeID }) {
-            self.currentTheme = matched
+                  let decoded = try? JSONDecoder().decode(StudioThemeConfig.self, from: data) {
+            if decoded.id == "preset-vivid" || decoded.id == "preset-broadcast-vivid" {
+                self.currentTheme = StudioThemeConfig.vivid
+            } else {
+                self.currentTheme = StudioThemeConfig.muted
+            }
         } else {
-            self.currentTheme = StudioThemeConfig.studioTeal
+            self.currentTheme = StudioThemeConfig.muted
         }
     }
     
-    // MARK: - Mutating Actions
+    // MARK: - Actions
     
     public func applyTheme(_ theme: StudioThemeConfig) {
         self.currentTheme = theme
     }
     
-    public func updateColor(slot: AccentSlot, hex: String) {
-        var cleanHex = hex.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !cleanHex.hasPrefix("#") {
-            cleanHex = "#" + cleanHex
-        }
-        guard cleanHex.count == 7 else { return }
-        
-        var updated = currentTheme
-        switch slot {
-        case .green:
-            updated.greenHex = cleanHex.uppercased()
-        case .blue:
-            updated.blueHex = cleanHex.uppercased()
-        case .purple:
-            updated.purpleHex = cleanHex.uppercased()
-        case .red:
-            updated.redHex = cleanHex.uppercased()
-        }
-        // If current theme was a factory preset, editing its colors turns it into a custom state
-        if updated.isPreset {
-            updated.id = "custom-\(UUID().uuidString.prefix(8))"
-            updated.name = "\(currentTheme.name) (Customized)"
-            updated.isPreset = false
-        }
-        self.currentTheme = updated
-    }
-    
-    public func saveAsNewTheme(name: String) {
-        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
-        let themeName = trimmed.isEmpty ? "Custom Theme \(customThemes.count + 1)" : trimmed
-        
-        let newTheme = StudioThemeConfig(
-            id: "user-\(UUID().uuidString)",
-            name: themeName,
-            isPreset: false,
-            greenHex: currentTheme.greenHex,
-            blueHex: currentTheme.blueHex,
-            purpleHex: currentTheme.purpleHex,
-            redHex: currentTheme.redHex
-        )
-        
-        customThemes.append(newTheme)
-        currentTheme = newTheme
-    }
-    
-    public func deleteCustomTheme(id: String) {
-        customThemes.removeAll(where: { $0.id == id })
-        if currentTheme.id == id {
-            currentTheme = StudioThemeConfig.studioTeal
-        }
-    }
-    
     public func resetToDefault() {
-        self.currentTheme = StudioThemeConfig.studioTeal
+        self.currentTheme = StudioThemeConfig.muted
     }
     
     // MARK: - Persistence
@@ -261,12 +166,6 @@ public final class ThemeManager: ObservableObject {
         UserDefaults.standard.set(currentTheme.id, forKey: activeThemeKey)
         if let encoded = try? JSONEncoder().encode(currentTheme) {
             UserDefaults.standard.set(encoded, forKey: currentThemeDataKey)
-        }
-    }
-    
-    private func saveCustomThemes() {
-        if let encoded = try? JSONEncoder().encode(customThemes) {
-            UserDefaults.standard.set(encoded, forKey: customThemesKey)
         }
     }
 }

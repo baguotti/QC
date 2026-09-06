@@ -127,6 +127,50 @@ public final class PlayerSlot: ObservableObject {
     public let frameExtractor = FrameExtractor()
     public let player = AVPlayer()
     
+    public var aspectRatio: CGFloat {
+        if let item = player.currentItem, item.presentationSize.width > 0, item.presentationSize.height > 0 {
+            return item.presentationSize.width / item.presentationSize.height
+        }
+        if videoSize.width > 0 && videoSize.height > 0 {
+            return videoSize.width / videoSize.height
+        }
+        return 16.0 / 9.0
+    }
+    
+    public var aspectRatioDescription: String {
+        let w = Int(round(videoSize.width))
+        let h = Int(round(videoSize.height))
+        if w <= 0 || h <= 0 { return "--" }
+        
+        let aspect = Double(w) / Double(h)
+        if abs(aspect - 16.0 / 9.0) < 0.02 { return "16:9 (\(w)x\(h))" }
+        if abs(aspect - 9.0 / 16.0) < 0.02 { return "9:16 (\(w)x\(h))" }
+        if abs(aspect - 4.0 / 3.0) < 0.02 { return "4:3 (\(w)x\(h))" }
+        if abs(aspect - 1.0) < 0.02 { return "1:1 (\(w)x\(h))" }
+        if abs(aspect - 2.39) < 0.03 { return "2.39:1 (\(w)x\(h))" }
+        if abs(aspect - 2.35) < 0.03 { return "2.35:1 (\(w)x\(h))" }
+        if abs(aspect - 1.85) < 0.03 { return "1.85:1 (\(w)x\(h))" }
+        
+        let g = gcd(w, h)
+        let simpW = w / g
+        let simpH = h / g
+        if simpW <= 20 && simpH <= 20 {
+            return "\(simpW):\(simpH) (\(w)x\(h))"
+        }
+        return String(format: "%.2f:1 (%dx%d)", aspect, w, h)
+    }
+    
+    private func gcd(_ a: Int, _ b: Int) -> Int {
+        var x = abs(a)
+        var y = abs(b)
+        while y != 0 {
+            let t = y
+            y = x % y
+            x = t
+        }
+        return max(1, x)
+    }
+    
     public init(id: SlotTarget) {
         self.id = id
         player.automaticallyWaitsToMinimizeStalling = false
@@ -141,8 +185,44 @@ public final class PlayerEngine: ObservableObject {
     @Published public var slotA = PlayerSlot(id: .slotA)
     @Published public var slotB = PlayerSlot(id: .slotB)
     @Published public var activeTarget: SlotTarget = .slotA
-    @Published public var compareMode: CompareMode = .single
+    @Published public var compareMode: CompareMode = .single {
+        didSet {
+            if !hasMatchingAspectRatios && (compareMode == .splitVertical || compareMode == .splitHorizontal || compareMode == .difference || compareMode == .overlay) {
+                compareMode = .sideBySide
+            }
+        }
+    }
     @Published public var splitPosition: CGFloat = 0.5
+    
+    public var hasMatchingAspectRatios: Bool {
+        guard slotB.url != nil else { return true }
+        let aspectA = slotA.aspectRatio
+        let aspectB = slotB.aspectRatio
+        guard aspectA > 0, aspectB > 0 else { return true }
+        return abs(aspectA - aspectB) / max(aspectA, aspectB) < 0.02
+    }
+    
+    public var canUseSplitWipe: Bool {
+        return hasMatchingAspectRatios
+    }
+    
+    public func enforceCompatibleCompareMode() {
+        guard slotB.url != nil else {
+            if compareMode != .single {
+                compareMode = .single
+            }
+            return
+        }
+        if !hasMatchingAspectRatios {
+            if compareMode == .splitVertical || compareMode == .splitHorizontal || compareMode == .difference || compareMode == .overlay {
+                compareMode = .sideBySide
+            }
+        } else {
+            if compareMode == .single {
+                compareMode = .splitVertical
+            }
+        }
+    }
     @Published public var isLinked: Bool = true
     @Published public var audioSlot: SlotTarget = .slotA {
         didSet {
@@ -150,7 +230,7 @@ public final class PlayerEngine: ObservableObject {
         }
     }
     @Published public var isBlinkCompareB: Bool = false
-    @Published public var showClipNamesOverlay: Bool = true
+    @Published public var showClipNamesOverlay: Bool = false
     
     // MARK: - Backwards Compatible Single-Player Properties (Reflects Slot A / Master)
     
@@ -254,6 +334,20 @@ public final class PlayerEngine: ObservableObject {
     @Published public var markersMap: [URL: [PlayerTimelineMarker]] = [:]
     @Published public var activeMarkers: [PlayerTimelineMarker] = []
     private var pendingInitialSeekFrame: Int? = nil
+    private var pendingAutoplay: Bool = false
+    private var pendingAutoplayB: Bool = false
+    
+    // Autoplay on selection
+    @Published public var isAutoplayEnabled: Bool = {
+        if UserDefaults.standard.object(forKey: "isAutoplayEnabled") != nil {
+            return UserDefaults.standard.bool(forKey: "isAutoplayEnabled")
+        }
+        return true
+    }() {
+        didSet {
+            UserDefaults.standard.set(isAutoplayEnabled, forKey: "isAutoplayEnabled")
+        }
+    }
     
     // Audio
     @Published public var volume: Float = 1.0 {
@@ -328,25 +422,32 @@ public final class PlayerEngine: ObservableObject {
     
     // MARK: - Asset Loading
     
-    public func loadVideo(url: URL, into target: SlotTarget = .slotA, initialSeekFrame: Int? = nil) {
+    public func loadVideo(url: URL, into target: SlotTarget = .slotA, initialSeekFrame: Int? = nil, autoplay: Bool = false) {
+        let shouldAutoplay = autoplay && isAutoplayEnabled
         if target == .slotA || slotA.url == nil {
-            loadVideoIntoSlotA(url: url, initialSeekFrame: initialSeekFrame)
+            loadVideoIntoSlotA(url: url, initialSeekFrame: initialSeekFrame, autoplay: shouldAutoplay)
         } else {
-            loadVideoIntoSlotB(url: url)
+            loadVideoIntoSlotB(url: url, autoplay: shouldAutoplay)
         }
     }
     
-    private func loadVideoIntoSlotA(url: URL, initialSeekFrame: Int? = nil) {
+    private func loadVideoIntoSlotA(url: URL, initialSeekFrame: Int? = nil, autoplay: Bool = false) {
         self.activeMarkers = markersMap[url] ?? []
         
         if slotA.url == url {
             if let frame = initialSeekFrame {
                 seek(toFrame: frame)
+            } else if autoplay {
+                seek(toTime: .zero) { [weak self] in
+                    self?.play()
+                }
             }
             return
         }
         
         self.pendingInitialSeekFrame = initialSeekFrame
+        self.pendingAutoplay = autoplay
+        self.pendingAutoplayB = false
         pause()
         
         slotA.url = url
@@ -392,6 +493,12 @@ public final class PlayerEngine: ObservableObject {
                 guard let self = self else { return }
                 self.slotA.player.automaticallyWaitsToMinimizeStalling = false
                 self.slotA.player.preroll(atRate: 1.0) { _ in }
+                if self.pendingAutoplay {
+                    self.pendingAutoplay = false
+                    self.seek(toTime: .zero) { [weak self] in
+                        self?.play()
+                    }
+                }
             }
         
         Task {
@@ -401,11 +508,18 @@ public final class PlayerEngine: ObservableObject {
         updateAudioVolumes()
     }
     
-    private func loadVideoIntoSlotB(url: URL) {
+    private func loadVideoIntoSlotB(url: URL, autoplay: Bool = false) {
         if slotB.url == url {
+            if autoplay {
+                seek(toTime: .zero) { [weak self] in
+                    self?.play()
+                }
+            }
             return
         }
         
+        self.pendingAutoplayB = autoplay
+        self.pendingAutoplay = false
         pause()
         
         isSeekingB = false
@@ -434,6 +548,7 @@ public final class PlayerEngine: ObservableObject {
             .sink { [weak self] size in
                 guard let self = self, self.slotB.url == url else { return }
                 self.slotB.videoSize = size
+                self.enforceCompatibleCompareMode()
             }
         
         itemStatusCancellableB = item.publisher(for: \.status)
@@ -445,15 +560,19 @@ public final class PlayerEngine: ObservableObject {
                 self.slotB.player.automaticallyWaitsToMinimizeStalling = false
                 self.slotB.player.preroll(atRate: 1.0) { _ in }
                 self.syncSlotBToMaster()
+                if self.pendingAutoplayB {
+                    self.pendingAutoplayB = false
+                    self.seek(toTime: .zero) { [weak self] in
+                        self?.play()
+                    }
+                }
             }
         
         Task {
             await extractMetadata(asset: asset, for: .slotB)
         }
         
-        if compareMode == .single {
-            compareMode = .splitVertical
-        }
+        enforceCompatibleCompareMode()
         
         updateAudioVolumes()
     }
@@ -517,7 +636,10 @@ public final class PlayerEngine: ObservableObject {
                     self.pendingInitialSeekFrame = nil
                     self.seek(toFrame: frame)
                 }
-                self.currentTimecode = TimecodeFormatter.format(time: .zero, fps: detectedFps)
+                if !self.isPlaying {
+                    self.currentTimecode = TimecodeFormatter.format(time: self.currentTime, fps: detectedFps)
+                }
+                self.enforceCompatibleCompareMode()
             } else {
                 self.slotB.duration = dur
                 self.slotB.fps = detectedFps
@@ -526,6 +648,7 @@ public final class PlayerEngine: ObservableObject {
                 self.slotB.videoSize = detectedSize
                 self.slotB.totalFrames = totFrames
                 self.syncSlotBToMaster()
+                self.enforceCompatibleCompareMode()
             }
         } catch {
             print("[PlayerEngine] Error loading metadata: \(error)")
@@ -578,6 +701,7 @@ public final class PlayerEngine: ObservableObject {
     
     public func swapSlots() {
         guard slotA.url != nil || slotB.url != nil else { return }
+        let wasPlaying = self.isPlaying
         pause()
         
         let tempURL_A = slotA.url
@@ -602,6 +726,15 @@ public final class PlayerEngine: ObservableObject {
         let tempTime_B = slotB.player.currentTime()
         
         // Detach both current items first to prevent NSInvalidArgumentException
+        itemStatusCancellable?.cancel()
+        itemStatusCancellable = nil
+        itemPresentationSizeCancellable?.cancel()
+        itemPresentationSizeCancellable = nil
+        itemStatusCancellableB?.cancel()
+        itemStatusCancellableB = nil
+        itemPresentationSizeCancellableB?.cancel()
+        itemPresentationSizeCancellableB = nil
+        
         slotA.player.replaceCurrentItem(with: nil)
         slotB.player.replaceCurrentItem(with: nil)
         
@@ -624,6 +757,27 @@ public final class PlayerEngine: ObservableObject {
             itemA.canUseNetworkResourcesForLiveStreamingWhilePaused = false
             slotA.player.replaceCurrentItem(with: itemA)
             slotA.player.seek(to: tempTime_B, toleranceBefore: .zero, toleranceAfter: .zero)
+            updateComposition(for: slotA)
+            
+            itemPresentationSizeCancellable = itemA.publisher(for: \.presentationSize)
+                .receive(on: DispatchQueue.main)
+                .filter { $0.width > 0 && $0.height > 0 }
+                .first()
+                .sink { [weak self] size in
+                    guard let self = self, self.slotA.url == urlA else { return }
+                    self.slotA.videoSize = size
+                    self.videoSize = size
+                }
+            
+            itemStatusCancellable = itemA.publisher(for: \.status)
+                .receive(on: DispatchQueue.main)
+                .filter { $0 == .readyToPlay }
+                .first()
+                .sink { [weak self] _ in
+                    guard let self = self else { return }
+                    self.slotA.player.automaticallyWaitsToMinimizeStalling = false
+                    self.slotA.player.preroll(atRate: 1.0) { _ in }
+                }
         }
         
         slotB.url = tempURL_A
@@ -640,6 +794,27 @@ public final class PlayerEngine: ObservableObject {
             itemB.canUseNetworkResourcesForLiveStreamingWhilePaused = false
             slotB.player.replaceCurrentItem(with: itemB)
             slotB.player.seek(to: tempTime_A, toleranceBefore: .zero, toleranceAfter: .zero)
+            updateComposition(for: slotB)
+            
+            itemPresentationSizeCancellableB = itemB.publisher(for: \.presentationSize)
+                .receive(on: DispatchQueue.main)
+                .filter { $0.width > 0 && $0.height > 0 }
+                .first()
+                .sink { [weak self] size in
+                    guard let self = self, self.slotB.url == urlB else { return }
+                    self.slotB.videoSize = size
+                    self.enforceCompatibleCompareMode()
+                }
+            
+            itemStatusCancellableB = itemB.publisher(for: \.status)
+                .receive(on: DispatchQueue.main)
+                .filter { $0 == .readyToPlay }
+                .first()
+                .sink { [weak self] _ in
+                    guard let self = self else { return }
+                    self.slotB.player.automaticallyWaitsToMinimizeStalling = false
+                    self.slotB.player.preroll(atRate: 1.0) { _ in }
+                }
         }
         
         Task { [slotA, slotB] in
@@ -665,10 +840,16 @@ public final class PlayerEngine: ObservableObject {
         
         if slotB.url == nil {
             compareMode = .single
+        } else {
+            enforceCompatibleCompareMode()
         }
         
         updateCurrentTime(time: slotA.player.currentTime())
         updateAudioVolumes()
+        
+        if wasPlaying {
+            self.play()
+        }
     }
     
     public func clearSlotB() {
@@ -693,6 +874,7 @@ public final class PlayerEngine: ObservableObject {
         compareMode = .single
         audioSlot = .slotA
         isBlinkCompareB = false
+        pendingAutoplayB = false
         updateAudioVolumes()
     }
     
@@ -703,6 +885,7 @@ public final class PlayerEngine: ObservableObject {
         itemStatusCancellable = nil
         itemPresentationSizeCancellable?.cancel()
         itemPresentationSizeCancellable = nil
+        pendingAutoplay = false
         slotA.url = nil
         slotA.fileName = ""
         slotA.resolution = ""
@@ -737,10 +920,14 @@ public final class PlayerEngine: ObservableObject {
     
     public func cycleCompareMode() {
         guard slotB.url != nil else { return }
-        let all = CompareMode.allCases
-        if let idx = all.firstIndex(of: compareMode) {
-            let nextIdx = (idx + 1) % all.count
-            compareMode = all[nextIdx]
+        let validModes: [CompareMode] = hasMatchingAspectRatios
+            ? CompareMode.allCases
+            : [.sideBySide, .sideBySideVertical, .single]
+        if let idx = validModes.firstIndex(of: compareMode) {
+            let nextIdx = (idx + 1) % validModes.count
+            compareMode = validModes[nextIdx]
+        } else {
+            compareMode = validModes.first ?? .sideBySide
         }
     }
     

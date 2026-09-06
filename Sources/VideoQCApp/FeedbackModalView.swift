@@ -77,11 +77,12 @@ struct FeedbackModalView: View {
     var body: some View {
         ZStack {
             // Backdrop Scrim
-            Color.black.opacity(0.65)
+            Color.black.opacity(isPresented ? 0.65 : 0.0)
                 .edgesIgnoringSafeArea(.all)
+                .allowsHitTesting(isPresented)
                 .onTapGesture {
                     if !isSending {
-                        isPresented = false
+                        dismissModal()
                     }
                 }
             
@@ -107,7 +108,7 @@ struct FeedbackModalView: View {
                     Spacer()
                     Button(action: {
                         if !isSending {
-                            isPresented = false
+                            dismissModal()
                         }
                     }) {
                         Text("CLOSE (ESC)")
@@ -321,7 +322,7 @@ struct FeedbackModalView: View {
                         .buttonStyle(.plain)
                         .disabled(isSendDisabled)
                     } else {
-                        Button(action: { isPresented = false }) {
+                        Button(action: { dismissModal() }) {
                             Text("DONE")
                                 .font(.system(size: 10, weight: .heavy, design: .monospaced))
                                 .padding(.horizontal, 16)
@@ -339,6 +340,19 @@ struct FeedbackModalView: View {
             .frame(width: 580)
             .studioBox(background: bgMain, border: borderStrong)
             .shadow(color: Color.black.opacity(0.4), radius: 24, x: 0, y: 12)
+        }
+        .allowsHitTesting(isPresented)
+    }
+    
+    private func dismissModal() {
+        withAnimation(.easeInOut(duration: 0.15)) {
+            isPresented = false
+        }
+        DispatchQueue.main.async {
+            if let window = NSApp.windows.first(where: { $0.canBecomeKey }) {
+                window.makeKeyAndOrderFront(nil)
+                window.makeFirstResponder(nil)
+            }
         }
     }
     

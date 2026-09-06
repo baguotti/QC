@@ -15,29 +15,11 @@ Video QC, metadata inspection, and batch renaming for macOS (Apple Silicon).
 
 ## What Each Tab Does
 
-### 01 // LINE SCANNER
-Scans video frames for edge line glitches, matte slips, and blanking errors.
-- **[ + CHOOSE FOLDER / FILES ]:** Selects or drags in video files or folders to scan.
-- **Color Picker & Hex:** Sets the RGB target color for edge line detection.
-- **Color Presets:** One-click targets: Green (#00FF00), Magenta (#FF00B4), Black (#000000), or Custom Color Wheel.
-- **Tolerance Slider:** Sets color match sensitivity (5–50%).
-- **Head Skip:** Skips the first X seconds of video (ignores slates/countdowns).
-- **Edge Depth:** Number of pixels inward from outer frame boundary to inspect (2–40px). All 4 borders are always scanned.
-- **Scan Full Screen:** Toggles full-frame inspection for internal split-screen dividing lines and PIP seams.
-- **10X Exposure Boost:** Brightens shadows during black scans to prevent dark scenes from being flagged.
-- **Ignore Full Black Frames:** Skips full black frames (fades, commercial breaks).
-- **[ START QC SCAN ]:** Starts frame-by-frame analysis.
-- **Finder Red Tagging:** Automatically applies a macOS Red Tag to flagged video files in Finder.
-- **Glitch List & Frame Viewer:** Click any detected error to view the exact frame, timecode, and red bounding box.
-- **Save HTML / Export CSV:** Exports scan results as an interactive HTML page or CSV table.
-
----
-
-### 02 // PLAYER
+### 01 // PLAYER
 High-performance delivery playback and inspection engine mimicking Adobe Premiere Pro's Program Monitor.
 - **[ + SELECT FILES OR FOLDER ] / Queue:** Left sidebar displays all video files in batch with instant switching and name filtering.
 - **Queue Navigation:** Press `Up Arrow` (↑) and `Down Arrow` (↓) to quickly cycle through all deliverables in the queue, automatically loading each into the player.
-- **Jump to Next Line Finding (`NEXT LINE` or `N`):** Automatically cycles through all line glitches detected in Tab 1 across all deliverables, seeking frame-accurately and pausing playback for inspection.
+- **Jump to Next Line Finding (`NEXT LINE` or `N`):** Automatically cycles through all line glitches detected in Tab 3 across all deliverables, seeking frame-accurately and pausing playback for inspection.
 - **Native macOS Finder Color Tags (`TAGS` / Right-Click):** Tag any deliverable with native macOS Finder color tags (Red, Orange, Yellow, Green, Blue, Purple, Gray) via the `[ TAGS ]` popover in the transport bar or by right-clicking on any asset in the queue. Tags are applied directly to files on disk in macOS Finder.
 - **Center Crosshair Overlay:** Toggle button (`CROSSHAIR: ON/OFF`) draws a pixel-accurate top-to-bottom and left-to-right crosshair guide with a center reticle to verify element centering.
 - **J-K-L Shuttling:** Tap `L` to shuttle forward (1x, 2x, 4x, 8x, 16x), `K` to pause, `J` to shuttle reverse (-1x, -2x, -4x, -8x, -16x).
@@ -53,7 +35,7 @@ High-performance delivery playback and inspection engine mimicking Adobe Premier
 
 ---
 
-### 03 // DELIVERABLES SPECS
+### 02 // SPECS
 Reads container metadata across multiple files without decoding video frames.
 - **[ + SELECT DELIVERY FOLDER / FILES ]:** Loads files or folders for inspection.
 - **File Name:** Name of the file.
@@ -67,6 +49,24 @@ Reads container metadata across multiple files without decoding video frames.
 - **[ EXPORT CSV ]:** Exports the specs table to a CSV file.
 - **[ OPEN IN GOOGLE SHEETS ]:** Copies tab-separated data to clipboard and opens Google Sheets.
 - **[ EXPORT HTML SPECS SHEET ]:** Exports a styled HTML report.
+
+---
+
+### 03 // LINE FINDER
+Scans video frames for edge line glitches, matte slips, and blanking errors.
+- **[ + CHOOSE FOLDER / FILES ]:** Selects or drags in video files or folders to scan.
+- **Color Picker & Hex:** Sets the RGB target color for edge line detection.
+- **Color Presets:** One-click targets: Green (#00FF00), Magenta (#FF00B4), Black (#000000), or Custom Color Wheel.
+- **Tolerance Slider:** Sets color match sensitivity (5–50%).
+- **Head Skip:** Skips the first X seconds of video (ignores slates/countdowns).
+- **Edge Depth:** Number of pixels inward from outer frame boundary to inspect (2–40px). All 4 borders are always scanned.
+- **Scan Full Screen:** Toggles full-frame inspection for internal split-screen dividing lines and PIP seams.
+- **10X Exposure Boost:** Brightens shadows during black scans to prevent dark scenes from being flagged.
+- **Ignore Full Black Frames:** Skips full black frames (fades, commercial breaks).
+- **[ START QC SCAN ]:** Starts frame-by-frame analysis.
+- **Finder Red Tagging:** Automatically applies a macOS Red Tag to flagged video files in Finder.
+- **Glitch List & Frame Viewer:** Click any detected error to view the exact frame, timecode, and red bounding box.
+- **Save HTML / Export CSV:** Exports scan results as an interactive HTML page or CSV table.
 
 ---
 

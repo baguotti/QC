@@ -3,14 +3,14 @@ import VideoQCLib
 
 extension ContentView {
     
-    // MARK: ==================== TAB 3: DELIVERABLES SPECS ====================
+    // MARK: ==================== TAB 2: SPECS ====================
     
     var deliverablesTabView: some View {
         HSplitView {
             // Left Control Panel
             VStack(alignment: .leading, spacing: 18) {
                 // Unified Asset Picker
-                deliveryAssetsSection(forTab: .deliverables)
+                deliveryAssetsSection(forTab: .specs)
                 
                 // Actions
                 VStack(alignment: .leading, spacing: 10) {

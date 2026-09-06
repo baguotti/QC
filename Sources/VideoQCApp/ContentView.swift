@@ -7,7 +7,7 @@ import VideoQCLib
 
 struct ContentView: View {
     @AppStorage("isLightMode") var isLightMode: Bool = false
-    @State var selectedTab: AppTab = .lineScanner
+    @State var selectedTab: AppTab = .player
     @State var showUserGuide: Bool = false
     @State var showFeedbackModal: Bool = false
     @State var showShortcutsModal: Bool = false
@@ -21,7 +21,23 @@ struct ContentView: View {
     @State var folderURL: URL? = nil
     @State var videoFiles: [URL] = []
     
-    // MARK: - Tab 1: Line Scanner State
+    // MARK: - Tab 1: Player State
+    @StateObject var playerEngine = PlayerEngine()
+    @State var playerFilterText: String = ""
+    @State var playerCollapsedFolderIDs: Set<String> = []
+    @State var fileTagsMap: [URL: FinderTagColor] = [:]
+    @State var showTagPickerPopover: Bool = false
+    @State private var hasSetupKeyboardMonitor: Bool = false
+    @State private var eventMonitors = EventMonitorCoordinator()
+    
+    // MARK: - Tab 2: Specs State
+    @State var deliverableAssets: [DeliverableAsset] = []
+    @State var isInspectingDeliverables: Bool = false
+    @State var manifestCSVURL: URL? = nil
+    @State var manifestHTMLURL: URL? = nil
+    @State var deliverablesCollapsedFolderIDs: Set<String> = []
+    
+    // MARK: - Tab 3: Line Finder State
     @State var hexCode: String = "#00FF00"
     @State var tolerancePercentage: Double = 25.0
     @State var edgeDepth: Int = 12
@@ -39,13 +55,6 @@ struct ContentView: View {
     @State var generatedReportURL: URL? = nil
     @State var generatedCSVURL: URL? = nil
     @State var scannerActor: VideoScanner? = nil
-    
-    // MARK: - Tab 3: Deliverables Specs State
-    @State var deliverableAssets: [DeliverableAsset] = []
-    @State var isInspectingDeliverables: Bool = false
-    @State var manifestCSVURL: URL? = nil
-    @State var manifestHTMLURL: URL? = nil
-    @State var deliverablesCollapsedFolderIDs: Set<String> = []
     
     // MARK: - Tab 4: Batch Renamer State
     @State var renamerCollapsedFolderIDs: Set<String> = []
@@ -69,15 +78,6 @@ struct ContentView: View {
     // MARK: - Folder Grouping State
     @State var hideAllFolders: Bool = false
     @State var hiddenFolderIDs: Set<String> = []
-    
-    // MARK: - Tab 2: Player State
-    @StateObject var playerEngine = PlayerEngine()
-    @State var playerFilterText: String = ""
-    @State var playerCollapsedFolderIDs: Set<String> = []
-    @State var fileTagsMap: [URL: FinderTagColor] = [:]
-    @State var showTagPickerPopover: Bool = false
-    @State private var hasSetupKeyboardMonitor: Bool = false
-    @State private var eventMonitors = EventMonitorCoordinator()
     
     final class EventMonitorCoordinator {
         var mouseMonitor: Any? = nil
@@ -199,12 +199,12 @@ struct ContentView: View {
                 
                 // 3. Main Tab Content
                 switch selectedTab {
-                case .lineScanner:
-                    lineScannerTabView
                 case .player:
                     playerTabView
-                case .deliverables:
+                case .specs:
                     deliverablesTabView
+                case .lineFinder:
+                    lineScannerTabView
                 case .batchRenamer:
                     batchRenamerTabView
                 }
@@ -249,6 +249,7 @@ struct ContentView: View {
                 UserGuideView(isPresented: $showUserGuide)
                     .transition(.opacity.combined(with: .scale(scale: 0.98)))
                     .zIndex(100)
+                    .allowsHitTesting(showUserGuide)
             }
             
             // Feedback Form Overlay Modal
@@ -256,6 +257,7 @@ struct ContentView: View {
                 FeedbackModalView(isPresented: $showFeedbackModal)
                     .transition(.opacity.combined(with: .scale(scale: 0.98)))
                     .zIndex(150)
+                    .allowsHitTesting(showFeedbackModal)
             }
             
             // Keyboard Shortcuts Overlay Modal
@@ -263,6 +265,7 @@ struct ContentView: View {
                 ShortcutsModalView(isPresented: $showShortcutsModal)
                     .transition(.opacity.combined(with: .scale(scale: 0.98)))
                     .zIndex(155)
+                    .allowsHitTesting(showShortcutsModal)
             }
             
             // Theme & Accent Colors Overlay Modal
@@ -270,6 +273,7 @@ struct ContentView: View {
                 ThemeSettingsModalView(isPresented: $showThemeModal)
                     .transition(.opacity.combined(with: .scale(scale: 0.98)))
                     .zIndex(158)
+                    .allowsHitTesting(showThemeModal)
             }
             
             // Software Update Overlay Modal
@@ -277,6 +281,7 @@ struct ContentView: View {
                 UpdateModalView(updateManager: updateManager, isPresented: $updateManager.showModal)
                     .transition(.opacity.combined(with: .scale(scale: 0.98)))
                     .zIndex(160)
+                    .allowsHitTesting(updateManager.showModal)
             }
             
             // Dedicated Fullscreen Video Player Presentation
@@ -295,6 +300,56 @@ struct ContentView: View {
         .animation(.easeInOut(duration: 0.15), value: showShortcutsModal)
         .animation(.easeInOut(duration: 0.15), value: showThemeModal)
         .animation(.easeInOut(duration: 0.15), value: fullscreenMode)
+        .onChange(of: showThemeModal) { _, newValue in
+            if !newValue {
+                DispatchQueue.main.async {
+                    if let window = NSApp.windows.first(where: { $0.canBecomeKey }) {
+                        window.makeKeyAndOrderFront(nil)
+                        window.makeFirstResponder(nil)
+                    }
+                }
+            }
+        }
+        .onChange(of: showUserGuide) { _, newValue in
+            if !newValue {
+                DispatchQueue.main.async {
+                    if let window = NSApp.windows.first(where: { $0.canBecomeKey }) {
+                        window.makeKeyAndOrderFront(nil)
+                        window.makeFirstResponder(nil)
+                    }
+                }
+            }
+        }
+        .onChange(of: showFeedbackModal) { _, newValue in
+            if !newValue {
+                DispatchQueue.main.async {
+                    if let window = NSApp.windows.first(where: { $0.canBecomeKey }) {
+                        window.makeKeyAndOrderFront(nil)
+                        window.makeFirstResponder(nil)
+                    }
+                }
+            }
+        }
+        .onChange(of: showShortcutsModal) { _, newValue in
+            if !newValue {
+                DispatchQueue.main.async {
+                    if let window = NSApp.windows.first(where: { $0.canBecomeKey }) {
+                        window.makeKeyAndOrderFront(nil)
+                        window.makeFirstResponder(nil)
+                    }
+                }
+            }
+        }
+        .onChange(of: updateManager.showModal) { _, newValue in
+            if !newValue {
+                DispatchQueue.main.async {
+                    if let window = NSApp.windows.first(where: { $0.canBecomeKey }) {
+                        window.makeKeyAndOrderFront(nil)
+                        window.makeFirstResponder(nil)
+                    }
+                }
+            }
+        }
         .onReceive(NotificationCenter.default.publisher(for: NSWindow.didExitFullScreenNotification)) { _ in
             if fullscreenMode != .none {
                 fullscreenMode = .none
@@ -347,7 +402,7 @@ struct ContentView: View {
                         .tracking(1.5)
                         .foregroundColor(textMain)
                     
-                    Text("STUDIO QC • FRAME AUDIT • ASSET SPECS • BATCH RENAMER")
+                    Text("STUDIO PLAYER • ASSET SPECS • LINE FINDER • BATCH RENAMER")
                         .font(.system(size: 9, weight: .bold, design: .monospaced))
                         .foregroundColor(textMuted)
                         .tracking(0.5)
@@ -408,7 +463,9 @@ struct ContentView: View {
                     VStack(alignment: .leading, spacing: 4) {
                         Button(action: {
                             showSettingsPopover = false
-                            updateManager.checkForUpdates(userInitiated: true)
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) {
+                                updateManager.checkForUpdates(userInitiated: true)
+                            }
                         }) {
                             HStack(spacing: 8) {
                                 Image(systemName: updateManager.hasUpdate ? "arrow.down.circle.fill" : "arrow.triangle.2.circlepath")
@@ -430,7 +487,11 @@ struct ContentView: View {
                         
                         Button(action: {
                             showSettingsPopover = false
-                            showThemeModal = true
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) {
+                                withAnimation(.easeInOut(duration: 0.15)) {
+                                    showThemeModal = true
+                                }
+                            }
                         }) {
                             HStack(spacing: 8) {
                                 Image(systemName: "paintpalette.fill")
@@ -465,7 +526,11 @@ struct ContentView: View {
                         
                         Button(action: {
                             showSettingsPopover = false
-                            showUserGuide.toggle()
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) {
+                                withAnimation(.easeInOut(duration: 0.15)) {
+                                    showUserGuide = true
+                                }
+                            }
                         }) {
                             HStack(spacing: 8) {
                                 Image(systemName: "info.circle")
@@ -487,7 +552,11 @@ struct ContentView: View {
                         
                         Button(action: {
                             showSettingsPopover = false
-                            showFeedbackModal = true
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) {
+                                withAnimation(.easeInOut(duration: 0.15)) {
+                                    showFeedbackModal = true
+                                }
+                            }
                         }) {
                             HStack(spacing: 8) {
                                 Image(systemName: "envelope")
@@ -532,10 +601,10 @@ struct ContentView: View {
     
     private func tabWidth(for tab: AppTab) -> CGFloat {
         switch tab {
-        case .lineScanner: return 260
-        case .deliverables: return 165
-        case .batchRenamer: return 220
         case .player: return 165
+        case .specs: return 165
+        case .lineFinder: return 260
+        case .batchRenamer: return 220
         }
     }
     
@@ -544,7 +613,7 @@ struct ContentView: View {
             ForEach(AppTab.allCases) { tab in
                 Button(action: {
                     selectedTab = tab
-                    if (tab == .deliverables || tab == .batchRenamer) && deliverableAssets.isEmpty && !videoFiles.isEmpty {
+                    if (tab == .specs || tab == .batchRenamer) && deliverableAssets.isEmpty && !videoFiles.isEmpty {
                         inspectDeliverablesBatch(urls: videoFiles)
                     } else if tab == .player && playerEngine.activeURL == nil, let first = videoFiles.first {
                         playerEngine.loadVideo(url: first)
@@ -563,7 +632,7 @@ struct ContentView: View {
                         
                         Spacer(minLength: 6)
                         
-                        if (tab == .deliverables || tab == .batchRenamer) && !deliverableAssets.isEmpty {
+                        if (tab == .specs || tab == .batchRenamer) && !deliverableAssets.isEmpty {
                             Text("[\(deliverableAssets.count)]")
                                 .font(.system(size: 10, weight: .bold, design: .monospaced))
                                 .foregroundColor(selectedTab == tab ? primaryBtnFg : textSubtle)
@@ -575,7 +644,7 @@ struct ContentView: View {
                                 .foregroundColor(selectedTab == tab ? primaryBtnFg : textSubtle)
                                 .lineLimit(1)
                                 .fixedSize(horizontal: true, vertical: false)
-                        } else if tab == .lineScanner && !scanResults.isEmpty {
+                        } else if tab == .lineFinder && !scanResults.isEmpty {
                             let flaggedCount = scanResults.filter { $0.isFlagged }.count
                             Text(flaggedCount > 0 ? "[\(flaggedCount) FLAGGED]" : "[PASSED]")
                                 .font(.system(size: 10, weight: .bold, design: .monospaced))
@@ -592,9 +661,9 @@ struct ContentView: View {
                 }
                 .buttonStyle(.plain)
                 .explain(
-                    tab == .lineScanner ? "01 // LINE SCANNER: Scans video frames for edge line glitches and blanking errors." :
-                    (tab == .player ? "02 // PLAYER: High-performance delivery playback with J-K-L shuttle, timeline scrubbing, and zoom." :
-                     (tab == .deliverables ? "03 // DELIVERABLES SPECS: Reads container resolution, timecode, audio, and codecs." :
+                    tab == .player ? "01 // PLAYER: High-performance delivery playback with J-K-L shuttle, timeline scrubbing, and zoom." :
+                    (tab == .specs ? "02 // SPECS: Reads container resolution, timecode, audio, and codecs." :
+                     (tab == .lineFinder ? "03 // LINE FINDER: Scans video frames for edge line glitches and blanking errors." :
                       "04 // BATCH RENAMER: Renames files using inspected video metadata and custom templates.")),
                     binding: $hoverExplanation
                 )
@@ -1331,10 +1400,36 @@ struct ContentView: View {
                 return event
             }
             
-            // ESC key: Dismiss shortcuts modal or exit fullscreen
+            // ESC key: Dismiss any active modal or exit fullscreen
             if event.keyCode == 53 {
+                if self.showThemeModal {
+                    withAnimation(.easeInOut(duration: 0.15)) {
+                        self.showThemeModal = false
+                    }
+                    return nil
+                }
                 if self.showShortcutsModal {
-                    self.showShortcutsModal = false
+                    withAnimation(.easeInOut(duration: 0.15)) {
+                        self.showShortcutsModal = false
+                    }
+                    return nil
+                }
+                if self.showUserGuide {
+                    withAnimation(.easeInOut(duration: 0.15)) {
+                        self.showUserGuide = false
+                    }
+                    return nil
+                }
+                if self.showFeedbackModal {
+                    withAnimation(.easeInOut(duration: 0.15)) {
+                        self.showFeedbackModal = false
+                    }
+                    return nil
+                }
+                if self.updateManager.showModal {
+                    withAnimation(.easeInOut(duration: 0.15)) {
+                        self.updateManager.showModal = false
+                    }
                     return nil
                 }
                 if self.fullscreenMode != .none {
@@ -1343,8 +1438,8 @@ struct ContentView: View {
                 }
             }
             
-            // If shortcuts modal is active, block background player controls
-            if self.showShortcutsModal {
+            // If any modal is active, block background player controls
+            if self.showShortcutsModal || self.showThemeModal || self.showUserGuide || self.showFeedbackModal || self.updateManager.showModal {
                 return event
             }
             
@@ -1455,11 +1550,11 @@ struct ContentView: View {
             let prevIdx = max(0, idx - 1)
             let selectedURL = files[prevIdx]
             revealPlayerFolderContaining(url: selectedURL)
-            playerEngine.loadVideo(url: selectedURL, into: target)
+            playerEngine.loadVideo(url: selectedURL, into: target, autoplay: true)
         } else {
             let selectedURL = files[0]
             revealPlayerFolderContaining(url: selectedURL)
-            playerEngine.loadVideo(url: selectedURL, into: target)
+            playerEngine.loadVideo(url: selectedURL, into: target, autoplay: true)
         }
     }
     
@@ -1472,11 +1567,11 @@ struct ContentView: View {
             let nextIdx = min(files.count - 1, idx + 1)
             let selectedURL = files[nextIdx]
             revealPlayerFolderContaining(url: selectedURL)
-            playerEngine.loadVideo(url: selectedURL, into: target)
+            playerEngine.loadVideo(url: selectedURL, into: target, autoplay: true)
         } else {
             let selectedURL = files[0]
             revealPlayerFolderContaining(url: selectedURL)
-            playerEngine.loadVideo(url: selectedURL, into: target)
+            playerEngine.loadVideo(url: selectedURL, into: target, autoplay: true)
         }
     }
     
@@ -1490,7 +1585,7 @@ struct ContentView: View {
         selectedTab = .player
     }
     
-    // MARK: - Next Line Finding Cycler (Tab 1 Findings)
+    // MARK: - Next Line Finding Cycler (Tab 3 Findings)
     
     func jumpToNextGlitchFinding() {
         var allGlitches: [(url: URL, frameIndex: Int, timecode: String, label: String)] = []
@@ -1530,7 +1625,7 @@ struct ContentView: View {
         jumpToGlitchInPlayer(fileURL: target.url, frameIndex: target.frameIndex)
     }
     
-    // MARK: - Previous Line Finding Cycler (Tab 1 Findings)
+    // MARK: - Previous Line Finding Cycler (Tab 3 Findings)
     
     func jumpToPreviousGlitchFinding() {
         var allGlitches: [(url: URL, frameIndex: Int, timecode: String, label: String)] = []

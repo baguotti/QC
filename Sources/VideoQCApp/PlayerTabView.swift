@@ -108,7 +108,7 @@ struct ExposureScrubberView: View {
 
 extension ContentView {
     
-    // MARK: ==================== TAB 2: PREMIERE-STYLE PLAYER ====================
+    // MARK: ==================== TAB 1: PLAYER ====================
     
     var playerTabView: some View {
         HSplitView {
@@ -172,6 +172,25 @@ extension ContentView {
                         }
                         
                         Spacer()
+                        
+                        // Autoplay Toggle Button
+                        Button(action: {
+                            playerEngine.isAutoplayEnabled.toggle()
+                        }) {
+                            HStack(spacing: 3) {
+                                Image(systemName: playerEngine.isAutoplayEnabled ? "play.fill" : "play.slash.fill")
+                                    .font(.system(size: 7, weight: .bold))
+                                Text("AUTO")
+                                    .font(.system(size: 8, weight: .black, design: .monospaced))
+                            }
+                            .padding(.horizontal, 4)
+                            .frame(height: 18)
+                            .foregroundColor(playerEngine.isAutoplayEnabled ? accentPositive : textMuted)
+                            .studioBox(background: playerEngine.isAutoplayEnabled ? accentPositive.opacity(0.18) : bgSubtle,
+                                       border: playerEngine.isAutoplayEnabled ? accentPositive : borderLine)
+                        }
+                        .buttonStyle(.plain)
+                        .explain(playerEngine.isAutoplayEnabled ? "Autoplay: ON (Videos play from start when clicked or navigating with ↑/↓)" : "Autoplay: OFF (Videos load paused at frame 0)", binding: $hoverExplanation)
                         
                         // Slot Target Selector
                         HStack(spacing: 3) {
@@ -476,9 +495,9 @@ extension ContentView {
             // Row Click to Load
             Button(action: {
                 if NSEvent.modifierFlags.contains(.option) {
-                    playerEngine.loadVideo(url: url, into: .slotB)
+                    playerEngine.loadVideo(url: url, into: .slotB, autoplay: true)
                 } else {
-                    playerEngine.loadVideo(url: url, into: playerEngine.activeTarget)
+                    playerEngine.loadVideo(url: url, into: playerEngine.activeTarget, autoplay: true)
                 }
             }) {
                 HStack(spacing: 8) {
@@ -542,7 +561,7 @@ extension ContentView {
                         .foregroundColor(accentPositive)
                         .studioBox(background: accentPositive.opacity(0.18), border: accentPositive.opacity(0.8))
                 } else {
-                    Button(action: { playerEngine.loadVideo(url: url, into: .slotA) }) {
+                    Button(action: { playerEngine.loadVideo(url: url, into: .slotA, autoplay: true) }) {
                         Text("+A")
                             .font(.system(size: 8, weight: .bold, design: .monospaced))
                             .padding(.horizontal, 4)
@@ -573,7 +592,7 @@ extension ContentView {
                         .explain("Clear Slot B", binding: $hoverExplanation)
                     }
                 } else {
-                    Button(action: { playerEngine.loadVideo(url: url, into: .slotB) }) {
+                    Button(action: { playerEngine.loadVideo(url: url, into: .slotB, autoplay: true) }) {
                         Text("+B")
                             .font(.system(size: 8, weight: .bold, design: .monospaced))
                             .padding(.horizontal, 4)
@@ -603,10 +622,10 @@ extension ContentView {
             }
             Divider()
             Button("Set as Slot A (Master)") {
-                playerEngine.loadVideo(url: url, into: .slotA)
+                playerEngine.loadVideo(url: url, into: .slotA, autoplay: true)
             }
             Button("Set as Slot B (Compare)") {
-                playerEngine.loadVideo(url: url, into: .slotB)
+                playerEngine.loadVideo(url: url, into: .slotB, autoplay: true)
             }
             if playerEngine.slotB.url != nil {
                 Divider()
@@ -1331,17 +1350,40 @@ struct PlayerComparisonBar: View {
     }
     
     private func modeBtn(mode: CompareMode, icon: String, helpText: String) -> some View {
+        let requiresMatching = (mode == .splitVertical || mode == .splitHorizontal || mode == .difference || mode == .overlay)
+        let isLocked = engine.slotB.url != nil && requiresMatching && !engine.hasMatchingAspectRatios
         let isActive = engine.compareMode == mode
+        
+        let explanationText: String
+        if isLocked {
+            let descA = engine.slotA.aspectRatioDescription
+            let descB = engine.slotB.aspectRatioDescription
+            explanationText = "Locked: Split wipe and overlay modes require matching aspect ratios. Slot A is \(descA), Slot B is \(descB). Use Side-by-Side (H) or (V) to compare."
+        } else {
+            explanationText = helpText
+        }
+        
         return Button(action: {
+            if isLocked { return }
             engine.compareMode = mode
             onInteraction?()
         }) {
-            modeIconView(mode: mode, icon: icon, isActive: isActive)
-                .frame(width: 26, height: 26)
-                .contentShape(Rectangle())
+            ZStack(alignment: .topTrailing) {
+                modeIconView(mode: mode, icon: icon, isActive: isActive)
+                    .frame(width: 26, height: 26)
+                    .contentShape(Rectangle())
+                    .opacity(isLocked ? 0.35 : 1.0)
+                
+                if isLocked {
+                    Image(systemName: "lock.fill")
+                        .font(.system(size: 6.5, weight: .bold))
+                        .foregroundColor(textMuted.opacity(0.85))
+                        .offset(x: -1, y: 1)
+                }
+            }
         }
         .buttonStyle(TransportIconButtonStyle())
-        .explain(helpText, binding: hoverExplanation)
+        .explain(explanationText, binding: hoverExplanation)
     }
     
     @ViewBuilder
@@ -1591,7 +1633,7 @@ struct FullscreenPlayerView: View {
                         Section("Queue Deliverables") {
                             ForEach(candidateFiles, id: \.self) { file in
                                 Button(file.lastPathComponent) {
-                                    engine.loadVideo(url: file, into: .slotB)
+                                    engine.loadVideo(url: file, into: .slotB, autoplay: true)
                                     userDidInteract()
                                 }
                             }

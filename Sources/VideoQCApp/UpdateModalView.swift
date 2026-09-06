@@ -25,13 +25,14 @@ struct UpdateModalView: View {
     var body: some View {
         ZStack {
             // Backdrop
-            Color.black.opacity(0.65)
+            Color.black.opacity(isPresented ? 0.65 : 0.0)
                 .edgesIgnoringSafeArea(.all)
+                .allowsHitTesting(isPresented)
                 .onTapGesture {
                     if case .downloading = updateManager.state {
                         // Prevent accidental dismiss while downloading
                     } else {
-                        isPresented = false
+                        dismissModal()
                     }
                 }
             
@@ -57,7 +58,7 @@ struct UpdateModalView: View {
                     }
                     Spacer()
                     
-                    Button(action: { isPresented = false }) {
+                    Button(action: { dismissModal() }) {
                         Text("CLOSE (ESC)")
                             .font(.system(size: 10, weight: .bold, design: .monospaced))
                             .padding(.horizontal, 9)
@@ -97,6 +98,19 @@ struct UpdateModalView: View {
             .frame(width: 540)
             .studioBox(background: bgMain, border: borderStrong)
             .shadow(color: Color.black.opacity(0.4), radius: 20, x: 0, y: 10)
+        }
+        .allowsHitTesting(isPresented)
+    }
+    
+    private func dismissModal() {
+        withAnimation(.easeInOut(duration: 0.15)) {
+            isPresented = false
+        }
+        DispatchQueue.main.async {
+            if let window = NSApp.windows.first(where: { $0.canBecomeKey }) {
+                window.makeKeyAndOrderFront(nil)
+                window.makeFirstResponder(nil)
+            }
         }
     }
     

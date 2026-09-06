@@ -151,10 +151,11 @@ struct ShortcutsModalView: View {
     var body: some View {
         ZStack {
             // Backdrop Scrim
-            Color.black.opacity(0.65)
+            Color.black.opacity(isPresented ? 0.65 : 0.0)
                 .edgesIgnoringSafeArea(.all)
+                .allowsHitTesting(isPresented)
                 .onTapGesture {
-                    isPresented = false
+                    dismissModal()
                 }
             
             // Modal Card Container
@@ -172,7 +173,7 @@ struct ShortcutsModalView: View {
                     
                     Spacer()
                     
-                    Button(action: { isPresented = false }) {
+                    Button(action: { dismissModal() }) {
                         Text("CLOSE (ESC)")
                             .font(.system(size: 10, weight: .bold, design: .monospaced))
                             .padding(.horizontal, 9)
@@ -204,6 +205,19 @@ struct ShortcutsModalView: View {
             .frame(width: 740, height: 560)
             .studioBox(background: palette.bgPanel, border: palette.borderStrong)
             .shadow(color: Color.black.opacity(0.4), radius: 24, x: 0, y: 12)
+        }
+        .allowsHitTesting(isPresented)
+    }
+    
+    private func dismissModal() {
+        withAnimation(.easeInOut(duration: 0.15)) {
+            isPresented = false
+        }
+        DispatchQueue.main.async {
+            if let window = NSApp.windows.first(where: { $0.canBecomeKey }) {
+                window.makeKeyAndOrderFront(nil)
+                window.makeFirstResponder(nil)
+            }
         }
     }
     

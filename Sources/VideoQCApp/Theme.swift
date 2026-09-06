@@ -3,17 +3,21 @@ import SwiftUI
 // MARK: - Application Navigation Tabs
 
 enum AppTab: Int, CaseIterable, Identifiable {
-    case lineScanner = 0
-    case player = 1
-    case deliverables = 2
+    case player = 0
+    case specs = 1
+    case lineFinder = 2
     case batchRenamer = 3
+    
+    // Compatibility aliases
+    static let deliverables = AppTab.specs
+    static let lineScanner = AppTab.lineFinder
     
     var id: Int { rawValue }
     var title: String {
         switch self {
-        case .lineScanner: return "01 // LINE SCANNER"
-        case .player: return "02 // PLAYER"
-        case .deliverables: return "03 // SPECS"
+        case .player: return "01 // PLAYER"
+        case .specs: return "02 // SPECS"
+        case .lineFinder: return "03 // LINE FINDER"
         case .batchRenamer: return "04 // BATCH RENAMER"
         }
     }

@@ -3,13 +3,13 @@ import VideoQCLib
 
 extension ContentView {
     
-    // MARK: ==================== TAB 1: LINE SCANNER ====================
+    // MARK: ==================== TAB 3: LINE FINDER ====================
     
     var lineScannerTabView: some View {
         HSplitView {
             // Left Panel: Configuration
             VStack(alignment: .leading, spacing: 18) {
-                deliveryAssetsSection(forTab: .lineScanner)
+                deliveryAssetsSection(forTab: .lineFinder)
                 colorSettingsSection
                 if isTargetBlack {
                     blackLineModeSection

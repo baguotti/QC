@@ -37,10 +37,10 @@
    - **DO NOT** change these to `.resizeAspect`.
    - `canvasLayer.bounds` (`baseSize`) is already calculated to match the video's exact aspect ratio down to the pixel.
    - Using `.resizeAspect` introduces floating-point subpixel rounding discrepancies inside `AVPlayerLayer`, causing 1-pixel letterbox/pillarbox bars that clip or wash out edge lines.
-2. **`magnificationFilter = .nearest`**:
-   - All player and still layers must use `.nearest` magnification filter.
-   - When users zoom into 200%, 400%, or 800% to inspect edge line glitches, pixels must be displayed as sharp square pixels.
-   - Using `.linear` causes bilinear interpolation that blurs edge pixels into neighboring white pixels.
+2. **Dynamic Magnification Filter (`.linear` for Fit/100%, `.nearest` for 200%+ QC Zoom)**:
+   - At normal viewing scales (`isFitZoom` or `zoomScale < 1.75`), `magnificationFilter` must be `.linear`. Using `.nearest` at normal/fit scale on Retina displays causes severe nearest-neighbor aliasing, jagged text/subtitles, and stair-stepped graphics when paused.
+   - When users zoom into 200%, 400%, or 800% (`zoomScale >= 1.75`) to inspect edge line glitches, `magnificationFilter` dynamically switches to `.nearest` so pixels are displayed as sharp, discrete square pixels.
+   - Using `.linear` at 400% causes bilinear interpolation that blurs edge pixels into neighboring white pixels, while using `.nearest` at 100%/Fit causes jagged graphics. Dynamic switching gives both broadcast fidelity and pixel-accurate QC inspection.
 3. **`minificationFilter = .linear`**:
    - Preserves smooth anti-aliased representation when zoomed out to fit smaller displays.
 
@@ -85,7 +85,7 @@ Before committing any changes affecting `VideoViewportView.swift`, `PlayerEngine
 - [ ] Ensure `stillFrameLayerA` and `stillFrameLayerB` are present in `VideoViewportView`.
 - [ ] Verify `updateLayerVisibility()` displays still frame layers when paused and live player layers when playing.
 - [ ] Verify `videoGravity` and `contentsGravity` remain `.resize`.
-- [ ] Verify `magnificationFilter` remains `.nearest`.
+- [ ] Verify dynamic `magnificationFilter`: `.linear` at normal/fit zoom for smooth broadcast playback & paused graphics; `.nearest` at >= 1.75x (200%+) for sharp pixel QC.
 - [ ] Verify `layer.setNeedsDisplay()` is NEVER called on `playerLayer` or `stillFrameLayer`.
 - [ ] Verify `playerLayer.filters` is NEVER assigned a `CIFilter` (live video filtering belongs in `AVVideoComposition`).
 - [ ] Run `swift build` with 0 warnings/errors under Swift 6.

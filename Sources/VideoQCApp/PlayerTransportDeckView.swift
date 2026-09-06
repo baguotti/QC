@@ -120,6 +120,17 @@ struct PlayerTransportDeckView: View {
                     engine.isLooping.toggle()
                 }
                 
+                transportBtn(
+                    icon: engine.isAutoplayEnabled ? "play.circle.fill" : "play.circle",
+                    tooltip: engine.isAutoplayEnabled ? "Autoplay on Select: ON (Plays from start on click or ↑/↓)" : "Autoplay on Select: OFF (Loads paused at frame 0)",
+                    isActive: engine.isAutoplayEnabled,
+                    size: 12,
+                    weight: .semibold,
+                    width: 26
+                ) {
+                    engine.isAutoplayEnabled.toggle()
+                }
+                
                 customTransportBtn(
                     tooltip: engine.showTitleSafe ? "Title & Action Safe: ON" : "Title & Action Safe: OFF",
                     isActive: engine.showTitleSafe,
@@ -179,7 +190,7 @@ struct PlayerTransportDeckView: View {
                     .buttonStyle(TransportIconButtonStyle())
                     .disabled(!hasGlitches)
                     .explain(
-                        hasGlitches ? "Jump to previous detected line glitch (⇧N / cycles backwards through findings of Tab 1)." : "No line glitches found in Tab 1 to cycle through.",
+                        hasGlitches ? "Jump to previous detected line glitch (⇧N / cycles backwards through findings of Tab 3)." : "No line glitches found in Tab 3 to cycle through.",
                         binding: hoverExplanation
                     )
                     
@@ -198,7 +209,7 @@ struct PlayerTransportDeckView: View {
                     .buttonStyle(TransportIconButtonStyle())
                     .disabled(!hasGlitches)
                     .explain(
-                        hasGlitches ? "Jump to next detected line glitch (N / cycles forwards through findings of Tab 1)." : "No line glitches found in Tab 1 to cycle through.",
+                        hasGlitches ? "Jump to next detected line glitch (N / cycles forwards through findings of Tab 3)." : "No line glitches found in Tab 3 to cycle through.",
                         binding: hoverExplanation
                     )
                 }

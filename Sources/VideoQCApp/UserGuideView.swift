@@ -11,10 +11,11 @@ struct UserGuideView: View {
     var body: some View {
         ZStack {
             // Backdrop Scrim
-            Color.black.opacity(0.65)
+            Color.black.opacity(isPresented ? 0.65 : 0.0)
                 .edgesIgnoringSafeArea(.all)
+                .allowsHitTesting(isPresented)
                 .onTapGesture {
-                    isPresented = false
+                    dismissModal()
                 }
             
             // Modal Container
@@ -40,7 +41,7 @@ struct UserGuideView: View {
                         .studioBox(background: palette.bgSubtle, border: palette.borderLine)
                     }
                     Spacer()
-                    Button(action: { isPresented = false }) {
+                    Button(action: { dismissModal() }) {
                         Text("CLOSE (ESC)")
                             .font(.system(size: 10, weight: .bold, design: .monospaced))
                             .padding(.horizontal, 9)
@@ -59,9 +60,9 @@ struct UserGuideView: View {
                 
                 // Tabs
                 HStack(spacing: 0) {
-                    guideTabButton(title: "01 // LINE SCANNER", index: 0)
-                    guideTabButton(title: "02 // PLAYER", index: 1)
-                    guideTabButton(title: "03 // SPECS", index: 2)
+                    guideTabButton(title: "01 // PLAYER", index: 0)
+                    guideTabButton(title: "02 // SPECS", index: 1)
+                    guideTabButton(title: "03 // LINE FINDER", index: 2)
                     guideTabButton(title: "04 // BATCH RENAMER", index: 3)
                     Spacer()
                 }
@@ -71,18 +72,14 @@ struct UserGuideView: View {
                 
                 Rectangle().fill(palette.borderLine).frame(height: 1)
                 
-                // Content
+                // Content Body
                 ScrollView(.vertical, showsIndicators: true) {
                     VStack(alignment: .leading, spacing: 12) {
                         switch selectedGuideTab {
-                        case 0:
-                            lineScannerGuide
-                        case 1:
-                            playerGuide
-                        case 2:
-                            deliverablesGuide
-                        default:
-                            batchRenamerGuide
+                        case 0: playerGuide
+                        case 1: deliverablesGuide
+                        case 2: lineScannerGuide
+                        default: batchRenamerGuide
                         }
                     }
                     .padding(18)
@@ -93,17 +90,18 @@ struct UserGuideView: View {
                 
                 // Footer
                 HStack {
-                    Text("PRESS ESC TO DISMISS")
-                        .font(.system(size: 9, weight: .bold, design: .monospaced))
+                    Text("TIP: Press ESC at any time to close this guide.")
+                        .font(.system(size: 9, design: .monospaced))
                         .foregroundColor(palette.textMuted)
                     Spacer()
-                    Button(action: { isPresented = false }) {
+                    Button(action: { dismissModal() }) {
                         Text("DONE")
                             .font(.system(size: 10, weight: .bold, design: .monospaced))
                             .padding(.horizontal, 16)
-                            .padding(.vertical, 7)
+                            .padding(.vertical, 5)
                             .foregroundColor(palette.primaryBtnFg)
-                            .studioBox(background: palette.primaryBtnBg, border: palette.borderStrong)
+                            .background(palette.primaryBtnBg)
+                            .cornerRadius(StudioTheme.cornerRadius)
                     }
                     .buttonStyle(.plain)
                 }
@@ -114,6 +112,19 @@ struct UserGuideView: View {
             .frame(minWidth: 800, maxWidth: 900, minHeight: 560, maxHeight: 680)
             .studioBox(background: palette.bgPanel, border: palette.borderStrong)
             .shadow(color: Color.black.opacity(0.5), radius: 20, x: 0, y: 10)
+        }
+        .allowsHitTesting(isPresented)
+    }
+    
+    private func dismissModal() {
+        withAnimation(.easeInOut(duration: 0.15)) {
+            isPresented = false
+        }
+        DispatchQueue.main.async {
+            if let window = NSApp.windows.first(where: { $0.canBecomeKey }) {
+                window.makeKeyAndOrderFront(nil)
+                window.makeFirstResponder(nil)
+            }
         }
     }
     
@@ -130,7 +141,53 @@ struct UserGuideView: View {
         .buttonStyle(.plain)
     }
     
-    // MARK: - Tab 1 Guide // LINE SCANNER
+    // MARK: - Tab 1 Guide // PLAYER
+    
+    private var playerGuide: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            guideRow(name: "DUAL A/B & DIFFERENCE MODE", desc: "Option+Click any queue asset (or click +B) to load into Slot B. Compare using interactive Split Wipe (drag the tactile center handle), Side-by-Side (horizontal left/right or vertical stacked top/bottom), GPU Difference Mode (|RGB_A - RGB_B|), or 50% Opacity Overlay (Slot B over Slot A). Click [(TAB)] or press Tab for rapid flicker compare, X to Swap slots, C to cycle modes, and solo Slot A or B audio.")
+            guideRow(name: "J-K-L SHUTTLE PLAYBACK", desc: "Tap L to play forward (1x, 2x, 4x, 8x, 16x). Tap K to pause. Tap J to play reverse (-1x, -2x, -4x, -8x, -16x).")
+            guideRow(name: "SLOW FRAME-BY-FRAME (⇧ + L / ⇧ + J)", desc: "Plays automatically frame-by-frame. Pressing repeatedly accelerates playback speed (2, 4, 8, 15, 24, 30 FPS). Dedicated transport buttons are also available.")
+            guideRow(name: "VIDEO FULLSCREEN (F / ESC)", desc: "Makes video completely full screen with zero UI. All keyboard shortcuts, zooming, and panning continue to work seamlessly. Double-click or press ESC to exit.")
+            guideRow(name: "REVIEW FULLSCREEN (⇧ + F)", desc: "Expands player to full screen with an on-screen cinema review HUD, full timeline scrubber, dual-video comparison toolbar, and transport controls that auto-hide when idle.")
+            guideRow(name: "SPACEBAR", desc: "Quick toggle between normal 1x Play and Pause.")
+            guideRow(name: "SINGLE FRAME STEPPING (← / →)", desc: "Left and right arrow keys step exactly 1 frame backward or forward.")
+            guideRow(name: "5 FRAME JUMP (⇧ + ← / →)", desc: "Shift + Left/Right arrow jumps 5 video frames backward or forward.")
+            guideRow(name: "HOME / END", desc: "Home key jumps directly to the first frame. End key jumps to the last frame.")
+            guideRow(name: "TIMELINE SCRUBBING", desc: "Drag the playhead or click anywhere on the SMPTE ruler to scrub frame-accurately.")
+            guideRow(name: "SCROLL ZOOM & HAND-PAN", desc: "Scroll your mouse wheel up or down directly to zoom into or out of the canvas (10% to 400%). Pinch on trackpad to zoom. Click and drag across the canvas with the hand tool to pan around.")
+            guideRow(name: "QUEUE NAVIGATION (↑ / ↓)", desc: "Up and down arrow keys navigate through the asset queue on the left, automatically loading each deliverable into the player.")
+            guideRow(name: "AUTOPLAY (ON / OFF)", desc: "When enabled, selecting a video or navigating with ↑/↓ automatically plays the deliverable from the very beginning. Toggled via the [AUTO] badge in the queue header or the transport bar.")
+            guideRow(name: "CENTER CROSSHAIR OVERLAY", desc: "Toggles top-to-bottom and left-to-right crosshair guide lines with a center precision reticle to inspect if elements, logos, and lower-thirds are perfectly centered.")
+            guideRow(name: "CHANGE EXPOSURE (AE STYLE)", desc: "Click and drag left or right on the +0.0 EV number to brighten shadows and reveal faint black line glitches or drop highlights (-5.0 to +5.0 EV). Click the camera aperture icon or double-click the number to reset back to +0.0 EV.")
+            guideRow(name: "JUMP TO NEXT LINE (N / NEXT LINE)", desc: "Cycles through all detected line glitches across all deliverables from Tab 3, seeking frame-accurately and pausing playback for inspection.")
+            guideRow(name: "MACOS FINDER COLOR TAGS", desc: "Tag the active file with native macOS Finder color tags (Red, Orange, Yellow, Green, Blue, Purple, Gray) via the [TAGS] button or by right-clicking on any asset in the queue.")
+            guideRow(name: "FRAME SCREENSHOT (CAMERA ICON)", desc: "Click the square camera button in the transport bar to export the current video frame as a medium-quality JPEG to any folder.")
+            guideRow(name: "SEAMLESS LOOP (⌘L)", desc: "Toggles automatic looping. Reaching the end seamlessly restarts from the beginning without stopping.")
+            guideRow(name: "AUDIO & MUTE", desc: "Master playback volume slider and instant audio mute button.")
+        }
+    }
+    
+    // MARK: - Tab 2 Guide // SPECS
+    
+    private var deliverablesGuide: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            guideRow(name: "LOAD ASSETS", desc: "Loads files or folders to read metadata without decoding video frames.")
+            guideRow(name: "FILE NAME", desc: "Name of the file.")
+            guideRow(name: "RESOLUTION & ASPECT RATIO", desc: "Pixel dimensions (e.g. 1920x1080) and ratio (16:9, 9:16, 1:1, 4:5).")
+            guideRow(name: "DURATION & TIMECODE", desc: "Total seconds and exact SMPTE timecode (HH:MM:SS:FF).")
+            guideRow(name: "FPS", desc: "Video track frame rate.")
+            guideRow(name: "VIDEO CODEC", desc: "Compression format (ProRes, H.264, HEVC) and profile.")
+            guideRow(name: "AUDIO CONFIGURATION", desc: "Channel layout (Stereo, 5.1, Mono), sample rate, and bit depth.")
+            guideRow(name: "FILE SIZE", desc: "File size in MB or GB.")
+            guideRow(name: "MISMATCH WARNINGS", desc: "Highlights files where filename tags (e.g. 16x9, 1080p, 15s) conflict with actual stream metadata.")
+            guideRow(name: "[ EXPORT CSV ]", desc: "Exports the metadata table to a CSV file.")
+            guideRow(name: "[ OPEN IN GOOGLE SHEETS ]", desc: "Copies data to clipboard and opens Google Sheets in your browser.")
+            guideRow(name: "[ EXPORT HTML SPECS SHEET ]", desc: "Exports a styled HTML specs sheet.")
+        }
+    }
+    
+    // MARK: - Tab 3 Guide // LINE FINDER
     
     private var lineScannerGuide: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -147,51 +204,6 @@ struct UserGuideView: View {
             guideRow(name: "FINDER RED TAGGING", desc: "Applies a native macOS Red Tag in Finder to any video with detected line errors.")
             guideRow(name: "GLITCH LIST & FRAME VIEWER", desc: "Click any detected glitch to view the exact frame, timecode, and a red box over the line.")
             guideRow(name: "SAVE HTML / EXPORT CSV", desc: "Exports scan results as an interactive HTML report or CSV table.")
-        }
-    }
-    
-    // MARK: - Tab 2 Guide // PLAYER
-    
-    private var playerGuide: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            guideRow(name: "DUAL A/B & DIFFERENCE MODE", desc: "Option+Click any queue asset (or click +B) to load into Slot B. Compare using interactive Split Wipe (drag the tactile center handle), Side-by-Side (horizontal left/right or vertical stacked top/bottom), GPU Difference Mode (|RGB_A - RGB_B|), or 50% Opacity Overlay (Slot B over Slot A). Click [(TAB)] or press Tab for rapid flicker compare, X to Swap slots, C to cycle modes, and solo Slot A or B audio.")
-            guideRow(name: "J-K-L SHUTTLE PLAYBACK", desc: "Tap L to play forward (1x, 2x, 4x, 8x, 16x). Tap K to pause. Tap J to play reverse (-1x, -2x, -4x, -8x, -16x).")
-            guideRow(name: "SLOW FRAME-BY-FRAME (⇧ + L / ⇧ + J)", desc: "Plays automatically frame-by-frame. Pressing repeatedly accelerates playback speed (2, 4, 8, 15, 24, 30 FPS). Dedicated transport buttons are also available.")
-            guideRow(name: "VIDEO FULLSCREEN (F / ESC)", desc: "Makes video completely full screen with zero UI. All keyboard shortcuts, zooming, and panning continue to work seamlessly. Double-click or press ESC to exit.")
-            guideRow(name: "REVIEW FULLSCREEN (⇧ + F)", desc: "Expands player to full screen with an on-screen cinema review HUD, full timeline scrubber, dual-video comparison toolbar, and transport controls that auto-hide when idle.")
-            guideRow(name: "SPACEBAR", desc: "Quick toggle between normal 1x Play and Pause.")
-            guideRow(name: "SINGLE FRAME STEPPING (← / →)", desc: "Left and right arrow keys step exactly 1 frame backward or forward.")
-            guideRow(name: "5 FRAME JUMP (⇧ + ← / →)", desc: "Shift + Left/Right arrow jumps 5 video frames backward or forward.")
-            guideRow(name: "HOME / END", desc: "Home key jumps directly to the first frame. End key jumps to the last frame.")
-            guideRow(name: "TIMELINE SCRUBBING", desc: "Drag the playhead or click anywhere on the SMPTE ruler to scrub frame-accurately.")
-            guideRow(name: "SCROLL ZOOM & HAND-PAN", desc: "Scroll your mouse wheel up or down directly to zoom into or out of the canvas (10% to 400%). Pinch on trackpad to zoom. Click and drag across the canvas with the hand tool to pan around.")
-            guideRow(name: "QUEUE NAVIGATION (↑ / ↓)", desc: "Up and down arrow keys navigate through the asset queue on the left, automatically loading each deliverable into the player.")
-            guideRow(name: "CENTER CROSSHAIR OVERLAY", desc: "Toggles top-to-bottom and left-to-right crosshair guide lines with a center precision reticle to inspect if elements, logos, and lower-thirds are perfectly centered.")
-            guideRow(name: "CHANGE EXPOSURE (AE STYLE)", desc: "Click and drag left or right on the +0.0 EV number to brighten shadows and reveal faint black line glitches or drop highlights (-5.0 to +5.0 EV). Click the camera aperture icon or double-click the number to reset back to +0.0 EV.")
-            guideRow(name: "JUMP TO NEXT LINE (N / NEXT LINE)", desc: "Cycles through all detected line glitches across all deliverables from Tab 1, seeking frame-accurately and pausing playback for inspection.")
-            guideRow(name: "MACOS FINDER COLOR TAGS", desc: "Tag the active file with native macOS Finder color tags (Red, Orange, Yellow, Green, Blue, Purple, Gray) via the [TAGS] button or by right-clicking on any asset in the queue.")
-            guideRow(name: "FRAME SCREENSHOT (CAMERA ICON)", desc: "Click the square camera button in the transport bar to export the current video frame as a medium-quality JPEG to any folder.")
-            guideRow(name: "SEAMLESS LOOP (⌘L)", desc: "Toggles automatic looping. Reaching the end seamlessly restarts from the beginning without stopping.")
-            guideRow(name: "AUDIO & MUTE", desc: "Master playback volume slider and instant audio mute button.")
-        }
-    }
-    
-    // MARK: - Tab 3 Guide // DELIVERABLES SPECS
-    
-    private var deliverablesGuide: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            guideRow(name: "LOAD ASSETS (01)", desc: "Loads files or folders to read metadata without decoding video frames.")
-            guideRow(name: "FILE NAME", desc: "Name of the file.")
-            guideRow(name: "RESOLUTION & ASPECT RATIO", desc: "Pixel dimensions (e.g. 1920x1080) and ratio (16:9, 9:16, 1:1, 4:5).")
-            guideRow(name: "DURATION & TIMECODE", desc: "Total seconds and exact SMPTE timecode (HH:MM:SS:FF).")
-            guideRow(name: "FPS", desc: "Video track frame rate.")
-            guideRow(name: "VIDEO CODEC", desc: "Compression format (ProRes, H.264, HEVC) and profile.")
-            guideRow(name: "AUDIO CONFIGURATION", desc: "Channel layout (Stereo, 5.1, Mono), sample rate, and bit depth.")
-            guideRow(name: "FILE SIZE", desc: "File size in MB or GB.")
-            guideRow(name: "MISMATCH WARNINGS", desc: "Highlights files where filename tags (e.g. 16x9, 1080p, 15s) conflict with actual stream metadata.")
-            guideRow(name: "[ EXPORT CSV ]", desc: "Exports the metadata table to a CSV file.")
-            guideRow(name: "[ OPEN IN GOOGLE SHEETS ]", desc: "Copies data to clipboard and opens Google Sheets in your browser.")
-            guideRow(name: "[ EXPORT HTML SPECS SHEET ]", desc: "Exports a styled HTML specs sheet.")
         }
     }
     
