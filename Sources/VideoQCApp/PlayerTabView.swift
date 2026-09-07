@@ -718,6 +718,9 @@ extension ContentView {
     private var playerMonitorHeader: some View {
         HStack(spacing: 12) {
             if playerEngine.slotB.url != nil {
+                Color.clear
+                    .frame(width: 60, height: 26)
+                
                 Spacer()
                 
                 // Centered Comparison Controls Toolbar
@@ -745,6 +748,34 @@ extension ContentView {
                 
                 Spacer()
             }
+            
+            // Trailing: Fullscreen Controls (Visible in both Single & A/B mode)
+            HStack(spacing: 4) {
+                // Review Fullscreen Button
+                Button(action: { enterFullscreen(mode: .review) }) {
+                    Image(systemName: "rectangle.inset.filled.and.cursorarrow")
+                        .font(.system(size: 12, weight: .bold))
+                        .frame(width: 28, height: 26)
+                        .foregroundColor(playerEngine.activeURL == nil ? textMuted : textMain)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(TransportIconButtonStyle())
+                .disabled(playerEngine.activeURL == nil)
+                .explain("Review Fullscreen with HUD & timeline controls (⇧F).", binding: $hoverExplanation)
+                
+                // Clean Video Fullscreen Button
+                Button(action: { enterFullscreen(mode: .videoOnly) }) {
+                    Image(systemName: "arrow.up.left.and.arrow.down.right")
+                        .font(.system(size: 12, weight: .bold))
+                        .frame(width: 28, height: 26)
+                        .foregroundColor(playerEngine.activeURL == nil ? textMuted : textMain)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(TransportIconButtonStyle())
+                .disabled(playerEngine.activeURL == nil)
+                .explain("Clean Video Fullscreen with zero UI (F). Press ESC to exit.", binding: $hoverExplanation)
+            }
+            .frame(width: 60, alignment: .trailing)
         }
     }
     
@@ -973,7 +1004,9 @@ extension ContentView {
                             showNotesDrawer.toggle()
                         }
                     },
-                    isNotesDrawerOpen: showNotesDrawer
+                    isNotesDrawerOpen: showNotesDrawer,
+                    onJumpPrevNote: { playerEngine.jumpToPreviousNote() },
+                    onJumpNextNote: { playerEngine.jumpToNextNote() }
                 )
                 
                 // Group Divider
@@ -1015,9 +1048,8 @@ extension ContentView {
             
             Spacer()
             
-            // Right: Screenshot, Review Fullscreen, Video Fullscreen & Shortcuts Menu
+            // Right: Export Screenshot Button (Balanced 210px width)
             HStack(spacing: 6) {
-                // Export Screenshot Button (Border-free)
                 Button(action: { exportCurrentFrameScreenshot() }) {
                     Image(systemName: "camera.fill")
                         .font(.system(size: 12, weight: .bold))
@@ -1028,48 +1060,8 @@ extension ContentView {
                 .buttonStyle(TransportIconButtonStyle())
                 .disabled(playerEngine.activeURL == nil)
                 .explain("Export screenshot of the current video frame as medium-quality JPG.", binding: $hoverExplanation)
-                
-                // Review Fullscreen Button (Border-free)
-                Button(action: { enterFullscreen(mode: .review) }) {
-                    Image(systemName: "rectangle.inset.filled.and.cursorarrow")
-                        .font(.system(size: 12, weight: .bold))
-                        .frame(width: 28, height: 28)
-                        .foregroundColor(playerEngine.activeURL == nil ? textMuted : textMain)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(TransportIconButtonStyle())
-                .disabled(playerEngine.activeURL == nil)
-                .explain("Review Fullscreen with HUD & timeline controls (⇧F).", binding: $hoverExplanation)
-                
-                // Video Fullscreen Button (Clean zero UI, Border-free)
-                Button(action: { enterFullscreen(mode: .videoOnly) }) {
-                    Image(systemName: "arrow.up.left.and.arrow.down.right")
-                        .font(.system(size: 12, weight: .bold))
-                        .frame(width: 28, height: 28)
-                        .foregroundColor(playerEngine.activeURL == nil ? textMuted : textMain)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(TransportIconButtonStyle())
-                .disabled(playerEngine.activeURL == nil)
-                .explain("Clean Video Fullscreen with zero UI (F). Press ESC to exit.", binding: $hoverExplanation)
-                
-                Button(action: { showShortcutsModal = true }) {
-                    HStack(spacing: 5) {
-                        Image(systemName: "command")
-                            .font(.system(size: 9, weight: .bold))
-                        Text("SHORTCUTS")
-                            .font(.system(size: 9, weight: .bold, design: .monospaced))
-                        Image(systemName: "macwindow")
-                            .font(.system(size: 8, weight: .bold))
-                    }
-                    .frame(width: 110, height: 28)
-                    .foregroundColor(textMain)
-                    .studioBox(background: bgSubtle, border: borderLine)
-                }
-                .buttonStyle(.plain)
-                .explain("View all player keyboard shortcuts in a centered pop-up reference window.", binding: $hoverExplanation)
             }
-            .frame(width: 220, alignment: .trailing)
+            .frame(width: 210, alignment: .trailing)
         }
         .frame(height: 28)
     }
@@ -1855,7 +1847,9 @@ struct FullscreenPlayerView: View {
                     hideGlitchNavWhenEmpty: true,
                     onJumpPrevGlitch: onJumpPrev,
                     onJumpNextGlitch: onJumpNext,
-                    onAddNote: onAddNote
+                    onAddNote: onAddNote,
+                    onJumpPrevNote: { engine.jumpToPreviousNote() },
+                    onJumpNextNote: { engine.jumpToNextNote() }
                 )
                 
                 Spacer()

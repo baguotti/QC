@@ -16,6 +16,8 @@ struct PlayerTransportDeckView: View {
     var onAddNote: (() -> Void)?
     var onToggleNotesDrawer: (() -> Void)?
     var isNotesDrawerOpen: Bool
+    var onJumpPrevNote: (() -> Void)?
+    var onJumpNextNote: (() -> Void)?
     
     init(
         engine: PlayerEngine,
@@ -27,7 +29,9 @@ struct PlayerTransportDeckView: View {
         onJumpNextGlitch: @escaping () -> Void,
         onAddNote: (() -> Void)? = nil,
         onToggleNotesDrawer: (() -> Void)? = nil,
-        isNotesDrawerOpen: Bool = false
+        isNotesDrawerOpen: Bool = false,
+        onJumpPrevNote: (() -> Void)? = nil,
+        onJumpNextNote: (() -> Void)? = nil
     ) {
         self.engine = engine
         self.scanResults = scanResults
@@ -39,6 +43,8 @@ struct PlayerTransportDeckView: View {
         self.onAddNote = onAddNote
         self.onToggleNotesDrawer = onToggleNotesDrawer
         self.isNotesDrawerOpen = isNotesDrawerOpen
+        self.onJumpPrevNote = onJumpPrevNote
+        self.onJumpNextNote = onJumpNextNote
     }
     
     private var palette: StudioPalette { StudioPalette(isLightMode) }
@@ -128,17 +134,7 @@ struct PlayerTransportDeckView: View {
                 ) {
                     engine.isLooping.toggle()
                 }
-                
-                transportBtn(
-                    icon: engine.isAutoplayEnabled ? "play.circle.fill" : "play.circle",
-                    tooltip: engine.isAutoplayEnabled ? "Autoplay on Select: ON (Plays from start on click or ↑/↓)" : "Autoplay on Select: OFF (Loads paused at frame 0)",
-                    isActive: engine.isAutoplayEnabled,
-                    size: 12,
-                    weight: .semibold,
-                    width: 26
-                ) {
-                    engine.isAutoplayEnabled.toggle()
-                }
+
                 
                 let safeAreaTooltip: String = {
                     switch engine.safeAreaMode {
@@ -197,54 +193,86 @@ struct PlayerTransportDeckView: View {
                 )
             }
             
-            // 3. Review Notes Controls (Add Note & Toggle Drawer)
-            if onAddNote != nil || onToggleNotesDrawer != nil {
+            // 3. Compact Review Notes Controls: [+ NOTE] and < 💬 count > navigator
+            if onAddNote != nil || onToggleNotesDrawer != nil || onJumpPrevNote != nil || onJumpNextNote != nil {
                 Rectangle()
                     .fill(dividerColor)
                     .frame(width: 1, height: 14)
                     .padding(.horizontal, 2)
                 
-                HStack(spacing: 3) {
+                HStack(spacing: 2) {
                     if let onAdd = onAddNote {
                         Button(action: onAdd) {
-                            HStack(spacing: 4) {
-                                Image(systemName: "text.badge.plus")
-                                    .font(.system(size: 10, weight: .bold))
-                                Text("+ NOTE")
+                            HStack(spacing: 3) {
+                                Image(systemName: "plus")
+                                    .font(.system(size: 9.5, weight: .bold))
+                                Text("NOTE")
                                     .font(.system(size: 9.5, weight: .bold, design: .monospaced))
                             }
                             .frame(height: 28)
-                            .padding(.horizontal, 6)
+                            .padding(.horizontal, 5)
                             .foregroundColor(engine.activeURL == nil ? textMuted : textMain)
                             .contentShape(Rectangle())
                         }
                         .buttonStyle(TransportIconButtonStyle())
                         .disabled(engine.activeURL == nil)
-                        .explain("Add timecoded review note at current playhead position (M).", binding: hoverExplanation)
+                        .explain("Add review note at playhead (M).", binding: hoverExplanation)
                     }
                     
-                    if let onToggle = onToggleNotesDrawer {
-                        let count = engine.activeNotes.count
-                        Button(action: onToggle) {
-                            HStack(spacing: 4) {
-                                Image(systemName: isNotesDrawerOpen ? "text.bubble.fill" : "text.bubble")
-                                    .font(.system(size: 10.5, weight: .semibold))
-                                Text(count > 0 ? "\(count)" : "NOTES")
-                                    .font(.system(size: 9.5, weight: .bold, design: .monospaced))
-                            }
-                            .frame(height: 28)
-                            .padding(.horizontal, 6)
-                            .foregroundColor(isNotesDrawerOpen ? accentBlue : (count > 0 ? textMain : textMuted))
-                            .contentShape(Rectangle())
+                    // Compact Note Navigator: < 💬 count >
+                    let notesCount = engine.activeNotes.count
+                    let hasNotes = notesCount > 0
+                    
+                    HStack(spacing: 1) {
+                        Button(action: { onJumpPrevNote?() }) {
+                            Image(systemName: "chevron.left.to.line")
+                                .font(.system(size: 9.5, weight: .bold))
+                                .frame(width: 18, height: 28)
+                                .foregroundColor(hasNotes ? textMain : textMuted)
+                                .contentShape(Rectangle())
                         }
                         .buttonStyle(TransportIconButtonStyle())
-                        .disabled(engine.activeURL == nil)
-                        .explain(count > 0 ? "Toggle Review Notes drawer (\(count) notes logged)." : "Toggle Review Notes drawer.", binding: hoverExplanation)
+                        .disabled(!hasNotes || onJumpPrevNote == nil)
+                        .explain(hasNotes ? "Jump to previous note" : "No notes logged", binding: hoverExplanation)
+                        
+                        if let onToggle = onToggleNotesDrawer {
+                            Button(action: onToggle) {
+                                HStack(spacing: 3) {
+                                    Image(systemName: isNotesDrawerOpen ? "text.bubble.fill" : "text.bubble")
+                                        .font(.system(size: 9.5, weight: .semibold))
+                                    Text(hasNotes ? "\(notesCount)" : "NOTES")
+                                        .font(.system(size: 9.5, weight: .bold, design: .monospaced))
+                                }
+                                .frame(height: 28)
+                                .padding(.horizontal, 4)
+                                .foregroundColor(isNotesDrawerOpen ? accentBlue : (hasNotes ? textMain : textMuted))
+                                .contentShape(Rectangle())
+                            }
+                            .buttonStyle(TransportIconButtonStyle())
+                            .disabled(engine.activeURL == nil)
+                            .explain(hasNotes ? "Toggle Review Notes drawer (\(notesCount) notes)." : "Toggle Review Notes drawer.", binding: hoverExplanation)
+                        } else {
+                            Text(hasNotes ? "\(notesCount)" : "NOTE")
+                                .font(.system(size: 9.5, weight: .bold, design: .monospaced))
+                                .foregroundColor(hasNotes ? textMain : textMuted)
+                                .padding(.horizontal, 3)
+                        }
+                        
+                        Button(action: { onJumpNextNote?() }) {
+                            Image(systemName: "chevron.right.to.line")
+                                .font(.system(size: 9.5, weight: .bold))
+                                .frame(width: 18, height: 28)
+                                .foregroundColor(hasNotes ? textMain : textMuted)
+                                .contentShape(Rectangle())
+                        }
+                        .buttonStyle(TransportIconButtonStyle())
+                        .disabled(!hasNotes || onJumpNextNote == nil)
+                        .explain(hasNotes ? "Jump to next note" : "No notes logged", binding: hoverExplanation)
                     }
                 }
             }
             
-            // 4. Compact Borderless Line Finding Navigation
+            // 4. Compact Line Finding Navigation: < LINE >
             let hasGlitches = scanResults.contains(where: { $0.isFlagged && !$0.glitchSegments.isEmpty })
             if !hideGlitchNavWhenEmpty || hasGlitches {
                 Rectangle()
@@ -252,42 +280,37 @@ struct PlayerTransportDeckView: View {
                     .frame(width: 1, height: 14)
                     .padding(.horizontal, 2)
                 
-                HStack(spacing: 3) {
+                HStack(spacing: 1) {
                     Button(action: onJumpPrevGlitch) {
-                        HStack(spacing: 3) {
-                            Image(systemName: "chevron.left.to.line")
-                                .font(.system(size: 9, weight: .bold))
-                            Text("PREV LINE")
-                                .font(.system(size: 9, weight: .bold, design: .monospaced))
-                        }
-                        .frame(height: 28)
-                        .padding(.horizontal, 5)
-                        .foregroundColor(hasGlitches ? alertRed : textMuted)
-                        .contentShape(Rectangle())
+                        Image(systemName: "chevron.left.to.line")
+                            .font(.system(size: 9.5, weight: .bold))
+                            .frame(width: 18, height: 28)
+                            .foregroundColor(hasGlitches ? alertRed : textMuted)
+                            .contentShape(Rectangle())
                     }
                     .buttonStyle(TransportIconButtonStyle())
                     .disabled(!hasGlitches)
                     .explain(
-                        hasGlitches ? "Jump to previous detected line glitch (⇧N / cycles backwards through findings of Tab 3)." : "No line glitches found in Tab 3 to cycle through.",
+                        hasGlitches ? "Jump to previous line glitch (⇧N / cycles backwards through findings of Tab 3)." : "No line glitches found in Tab 3 to cycle through.",
                         binding: hoverExplanation
                     )
                     
-                    Button(action: onJumpNextGlitch) {
-                        HStack(spacing: 3) {
-                            Text("NEXT LINE")
-                                .font(.system(size: 9, weight: .bold, design: .monospaced))
-                            Image(systemName: "chevron.right.to.line")
-                                .font(.system(size: 9, weight: .bold))
-                        }
-                        .frame(height: 28)
-                        .padding(.horizontal, 5)
+                    Text("LINE")
+                        .font(.system(size: 9.5, weight: .bold, design: .monospaced))
                         .foregroundColor(hasGlitches ? alertRed : textMuted)
-                        .contentShape(Rectangle())
+                        .padding(.horizontal, 3)
+                    
+                    Button(action: onJumpNextGlitch) {
+                        Image(systemName: "chevron.right.to.line")
+                            .font(.system(size: 9.5, weight: .bold))
+                            .frame(width: 18, height: 28)
+                            .foregroundColor(hasGlitches ? alertRed : textMuted)
+                            .contentShape(Rectangle())
                     }
                     .buttonStyle(TransportIconButtonStyle())
                     .disabled(!hasGlitches)
                     .explain(
-                        hasGlitches ? "Jump to next detected line glitch (N / cycles forwards through findings of Tab 3)." : "No line glitches found in Tab 3 to cycle through.",
+                        hasGlitches ? "Jump to next line glitch (N / cycles forwards through findings of Tab 3)." : "No line glitches found in Tab 3 to cycle through.",
                         binding: hoverExplanation
                     )
                 }

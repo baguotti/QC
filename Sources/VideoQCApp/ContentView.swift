@@ -551,7 +551,7 @@ struct ContentView: View {
                 }
             }
             .buttonStyle(.plain)
-            .explain("Settings: Software Update, Info & Guide, and Feedback.", binding: $hoverExplanation)
+            .explain("Settings: Software Update, Theme, Shortcuts, Info & Guide, and Feedback.", binding: $hoverExplanation)
             .popover(isPresented: $showSettingsPopover, arrowEdge: .bottom) {
                 VStack(alignment: .leading, spacing: 4) {
                     Button(action: {
@@ -607,6 +607,40 @@ struct ContentView: View {
                                 Circle().fill(themeManager.currentTheme.purpleColor).frame(width: 5, height: 5)
                                 Circle().fill(themeManager.currentTheme.redColor).frame(width: 5, height: 5)
                             }
+                        }
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 7)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    
+                    Rectangle().fill(borderLine).frame(height: 1)
+                    
+                    Button(action: {
+                        showSettingsPopover = false
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) {
+                            withAnimation(.easeInOut(duration: 0.15)) {
+                                showShortcutsModal = true
+                            }
+                        }
+                    }) {
+                        HStack(spacing: 8) {
+                            Image(systemName: "command")
+                                .font(.system(size: 11, weight: .bold))
+                                .foregroundColor(textMain)
+                                .frame(width: 16)
+                            Text("Keyboard Shortcuts")
+                                .font(.system(size: 11, weight: .bold, design: .monospaced))
+                                .foregroundColor(textMain)
+                            Spacer()
+                            Text("?")
+                                .font(.system(size: 9.5, weight: .bold, design: .monospaced))
+                                .foregroundColor(textMuted)
+                                .padding(.horizontal, 5)
+                                .padding(.vertical, 1)
+                                .background(borderLine.opacity(0.4))
+                                .cornerRadius(3)
                         }
                         .padding(.horizontal, 10)
                         .padding(.vertical, 7)

@@ -1617,6 +1617,34 @@ public final class PlayerEngine: ObservableObject {
         seek(toTime: targetTime, completion: completion)
     }
     
+    // MARK: - Review Note Navigation
+    
+    public func jumpToPreviousNote() {
+        guard !activeNotes.isEmpty else { return }
+        let sorted = activeNotes.sorted { $0.frameIndex < $1.frameIndex }
+        let cur = currentFrame
+        if let prev = sorted.last(where: { $0.frameIndex < cur }) {
+            seek(toFrame: prev.frameIndex)
+            pause()
+        } else if let last = sorted.last {
+            seek(toFrame: last.frameIndex)
+            pause()
+        }
+    }
+    
+    public func jumpToNextNote() {
+        guard !activeNotes.isEmpty else { return }
+        let sorted = activeNotes.sorted { $0.frameIndex < $1.frameIndex }
+        let cur = currentFrame
+        if let next = sorted.first(where: { $0.frameIndex > cur }) {
+            seek(toFrame: next.frameIndex)
+            pause()
+        } else if let first = sorted.first {
+            seek(toFrame: first.frameIndex)
+            pause()
+        }
+    }
+    
     public func setScanResults(_ results: [VideoQCResult]) {
         var map: [URL: [PlayerTimelineMarker]] = [:]
         for res in results {
