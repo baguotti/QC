@@ -512,57 +512,66 @@ public final class PlayerContainerNSView: NSView {
         let isSideBySideV = (engine.compareMode == .sideBySideVertical && engine.slotB.url != nil)
         
         if isSideBySideH {
-            let aspectA = max(0.01, getVideoAspectRatioA())
-            let aspectB = max(0.01, getVideoAspectRatioB())
+            let pSizeA = getVideoPresentationSizeA()
+            let (numA, denA) = getRationalAspect(width: Int(round(pSizeA.width)), height: Int(round(pSizeA.height)))
+            let pSizeB = getVideoPresentationSizeB()
+            let (numB, denB) = getRationalAspect(width: Int(round(pSizeB.width)), height: Int(round(pSizeB.height)))
             let availW = max(1.0, bounds.width)
             let availH = max(1.0, bounds.height)
             let slotAvailW = max(1.0, (availW - 4.0) / 2.0)
             
-            let scaleA = min(slotAvailW / aspectA, availH)
-            let fitHeightA = snapToEvenPixels(scaleA, scale: scale)
-            let fitWidthA = snapToEvenPixels(fitHeightA * aspectA, scale: scale)
+            let maxPixelW = floor(slotAvailW * scale)
+            let maxPixelH = floor(availH * scale)
             
-            let scaleB = min(slotAvailW / aspectB, availH)
-            let fitHeightB = snapToEvenPixels(scaleB, scale: scale)
-            let fitWidthB = snapToEvenPixels(fitHeightB * aspectB, scale: scale)
+            let stepsA = max(2.0, floor(min(maxPixelW / CGFloat(numA), maxPixelH / CGFloat(denA)) / 2.0) * 2.0)
+            let fitWidthA = (stepsA * CGFloat(numA)) / scale
+            let fitHeightA = (stepsA * CGFloat(denA)) / scale
+            
+            let stepsB = max(2.0, floor(min(maxPixelW / CGFloat(numB), maxPixelH / CGFloat(denB)) / 2.0) * 2.0)
+            let fitWidthB = (stepsB * CGFloat(numB)) / scale
+            let fitHeightB = (stepsB * CGFloat(denB)) / scale
             
             let canvasH = max(fitHeightA, fitHeightB)
             let canvasW = (max(fitWidthA, fitWidthB) * 2.0) + 4.0
             return CGSize(width: canvasW, height: canvasH)
         } else if isSideBySideV {
-            let aspectA = max(0.01, getVideoAspectRatioA())
-            let aspectB = max(0.01, getVideoAspectRatioB())
+            let pSizeA = getVideoPresentationSizeA()
+            let (numA, denA) = getRationalAspect(width: Int(round(pSizeA.width)), height: Int(round(pSizeA.height)))
+            let pSizeB = getVideoPresentationSizeB()
+            let (numB, denB) = getRationalAspect(width: Int(round(pSizeB.width)), height: Int(round(pSizeB.height)))
             let availW = max(1.0, bounds.width)
             let availH = max(1.0, bounds.height)
             let slotAvailH = max(1.0, (availH - 4.0) / 2.0)
             
-            let scaleA = min(availW, slotAvailH * aspectA)
-            let fitWidthA = snapToEvenPixels(scaleA, scale: scale)
-            let fitHeightA = snapToEvenPixels(fitWidthA / aspectA, scale: scale)
+            let maxPixelW = floor(availW * scale)
+            let maxPixelH = floor(slotAvailH * scale)
             
-            let scaleB = min(availW, slotAvailH * aspectB)
-            let fitWidthB = snapToEvenPixels(scaleB, scale: scale)
-            let fitHeightB = snapToEvenPixels(fitWidthB / aspectB, scale: scale)
+            let stepsA = max(2.0, floor(min(maxPixelW / CGFloat(numA), maxPixelH / CGFloat(denA)) / 2.0) * 2.0)
+            let fitWidthA = (stepsA * CGFloat(numA)) / scale
+            let fitHeightA = (stepsA * CGFloat(denA)) / scale
+            
+            let stepsB = max(2.0, floor(min(maxPixelW / CGFloat(numB), maxPixelH / CGFloat(denB)) / 2.0) * 2.0)
+            let fitWidthB = (stepsB * CGFloat(numB)) / scale
+            let fitHeightB = (stepsB * CGFloat(denB)) / scale
             
             let canvasW = max(fitWidthA, fitWidthB)
             let canvasH = (max(fitHeightA, fitHeightB) * 2.0) + 4.0
             return CGSize(width: canvasW, height: canvasH)
         } else {
-            let aspect = getVideoAspectRatioA()
-            guard aspect > 0, bounds.width > 0, bounds.height > 0 else {
+            let pSize = getVideoPresentationSizeA()
+            guard pSize.width > 0, pSize.height > 0, bounds.width > 0, bounds.height > 0 else {
                 return bounds.size
             }
-            
-            let boundsAspect = bounds.width / bounds.height
-            if boundsAspect > aspect {
-                let h = snapToEvenPixels(bounds.height, scale: scale)
-                let w = snapToEvenPixels(h * aspect, scale: scale)
-                return CGSize(width: w, height: h)
-            } else {
-                let w = snapToEvenPixels(bounds.width, scale: scale)
-                let h = snapToEvenPixels(w / aspect, scale: scale)
-                return CGSize(width: w, height: h)
-            }
+            let (num, den) = getRationalAspect(width: Int(round(pSize.width)), height: Int(round(pSize.height)))
+            let maxPixelW = floor(bounds.width * scale)
+            let maxPixelH = floor(bounds.height * scale)
+            let stepW = maxPixelW / CGFloat(num)
+            let stepH = maxPixelH / CGFloat(den)
+            let rawSteps = min(stepW, stepH)
+            let evenSteps = max(2.0, floor(rawSteps / 2.0) * 2.0)
+            let pixelW = evenSteps * CGFloat(num)
+            let pixelH = evenSteps * CGFloat(den)
+            return CGSize(width: pixelW / scale, height: pixelH / scale)
         }
     }
     
@@ -1031,7 +1040,8 @@ public final class PlayerContainerNSView: NSView {
         guard let engine = engine else { return }
         let mode = (engine.slotB.url == nil) ? CompareMode.single : engine.compareMode
         let isBlink = engine.isBlinkCompareB && engine.slotB.url != nil
-        let isPlaying = engine.isPlaying
+        // Continuous playback only: when scrubbing, isPlaying is treated as false so still frame layer remains active
+        let isActivelyPlaying = engine.isPlaying && !engine.isScrubbing
         
         // Dynamic tolerance for still frame freshness:
         // Strictly adhere to AGENTS.md Rule 4:
@@ -1043,7 +1053,12 @@ public final class PlayerContainerNSView: NSView {
         let currentTimeSecsA = CMTimeGetSeconds(engine.currentTime)
         let isStillReadyA: Bool
         if let lastA = lastCapturedTimeA, stillFrameLayerA.contents != nil {
-            isStillReadyA = abs(CMTimeGetSeconds(lastA) - currentTimeSecsA) <= toleranceA
+            if engine.isScrubbing {
+                // While scrubbing, keep still frame layer active so 1-pixel edge glitches never flash to white!
+                isStillReadyA = true
+            } else {
+                isStillReadyA = abs(CMTimeGetSeconds(lastA) - currentTimeSecsA) <= toleranceA
+            }
         } else {
             isStillReadyA = false
         }
@@ -1051,10 +1066,14 @@ public final class PlayerContainerNSView: NSView {
         // Check if still frame B is truly ready AND matches current playhead timestamp
         let isStillReadyB: Bool
         if let lastB = lastCapturedTimeB, stillFrameLayerB.contents != nil {
-            let frameDurationB = 1.0 / max(1.0, engine.slotB.fps)
-            let toleranceB = min(0.03, frameDurationB * 0.5)
-            let timeSecsB = CMTimeGetSeconds(engine.slotB.player.currentTime())
-            isStillReadyB = abs(CMTimeGetSeconds(lastB) - timeSecsB) <= toleranceB
+            if engine.isScrubbing {
+                isStillReadyB = true
+            } else {
+                let frameDurationB = 1.0 / max(1.0, engine.slotB.fps)
+                let toleranceB = min(0.03, frameDurationB * 0.5)
+                let timeSecsB = CMTimeGetSeconds(engine.slotB.player.currentTime())
+                isStillReadyB = abs(CMTimeGetSeconds(lastB) - timeSecsB) <= toleranceB
+            }
         } else {
             isStillReadyB = false
         }
@@ -1067,7 +1086,7 @@ public final class PlayerContainerNSView: NSView {
         if isBlink {
             targetStillHiddenA = true
             targetPlayerHiddenA = true
-            if !isPlaying && isStillReadyB {
+            if !isActivelyPlaying && isStillReadyB {
                 targetStillHiddenB = false
                 targetPlayerHiddenB = true
             } else {
@@ -1075,7 +1094,7 @@ public final class PlayerContainerNSView: NSView {
                 targetPlayerHiddenB = false
             }
         } else {
-            if !isPlaying && isStillReadyA {
+            if !isActivelyPlaying && isStillReadyA {
                 targetStillHiddenA = false
                 targetPlayerHiddenA = true
             } else {
@@ -1087,7 +1106,7 @@ public final class PlayerContainerNSView: NSView {
                 targetStillHiddenB = true
                 targetPlayerHiddenB = true
             } else {
-                if !isPlaying && isStillReadyB {
+                if !isActivelyPlaying && isStillReadyB {
                     targetStillHiddenB = false
                     targetPlayerHiddenB = true
                 } else {
@@ -1157,10 +1176,10 @@ public final class PlayerContainerNSView: NSView {
                     self.isCapturingStillA = false
                     guard let curEngine = self.engine else { return }
                     if let img = img {
-                        if !curEngine.isPlaying && !curEngine.isScrubbing {
+                        if !curEngine.isPlaying || curEngine.isScrubbing {
                             let curSecs = CMTimeGetSeconds(curEngine.currentTime)
                             let curTol = min(0.03, (1.0 / max(1.0, curEngine.slotA.fps)) * 0.5)
-                            if abs(curSecs - timeSecsA) <= curTol {
+                            if abs(curSecs - timeSecsA) <= curTol || curEngine.isScrubbing {
                                 self.lastCapturedTimeA = timeA
                                 self.rawStillFrameA = img
                                 let exposedImg = ExposureAdjuster.shared.applyExposure(to: img, ev: curEngine.exposureEV)
@@ -1170,7 +1189,7 @@ public final class PlayerContainerNSView: NSView {
                                 self.checkStillFrameDisplay()
                             }
                         }
-                    } else if !curEngine.isPlaying && !curEngine.isScrubbing {
+                    } else if !curEngine.isPlaying || curEngine.isScrubbing {
                         // Retry shortly if asset was warming up
                         DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in
                             self?.checkStillFrameDisplay()
@@ -1197,10 +1216,10 @@ public final class PlayerContainerNSView: NSView {
                         self.isCapturingStillB = false
                         guard let curEngine = self.engine else { return }
                         if let imgB = imgB {
-                            if !curEngine.isPlaying && !curEngine.isScrubbing {
+                            if !curEngine.isPlaying || curEngine.isScrubbing {
                                 let curSecsB = CMTimeGetSeconds(curEngine.slotB.player.currentTime())
                                 let curTolB = min(0.03, (1.0 / max(1.0, curEngine.slotB.fps)) * 0.5)
-                                if abs(curSecsB - timeSecsB) <= curTolB {
+                                if abs(curSecsB - timeSecsB) <= curTolB || curEngine.isScrubbing {
                                     self.lastCapturedTimeB = timeB
                                     self.rawStillFrameB = imgB
                                     let exposedImgB = ExposureAdjuster.shared.applyExposure(to: imgB, ev: curEngine.exposureEV)
@@ -1210,7 +1229,7 @@ public final class PlayerContainerNSView: NSView {
                                     self.checkStillFrameDisplay()
                                 }
                             }
-                        } else if !curEngine.isPlaying && !curEngine.isScrubbing {
+                        } else if !curEngine.isPlaying || curEngine.isScrubbing {
                             DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in
                                 self?.checkStillFrameDisplay()
                             }

@@ -18,16 +18,17 @@
 
 ### The Inviolable Rule:
 1. **Dual Layers per Slot**:
-   - `playerLayerA` & `playerLayerB` (`AVPlayerLayer`): Active **ONLY** when actively playing (`isPlaying`) or actively scrubbing (`isScrubbing`).
-   - `stillFrameLayerA` & `stillFrameLayerB` (`CALayer` backed by uncompressed `CGImage` in `contents`): Active **ALWAYS** when paused (`!isPlaying && !isScrubbing`).
+   - `playerLayerA` & `playerLayerB` (`AVPlayerLayer`): Active **ONLY** during continuous live playback (`isPlaying && !isScrubbing`).
+   - `stillFrameLayerA` & `stillFrameLayerB` (`CALayer` backed by uncompressed `CGImage` in `contents`): Active **ALWAYS** when paused or scrubbing (`!isPlaying || isScrubbing`).
+   - *Why scrubbing requires still frame layers*: During timeline scrubbing/stepping, `AVPlayerLayer`'s hardware decode pipeline applies dynamic bilinear scaling/filtering, washing out single-pixel edge glitches (e.g., turning a 1-pixel neon green line white while dragging the playhead). Extracting warm still frames on the fly (~9.8ms) onto `stillFrameLayer` keeps the display 100% immune to downsampling even while scrubbing.
 2. **Why Static `CALayer.contents` is Immune**:
-   - CoreAnimation treats a `CALayer` with a static `CGImage` as an immutable GPU texture. It **never** applies CoreMedia dynamic proxy downsampling during panning, scrolling, or zooming. The 1-pixel edge line remains solid green at all times.
+   - CoreAnimation treats a `CALayer` with a static `CGImage` as an immutable GPU texture. It **never** applies CoreMedia dynamic proxy downsampling during panning, scrolling, scrubbing, or zooming. The 1-pixel edge line remains solid green at all times.
 3. **Compare Modes Synchronization**:
    - Every compare mode (single, split vertical, split horizontal, side-by-side, side-by-side vertical, difference, 50% overlay, blink) **MUST** update and synchronize **both** the live player layers and the still frame layers (`frames`, `masks`, `compositingFilter`, `opacity`, `zPosition`, CIFilters).
-4. **Stale Frame Suppression & 1-Frame Glitch Prevention**:
-   - `stillFrameLayerA` and `stillFrameLayerB` **MUST ONLY** be unhidden when their captured image timestamp verified-matches the current playhead time (`abs(lastCapturedTime - currentTime) < 0.03s`).
-   - If the playhead moves (seeking, scrub clicks in timeline, or upon pausing before the new still frame has finished extracting), the still frame layer **MUST remain hidden**, allowing the live `AVPlayerLayer` to seamlessly display the frame.
-   - During active playback (`isPlaying`), still frame contents must be purged to `nil` so stale textures can never flash.
+4. **Stale Frame Suppression & Smooth Scrubbing**:
+   - When paused, `stillFrameLayerA` and `stillFrameLayerB` **MUST ONLY** be unhidden when their captured image timestamp verified-matches the current playhead time (`abs(lastCapturedTime - currentTime) < 0.03s`).
+   - While actively scrubbing (`isScrubbing`), the still frame layer **MUST remain visible** once populated (`isStillReady = true`), updating its `contents` continuously as new frames finish extracting (<10ms). It must NEVER drop back to `AVPlayerLayer` during scrubbing.
+   - During continuous active playback (`isPlaying && !isScrubbing`), still frame contents must be purged to `nil` and layers hidden so stale textures can never flash.
 
 ---
 
@@ -41,11 +42,10 @@
    - ALL layers (`canvasLayer`, `playerLayerA`, `playerLayerB`, `stillFrameLayerA`, `stillFrameLayerB`) MUST ALWAYS use `.nearest` for BOTH magnification and minification filters.
    - Using `.linear` causes bilinear downsampling and interpolation that blurs/averages 1-pixel edge glitch lines with neighboring pixels (e.g. turning a 1-pixel neon green line white) during 1x playback and timeline scrubbing at normal/fit scales.
    - Dynamic switching to `.linear` is STRICTLY FORBIDDEN as it destroys single-pixel QC line detection.
-   - Using `.nearest` guarantees discrete square pixel fidelity where single-pixel glitches retain 100% color saturation and contrast across all zoom levels (Fit, 100%, 200%, 400%, 800%) both when playing and when paused.
-3. **Even Physical Pixel Dimensions (`snapToEvenPixels`) & Outer Edge Alignment**:
-   - `canvasLayer.bounds` (`baseSize`) dimensions and positions MUST ALWAYS be snapped to EVEN physical pixels (`(Int(round(val * scale)) / 2) * 2 / scale`).
-   - If a layer's width or height is an odd number of physical pixels, centering via `anchorPoint = (0.5, 0.5)` places the layer origin on a half-pixel boundary (`0.5` physical px). When composited against a light window background, the half-pixel boundary antialiasing averages 1-pixel edge glitch lines with the window background, turning them white.
-   - Snapping both width and height to even physical pixels guarantees that half-dimensions (`w/2`, `h/2`) are integers in display pixels, aligning all four edges squarely with the physical pixel grid.
+   - Using `.nearest` guarantees discrete square pixel fidelity where single-pixel glitches retain 100% color saturation and contrast across all zoom levels (Fit, 100%, 200%, 400%, 800%) both when playing, scrubbing, and paused.
+3. **Even Physical Pixel Dimensions & Rational Aspect Ratios (`getRationalAspect`)**:
+   - `canvasLayer.bounds` (`baseSize`) dimensions MUST be computed using rational aspect ratios (`getRationalAspect(width:height:)`) with an even multiplier step count (`evenSteps * num / scale`), guaranteeing an exact aspect ratio with 0.0 subpixel rounding distortion.
+   - Snapping both width and height to even physical pixels guarantees that half-dimensions (`w/2`, `h/2`) are integers in display pixels, aligning all four edges squarely with the physical pixel grid without subpixel edge bleeding against the background.
    - `canvasLayer.masksToBounds` MUST ALWAYS remain `false` so outer edge pixels are never clipped.
 
 ---
@@ -87,10 +87,10 @@
 
 Before committing any changes affecting `VideoViewportView.swift`, `PlayerEngine.swift`, or `PlayerTransportDeckView.swift`:
 - [ ] Ensure `stillFrameLayerA` and `stillFrameLayerB` are present in `VideoViewportView`.
-- [ ] Verify `updateLayerVisibility()` displays still frame layers when paused and live player layers when playing.
+- [ ] Verify `updateLayerVisibility()` displays still frame layers when paused or scrubbing, and live player layers only during continuous live playback.
 - [ ] Verify `videoGravity` and `contentsGravity` remain `.resize`.
 - [ ] Verify `magnificationFilter` and `minificationFilter` remain `.nearest` across all layers.
-- [ ] Verify `snapToEvenPixels` is used for canvas dimensions and `canvasLayer.masksToBounds` remains `false`.
+- [ ] Verify rational aspect ratio with even pixel step sizing is used for canvas dimensions and `canvasLayer.masksToBounds` remains `false`.
 - [ ] Verify `layer.setNeedsDisplay()` is NEVER called on `playerLayer` or `stillFrameLayer`.
 - [ ] Verify `playerLayer.filters` is NEVER assigned a `CIFilter` (live video filtering belongs in `AVVideoComposition`).
 - [ ] Run `swift build` with 0 warnings/errors under Swift 6.
