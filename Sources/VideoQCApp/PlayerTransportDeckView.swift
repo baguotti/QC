@@ -13,6 +13,9 @@ struct PlayerTransportDeckView: View {
     var hideGlitchNavWhenEmpty: Bool
     let onJumpPrevGlitch: () -> Void
     let onJumpNextGlitch: () -> Void
+    var onAddNote: (() -> Void)?
+    var onToggleNotesDrawer: (() -> Void)?
+    var isNotesDrawerOpen: Bool
     
     init(
         engine: PlayerEngine,
@@ -21,7 +24,10 @@ struct PlayerTransportDeckView: View {
         hoverExplanation: Binding<String>? = nil,
         hideGlitchNavWhenEmpty: Bool = false,
         onJumpPrevGlitch: @escaping () -> Void,
-        onJumpNextGlitch: @escaping () -> Void
+        onJumpNextGlitch: @escaping () -> Void,
+        onAddNote: (() -> Void)? = nil,
+        onToggleNotesDrawer: (() -> Void)? = nil,
+        isNotesDrawerOpen: Bool = false
     ) {
         self.engine = engine
         self.scanResults = scanResults
@@ -30,6 +36,9 @@ struct PlayerTransportDeckView: View {
         self.hideGlitchNavWhenEmpty = hideGlitchNavWhenEmpty
         self.onJumpPrevGlitch = onJumpPrevGlitch
         self.onJumpNextGlitch = onJumpNextGlitch
+        self.onAddNote = onAddNote
+        self.onToggleNotesDrawer = onToggleNotesDrawer
+        self.isNotesDrawerOpen = isNotesDrawerOpen
     }
     
     private var palette: StudioPalette { StudioPalette(isLightMode) }
@@ -188,7 +197,54 @@ struct PlayerTransportDeckView: View {
                 )
             }
             
-            // 3. Compact Borderless Line Finding Navigation
+            // 3. Review Notes Controls (Add Note & Toggle Drawer)
+            if onAddNote != nil || onToggleNotesDrawer != nil {
+                Rectangle()
+                    .fill(dividerColor)
+                    .frame(width: 1, height: 14)
+                    .padding(.horizontal, 2)
+                
+                HStack(spacing: 3) {
+                    if let onAdd = onAddNote {
+                        Button(action: onAdd) {
+                            HStack(spacing: 4) {
+                                Image(systemName: "text.badge.plus")
+                                    .font(.system(size: 10, weight: .bold))
+                                Text("+ NOTE")
+                                    .font(.system(size: 9.5, weight: .bold, design: .monospaced))
+                            }
+                            .frame(height: 28)
+                            .padding(.horizontal, 6)
+                            .foregroundColor(engine.activeURL == nil ? textMuted : textMain)
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(TransportIconButtonStyle())
+                        .disabled(engine.activeURL == nil)
+                        .explain("Add timecoded review note at current playhead position (M).", binding: hoverExplanation)
+                    }
+                    
+                    if let onToggle = onToggleNotesDrawer {
+                        let count = engine.activeNotes.count
+                        Button(action: onToggle) {
+                            HStack(spacing: 4) {
+                                Image(systemName: isNotesDrawerOpen ? "text.bubble.fill" : "text.bubble")
+                                    .font(.system(size: 10.5, weight: .semibold))
+                                Text(count > 0 ? "\(count)" : "NOTES")
+                                    .font(.system(size: 9.5, weight: .bold, design: .monospaced))
+                            }
+                            .frame(height: 28)
+                            .padding(.horizontal, 6)
+                            .foregroundColor(isNotesDrawerOpen ? accentBlue : (count > 0 ? textMain : textMuted))
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(TransportIconButtonStyle())
+                        .disabled(engine.activeURL == nil)
+                        .explain(count > 0 ? "Toggle Review Notes drawer (\(count) notes logged)." : "Toggle Review Notes drawer.", binding: hoverExplanation)
+                    }
+                }
+            }
+            
+            // 4. Compact Borderless Line Finding Navigation
             let hasGlitches = scanResults.contains(where: { $0.isFlagged && !$0.glitchSegments.isEmpty })
             if !hideGlitchNavWhenEmpty || hasGlitches {
                 Rectangle()

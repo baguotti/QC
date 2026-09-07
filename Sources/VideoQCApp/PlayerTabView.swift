@@ -110,10 +110,31 @@ extension ContentView {
     
     // MARK: ==================== TAB 1: PLAYER ====================
     
+    @ViewBuilder
     var playerTabView: some View {
-        HSplitView {
-            // MARK: - Left Panel: Video Queue & Explorer
-            VStack(alignment: .leading, spacing: 18) {
+        HStack(spacing: 0) {
+            HSplitView {
+                playerQueuePanel
+                playerProgramMonitorPanel
+            }
+            if showNotesDrawer {
+                playerNotesDrawerPanel
+            }
+        }
+        .onDrop(of: [UTType.fileURL.identifier], isTargeted: nil) { providers in
+            handleDrop(providers: providers, forTab: .player)
+        }
+        .onAppear {
+            // Automatically select first file if none loaded
+            if playerEngine.activeURL == nil, let first = videoFiles.first {
+                playerEngine.loadVideo(url: first)
+            }
+        }
+    }
+    
+    // MARK: - Left Panel: Video Queue & Explorer
+    private var playerQueuePanel: some View {
+        VStack(alignment: .leading, spacing: 18) {
                 // Asset Picker Section
                 deliveryAssetsSection(forTab: .player)
                 
@@ -212,71 +233,104 @@ extension ContentView {
                         .padding(12)
                         .studioBox(background: bgCardSubtle, border: borderLine)
                     } else {
-                        ScrollViewReader { scrollProxy in
-                            ScrollView {
-                                LazyVStack(spacing: 4) {
-                                    if hasPlayerSubfolders {
-                                        ForEach(flattenedPlayerNodes) { node in
-                                            if node.isDirectory {
-                                                playerFolderRow(node: node)
-                                                    .id(node.id)
+                        GeometryReader { queueGeo in
+                            ZStack(alignment: .topLeading) {
+                                ScrollViewReader { scrollProxy in
+                                    ScrollView {
+                                        LazyVStack(spacing: 4) {
+                                            if hasPlayerSubfolders {
+                                                ForEach(flattenedPlayerNodes) { node in
+                                                    if node.isDirectory {
+                                                        playerFolderRow(node: node)
+                                                            .id(node.id)
+                                                    } else {
+                                                        playerFileRow(url: node.url, depth: node.depth)
+                                                            .id(node.url)
+                                                    }
+                                                }
                                             } else {
-                                                playerFileRow(url: node.url, depth: node.depth)
-                                                    .id(node.url)
+                                                ForEach(filteredPlayerFiles, id: \.self) { url in
+                                                    playerFileRow(url: url, depth: 0)
+                                                        .id(url)
+                                                }
                                             }
                                         }
-                                    } else {
-                                        ForEach(filteredPlayerFiles, id: \.self) { url in
-                                            playerFileRow(url: url, depth: 0)
-                                                .id(url)
+                                    }
+                                    .onChange(of: queueScrollTarget) { _, targetURL in
+                                        if let targetURL = targetURL {
+                                            withAnimation(.easeInOut(duration: 0.15)) {
+                                                scrollProxy.scrollTo(targetURL, anchor: nil)
+                                            }
+                                        }
+                                    }
+                                    .onChange(of: playerEngine.activeURL) { _, newURL in
+                                        if let newURL = newURL {
+                                            revealPlayerFolderContaining(url: newURL)
+                                        }
+                                    }
+                                    .onChange(of: playerEngine.slotB.url) { _, newURL in
+                                        if let newURL = newURL, playerEngine.activeTarget == .slotB {
+                                            revealPlayerFolderContaining(url: newURL)
                                         }
                                     }
                                 }
-                            }
-                            .onChange(of: playerEngine.activeURL) { _, newURL in
-                                if let newURL = newURL {
-                                    revealPlayerFolderContaining(url: newURL)
-                                    withAnimation(.easeInOut(duration: 0.15)) {
-                                        scrollProxy.scrollTo(newURL, anchor: .center)
-                                    }
-                                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
-                                        withAnimation(.easeInOut(duration: 0.15)) {
-                                            scrollProxy.scrollTo(newURL, anchor: .center)
-                                        }
-                                    }
+                                .studioBox(background: bgCardSubtle, border: borderLine)
+                                .onDrop(of: [UTType.fileURL.identifier], isTargeted: nil) { providers in
+                                    handleDrop(providers: providers, forTab: .player)
                                 }
-                            }
-                            .onChange(of: playerEngine.slotB.url) { _, newURL in
-                                if let newURL = newURL, playerEngine.activeTarget == .slotB {
-                                    revealPlayerFolderContaining(url: newURL)
-                                    withAnimation(.easeInOut(duration: 0.15)) {
-                                        scrollProxy.scrollTo(newURL, anchor: .center)
+                                
+                                // Floating Clip Name Tooltip: revealed right next to mouse cursor
+                                if let hover = hoveredQueueClip {
+                                    let tipY = hover.location.y > (queueGeo.size.height - 36) ? (hover.location.y - 28) : (hover.location.y + 14)
+                                    let tipX = min(hover.location.x + 14, max(10, queueGeo.size.width - 60))
+                                    
+                                    HStack(spacing: 6) {
+                                        Image(systemName: "film.fill")
+                                            .font(.system(size: 8.5))
+                                            .foregroundColor(accentPositive)
+                                        Text(hover.name)
+                                            .font(.system(size: 10, weight: .bold, design: .monospaced))
+                                            .foregroundColor(textMain)
+                                            .lineLimit(1)
                                     }
-                                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
-                                        withAnimation(.easeInOut(duration: 0.15)) {
-                                            scrollProxy.scrollTo(newURL, anchor: .center)
-                                        }
-                                    }
+                                    .padding(.horizontal, 8)
+                                    .padding(.vertical, 5)
+                                    .background(bgPanel)
+                                    .cornerRadius(4)
+                                    .overlay(
+                                        RoundedRectangle(cornerRadius: 4)
+                                            .stroke(borderStrong, lineWidth: 1)
+                                    )
+                                    .shadow(color: Color.black.opacity(0.45), radius: 6, x: 0, y: 3)
+                                    .fixedSize()
+                                    .offset(x: tipX, y: tipY)
+                                    .transition(.opacity.combined(with: .scale(scale: 0.96)))
+                                    .allowsHitTesting(false)
+                                    .zIndex(100)
                                 }
                             }
                         }
-                        .studioBox(background: bgCardSubtle, border: borderLine)
-                        .onDrop(of: [UTType.fileURL.identifier], isTargeted: nil) { providers in
-                            handleDrop(providers: providers, forTab: .player)
+                        .coordinateSpace(name: "QueueContainer")
+                        .onHover { isHovering in
+                            if !isHovering {
+                                handleQueueHoverEnded(name: "")
+                            }
                         }
                     }
                 }
                 .frame(maxHeight: .infinity)
             }
             .padding(22)
-            .frame(minWidth: 360, idealWidth: 400, maxWidth: 440)
+            .frame(minWidth: 280, idealWidth: 420, maxWidth: 1200)
             .background(bgPanel)
             .onDrop(of: [UTType.fileURL.identifier], isTargeted: nil) { providers in
                 handleDrop(providers: providers, forTab: .player)
             }
-            
-            // MARK: - Right Panel: Program Monitor & Timeline
-            VStack(spacing: 0) {
+    }
+    
+    // MARK: - Right Panel: Program Monitor & Timeline
+    private var playerProgramMonitorPanel: some View {
+        VStack(spacing: 0) {
                 // Monitor Header Bar
                 playerMonitorHeader
                     .padding(.horizontal, 16)
@@ -369,20 +423,43 @@ extension ContentView {
                 .padding(.vertical, 12)
                 .studioBox(background: bgCardHeader, border: borderLine)
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .frame(minWidth: 500, maxWidth: .infinity, maxHeight: .infinity)
             .onDrop(of: [UTType.fileURL.identifier], isTargeted: nil) { providers in
                 handleDrop(providers: providers, forTab: .player)
             }
+    }
+    
+    // MARK: - Notes Drawer Panel (Right Side)
+    private var playerNotesDrawerPanel: some View {
+        HStack(spacing: 0) {
+            Rectangle()
+                .fill(borderLine)
+                .frame(width: 1)
+            
+            NotesDrawerPanelView(
+                isPresented: $showNotesDrawer,
+                notes: playerEngine.activeNotes,
+                mediaName: playerEngine.activeURL?.lastPathComponent ?? "Deliverable",
+                isLightMode: isLightMode,
+                onSeekToFrame: { frame in
+                    playerEngine.seek(toFrame: frame)
+                    playerEngine.pause()
+                },
+                onAddNote: {
+                    openAddNoteModal()
+                },
+                onToggleResolved: { id in
+                    toggleNoteResolved(id: id)
+                },
+                onDeleteNote: { id in
+                    deleteNote(id: id)
+                },
+                onToast: { msg in
+                    showToast(msg)
+                }
+            )
         }
-        .onDrop(of: [UTType.fileURL.identifier], isTargeted: nil) { providers in
-            handleDrop(providers: providers, forTab: .player)
-        }
-        .onAppear {
-            // Automatically select first file if none loaded
-            if playerEngine.activeURL == nil, let first = videoFiles.first {
-                playerEngine.loadVideo(url: first)
-            }
-        }
+        .transition(.move(edge: .trailing).combined(with: .opacity))
     }
     
     // MARK: - Folder & File Rows
@@ -426,6 +503,7 @@ extension ContentView {
             }
         }
         .explain(node.url.path, binding: $hoverExplanation)
+        .help(node.name)
         .contextMenu {
             Button("Hide Folder") {
                 hideSpecificFolder(id: node.id)
@@ -571,7 +649,23 @@ extension ContentView {
         .studioBox(background: isSelected ? bgSubtle : Color.clear, border: isSelected ? borderLine : Color.clear)
         .contentShape(Rectangle())
         .explain(url.path, binding: $hoverExplanation)
+        .onContinuousHover(coordinateSpace: .named("QueueContainer")) { phase in
+            switch phase {
+            case .active(let location):
+                handleQueueHover(name: url.lastPathComponent, location: location)
+            case .ended:
+                handleQueueHoverEnded(name: url.lastPathComponent)
+            }
+        }
+        .help(url.lastPathComponent)
         .contextMenu {
+            Button(action: {
+                openProperties(for: url)
+            }) {
+                Label("Properties", systemImage: "info.circle")
+            }
+            .keyboardShortcut("p", modifiers: .command)
+            Divider()
             Button("Copy Path") {
                 NSPasteboard.general.clearContents()
                 NSPasteboard.general.setString(url.path, forType: .string)
@@ -872,7 +966,14 @@ extension ContentView {
                     hoverExplanation: $hoverExplanation,
                     hideGlitchNavWhenEmpty: false,
                     onJumpPrevGlitch: { jumpToPreviousGlitchFinding() },
-                    onJumpNextGlitch: { jumpToNextGlitchFinding() }
+                    onJumpNextGlitch: { jumpToNextGlitchFinding() },
+                    onAddNote: { openAddNoteModal() },
+                    onToggleNotesDrawer: {
+                        withAnimation(.easeInOut(duration: 0.15)) {
+                            showNotesDrawer.toggle()
+                        }
+                    },
+                    isNotesDrawerOpen: showNotesDrawer
                 )
                 
                 // Group Divider
@@ -1143,7 +1244,8 @@ extension ContentView {
             videoFiles: videoFiles,
             onExit: { exitFullscreen() },
             onJumpNext: { jumpToNextGlitchFinding() },
-            onJumpPrev: { jumpToPreviousGlitchFinding() }
+            onJumpPrev: { jumpToPreviousGlitchFinding() },
+            onAddNote: { openAddNoteModal() }
         )
     }
     
@@ -1431,6 +1533,7 @@ struct FullscreenPlayerView: View {
     var onExit: () -> Void
     var onJumpNext: () -> Void
     var onJumpPrev: () -> Void
+    var onAddNote: (() -> Void)? = nil
     
     @State private var showControls: Bool = true
     @State private var isHoveringControls: Bool = false
@@ -1751,7 +1854,8 @@ struct FullscreenPlayerView: View {
                     hoverExplanation: nil,
                     hideGlitchNavWhenEmpty: true,
                     onJumpPrevGlitch: onJumpPrev,
-                    onJumpNextGlitch: onJumpNext
+                    onJumpNextGlitch: onJumpNext,
+                    onAddNote: onAddNote
                 )
                 
                 Spacer()

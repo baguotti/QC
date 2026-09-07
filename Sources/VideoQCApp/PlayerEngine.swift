@@ -1,5 +1,5 @@
 import Foundation
-import AVFoundation
+@preconcurrency import AVFoundation
 import Combine
 import CoreMedia
 import AppKit
@@ -362,8 +362,9 @@ public final class PlayerEngine: ObservableObject {
                     request.finish(with: source, context: nil)
                 }
             }, completionHandler: { [weak self, weak item, weak slot] comp, _ in
-                Task { @MainActor in
-                    guard let _ = self, let comp = comp, let item = item, let slot = slot, item === slot.player.currentItem else { return }
+                nonisolated(unsafe) let safeComp = comp
+                DispatchQueue.main.async {
+                    guard let _ = self, let comp = safeComp, let item = item, let slot = slot, item === slot.player.currentItem else { return }
                     item.videoComposition = comp
                 }
             })
@@ -389,6 +390,9 @@ public final class PlayerEngine: ObservableObject {
     // Glitch Markers from Line Scanner
     @Published public var markersMap: [URL: [PlayerTimelineMarker]] = [:]
     @Published public var activeMarkers: [PlayerTimelineMarker] = []
+    
+    // Review Notes from Companion Sidecar (.qcnotes)
+    @Published public var activeNotes: [QCFileNote] = []
     private var pendingInitialSeekFrame: Int? = nil
     private var pendingAutoplay: Bool = false
     private var pendingAutoplayB: Bool = false

@@ -201,6 +201,20 @@ public struct TimelineScrubberView: View {
                                 .position(x: markerX, y: 17)
                         }
                     }
+                    
+                    // Review Note Markers on Ruler (Distinct colored circular pips)
+                    ForEach(engine.activeNotes) { note in
+                        if durSecs > 0 {
+                            let fps = max(1.0, engine.activeFps)
+                            let noteSecs = Double(note.frameIndex) / fps
+                            let noteX = trackInset + trackWidth * CGFloat(min(1.0, max(0.0, noteSecs / durSecs)))
+                            Circle()
+                                .fill(colorForNoteTag(note.colorTag))
+                                .frame(width: 4.5, height: 4.5)
+                                .shadow(color: colorForNoteTag(note.colorTag).opacity(0.8), radius: 2)
+                                .position(x: noteX, y: 17)
+                        }
+                    }
                 }
                 .frame(height: 19)
                 
@@ -241,6 +255,20 @@ public struct TimelineScrubberView: View {
                                 .frame(width: 2, height: 10)
                                 .shadow(color: Color.red.opacity(0.6), radius: 2)
                                 .position(x: markerX, y: 6)
+                        }
+                    }
+                    
+                    // Review Note Markers Inside Track (Vibrant colored vertical bars)
+                    ForEach(engine.activeNotes) { note in
+                        if durSecs > 0 {
+                            let fps = max(1.0, engine.activeFps)
+                            let noteSecs = Double(note.frameIndex) / fps
+                            let noteX = trackWidth * CGFloat(min(1.0, max(0.0, noteSecs / durSecs)))
+                            Capsule()
+                                .fill(colorForNoteTag(note.colorTag))
+                                .frame(width: 2.5, height: 10)
+                                .shadow(color: colorForNoteTag(note.colorTag).opacity(0.7), radius: 2)
+                                .position(x: noteX, y: 6)
                         }
                     }
                 }
@@ -297,6 +325,31 @@ public struct TimelineScrubberView: View {
                 .animation(.spring(response: 0.2, dampingFraction: 0.7), value: isDragging)
                 .offset(x: playheadX - 5.5, y: 2)
                 .allowsHitTesting(false)
+                
+                // MARK: - Hover Note Tooltip
+                if let note = hoveredNote(trackWidth: trackWidth, durSecs: durSecs), let hX = hoverX {
+                    let clampedX = min(max(hX, 100), width - 100)
+                    HStack(spacing: 5) {
+                        Circle()
+                            .fill(colorForNoteTag(note.colorTag))
+                            .frame(width: 5, height: 5)
+                        Text("\(note.timecode) (\(note.author)):")
+                            .font(.system(size: 9, weight: .bold, design: .monospaced))
+                            .foregroundColor(.white)
+                        Text(note.text)
+                            .font(.system(size: 9, design: .monospaced))
+                            .foregroundColor(Color(white: 0.9))
+                            .lineLimit(1)
+                    }
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(Color.black.opacity(0.88))
+                    .cornerRadius(4)
+                    .overlay(RoundedRectangle(cornerRadius: 4).stroke(Color.white.opacity(0.2), lineWidth: 1))
+                    .position(x: clampedX, y: -4)
+                    .allowsHitTesting(false)
+                    .zIndex(100)
+                }
             }
             .clipShape(RoundedRectangle(cornerRadius: 8))
             .contentShape(Rectangle())
@@ -332,5 +385,29 @@ public struct TimelineScrubberView: View {
             )
         }
         .frame(height: 46)
+    }
+    
+    private func hoveredNote(trackWidth: CGFloat, durSecs: Double) -> QCFileNote? {
+        guard let hX = hoverX, isHovering, !isDragging, durSecs > 0 else { return nil }
+        let fps = max(1.0, engine.activeFps)
+        for note in engine.activeNotes {
+            let noteSecs = Double(note.frameIndex) / fps
+            let noteX = trackInset + trackWidth * CGFloat(min(1.0, max(0.0, noteSecs / durSecs)))
+            if abs(hX - noteX) < 10.0 {
+                return note
+            }
+        }
+        return nil
+    }
+    
+    private func colorForNoteTag(_ tag: String) -> Color {
+        switch tag.lowercased() {
+        case "cyan": return Color(red: 0.20, green: 0.75, blue: 1.0)
+        case "yellow": return Color(red: 1.0, green: 0.85, blue: 0.20)
+        case "green": return Color(red: 0.30, green: 0.85, blue: 0.40)
+        case "red": return Color(red: 1.0, green: 0.30, blue: 0.35)
+        case "purple": return Color(red: 0.75, green: 0.40, blue: 1.0)
+        default: return Color(red: 0.20, green: 0.75, blue: 1.0)
+        }
     }
 }

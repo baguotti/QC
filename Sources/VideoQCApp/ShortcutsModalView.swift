@@ -118,6 +118,18 @@ struct ShortcutsModalView: View {
             icon: "sparkle.magnifyingglass",
             title: "NEXT / PREV GLITCH FINDING",
             explanation: "Jumps player playhead to the next or previous detected line glitch."
+        ),
+        ShortcutItem(
+            keys: ["M"],
+            icon: "text.badge.plus",
+            title: "ADD REVIEW NOTE",
+            explanation: "Pauses playback and opens Frame.io-style timecoded note logger at current frame."
+        ),
+        ShortcutItem(
+            keys: ["⌘ + P"],
+            icon: "info.circle.fill",
+            title: "FILE PROPERTIES",
+            explanation: "Opens Premiere Pro-style properties window with complete technical specs for the deliverable."
         )
     ]
     

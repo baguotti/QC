@@ -13,6 +13,13 @@ struct ContentView: View {
     @State var showShortcutsModal: Bool = false
     @State var showSettingsPopover: Bool = false
     @State var showThemeModal: Bool = false
+    @State var showPropertiesModal: Bool = false
+    @State var showAddNoteModal: Bool = false
+    @State var showNotesDrawer: Bool = false
+    @AppStorage("reviewerName") var reviewerName: String = ""
+    @State var propertiesAsset: DeliverableAsset? = nil
+    @State var propertiesURL: URL? = nil
+    @State var isInspectingProperties: Bool = false
     @ObservedObject private var updateManager = UpdateManager.shared
     @ObservedObject private var themeManager = ThemeManager.shared
     @State var hoverExplanation: String = ""
@@ -27,6 +34,9 @@ struct ContentView: View {
     @State var playerCollapsedFolderIDs: Set<String> = []
     @State var fileTagsMap: [URL: FinderTagColor] = [:]
     @State var showTagPickerPopover: Bool = false
+    @State var hoveredQueueClip: (name: String, location: CGPoint)? = nil
+    @State var queueHoverTask: Task<Void, Never>? = nil
+    @State var queueScrollTarget: URL? = nil
     @State private var hasSetupKeyboardMonitor: Bool = false
     @State private var eventMonitors = EventMonitorCoordinator()
     
@@ -186,146 +196,41 @@ struct ContentView: View {
     
     var body: some View {
         ZStack {
-            VStack(spacing: 0) {
-                // 1. Dedicated Prominent Tab Navigation Bar with Right-Hand Controls
-                tabBarStrip
-                
-                Rectangle()
-                    .fill(borderLine)
-                    .frame(height: 1)
-                
-                // 2. Main Tab Content
-                switch selectedTab {
-                case .player:
-                    playerTabView
-                case .specs:
-                    deliverablesTabView
-                case .lineFinder:
-                    lineScannerTabView
-                case .batchRenamer:
-                    batchRenamerTabView
-                }
-                
-                // 4. Bottom Contextual Explanation Bar
-                Rectangle()
-                    .fill(borderLine)
-                    .frame(height: 1)
-                
-                HStack(spacing: 8) {
-                    HStack(spacing: 5) {
-                        Image(systemName: "cursorarrow.rays")
-                            .font(.system(size: 9))
-                            .foregroundColor(hoverExplanation.isEmpty ? textMuted : textMain)
-                        Text("INFO //")
-                            .font(.system(size: 9, weight: .black, design: .monospaced))
-                            .foregroundColor(hoverExplanation.isEmpty ? textMuted : textMain)
-                    }
-                    
-                    Text(hoverExplanation.isEmpty ? "Hover over any button, field, or control for function details." : hoverExplanation)
-                        .font(.system(size: 10, weight: hoverExplanation.isEmpty ? .regular : .semibold, design: .monospaced))
-                        .foregroundColor(hoverExplanation.isEmpty ? textMuted : textMain)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                    
-                    Spacer()
-                    
-                    Text("v\(AppVersionInfo.version)")
-                        .font(.system(size: 9, weight: .bold, design: .monospaced))
-                        .foregroundColor(textMuted)
-                }
-                .padding(.horizontal, 16)
-                .padding(.vertical, 7)
-                .background(bgPanel)
-            }
-            .frame(minWidth: 1000, minHeight: 720)
-            .background(bgMain)
-            .foregroundColor(textMain)
-            
-            // In-App Operation Guide Overlay Modal
-            if showUserGuide {
-                UserGuideView(isPresented: $showUserGuide)
-                    .transition(.opacity.combined(with: .scale(scale: 0.98)))
-                    .zIndex(100)
-                    .allowsHitTesting(showUserGuide)
-            }
-            
-            // Feedback Form Overlay Modal
-            if showFeedbackModal {
-                FeedbackModalView(isPresented: $showFeedbackModal)
-                    .transition(.opacity.combined(with: .scale(scale: 0.98)))
-                    .zIndex(150)
-                    .allowsHitTesting(showFeedbackModal)
-            }
-            
-            // Keyboard Shortcuts Overlay Modal
-            if showShortcutsModal {
-                ShortcutsModalView(isPresented: $showShortcutsModal)
-                    .transition(.opacity.combined(with: .scale(scale: 0.98)))
-                    .zIndex(155)
-                    .allowsHitTesting(showShortcutsModal)
-            }
-            
-            // Theme & Accent Colors Overlay Modal
-            if showThemeModal {
-                ThemeSettingsModalView(isPresented: $showThemeModal)
-                    .transition(.opacity.combined(with: .scale(scale: 0.98)))
-                    .zIndex(158)
-                    .allowsHitTesting(showThemeModal)
-            }
-            
-            // Software Update Overlay Modal
-            if updateManager.showModal {
-                UpdateModalView(updateManager: updateManager, isPresented: $updateManager.showModal)
-                    .transition(.opacity.combined(with: .scale(scale: 0.98)))
-                    .zIndex(160)
-                    .allowsHitTesting(updateManager.showModal)
-            }
-            
-            // Dedicated Fullscreen Video Player Presentation
-            if fullscreenMode == .review {
-                fullscreenPlayerOverlay
-                    .transition(.opacity)
-                    .zIndex(200)
-            } else if fullscreenMode == .videoOnly {
-                cleanVideoFullscreenOverlay
-                    .transition(.opacity)
-                    .zIndex(200)
-            }
-            
-            // Floating Notification Toast HUD
-            if let toast = toastMessage {
-                VStack {
-                    Spacer()
-                    HStack(spacing: 10) {
-                        Image(systemName: "checkmark.circle.fill")
-                            .font(.system(size: 13, weight: .bold))
-                            .foregroundColor(accentPositive)
-                        Text(toast)
-                            .font(.system(size: 11, weight: .bold, design: .monospaced))
-                            .foregroundColor(textMain)
-                    }
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 10)
-                    .background(bgPanel.opacity(0.96))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 6)
-                            .stroke(accentPositive.opacity(0.6), lineWidth: 1)
-                    )
-                    .cornerRadius(6)
-                    .shadow(color: Color.black.opacity(0.5), radius: 12, y: 6)
-                    .padding(.bottom, 24)
-                    .transition(.move(edge: .bottom).combined(with: .opacity))
-                }
-                .zIndex(250)
-                .allowsHitTesting(false)
-            }
+            mainWorkspaceContent
+            overlayModals
         }
         .animation(.easeInOut(duration: 0.15), value: showUserGuide)
         .animation(.easeInOut(duration: 0.15), value: showFeedbackModal)
         .animation(.easeInOut(duration: 0.15), value: showShortcutsModal)
         .animation(.easeInOut(duration: 0.15), value: showThemeModal)
+        .animation(.easeInOut(duration: 0.15), value: showPropertiesModal)
+        .animation(.easeInOut(duration: 0.15), value: showAddNoteModal)
+        .animation(.easeInOut(duration: 0.15), value: showNotesDrawer)
         .animation(.easeInOut(duration: 0.15), value: fullscreenMode)
         .animation(.spring(response: 0.3, dampingFraction: 0.7), value: toastMessage)
+        .onChange(of: showPropertiesModal) { _, newValue in
+            if !newValue {
+                DispatchQueue.main.async {
+                    if let window = NSApp.windows.first(where: { $0.canBecomeKey }) {
+                        window.makeKeyAndOrderFront(nil)
+                        window.makeFirstResponder(nil)
+                    }
+                }
+            }
+        }
+        .onChange(of: showAddNoteModal) { _, newValue in
+            if !newValue {
+                DispatchQueue.main.async {
+                    if let window = NSApp.windows.first(where: { $0.canBecomeKey }) {
+                        window.makeKeyAndOrderFront(nil)
+                        window.makeFirstResponder(nil)
+                    }
+                }
+            }
+        }
+        .onChange(of: playerEngine.activeURL) { _, newURL in
+            loadNotesForActiveURL(newURL)
+        }
         .onChange(of: showThemeModal) { _, newValue in
             if !newValue {
                 DispatchQueue.main.async {
@@ -410,6 +315,189 @@ struct ContentView: View {
         .onDisappear {
             eventMonitors.cleanup()
             hasSetupKeyboardMonitor = false
+        }
+    }
+    
+    // MARK: - Main Workspace Layout
+    private var mainWorkspaceContent: some View {
+        VStack(spacing: 0) {
+            // 1. Dedicated Prominent Tab Navigation Bar with Right-Hand Controls
+            tabBarStrip
+            
+            Rectangle()
+                .fill(borderLine)
+                .frame(height: 1)
+            
+            // 2. Main Tab Content
+            switch selectedTab {
+            case .player:
+                playerTabView
+            case .specs:
+                deliverablesTabView
+            case .lineFinder:
+                lineScannerTabView
+            case .batchRenamer:
+                batchRenamerTabView
+            }
+            
+            // 4. Bottom Contextual Explanation Bar
+            Rectangle()
+                .fill(borderLine)
+                .frame(height: 1)
+            
+            HStack(spacing: 8) {
+                HStack(spacing: 5) {
+                    Image(systemName: "cursorarrow.rays")
+                        .font(.system(size: 9))
+                        .foregroundColor(hoverExplanation.isEmpty ? textMuted : textMain)
+                    Text("INFO //")
+                        .font(.system(size: 9, weight: .black, design: .monospaced))
+                        .foregroundColor(hoverExplanation.isEmpty ? textMuted : textMain)
+                }
+                
+                Text(hoverExplanation.isEmpty ? "Hover over any button, field, or control for function details." : hoverExplanation)
+                    .font(.system(size: 10, weight: hoverExplanation.isEmpty ? .regular : .semibold, design: .monospaced))
+                    .foregroundColor(hoverExplanation.isEmpty ? textMuted : textMain)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                
+                Spacer()
+                
+                Text("v\(AppVersionInfo.version)")
+                    .font(.system(size: 9, weight: .bold, design: .monospaced))
+                    .foregroundColor(textMuted)
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 7)
+            .background(bgPanel)
+        }
+        .frame(minWidth: 1000, minHeight: 720)
+        .background(bgMain)
+        .foregroundColor(textMain)
+    }
+    
+    // MARK: - Modal Overlays & Fullscreen Presentation
+    @ViewBuilder
+    private var overlayModals: some View {
+        // In-App Operation Guide Overlay Modal
+        if showUserGuide {
+            UserGuideView(isPresented: $showUserGuide)
+                .transition(.opacity.combined(with: .scale(scale: 0.98)))
+                .zIndex(100)
+                .allowsHitTesting(showUserGuide)
+        }
+        
+        // Feedback Form Overlay Modal
+        if showFeedbackModal {
+            FeedbackModalView(isPresented: $showFeedbackModal)
+                .transition(.opacity.combined(with: .scale(scale: 0.98)))
+                .zIndex(150)
+                .allowsHitTesting(showFeedbackModal)
+        }
+        
+        // Keyboard Shortcuts Overlay Modal
+        if showShortcutsModal {
+            ShortcutsModalView(isPresented: $showShortcutsModal)
+                .transition(.opacity.combined(with: .scale(scale: 0.98)))
+                .zIndex(155)
+                .allowsHitTesting(showShortcutsModal)
+        }
+        
+        // File Properties Overlay Modal (Premiere Pro Style)
+        if showPropertiesModal {
+            PropertiesModalView(
+                isPresented: $showPropertiesModal,
+                asset: propertiesAsset,
+                fileURL: propertiesURL,
+                isLoading: isInspectingProperties,
+                isLightMode: isLightMode,
+                onCopySpecs: { _ in
+                    showToast("Specs copied to clipboard!")
+                },
+                onRevealInFinder: { url in
+                    NSWorkspace.shared.activateFileViewerSelecting([url])
+                },
+                onLoadSlotA: { url in
+                    playerEngine.loadVideo(url: url, into: .slotA, autoplay: true)
+                },
+                onLoadSlotB: { url in
+                    playerEngine.loadVideo(url: url, into: .slotB, autoplay: true)
+                }
+            )
+            .transition(.opacity.combined(with: .scale(scale: 0.98)))
+            .zIndex(156)
+            .allowsHitTesting(showPropertiesModal)
+        }
+        
+        // Theme & Accent Colors Overlay Modal
+        if showThemeModal {
+            ThemeSettingsModalView(isPresented: $showThemeModal)
+                .transition(.opacity.combined(with: .scale(scale: 0.98)))
+                .zIndex(158)
+                .allowsHitTesting(showThemeModal)
+        }
+        
+        // Software Update Overlay Modal
+        if updateManager.showModal {
+            UpdateModalView(updateManager: updateManager, isPresented: $updateManager.showModal)
+                .transition(.opacity.combined(with: .scale(scale: 0.98)))
+                .zIndex(160)
+                .allowsHitTesting(updateManager.showModal)
+        }
+        
+        // Dedicated Fullscreen Video Player Presentation
+        if fullscreenMode == .review {
+            fullscreenPlayerOverlay
+                .transition(.opacity)
+                .zIndex(200)
+        } else if fullscreenMode == .videoOnly {
+            cleanVideoFullscreenOverlay
+                .transition(.opacity)
+                .zIndex(200)
+        }
+        
+        // Add Review Note Modal (Frame.io Style)
+        if showAddNoteModal {
+            AddNotePopoverView(
+                isPresented: $showAddNoteModal,
+                timecode: playerEngine.currentTimecode,
+                frameIndex: playerEngine.currentFrame,
+                isLightMode: isLightMode,
+                onSave: { newNote in
+                    addNote(newNote)
+                }
+            )
+            .transition(.opacity.combined(with: .scale(scale: 0.98)))
+            .zIndex(220)
+            .allowsHitTesting(showAddNoteModal)
+        }
+        
+        // Floating Notification Toast HUD
+        if let toast = toastMessage {
+            VStack {
+                Spacer()
+                HStack(spacing: 10) {
+                    Image(systemName: "checkmark.circle.fill")
+                        .font(.system(size: 13, weight: .bold))
+                        .foregroundColor(accentPositive)
+                    Text(toast)
+                        .font(.system(size: 11, weight: .bold, design: .monospaced))
+                        .foregroundColor(textMain)
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 10)
+                .background(bgPanel.opacity(0.96))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 6)
+                        .stroke(accentPositive.opacity(0.6), lineWidth: 1)
+                )
+                .cornerRadius(6)
+                .shadow(color: Color.black.opacity(0.5), radius: 12, y: 6)
+                .padding(.bottom, 24)
+                .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
+            .zIndex(250)
+            .allowsHitTesting(false)
         }
     }
     
@@ -1445,6 +1533,24 @@ struct ContentView: View {
             
             // ESC key: Dismiss any active modal or exit fullscreen
             if event.keyCode == 53 {
+                if self.showPropertiesModal {
+                    withAnimation(.easeInOut(duration: 0.15)) {
+                        self.showPropertiesModal = false
+                    }
+                    return nil
+                }
+                if self.showAddNoteModal {
+                    withAnimation(.easeInOut(duration: 0.15)) {
+                        self.showAddNoteModal = false
+                    }
+                    return nil
+                }
+                if self.showNotesDrawer {
+                    withAnimation(.easeInOut(duration: 0.15)) {
+                        self.showNotesDrawer = false
+                    }
+                    return nil
+                }
                 if self.showThemeModal {
                     withAnimation(.easeInOut(duration: 0.15)) {
                         self.showThemeModal = false
@@ -1482,7 +1588,7 @@ struct ContentView: View {
             }
             
             // If any modal is active, block background player controls
-            if self.showShortcutsModal || self.showThemeModal || self.showUserGuide || self.showFeedbackModal || self.updateManager.showModal {
+            if self.showShortcutsModal || self.showThemeModal || self.showUserGuide || self.showFeedbackModal || self.updateManager.showModal || self.showPropertiesModal || self.showAddNoteModal {
                 return event
             }
             
@@ -1538,8 +1644,16 @@ struct ContentView: View {
                         self.playerEngine.cycleCompareMode()
                         return nil
                     }
+                } else if chars == "m" && !isCommand { // M: Add Review Note at current frame
+                    if self.selectedTab == .player && self.playerEngine.activeURL != nil {
+                        self.openAddNoteModal()
+                        return nil
+                    }
                 } else if chars == "?" || (isCommand && chars == "/") {
                     self.showShortcutsModal.toggle()
+                    return nil
+                } else if chars == "p" && isCommand {
+                    self.togglePropertiesModalForActiveOrSelected()
                     return nil
                 }
             }
@@ -1593,10 +1707,12 @@ struct ContentView: View {
             let prevIdx = max(0, idx - 1)
             let selectedURL = files[prevIdx]
             revealPlayerFolderContaining(url: selectedURL)
+            queueScrollTarget = selectedURL
             playerEngine.loadVideo(url: selectedURL, into: target, autoplay: true)
         } else {
             let selectedURL = files[0]
             revealPlayerFolderContaining(url: selectedURL)
+            queueScrollTarget = selectedURL
             playerEngine.loadVideo(url: selectedURL, into: target, autoplay: true)
         }
     }
@@ -1610,10 +1726,12 @@ struct ContentView: View {
             let nextIdx = min(files.count - 1, idx + 1)
             let selectedURL = files[nextIdx]
             revealPlayerFolderContaining(url: selectedURL)
+            queueScrollTarget = selectedURL
             playerEngine.loadVideo(url: selectedURL, into: target, autoplay: true)
         } else {
             let selectedURL = files[0]
             revealPlayerFolderContaining(url: selectedURL)
+            queueScrollTarget = selectedURL
             playerEngine.loadVideo(url: selectedURL, into: target, autoplay: true)
         }
     }
@@ -1623,6 +1741,7 @@ struct ContentView: View {
             videoFiles.append(fileURL)
         }
         revealPlayerFolderContaining(url: fileURL)
+        queueScrollTarget = fileURL
         playerEngine.loadVideo(url: fileURL, initialSeekFrame: frameIndex)
         playerEngine.pause()
         selectedTab = .player
@@ -1748,4 +1867,132 @@ struct ContentView: View {
             fileTagsMap.removeValue(forKey: url)
         }
     }
+    
+    // MARK: - File Properties Modal (Premiere Pro Style)
+    
+    func openProperties(for url: URL) {
+        propertiesURL = url
+        if let existing = deliverableAssets.first(where: { $0.fileURL.standardizedFileURL == url.standardizedFileURL }) {
+            propertiesAsset = existing
+            isInspectingProperties = false
+            withAnimation(.easeInOut(duration: 0.15)) {
+                showPropertiesModal = true
+            }
+        } else {
+            propertiesAsset = nil
+            isInspectingProperties = true
+            withAnimation(.easeInOut(duration: 0.15)) {
+                showPropertiesModal = true
+            }
+            
+            Task { @MainActor in
+                if let asset = await DeliverablesInspector.inspectFile(url: url) {
+                    self.propertiesAsset = asset
+                    if !self.deliverableAssets.contains(where: { $0.fileURL.standardizedFileURL == url.standardizedFileURL }) {
+                        self.deliverableAssets.append(asset)
+                    }
+                }
+                self.isInspectingProperties = false
+            }
+        }
+    }
+    
+    func togglePropertiesModalForActiveOrSelected() {
+        if showPropertiesModal {
+            withAnimation(.easeInOut(duration: 0.15)) {
+                showPropertiesModal = false
+            }
+            return
+        }
+        
+        let targetURL = (playerEngine.activeTarget == .slotB && playerEngine.slotB.url != nil) ? playerEngine.slotB.url : (playerEngine.activeURL ?? playerEngine.slotA.url ?? filteredPlayerFiles.first)
+        if let url = targetURL {
+            openProperties(for: url)
+        }
+    }
+    
+    // MARK: - Queue Hover Tooltip with Dwell Delay
+    
+    func handleQueueHover(name: String, location: CGPoint) {
+        if hoveredQueueClip?.name == name {
+            // Already visible for this item: update position smoothly without re-triggering delay
+            hoveredQueueClip = (name: name, location: location)
+            return
+        }
+        
+        // New item: cancel pending dwell timer and wait for dwell threshold before popping up
+        queueHoverTask?.cancel()
+        queueHoverTask = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 350_000_000) // ~0.35s dwell time
+            guard !Task.isCancelled else { return }
+            withAnimation(.easeInOut(duration: 0.12)) {
+                self.hoveredQueueClip = (name: name, location: location)
+            }
+        }
+    }
+    
+    func handleQueueHoverEnded(name: String) {
+        queueHoverTask?.cancel()
+        queueHoverTask = nil
+        if hoveredQueueClip?.name == name {
+            withAnimation(.easeInOut(duration: 0.1)) {
+                self.hoveredQueueClip = nil
+            }
+        }
+    }
+    
+    // MARK: - Timecoded Notes Management (Frame.io Style)
+    
+    func loadNotesForActiveURL(_ url: URL?) {
+        guard let url = url else {
+            playerEngine.activeNotes = []
+            return
+        }
+        Task { @MainActor in
+            let notes = await QCNotesManager.shared.loadNotes(for: url)
+            if self.playerEngine.activeURL == url {
+                self.playerEngine.activeNotes = notes
+            }
+        }
+    }
+    
+    func openAddNoteModal() {
+        guard playerEngine.activeURL != nil else { return }
+        playerEngine.pause()
+        withAnimation(.easeInOut(duration: 0.15)) {
+            showAddNoteModal = true
+        }
+    }
+    
+    func addNote(_ note: QCFileNote) {
+        guard let url = playerEngine.activeURL else { return }
+        var currentNotes = playerEngine.activeNotes
+        currentNotes.append(note)
+        currentNotes.sort { $0.frameIndex < $1.frameIndex }
+        playerEngine.activeNotes = currentNotes
+        saveNotes(currentNotes, for: url)
+        showToast("Note logged at \(note.timecode)")
+    }
+    
+    func toggleNoteResolved(id: UUID) {
+        guard let url = playerEngine.activeURL else { return }
+        guard let index = playerEngine.activeNotes.firstIndex(where: { $0.id == id }) else { return }
+        playerEngine.activeNotes[index].isResolved.toggle()
+        saveNotes(playerEngine.activeNotes, for: url)
+    }
+    
+    func deleteNote(id: UUID) {
+        guard let url = playerEngine.activeURL else { return }
+        playerEngine.activeNotes.removeAll(where: { $0.id == id })
+        saveNotes(playerEngine.activeNotes, for: url)
+        showToast("Note deleted")
+    }
+    
+    func saveNotes(_ notes: [QCFileNote], for url: URL) {
+        let fps = playerEngine.activeFps
+        Task {
+            await QCNotesManager.shared.saveNotes(notes, for: url, fps: fps)
+        }
+    }
 }
+
