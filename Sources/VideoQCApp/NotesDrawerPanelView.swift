@@ -153,7 +153,7 @@ struct NotesDrawerPanelView: View {
             .background(palette.bgPanel)
         }
         .frame(width: 320)
-        .studioBox(background: palette.bgPanel, border: palette.borderStrong)
+        .studioBox(background: palette.bgPanel, border: palette.borderLine)
     }
     
     // MARK: - Note Card Row

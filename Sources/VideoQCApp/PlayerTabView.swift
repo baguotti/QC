@@ -431,12 +431,7 @@ extension ContentView {
     
     // MARK: - Notes Drawer Panel (Right Side)
     private var playerNotesDrawerPanel: some View {
-        HStack(spacing: 0) {
-            Rectangle()
-                .fill(borderLine)
-                .frame(width: 1)
-            
-            NotesDrawerPanelView(
+        NotesDrawerPanelView(
                 isPresented: $showNotesDrawer,
                 notes: playerEngine.activeNotes,
                 mediaName: playerEngine.activeURL?.lastPathComponent ?? "Deliverable",
@@ -458,8 +453,7 @@ extension ContentView {
                     showToast(msg)
                 }
             )
-        }
-        .transition(.move(edge: .trailing).combined(with: .opacity))
+            .transition(.move(edge: .trailing).combined(with: .opacity))
     }
     
     // MARK: - Folder & File Rows
@@ -786,22 +780,164 @@ extension ContentView {
         return handleDrop(providers: providers, forTab: .player, targetSlot: target)
     }
     
+    // MARK: - Review Navigation Strip (Notes, Line Glitches, Finder Tags)
+    
+    private var playerReviewNavStrip: some View {
+        HStack(spacing: 8) {
+            // 1. Compact Review Notes Controls: [+ NOTE] and < 💬 count >
+            HStack(spacing: 2) {
+                Button(action: { openAddNoteModal() }) {
+                    HStack(spacing: 3) {
+                        Image(systemName: "plus")
+                            .font(.system(size: 9.5, weight: .bold))
+                        Text("NOTE")
+                            .font(.system(size: 9.5, weight: .bold, design: .monospaced))
+                    }
+                    .frame(height: 24)
+                    .padding(.horizontal, 5)
+                    .foregroundColor(playerEngine.activeURL == nil ? textMuted : textMain)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(TransportIconButtonStyle())
+                .disabled(playerEngine.activeURL == nil)
+                .explain("Add review note at playhead (M).", binding: $hoverExplanation)
+                
+                let notesCount = playerEngine.activeNotes.count
+                let hasNotes = notesCount > 0
+                
+                HStack(spacing: 1) {
+                    Button(action: { playerEngine.jumpToPreviousNote() }) {
+                        Image(systemName: "chevron.left.to.line")
+                            .font(.system(size: 9.5, weight: .bold))
+                            .frame(width: 18, height: 24)
+                            .foregroundColor(hasNotes ? textMain : textMuted)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(TransportIconButtonStyle())
+                    .disabled(!hasNotes)
+                    .explain(hasNotes ? "Jump to previous note" : "No notes logged", binding: $hoverExplanation)
+                    
+                    Button(action: {
+                        withAnimation(.easeInOut(duration: 0.15)) {
+                            showNotesDrawer.toggle()
+                        }
+                    }) {
+                        HStack(spacing: 3) {
+                            Image(systemName: showNotesDrawer ? "text.bubble.fill" : "text.bubble")
+                                .font(.system(size: 9.5, weight: .semibold))
+                            Text(hasNotes ? "\(notesCount)" : "NOTES")
+                                .font(.system(size: 9.5, weight: .bold, design: .monospaced))
+                        }
+                        .frame(height: 24)
+                        .padding(.horizontal, 4)
+                        .foregroundColor(showNotesDrawer ? accentBlue : (hasNotes ? textMain : textMuted))
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(TransportIconButtonStyle())
+                    .disabled(playerEngine.activeURL == nil)
+                    .explain(hasNotes ? "Toggle Review Notes drawer (\(notesCount) notes)." : "Toggle Review Notes drawer.", binding: $hoverExplanation)
+                    
+                    Button(action: { playerEngine.jumpToNextNote() }) {
+                        Image(systemName: "chevron.right.to.line")
+                            .font(.system(size: 9.5, weight: .bold))
+                            .frame(width: 18, height: 24)
+                            .foregroundColor(hasNotes ? textMain : textMuted)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(TransportIconButtonStyle())
+                    .disabled(!hasNotes)
+                    .explain(hasNotes ? "Jump to next note" : "No notes logged", binding: $hoverExplanation)
+                }
+            }
+            
+            // Group Divider
+            Rectangle()
+                .fill(borderLine.opacity(0.45))
+                .frame(width: 1, height: 14)
+                .padding(.horizontal, 2)
+            
+            // 2. Compact Line Finding Navigation: < LINE >
+            let hasGlitches = scanResults.contains(where: { $0.isFlagged && !$0.glitchSegments.isEmpty })
+            HStack(spacing: 1) {
+                Button(action: { jumpToPreviousGlitchFinding() }) {
+                    Image(systemName: "chevron.left.to.line")
+                        .font(.system(size: 9.5, weight: .bold))
+                        .frame(width: 18, height: 24)
+                        .foregroundColor(hasGlitches ? alertRed : textMuted)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(TransportIconButtonStyle())
+                .disabled(!hasGlitches)
+                .explain(
+                    hasGlitches ? "Jump to previous line glitch (⇧N / cycles backwards through findings of Tab 3)." : "No line glitches found in Tab 3 to cycle through.",
+                    binding: $hoverExplanation
+                )
+                
+                Text("LINE")
+                    .font(.system(size: 9.5, weight: .bold, design: .monospaced))
+                    .foregroundColor(hasGlitches ? alertRed : textMuted)
+                    .padding(.horizontal, 3)
+                
+                Button(action: { jumpToNextGlitchFinding() }) {
+                    Image(systemName: "chevron.right.to.line")
+                        .font(.system(size: 9.5, weight: .bold))
+                        .frame(width: 18, height: 24)
+                        .foregroundColor(hasGlitches ? alertRed : textMuted)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(TransportIconButtonStyle())
+                .disabled(!hasGlitches)
+                .explain(
+                    hasGlitches ? "Jump to next line glitch (N / cycles forwards through findings of Tab 3)." : "No line glitches found in Tab 3 to cycle through.",
+                    binding: $hoverExplanation
+                )
+            }
+            
+            // Group Divider
+            Rectangle()
+                .fill(borderLine.opacity(0.45))
+                .frame(width: 1, height: 14)
+                .padding(.horizontal, 2)
+            
+            // 3. Finder Tags Button
+            let activeURL = playerEngine.activeURL
+            let activeTag = activeURL.flatMap { fileTagsMap[$0] }
+            Button(action: {
+                showTagPickerPopover.toggle()
+            }) {
+                HStack(spacing: 4) {
+                    if let tag = activeTag {
+                        Circle()
+                            .fill(tag.color)
+                            .frame(width: 7, height: 7)
+                    } else {
+                        Image(systemName: "tag.fill")
+                            .font(.system(size: 9, weight: .bold))
+                    }
+                    Text("TAGS")
+                        .font(.system(size: 9, weight: .bold, design: .monospaced))
+                }
+                .frame(height: 24)
+                .padding(.horizontal, 5)
+                .foregroundColor(activeTag?.color ?? (activeURL == nil ? textMuted : textMain.opacity(0.85)))
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(TransportIconButtonStyle())
+            .disabled(activeURL == nil)
+            .explain(activeURL != nil ? "Tag current file with native macOS Finder color tags." : "Load a file to apply Finder tags.", binding: $hoverExplanation)
+            .popover(isPresented: $showTagPickerPopover, arrowEdge: .top) {
+                tagPickerPopoverView(for: activeURL)
+            }
+        }
+    }
+    
     // MARK: - Timecode Bar (above timeline)
     
     private var playerTimecodeBar: some View {
-        ZStack {
-            // Center: Shuttle Speed Indicator (Truly centered horizontally, no box, hidden when paused)
-            if playerEngine.shuttleStateText != "PAUSE" && (playerEngine.isPlaying || playerEngine.rate != 0) {
-                Text(playerEngine.shuttleStateText)
-                    .font(.system(size: 10, weight: .bold, design: .monospaced))
-                    .monospacedDigit()
-                    .foregroundColor(accentBlue)
-                    .tracking(0.5)
-            }
-            
-            // Outer Strip: Left Timecode + Zoom, Right Duration
-            HStack(spacing: 12) {
-                // Left: Current SMPTE Timecode or Frame Count (Fixed width, locked frames alignment)
+        HStack(spacing: 0) {
+            // Left: Current SMPTE Timecode / Frames + Zoom (aligned to the left next to timecode)
+            HStack(spacing: 8) {
+                // Current SMPTE Timecode or Frame Count (Fixed width, locked frames alignment)
                 Menu {
                     Button(action: {
                         let text = playerEngine.displayTimeAsFrames ? "\(playerEngine.currentFrame)" : playerEngine.currentTimecode
@@ -900,7 +1036,7 @@ extension ContentView {
                     }
                 }
                 
-                // Zoom Dropdown Menu (Fixed 64px width)
+                // Zoom Dropdown Menu (Adjusted sizing to fit the longest line: "Fit to Window")
                 Menu {
                     Button("Fit to Window") { playerEngine.setZoomFit() }
                     Divider()
@@ -914,7 +1050,7 @@ extension ContentView {
                     Button("400%") { playerEngine.setZoomLevel(4.0) }
                 } label: {
                     HStack(spacing: 4) {
-                        Text(playerEngine.isFitZoom ? "Fit" : "\(Int(round(playerEngine.zoomScale * 100)))%")
+                        Text(playerEngine.isFitZoom ? "Fit to Window" : "\(Int(round(playerEngine.zoomScale * 100)))%")
                             .font(.system(size: 11, weight: .medium, design: .monospaced))
                             .foregroundColor(textMain)
                             .lineLimit(1)
@@ -925,16 +1061,34 @@ extension ContentView {
                             .foregroundColor(textMuted)
                     }
                     .padding(.horizontal, 6)
-                    .frame(width: 64, height: 22)
+                    .frame(width: 118, height: 22)
                     .studioBox(background: bgSubtle, border: borderLine)
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .frame(width: 64)
+                .frame(width: 118)
                 
+                // Shuttle Speed Indicator (Next to zoom, hidden when paused)
+                if playerEngine.shuttleStateText != "PAUSE" && (playerEngine.isPlaying || playerEngine.rate != 0) {
+                    Text(playerEngine.shuttleStateText)
+                        .font(.system(size: 10, weight: .bold, design: .monospaced))
+                        .monospacedDigit()
+                        .foregroundColor(accentBlue)
+                        .tracking(0.5)
+                }
+            }
+            .frame(minWidth: 270, alignment: .leading)
+            
+            Spacer(minLength: 8)
+            
+            // Center: NOTES, LINE and TAGS related buttons
+            playerReviewNavStrip
+            
+            Spacer(minLength: 8)
+            
+            // Right: Duration Timecode / Total Frames (Locked 125px width, balanced minWidth for true center)
+            HStack {
                 Spacer()
-                
-                // Right: Duration Timecode / Total Frames (Locked 125px width)
                 Text(playerEngine.displayTimeAsFrames ? "\(playerEngine.totalFrames) frames" : playerEngine.durationTimecode)
                     .font(.system(size: 13, weight: .bold, design: .monospaced))
                     .monospacedDigit()
@@ -943,6 +1097,7 @@ extension ContentView {
                     .lineLimit(1)
                     .frame(width: 125, alignment: .trailing)
             }
+            .frame(minWidth: 270, alignment: .trailing)
         }
         .frame(height: 24)
         .padding(.horizontal, 4)
@@ -952,7 +1107,7 @@ extension ContentView {
     
     private var playerTransportBar: some View {
         HStack(spacing: 0) {
-            // Left: Audio Volume & Mute (Fixed 186px width - matches 186px on right)
+            // Left: Audio Volume & Mute (Fixed 210px width - matches 210px on right)
             HStack(spacing: 8) {
                 let speakerIcon: String = {
                     if playerEngine.isMuted || playerEngine.volume <= 0.001 {
@@ -988,80 +1143,21 @@ extension ContentView {
             
             Spacer()
             
-            // Center: Playback, Shuttle & Frame Controls
-            HStack(spacing: 8) {
-                PlayerTransportDeckView(
-                    engine: playerEngine,
-                    scanResults: scanResults,
-                    isLightMode: isLightMode,
-                    hoverExplanation: $hoverExplanation,
-                    hideGlitchNavWhenEmpty: false,
-                    onJumpPrevGlitch: { jumpToPreviousGlitchFinding() },
-                    onJumpNextGlitch: { jumpToNextGlitchFinding() },
-                    onAddNote: { openAddNoteModal() },
-                    onToggleNotesDrawer: {
-                        withAnimation(.easeInOut(duration: 0.15)) {
-                            showNotesDrawer.toggle()
-                        }
-                    },
-                    isNotesDrawerOpen: showNotesDrawer,
-                    onJumpPrevNote: { playerEngine.jumpToPreviousNote() },
-                    onJumpNextNote: { playerEngine.jumpToNextNote() }
-                )
-                
-                // Group Divider
-                Rectangle()
-                    .fill(borderLine.opacity(0.45))
-                    .frame(width: 1, height: 14)
-                    .padding(.horizontal, 2)
-                
-                // 4. Finder Tags Button (Border-free)
-                let activeURL = playerEngine.activeURL
-                let activeTag = activeURL.flatMap { fileTagsMap[$0] }
-                Button(action: {
-                    showTagPickerPopover.toggle()
-                }) {
-                    HStack(spacing: 4) {
-                        if let tag = activeTag {
-                            Circle()
-                                .fill(tag.color)
-                                .frame(width: 7, height: 7)
-                        } else {
-                            Image(systemName: "tag.fill")
-                                .font(.system(size: 9, weight: .bold))
-                        }
-                        Text("TAGS")
-                            .font(.system(size: 9, weight: .bold, design: .monospaced))
-                    }
-                    .frame(height: 28)
-                    .padding(.horizontal, 5)
-                    .foregroundColor(activeTag?.color ?? (activeURL == nil ? textMuted : textMain.opacity(0.85)))
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(TransportIconButtonStyle())
-                .disabled(activeURL == nil)
-                .explain(activeURL != nil ? "Tag current file with native macOS Finder color tags." : "Load a file to apply Finder tags.", binding: $hoverExplanation)
-                .popover(isPresented: $showTagPickerPopover, arrowEdge: .top) {
-                    tagPickerPopoverView(for: activeURL)
-                }
-            }
+            // Center: Playback, Shuttle & Frame Controls (Camera screengrab moved next to Exposure)
+            PlayerTransportDeckView(
+                engine: playerEngine,
+                scanResults: scanResults,
+                isLightMode: isLightMode,
+                hoverExplanation: $hoverExplanation,
+                onExportScreenshot: { exportCurrentFrameScreenshot() },
+                showNotesAndGlitches: false
+            )
             
             Spacer()
             
-            // Right: Export Screenshot Button (Balanced 210px width)
-            HStack(spacing: 6) {
-                Button(action: { exportCurrentFrameScreenshot() }) {
-                    Image(systemName: "camera.fill")
-                        .font(.system(size: 12, weight: .bold))
-                        .frame(width: 28, height: 28)
-                        .foregroundColor(playerEngine.activeURL == nil ? textMuted : textMain)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(TransportIconButtonStyle())
-                .disabled(playerEngine.activeURL == nil)
-                .explain("Export screenshot of the current video frame as medium-quality JPG.", binding: $hoverExplanation)
-            }
-            .frame(width: 210, alignment: .trailing)
+            // Right: Balanced spacer to keep center transport deck dead-centered
+            Spacer()
+                .frame(width: 210)
         }
         .frame(height: 28)
     }
@@ -1237,7 +1333,8 @@ extension ContentView {
             onExit: { exitFullscreen() },
             onJumpNext: { jumpToNextGlitchFinding() },
             onJumpPrev: { jumpToPreviousGlitchFinding() },
-            onAddNote: { openAddNoteModal() }
+            onAddNote: { openAddNoteModal() },
+            onExportScreenshot: { exportCurrentFrameScreenshot() }
         )
     }
     
@@ -1526,6 +1623,7 @@ struct FullscreenPlayerView: View {
     var onJumpNext: () -> Void
     var onJumpPrev: () -> Void
     var onAddNote: (() -> Void)? = nil
+    var onExportScreenshot: (() -> Void)? = nil
     
     @State private var showControls: Bool = true
     @State private var isHoveringControls: Bool = false
@@ -1849,7 +1947,9 @@ struct FullscreenPlayerView: View {
                     onJumpNextGlitch: onJumpNext,
                     onAddNote: onAddNote,
                     onJumpPrevNote: { engine.jumpToPreviousNote() },
-                    onJumpNextNote: { engine.jumpToNextNote() }
+                    onJumpNextNote: { engine.jumpToNextNote() },
+                    onExportScreenshot: onExportScreenshot,
+                    showNotesAndGlitches: true
                 )
                 
                 Spacer()

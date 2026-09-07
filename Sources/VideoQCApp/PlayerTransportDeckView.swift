@@ -18,20 +18,24 @@ struct PlayerTransportDeckView: View {
     var isNotesDrawerOpen: Bool
     var onJumpPrevNote: (() -> Void)?
     var onJumpNextNote: (() -> Void)?
+    var onExportScreenshot: (() -> Void)?
+    var showNotesAndGlitches: Bool
     
     init(
         engine: PlayerEngine,
-        scanResults: [VideoQCResult],
+        scanResults: [VideoQCResult] = [],
         isLightMode: Bool = false,
         hoverExplanation: Binding<String>? = nil,
         hideGlitchNavWhenEmpty: Bool = false,
-        onJumpPrevGlitch: @escaping () -> Void,
-        onJumpNextGlitch: @escaping () -> Void,
+        onJumpPrevGlitch: @escaping () -> Void = {},
+        onJumpNextGlitch: @escaping () -> Void = {},
         onAddNote: (() -> Void)? = nil,
         onToggleNotesDrawer: (() -> Void)? = nil,
         isNotesDrawerOpen: Bool = false,
         onJumpPrevNote: (() -> Void)? = nil,
-        onJumpNextNote: (() -> Void)? = nil
+        onJumpNextNote: (() -> Void)? = nil,
+        onExportScreenshot: (() -> Void)? = nil,
+        showNotesAndGlitches: Bool = false
     ) {
         self.engine = engine
         self.scanResults = scanResults
@@ -45,6 +49,8 @@ struct PlayerTransportDeckView: View {
         self.isNotesDrawerOpen = isNotesDrawerOpen
         self.onJumpPrevNote = onJumpPrevNote
         self.onJumpNextNote = onJumpNextNote
+        self.onExportScreenshot = onExportScreenshot
+        self.showNotesAndGlitches = showNotesAndGlitches
     }
     
     private var palette: StudioPalette { StudioPalette(isLightMode) }
@@ -191,10 +197,24 @@ struct PlayerTransportDeckView: View {
                     isLightMode: isLightMode,
                     hoverExplanation: hoverExplanation
                 )
+                
+                // Screenshot / Screengrab Button (Camera next to EV)
+                if let onExport = onExportScreenshot {
+                    transportBtn(
+                        icon: "camera.fill",
+                        tooltip: "Export screenshot of current video frame as medium-quality JPG.",
+                        size: 11,
+                        weight: .bold,
+                        width: 26
+                    ) {
+                        onExport()
+                    }
+                    .disabled(engine.activeURL == nil)
+                }
             }
             
-            // 3. Compact Review Notes Controls: [+ NOTE] and < 💬 count > navigator
-            if onAddNote != nil || onToggleNotesDrawer != nil || onJumpPrevNote != nil || onJumpNextNote != nil {
+            // 3. Compact Review Notes Controls (Optional for decks that display notes inline, e.g. Fullscreen HUD)
+            if showNotesAndGlitches && (onAddNote != nil || onToggleNotesDrawer != nil || onJumpPrevNote != nil || onJumpNextNote != nil) {
                 Rectangle()
                     .fill(dividerColor)
                     .frame(width: 1, height: 14)
@@ -272,47 +292,49 @@ struct PlayerTransportDeckView: View {
                 }
             }
             
-            // 4. Compact Line Finding Navigation: < LINE >
-            let hasGlitches = scanResults.contains(where: { $0.isFlagged && !$0.glitchSegments.isEmpty })
-            if !hideGlitchNavWhenEmpty || hasGlitches {
-                Rectangle()
-                    .fill(dividerColor)
-                    .frame(width: 1, height: 14)
-                    .padding(.horizontal, 2)
-                
-                HStack(spacing: 1) {
-                    Button(action: onJumpPrevGlitch) {
-                        Image(systemName: "chevron.left.to.line")
-                            .font(.system(size: 9.5, weight: .bold))
-                            .frame(width: 18, height: 28)
-                            .foregroundColor(hasGlitches ? alertRed : textMuted)
-                            .contentShape(Rectangle())
-                    }
-                    .buttonStyle(TransportIconButtonStyle())
-                    .disabled(!hasGlitches)
-                    .explain(
-                        hasGlitches ? "Jump to previous line glitch (⇧N / cycles backwards through findings of Tab 3)." : "No line glitches found in Tab 3 to cycle through.",
-                        binding: hoverExplanation
-                    )
+            // 4. Compact Line Finding Navigation (Optional for decks that display line nav inline, e.g. Fullscreen HUD)
+            if showNotesAndGlitches {
+                let hasGlitches = scanResults.contains(where: { $0.isFlagged && !$0.glitchSegments.isEmpty })
+                if !hideGlitchNavWhenEmpty || hasGlitches {
+                    Rectangle()
+                        .fill(dividerColor)
+                        .frame(width: 1, height: 14)
+                        .padding(.horizontal, 2)
                     
-                    Text("LINE")
-                        .font(.system(size: 9.5, weight: .bold, design: .monospaced))
-                        .foregroundColor(hasGlitches ? alertRed : textMuted)
-                        .padding(.horizontal, 3)
-                    
-                    Button(action: onJumpNextGlitch) {
-                        Image(systemName: "chevron.right.to.line")
-                            .font(.system(size: 9.5, weight: .bold))
-                            .frame(width: 18, height: 28)
+                    HStack(spacing: 1) {
+                        Button(action: onJumpPrevGlitch) {
+                            Image(systemName: "chevron.left.to.line")
+                                .font(.system(size: 9.5, weight: .bold))
+                                .frame(width: 18, height: 28)
+                                .foregroundColor(hasGlitches ? alertRed : textMuted)
+                                .contentShape(Rectangle())
+                        }
+                        .buttonStyle(TransportIconButtonStyle())
+                        .disabled(!hasGlitches)
+                        .explain(
+                            hasGlitches ? "Jump to previous line glitch (⇧N / cycles backwards through findings of Tab 3)." : "No line glitches found in Tab 3 to cycle through.",
+                            binding: hoverExplanation
+                        )
+                        
+                        Text("LINE")
+                            .font(.system(size: 9.5, weight: .bold, design: .monospaced))
                             .foregroundColor(hasGlitches ? alertRed : textMuted)
-                            .contentShape(Rectangle())
+                            .padding(.horizontal, 3)
+                        
+                        Button(action: onJumpNextGlitch) {
+                            Image(systemName: "chevron.right.to.line")
+                                .font(.system(size: 9.5, weight: .bold))
+                                .frame(width: 18, height: 28)
+                                .foregroundColor(hasGlitches ? alertRed : textMuted)
+                                .contentShape(Rectangle())
+                        }
+                        .buttonStyle(TransportIconButtonStyle())
+                        .disabled(!hasGlitches)
+                        .explain(
+                            hasGlitches ? "Jump to next line glitch (N / cycles forwards through findings of Tab 3)." : "No line glitches found in Tab 3 to cycle through.",
+                            binding: hoverExplanation
+                        )
                     }
-                    .buttonStyle(TransportIconButtonStyle())
-                    .disabled(!hasGlitches)
-                    .explain(
-                        hasGlitches ? "Jump to next line glitch (N / cycles forwards through findings of Tab 3)." : "No line glitches found in Tab 3 to cycle through.",
-                        binding: hoverExplanation
-                    )
                 }
             }
         }

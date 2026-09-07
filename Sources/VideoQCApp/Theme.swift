@@ -56,7 +56,7 @@ struct StudioTheme {
     }
     
     static func borderStrong(_ isLight: Bool) -> Color {
-        isLight ? Color(white: 0.65) : Color(white: 0.35)
+        isLight ? Color(white: 0.65) : Color(white: 0.24)
     }
     
     static func textMain(_ isLight: Bool) -> Color {
