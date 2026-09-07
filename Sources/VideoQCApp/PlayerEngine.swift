@@ -3,6 +3,7 @@ import Foundation
 import Combine
 import CoreMedia
 import AppKit
+@preconcurrency import VideoToolbox
 import VideoQCLib
 
 public struct PlayerTimelineMarker: Identifiable, Sendable, Hashable {
@@ -134,6 +135,19 @@ public final class PlayerSlot: ObservableObject {
     
     public let frameExtractor = FrameExtractor()
     public let player = AVPlayer()
+    public var videoOutput: AVPlayerItemVideoOutput? = nil
+    
+    public func attachVideoOutput(to item: AVPlayerItem) {
+        let output = AVPlayerItemVideoOutput(pixelBufferAttributes: [
+            kCVPixelBufferPixelFormatTypeKey as String: Int(kCVPixelFormatType_32BGRA)
+        ])
+        item.add(output)
+        self.videoOutput = output
+    }
+    
+    public func detachVideoOutput() {
+        self.videoOutput = nil
+    }
     
     public var aspectRatio: CGFloat {
         if let item = player.currentItem, item.presentationSize.width > 0, item.presentationSize.height > 0 {
@@ -535,6 +549,7 @@ public final class PlayerEngine: ObservableObject {
         
         let item = AVPlayerItem(asset: asset)
         item.canUseNetworkResourcesForLiveStreamingWhilePaused = false
+        slotA.attachVideoOutput(to: item)
         
         slotA.player.replaceCurrentItem(with: item)
         slotA.player.automaticallyWaitsToMinimizeStalling = false
@@ -601,6 +616,7 @@ public final class PlayerEngine: ObservableObject {
         
         let item = AVPlayerItem(asset: asset)
         item.canUseNetworkResourcesForLiveStreamingWhilePaused = false
+        slotB.attachVideoOutput(to: item)
         
         slotB.player.replaceCurrentItem(with: item)
         slotB.player.automaticallyWaitsToMinimizeStalling = false
@@ -801,6 +817,8 @@ public final class PlayerEngine: ObservableObject {
         itemPresentationSizeCancellableB?.cancel()
         itemPresentationSizeCancellableB = nil
         
+        slotA.detachVideoOutput()
+        slotB.detachVideoOutput()
         slotA.player.replaceCurrentItem(with: nil)
         slotB.player.replaceCurrentItem(with: nil)
         
@@ -821,6 +839,7 @@ public final class PlayerEngine: ObservableObject {
         if let urlA = tempURL_B {
             let itemA = AVPlayerItem(asset: AVURLAsset(url: urlA))
             itemA.canUseNetworkResourcesForLiveStreamingWhilePaused = false
+            slotA.attachVideoOutput(to: itemA)
             slotA.player.replaceCurrentItem(with: itemA)
             slotA.player.seek(to: tempTime_B, toleranceBefore: .zero, toleranceAfter: .zero)
             updateComposition(for: slotA)
@@ -858,6 +877,7 @@ public final class PlayerEngine: ObservableObject {
         if let urlB = tempURL_A {
             let itemB = AVPlayerItem(asset: AVURLAsset(url: urlB))
             itemB.canUseNetworkResourcesForLiveStreamingWhilePaused = false
+            slotB.attachVideoOutput(to: itemB)
             slotB.player.replaceCurrentItem(with: itemB)
             slotB.player.seek(to: tempTime_A, toleranceBefore: .zero, toleranceAfter: .zero)
             updateComposition(for: slotB)
@@ -920,6 +940,7 @@ public final class PlayerEngine: ObservableObject {
     
     public func clearSlotB() {
         slotB.player.pause()
+        slotB.detachVideoOutput()
         slotB.player.replaceCurrentItem(with: nil)
         itemStatusCancellableB?.cancel()
         itemStatusCancellableB = nil
@@ -946,6 +967,7 @@ public final class PlayerEngine: ObservableObject {
     
     public func clearSlotA() {
         slotA.player.pause()
+        slotA.detachVideoOutput()
         slotA.player.replaceCurrentItem(with: nil)
         itemStatusCancellable?.cancel()
         itemStatusCancellable = nil

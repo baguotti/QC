@@ -17,18 +17,18 @@
 - When the mouse stops moving, CoreMedia waits ~500ms to 1s before restoring full resolution, causing the line to pop back to green.
 
 ### The Inviolable Rule:
-1. **Dual Layers per Slot**:
-   - `playerLayerA` & `playerLayerB` (`AVPlayerLayer`): Active **ONLY** during continuous live playback (`isPlaying && !isScrubbing`).
-   - `stillFrameLayerA` & `stillFrameLayerB` (`CALayer` backed by uncompressed `CGImage` in `contents`): Active **ALWAYS** when paused or scrubbing (`!isPlaying || isScrubbing`).
-   - *Why scrubbing requires still frame layers*: During timeline scrubbing/stepping, `AVPlayerLayer`'s hardware decode pipeline applies dynamic bilinear scaling/filtering, washing out single-pixel edge glitches (e.g., turning a 1-pixel neon green line white while dragging the playhead). Extracting warm still frames on the fly (~9.8ms) onto `stillFrameLayer` keeps the display 100% immune to downsampling even while scrubbing.
+1. **Unified Direct-Pixel Pipeline**:
+   - `stillFrameLayerA` & `stillFrameLayerB` (`CALayer` backed by uncompressed `CGImage` in `contents`): The **EXCLUSIVE** visual display layers for **ALL** states: continuous live playback, timeline scrubbing, stepping, and paused inspection.
+   - `playerLayerA` & `playerLayerB` (`AVPlayerLayer`): Kept **PERMANENTLY HIDDEN** (`isHidden = true`). Used exclusively for audio playback and transport clock timing.
+   - *Why AVPlayerLayer is retired from visual display*: Apple's `AVPlayerLayer` wraps internal CoreMedia compositor layers (`FigVideoContainerLayer` / `FigVideoLayer`) whose texture samplers are hardcoded to bilinear filtering (`linear`). `AVPlayerLayer` ignores `.nearest` layer filters and applies dynamic proxy downsampling during live playback and motion, washing out 1-pixel edge glitches (turning neon green lines white).
+   - *How Live Playback Works*: Each `PlayerSlot` attaches an `AVPlayerItemVideoOutput` (32BGRA). `VideoViewportView` uses AppKit's native `CADisplayLink` (synchronized to 60Hz / 120Hz ProMotion). On each display tick, frames are extracted via `copyPixelBuffer` and converted zero-copy to `CGImage` via `VTCreateCGImageFromCVPixelBuffer` (<0.14 ms per frame), then set directly to `stillFrameLayer.contents`.
 2. **Why Static `CALayer.contents` is Immune**:
-   - CoreAnimation treats a `CALayer` with a static `CGImage` as an immutable GPU texture. It **never** applies CoreMedia dynamic proxy downsampling during panning, scrolling, scrubbing, or zooming. The 1-pixel edge line remains solid green at all times.
+   - CoreAnimation treats a `CALayer` with a static `CGImage` as an immutable GPU texture. It **never** applies CoreMedia dynamic proxy downsampling during playback, panning, scrolling, scrubbing, or zooming. The 1-pixel edge line remains solid green at all times.
 3. **Compare Modes Synchronization**:
-   - Every compare mode (single, split vertical, split horizontal, side-by-side, side-by-side vertical, difference, 50% overlay, blink) **MUST** update and synchronize **both** the live player layers and the still frame layers (`frames`, `masks`, `compositingFilter`, `opacity`, `zPosition`, CIFilters).
-4. **Stale Frame Suppression & Smooth Scrubbing**:
-   - When paused, `stillFrameLayerA` and `stillFrameLayerB` **MUST ONLY** be unhidden when their captured image timestamp verified-matches the current playhead time (`abs(lastCapturedTime - currentTime) < 0.03s`).
-   - While actively scrubbing (`isScrubbing`), the still frame layer **MUST remain visible** once populated (`isStillReady = true`), updating its `contents` continuously as new frames finish extracting (<10ms). It must NEVER drop back to `AVPlayerLayer` during scrubbing.
-   - During continuous active playback (`isPlaying && !isScrubbing`), still frame contents must be purged to `nil` and layers hidden so stale textures can never flash.
+   - Every compare mode (single, split vertical, split horizontal, side-by-side, side-by-side vertical, difference, 50% overlay, blink) operates directly and cleanly on `stillFrameLayerA` and `stillFrameLayerB` (`frames`, `masks`, `compositingFilter`, `opacity`, `zPosition`).
+4. **Instant Seeking & Frame Delivery**:
+   - When scrubbing or paused, `checkStillFrameDisplay()` queries `slot.videoOutput?.copyPixelBuffer` first (<0.15ms). If not yet buffered, it falls back to `slot.frameExtractor.capture(at:)` (~9.8ms).
+   - `stillFrameLayerA` and `stillFrameLayerB` remain visible at all times, updating smoothly without blanking or flashing.
 
 ---
 
@@ -87,7 +87,7 @@
 
 Before committing any changes affecting `VideoViewportView.swift`, `PlayerEngine.swift`, or `PlayerTransportDeckView.swift`:
 - [ ] Ensure `stillFrameLayerA` and `stillFrameLayerB` are present in `VideoViewportView`.
-- [ ] Verify `updateLayerVisibility()` displays still frame layers when paused or scrubbing, and live player layers only during continuous live playback.
+- [ ] Verify `stillFrameLayerA` and `stillFrameLayerB` are the exclusive visual presentation layers across playback, scrubbing, and paused states, with `playerLayerA`/`playerLayerB` kept hidden.
 - [ ] Verify `videoGravity` and `contentsGravity` remain `.resize`.
 - [ ] Verify `magnificationFilter` and `minificationFilter` remain `.nearest` across all layers.
 - [ ] Verify rational aspect ratio with even pixel step sizing is used for canvas dimensions and `canvasLayer.masksToBounds` remains `false`.

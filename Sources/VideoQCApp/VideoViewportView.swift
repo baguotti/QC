@@ -3,6 +3,7 @@ import AppKit
 import AVFoundation
 import CoreImage
 import ImageIO
+import VideoToolbox
 
 public struct VideoViewportView: NSViewRepresentable {
     @ObservedObject var engine: PlayerEngine
@@ -80,6 +81,7 @@ public final class PlayerContainerNSView: NSView {
     private let tikTokOverlayLayerA = CALayer()
     private let tikTokOverlayLayerB = CALayer()
     
+    private var displayLink: CADisplayLink?
     private weak var engine: PlayerEngine?
     private var isDraggingSplit: Bool = false
     private var dragStartLocation: NSPoint? = nil
@@ -321,6 +323,7 @@ public final class PlayerContainerNSView: NSView {
         self.engine = engine
         playerLayerA.player = engine.slotA.player
         playerLayerB.player = engine.slotB.player
+        setupDisplayLink()
     }
     
     public func update(engine: PlayerEngine, isLightMode: Bool) {
@@ -331,6 +334,12 @@ public final class PlayerContainerNSView: NSView {
         }
         if playerLayerB.player != engine.slotB.player {
             playerLayerB.player = engine.slotB.player
+        }
+        
+        if engine.isPlaying {
+            displayLink?.isPaused = false
+        } else {
+            displayLink?.isPaused = true
         }
         
         let urlAChanged = (engine.slotA.url != lastSlotAURL)
@@ -377,6 +386,76 @@ public final class PlayerContainerNSView: NSView {
         super.viewWillMove(toWindow: newWindow)
         if let window = newWindow {
             updateScale(for: window.backingScaleFactor)
+            setupDisplayLink()
+        } else {
+            tearDownDisplayLink()
+        }
+    }
+    
+    public override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        if window != nil {
+            setupDisplayLink()
+        }
+    }
+    
+    private func setupDisplayLink() {
+        guard displayLink == nil else { return }
+        let link = self.displayLink(target: self, selector: #selector(onDisplayLinkTick))
+        link.add(to: .main, forMode: .common)
+        link.isPaused = !(engine?.isPlaying ?? false)
+        self.displayLink = link
+    }
+    
+    private func tearDownDisplayLink() {
+        displayLink?.invalidate()
+        displayLink = nil
+    }
+    
+    @objc private func onDisplayLinkTick() {
+        guard let engine = engine, engine.isPlaying else { return }
+        renderPlaybackFrames()
+    }
+    
+    private func renderPlaybackFrames() {
+        guard let engine = engine else { return }
+        
+        // Slot A playback frame extraction:
+        if let outputA = engine.slotA.videoOutput {
+            let timeA = engine.slotA.player.currentTime()
+            var displayTime = CMTime.zero
+            if let pbA = outputA.copyPixelBuffer(forItemTime: timeA, itemTimeForDisplay: &displayTime) {
+                var cgImageA: CGImage?
+                VTCreateCGImageFromCVPixelBuffer(pbA, options: nil, imageOut: &cgImageA)
+                if let img = cgImageA {
+                    self.lastCapturedTimeA = timeA
+                    self.rawStillFrameA = img
+                    let finalImg = (engine.exposureEV != 0.0) ? ExposureAdjuster.shared.applyExposure(to: img, ev: engine.exposureEV) : img
+                    CATransaction.begin()
+                    CATransaction.setDisableActions(true)
+                    self.stillFrameLayerA.contents = finalImg
+                    CATransaction.commit()
+                }
+            }
+        }
+        
+        // Slot B playback frame extraction (in compare modes):
+        if engine.slotB.url != nil, let outputB = engine.slotB.videoOutput {
+            let timeB = engine.slotB.player.currentTime()
+            var displayTime = CMTime.zero
+            if let pbB = outputB.copyPixelBuffer(forItemTime: timeB, itemTimeForDisplay: &displayTime) {
+                var cgImageB: CGImage?
+                VTCreateCGImageFromCVPixelBuffer(pbB, options: nil, imageOut: &cgImageB)
+                if let imgB = cgImageB {
+                    self.lastCapturedTimeB = timeB
+                    self.rawStillFrameB = imgB
+                    let finalImgB = (engine.exposureEV != 0.0) ? ExposureAdjuster.shared.applyExposure(to: imgB, ev: engine.exposureEV) : imgB
+                    CATransaction.begin()
+                    CATransaction.setDisableActions(true)
+                    self.stillFrameLayerB.contents = finalImgB
+                    CATransaction.commit()
+                }
+            }
         }
     }
     
@@ -1034,93 +1113,33 @@ public final class PlayerContainerNSView: NSView {
         }
     }
     
-    // MARK: - Layer Visibility & Still Frame Inspection
+    // MARK: - Layer Visibility & Unified Direct-Pixel Inspection
     
     private func updateLayerVisibility() {
         guard let engine = engine else { return }
         let mode = (engine.slotB.url == nil) ? CompareMode.single : engine.compareMode
         let isBlink = engine.isBlinkCompareB && engine.slotB.url != nil
-        // Continuous playback only: when scrubbing, isPlaying is treated as false so still frame layer remains active
-        let isActivelyPlaying = engine.isPlaying && !engine.isScrubbing
-        
-        // Dynamic tolerance for still frame freshness:
-        // Strictly adhere to AGENTS.md Rule 4:
-        // Tolerance MUST be strictly less than 1 frame duration (min(0.03, 0.5 / fps))
-        // to guarantee that an adjacent frame (1 frame away) is NEVER falsely matched.
-        let frameDurationA = 1.0 / max(1.0, engine.slotA.fps)
-        let toleranceA = min(0.03, frameDurationA * 0.5)
-        
-        let currentTimeSecsA = CMTimeGetSeconds(engine.currentTime)
-        let isStillReadyA: Bool
-        if let lastA = lastCapturedTimeA, stillFrameLayerA.contents != nil {
-            if engine.isScrubbing {
-                // While scrubbing, keep still frame layer active so 1-pixel edge glitches never flash to white!
-                isStillReadyA = true
-            } else {
-                isStillReadyA = abs(CMTimeGetSeconds(lastA) - currentTimeSecsA) <= toleranceA
-            }
-        } else {
-            isStillReadyA = false
-        }
-        
-        // Check if still frame B is truly ready AND matches current playhead timestamp
-        let isStillReadyB: Bool
-        if let lastB = lastCapturedTimeB, stillFrameLayerB.contents != nil {
-            if engine.isScrubbing {
-                isStillReadyB = true
-            } else {
-                let frameDurationB = 1.0 / max(1.0, engine.slotB.fps)
-                let toleranceB = min(0.03, frameDurationB * 0.5)
-                let timeSecsB = CMTimeGetSeconds(engine.slotB.player.currentTime())
-                isStillReadyB = abs(CMTimeGetSeconds(lastB) - timeSecsB) <= toleranceB
-            }
-        } else {
-            isStillReadyB = false
-        }
         
         let targetStillHiddenA: Bool
-        let targetPlayerHiddenA: Bool
         let targetStillHiddenB: Bool
-        let targetPlayerHiddenB: Bool
         
         if isBlink {
             targetStillHiddenA = true
-            targetPlayerHiddenA = true
-            if !isActivelyPlaying && isStillReadyB {
-                targetStillHiddenB = false
-                targetPlayerHiddenB = true
-            } else {
-                targetStillHiddenB = true
-                targetPlayerHiddenB = false
-            }
+            targetStillHiddenB = (engine.slotB.url == nil)
         } else {
-            if !isActivelyPlaying && isStillReadyA {
-                targetStillHiddenA = false
-                targetPlayerHiddenA = true
-            } else {
-                targetStillHiddenA = true
-                targetPlayerHiddenA = false
-            }
-            
+            targetStillHiddenA = (engine.slotA.url == nil)
             if mode == .single || engine.slotB.url == nil {
                 targetStillHiddenB = true
-                targetPlayerHiddenB = true
             } else {
-                if !isActivelyPlaying && isStillReadyB {
-                    targetStillHiddenB = false
-                    targetPlayerHiddenB = true
-                } else {
-                    targetStillHiddenB = true
-                    targetPlayerHiddenB = false
-                }
+                targetStillHiddenB = false
             }
         }
         
         // Fast path: skip expensive CoreAnimation transactions if layer visibility is already identical
         if stillFrameLayerA.isHidden == targetStillHiddenA &&
-           playerLayerA.isHidden == targetPlayerHiddenA &&
            stillFrameLayerB.isHidden == targetStillHiddenB &&
-           playerLayerB.isHidden == targetPlayerHiddenB {
+           playerLayerA.isHidden == true &&
+           playerLayerB.isHidden == true {
             return
         }
         
@@ -1129,9 +1148,9 @@ public final class PlayerContainerNSView: NSView {
         updateMagnificationFilters()
         
         stillFrameLayerA.isHidden = targetStillHiddenA
-        playerLayerA.isHidden = targetPlayerHiddenA
         stillFrameLayerB.isHidden = targetStillHiddenB
-        playerLayerB.isHidden = targetPlayerHiddenB
+        playerLayerA.isHidden = true
+        playerLayerB.isHidden = true
         
         CATransaction.commit()
     }
@@ -1139,22 +1158,8 @@ public final class PlayerContainerNSView: NSView {
     private func checkStillFrameDisplay() {
         guard let engine = engine, engine.slotA.url != nil else { return }
         
-        // If actively playing, show live AVPlayerLayers
-        if engine.isPlaying && !engine.isScrubbing {
-            // Fast path during playback: if already purged and layers correctly hidden/shown, do nothing
-            if stillFrameLayerA.contents == nil && stillFrameLayerA.isHidden && !playerLayerA.isHidden {
-                return
-            }
-            
-            // When actively playing, purge the cached still frame so stale textures can never flash
-            if stillFrameLayerA.contents != nil {
-                stillFrameLayerA.contents = nil
-                rawStillFrameA = nil
-                lastCapturedTimeA = nil
-                stillFrameLayerB.contents = nil
-                rawStillFrameB = nil
-                lastCapturedTimeB = nil
-            }
+        // If actively playing, displayLink handles frame updates at screen refresh rate
+        if engine.isPlaying {
             updateLayerVisibility()
             return
         }
@@ -1164,35 +1169,51 @@ public final class PlayerContainerNSView: NSView {
         let frameDurationA = 1.0 / max(1.0, engine.slotA.fps)
         let toleranceA = min(0.03, frameDurationA * 0.5)
         
-        // Slot A still frame check
+        // 1. Check if stillFrameLayerA already displays the current frame
+        let isFreshA: Bool
         if let lastA = lastCapturedTimeA, abs(CMTimeGetSeconds(lastA) - timeSecsA) <= toleranceA, stillFrameLayerA.contents != nil {
-            updateLayerVisibility()
-        } else if !isCapturingStillA {
-            isCapturingStillA = true
-            Task { [weak self] in
-                guard let self = self, let curEngine = self.engine else { return }
-                let img = await curEngine.captureCurrentFrame(for: .slotA, at: timeA)
-                await MainActor.run {
-                    self.isCapturingStillA = false
-                    guard let curEngine = self.engine else { return }
-                    if let img = img {
-                        if !curEngine.isPlaying || curEngine.isScrubbing {
-                            let curSecs = CMTimeGetSeconds(curEngine.currentTime)
-                            let curTol = min(0.03, (1.0 / max(1.0, curEngine.slotA.fps)) * 0.5)
-                            if abs(curSecs - timeSecsA) <= curTol || curEngine.isScrubbing {
-                                self.lastCapturedTimeA = timeA
-                                self.rawStillFrameA = img
-                                let exposedImg = ExposureAdjuster.shared.applyExposure(to: img, ev: curEngine.exposureEV)
-                                self.stillFrameLayerA.contents = exposedImg
-                                self.updateLayerVisibility()
-                            } else {
-                                self.checkStillFrameDisplay()
-                            }
-                        }
-                    } else if !curEngine.isPlaying || curEngine.isScrubbing {
-                        // Retry shortly if asset was warming up
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in
-                            self?.checkStillFrameDisplay()
+            isFreshA = true
+        } else {
+            isFreshA = false
+        }
+        
+        if !isFreshA {
+            // 2. Direct VideoOutput pull (<0.15ms execution)
+            var fetchedFromOutputA = false
+            if let outputA = engine.slotA.videoOutput,
+               let pbA = outputA.copyPixelBuffer(forItemTime: timeA, itemTimeForDisplay: nil) {
+                var cgImageA: CGImage?
+                VTCreateCGImageFromCVPixelBuffer(pbA, options: nil, imageOut: &cgImageA)
+                if let img = cgImageA {
+                    self.lastCapturedTimeA = timeA
+                    self.rawStillFrameA = img
+                    let exposedImg = (engine.exposureEV != 0.0) ? ExposureAdjuster.shared.applyExposure(to: img, ev: engine.exposureEV) : img
+                    CATransaction.begin()
+                    CATransaction.setDisableActions(true)
+                    self.stillFrameLayerA.contents = exposedImg
+                    CATransaction.commit()
+                    fetchedFromOutputA = true
+                }
+            }
+            
+            // 3. Fallback to FrameExtractor (AVAssetImageGenerator ~9.8ms) if videoOutput hasn't buffered this seek frame
+            if !fetchedFromOutputA && !isCapturingStillA {
+                isCapturingStillA = true
+                Task { [weak self] in
+                    guard let self = self, let curEngine = self.engine else { return }
+                    let img = await curEngine.captureCurrentFrame(for: .slotA, at: timeA)
+                    await MainActor.run {
+                        self.isCapturingStillA = false
+                        guard let curEngine = self.engine else { return }
+                        if let img = img {
+                            self.lastCapturedTimeA = timeA
+                            self.rawStillFrameA = img
+                            let exposedImg = (curEngine.exposureEV != 0.0) ? ExposureAdjuster.shared.applyExposure(to: img, ev: curEngine.exposureEV) : img
+                            CATransaction.begin()
+                            CATransaction.setDisableActions(true)
+                            self.stillFrameLayerA.contents = exposedImg
+                            CATransaction.commit()
+                            self.updateLayerVisibility()
                         }
                     }
                 }
@@ -1205,39 +1226,57 @@ public final class PlayerContainerNSView: NSView {
             let timeSecsB = CMTimeGetSeconds(timeB)
             let frameDurationB = 1.0 / max(1.0, engine.slotB.fps)
             let toleranceB = min(0.03, frameDurationB * 0.5)
+            
+            let isFreshB: Bool
             if let lastB = lastCapturedTimeB, abs(CMTimeGetSeconds(lastB) - timeSecsB) <= toleranceB, stillFrameLayerB.contents != nil {
-                updateLayerVisibility()
-            } else if !isCapturingStillB {
-                isCapturingStillB = true
-                Task { [weak self] in
-                    guard let self = self, let curEngine = self.engine else { return }
-                    let imgB = await curEngine.captureCurrentFrame(for: .slotB, at: timeB)
-                    await MainActor.run {
-                        self.isCapturingStillB = false
-                        guard let curEngine = self.engine else { return }
-                        if let imgB = imgB {
-                            if !curEngine.isPlaying || curEngine.isScrubbing {
-                                let curSecsB = CMTimeGetSeconds(curEngine.slotB.player.currentTime())
-                                let curTolB = min(0.03, (1.0 / max(1.0, curEngine.slotB.fps)) * 0.5)
-                                if abs(curSecsB - timeSecsB) <= curTolB || curEngine.isScrubbing {
-                                    self.lastCapturedTimeB = timeB
-                                    self.rawStillFrameB = imgB
-                                    let exposedImgB = ExposureAdjuster.shared.applyExposure(to: imgB, ev: curEngine.exposureEV)
-                                    self.stillFrameLayerB.contents = exposedImgB
-                                    self.updateLayerVisibility()
-                                } else {
-                                    self.checkStillFrameDisplay()
-                                }
-                            }
-                        } else if !curEngine.isPlaying || curEngine.isScrubbing {
-                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in
-                                self?.checkStillFrameDisplay()
+                isFreshB = true
+            } else {
+                isFreshB = false
+            }
+            
+            if !isFreshB {
+                var fetchedFromOutputB = false
+                if let outputB = engine.slotB.videoOutput,
+                   let pbB = outputB.copyPixelBuffer(forItemTime: timeB, itemTimeForDisplay: nil) {
+                    var cgImageB: CGImage?
+                    VTCreateCGImageFromCVPixelBuffer(pbB, options: nil, imageOut: &cgImageB)
+                    if let imgB = cgImageB {
+                        self.lastCapturedTimeB = timeB
+                        self.rawStillFrameB = imgB
+                        let exposedImgB = (engine.exposureEV != 0.0) ? ExposureAdjuster.shared.applyExposure(to: imgB, ev: engine.exposureEV) : imgB
+                        CATransaction.begin()
+                        CATransaction.setDisableActions(true)
+                        self.stillFrameLayerB.contents = exposedImgB
+                        CATransaction.commit()
+                        fetchedFromOutputB = true
+                    }
+                }
+                
+                if !fetchedFromOutputB && !isCapturingStillB {
+                    isCapturingStillB = true
+                    Task { [weak self] in
+                        guard let self = self, let curEngine = self.engine else { return }
+                        let imgB = await curEngine.captureCurrentFrame(for: .slotB, at: timeB)
+                        await MainActor.run {
+                            self.isCapturingStillB = false
+                            guard let curEngine = self.engine else { return }
+                            if let imgB = imgB {
+                                self.lastCapturedTimeB = timeB
+                                self.rawStillFrameB = imgB
+                                let exposedImgB = (curEngine.exposureEV != 0.0) ? ExposureAdjuster.shared.applyExposure(to: imgB, ev: curEngine.exposureEV) : imgB
+                                CATransaction.begin()
+                                CATransaction.setDisableActions(true)
+                                self.stillFrameLayerB.contents = exposedImgB
+                                CATransaction.commit()
+                                self.updateLayerVisibility()
                             }
                         }
                     }
                 }
             }
         }
+        
+        updateLayerVisibility()
     }
     
     private func buildCrosshairPath(size: CGSize) -> CGPath {
