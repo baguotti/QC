@@ -17,13 +17,9 @@ struct AddNotePopoverView: View {
     
     private var palette: StudioPalette { StudioPalette(isLightMode) }
     
-    private let availableColors: [(id: String, name: String, color: Color)] = [
-        ("cyan", "Cyan", Color(red: 0.20, green: 0.75, blue: 1.0)),
-        ("yellow", "Yellow", Color(red: 1.0, green: 0.85, blue: 0.20)),
-        ("green", "Green", Color(red: 0.30, green: 0.85, blue: 0.40)),
-        ("red", "Red", Color(red: 1.0, green: 0.30, blue: 0.35)),
-        ("purple", "Purple", Color(red: 0.75, green: 0.40, blue: 1.0))
-    ]
+    private var availableColors: [(id: String, name: String, color: Color)] {
+        QCNoteTheme.availableColors
+    }
     
     var body: some View {
         ZStack {
@@ -85,7 +81,7 @@ struct AddNotePopoverView: View {
                                 .font(.system(size: 10))
                                 .foregroundColor(palette.textMuted)
                             
-                            TextField("Enter your name...", text: $author)
+                            TextField("Enter your name...", text: $author, prompt: Text("Enter your name...").foregroundColor(palette.textMuted))
                                 .font(.system(size: 11, weight: .semibold, design: .monospaced))
                                 .textFieldStyle(.plain)
                                 .foregroundColor(palette.textMain)
@@ -133,9 +129,10 @@ struct AddNotePopoverView: View {
                             .font(.system(size: 9, weight: .bold, design: .monospaced))
                             .foregroundColor(palette.textMuted)
                         
-                        TextField("Type your review note here...", text: $noteText, axis: .vertical)
+                        TextField("Type your review note here...", text: $noteText, prompt: Text("Type your review note here...").foregroundColor(palette.textMuted), axis: .vertical)
                             .font(.system(size: 11, design: .monospaced))
                             .textFieldStyle(.plain)
+                            .foregroundColor(palette.textMain)
                             .lineLimit(3...5)
                             .focused($isNoteFocused)
                             .padding(8)

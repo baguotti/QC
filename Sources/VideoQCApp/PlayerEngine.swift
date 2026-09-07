@@ -362,7 +362,7 @@ public final class PlayerEngine: ObservableObject {
                     request.finish(with: source, context: nil)
                 }
             }, completionHandler: { [weak self, weak item, weak slot] comp, _ in
-                nonisolated(unsafe) let safeComp = comp
+                let safeComp = comp
                 DispatchQueue.main.async {
                     guard let _ = self, let comp = safeComp, let item = item, let slot = slot, item === slot.player.currentItem else { return }
                     item.videoComposition = comp
@@ -442,12 +442,12 @@ public final class PlayerEngine: ObservableObject {
     private var itemPresentationSizeCancellable: AnyCancellable? = nil
     private var itemPresentationSizeCancellableB: AnyCancellable? = nil
     
-    @Published public var isSeeking: Bool = false
+    public private(set) var isSeeking: Bool = false
     private var pendingSeekTime: CMTime? = nil
     private var pendingSeekTolerance: CMTime? = nil
     private var pendingSeekCompletion: (@MainActor @Sendable () -> Void)? = nil
     
-    @Published public var isSeekingB: Bool = false
+    public private(set) var isSeekingB: Bool = false
     private var pendingSeekTimeB: CMTime? = nil
     private var lastDriftCorrectionTime: Date = .distantPast
     
@@ -696,6 +696,7 @@ public final class PlayerEngine: ObservableObject {
                 self.videoSize = detectedSize
                 self.totalFrames = totFrames
                 self.durationTimecode = TimecodeFormatter.format(time: dur, fps: detectedFps)
+                self.setupTimeObserver()
                 
                 if let frame = self.pendingInitialSeekFrame {
                     self.pendingInitialSeekFrame = nil
@@ -1016,13 +1017,27 @@ public final class PlayerEngine: ObservableObject {
         }
         isSeekingB = true
         slotB.player.seek(to: time, toleranceBefore: tolerance, toleranceAfter: tolerance) { [weak self] _ in
-            Task { @MainActor in
+            let runCompletion = { @MainActor in
                 guard let self = self else { return }
                 self.isSeekingB = false
                 completion?()
+                if !self.isPlaying && !self.isScrubbing {
+                    self.objectWillChange.send()
+                }
                 if let nextB = self.pendingSeekTimeB {
                     self.pendingSeekTimeB = nil
                     self.seekSlotB(to: nextB, tolerance: tolerance)
+                }
+            }
+            if Thread.isMainThread {
+                MainActor.assumeIsolated {
+                    runCompletion()
+                }
+            } else {
+                DispatchQueue.main.async {
+                    MainActor.assumeIsolated {
+                        runCompletion()
+                    }
                 }
             }
         }
@@ -1031,7 +1046,13 @@ public final class PlayerEngine: ObservableObject {
     // MARK: - Time Observers
     
     private func setupTimeObserver() {
-        let interval = CMTime(value: 1, timescale: 60)
+        if let token = tokens.timeObserverToken, let player = tokens.player {
+            player.removeTimeObserver(token)
+            tokens.timeObserverToken = nil
+            tokens.player = nil
+        }
+        let fps = max(1.0, activeFps)
+        let interval = CMTime(seconds: 1.0 / fps, preferredTimescale: 60000)
         let token = slotA.player.addPeriodicTimeObserver(forInterval: interval, queue: .main) { [weak self] time in
             MainActor.assumeIsolated {
                 guard let self = self, !self.isScrubbing else { return }
@@ -1051,10 +1072,14 @@ public final class PlayerEngine: ObservableObject {
         self.slotA.currentTime = time
         let durSecs = CMTimeGetSeconds(duration)
         
+        let newProgress: Double
         if durSecs > 0 && durSecs.isFinite && !durSecs.isNaN {
-            self.currentProgress = min(1.0, max(0.0, currSecs / durSecs))
+            newProgress = min(1.0, max(0.0, currSecs / durSecs))
         } else {
-            self.currentProgress = 0.0
+            newProgress = 0.0
+        }
+        if abs(newProgress - self.currentProgress) >= 0.0005 || !self.isPlaying {
+            self.currentProgress = newProgress
         }
         
         let fps = max(1.0, activeFps)
@@ -1065,8 +1090,10 @@ public final class PlayerEngine: ObservableObject {
         } else {
             frameIdx = 0
         }
-        self.currentFrame = frameIdx
-        self.currentTimecode = TimecodeFormatter.format(frameIndex: frameIdx, fps: activeFps)
+        if self.currentFrame != frameIdx {
+            self.currentFrame = frameIdx
+            self.currentTimecode = TimecodeFormatter.format(frameIndex: frameIdx, fps: activeFps)
+        }
         
         if slotB.url != nil && slotB.player.currentItem != nil {
             let timeB = slotB.player.currentTime()
@@ -1313,8 +1340,10 @@ public final class PlayerEngine: ObservableObject {
         
         self.currentFrame = targetFrame
         self.currentTimecode = TimecodeFormatter.format(frameIndex: targetFrame, fps: activeFps)
-        if totalFrames > 0 {
-            self.currentProgress = min(1.0, max(0.0, Double(targetFrame) / Double(max(1, totalFrames - 1))))
+        let fps = max(1.0, activeFps)
+        let targetSecs = (Double(targetFrame) + 0.5) / fps
+        if durSecs > 0 {
+            self.currentProgress = min(1.0, max(0.0, targetSecs / durSecs))
         }
         seek(toFrame: targetFrame)
     }
@@ -1338,6 +1367,7 @@ public final class PlayerEngine: ObservableObject {
         self.rate = 0.0
         self.isPlaying = false
         self.isScrubbing = false
+        self.isSeeking = false
         self.wasPlayingBeforeScrub = false
         self.shuttleStateText = "PAUSE"
         if let currentItem = slotA.player.currentItem, currentItem.status == .readyToPlay {
@@ -1414,8 +1444,11 @@ public final class PlayerEngine: ObservableObject {
         
         self.currentFrame = targetFrame
         self.currentTimecode = TimecodeFormatter.format(frameIndex: targetFrame, fps: activeFps)
-        if totalFrames > 0 {
-            self.currentProgress = min(1.0, max(0.0, Double(targetFrame) / Double(max(1, totalFrames - 1))))
+        let durSecs = CMTimeGetSeconds(duration)
+        let fps = max(1.0, activeFps)
+        let targetSecs = (Double(targetFrame) + 0.5) / fps
+        if durSecs > 0 {
+            self.currentProgress = min(1.0, max(0.0, targetSecs / durSecs))
         }
         seek(toFrame: targetFrame)
     }
@@ -1463,7 +1496,9 @@ public final class PlayerEngine: ObservableObject {
             startScrubbing()
         }
         let clamped = min(1.0, max(0.0, progress))
-        self.currentProgress = clamped
+        if abs(self.currentProgress - clamped) > 1e-4 {
+            self.currentProgress = clamped
+        }
         
         let durSecs = CMTimeGetSeconds(duration)
         if durSecs > 0 && durSecs.isFinite && !durSecs.isNaN {
@@ -1471,15 +1506,17 @@ public final class PlayerEngine: ObservableObject {
             let fps = max(1.0, activeFps)
             let calcVal = currSecs * fps + 1e-4
             let frameIdx = (calcVal.isFinite && !calcVal.isNaN) ? max(0, min(max(0, totalFrames - 1), Int(floor(calcVal)))) : 0
-            self.currentFrame = frameIdx
-            self.currentTimecode = TimecodeFormatter.format(frameIndex: frameIdx, fps: activeFps)
-            
-            let targetTime = CMTime(seconds: currSecs, preferredTimescale: 60000)
-            self.currentTime = targetTime
-            self.slotA.currentTime = targetTime
+            if frameIdx != self.currentFrame {
+                self.currentFrame = frameIdx
+                self.currentTimecode = TimecodeFormatter.format(frameIndex: frameIdx, fps: activeFps)
+                
+                let targetSecs = (Double(frameIdx) + 0.5) / fps
+                let targetTime = CMTime(seconds: targetSecs, preferredTimescale: 60000)
+                self.currentTime = targetTime
+                self.slotA.currentTime = targetTime
+                seek(toTime: targetTime)
+            }
         }
-        
-        seek(toProgress: clamped)
     }
     
     /// Concludes interactive scrubbing: if previously playing, resumes playback from the new point; if paused, stays paused
@@ -1553,12 +1590,29 @@ public final class PlayerEngine: ObservableObject {
         isSeeking = true
         let curCompletion = completion
         
-        // Fast seek during interactive scrubbing or playback resumption: 1-frame tolerance allows hardware decoder to stream at full speed
-        // Exact frame seeks (pause, arrow keys, end of scrub while paused) use .zero tolerance.
-        let tol: CMTime = tolerance ?? (isScrubbing ? CMTime(seconds: 1.0 / max(1.0, activeFps), preferredTimescale: 60000) : .zero)
+        // Fast seek during interactive scrubbing:
+        // When sweeping across the timeline fast, use wide/keyframe tolerance (.positiveInfinity)
+        // so AVPlayer / VideoToolbox seeks in <1ms without reconstructing deep GOP inter-frame chains.
+        // For fine scrubbing (delta <= 0.25s) or stepping, use tighter tolerance.
+        // When paused or concluding scrub, tolerance is .zero for pixel-perfect frame accuracy.
+        let tol: CMTime
+        if let explicitTol = tolerance {
+            tol = explicitTol
+        } else if isScrubbing {
+            let lastSecs = CMTimeGetSeconds(slotA.player.currentTime())
+            let targetSecs = CMTimeGetSeconds(time)
+            let delta = abs(targetSecs - lastSecs)
+            if delta > 0.5 {
+                tol = .positiveInfinity
+            } else {
+                tol = .zero
+            }
+        } else {
+            tol = .zero
+        }
         
         slotA.player.seek(to: time, toleranceBefore: tol, toleranceAfter: tol) { [weak self] _ in
-            Task { @MainActor in
+            let runCompletion = { @MainActor in
                 guard let self = self else { return }
                 self.isSeeking = false
                 
@@ -1568,11 +1622,15 @@ public final class PlayerEngine: ObservableObject {
                     self.updateCurrentTime(time: time)
                 }
                 
+                if !self.isPlaying && !self.isScrubbing {
+                    self.objectWillChange.send()
+                }
+                
                 if self.isLinked && self.slotB.url != nil && self.slotB.player.currentItem != nil {
                     let offsetSeconds = Double(self.slotB.slipOffsetFrames) / max(1.0, self.slotB.fps)
                     let targetSecsB = max(0.0, CMTimeGetSeconds(time) + offsetSeconds)
                     let targetTimeB = CMTime(seconds: targetSecsB, preferredTimescale: 60000)
-                    let tolB = tolerance ?? (self.isScrubbing ? CMTime(seconds: 1.0 / max(1.0, self.slotB.fps), preferredTimescale: 60000) : .zero)
+                    let tolB = tolerance ?? (self.isScrubbing ? tol : .zero)
                     self.seekSlotB(to: targetTimeB, tolerance: tolB)
                 }
                 
@@ -1585,6 +1643,18 @@ public final class PlayerEngine: ObservableObject {
                     self.pendingSeekTolerance = nil
                     self.pendingSeekCompletion = nil
                     self.seek(toTime: nextTime, tolerance: nextTol, completion: nextComp)
+                }
+            }
+            
+            if Thread.isMainThread {
+                MainActor.assumeIsolated {
+                    runCompletion()
+                }
+            } else {
+                DispatchQueue.main.async {
+                    MainActor.assumeIsolated {
+                        runCompletion()
+                    }
                 }
             }
         }
@@ -1614,6 +1684,15 @@ public final class PlayerEngine: ObservableObject {
         let desiredSecs = (Double(frameIndex) + 0.5) / fps
         let targetSecs = durSecs > 0 ? min(max(0.0, desiredSecs), max(0.0, durSecs - 0.001)) : desiredSecs
         let targetTime = CMTime(seconds: targetSecs, preferredTimescale: 60000)
+        
+        self.currentFrame = frameIndex
+        self.currentTimecode = TimecodeFormatter.format(frameIndex: frameIndex, fps: activeFps)
+        if durSecs > 0 {
+            self.currentProgress = min(1.0, max(0.0, targetSecs / durSecs))
+        }
+        self.currentTime = targetTime
+        self.slotA.currentTime = targetTime
+        
         seek(toTime: targetTime, completion: completion)
     }
     
@@ -1672,7 +1751,15 @@ public final class PlayerEngine: ObservableObject {
     public func captureCurrentFrame(for slot: SlotTarget = .slotA, at time: CMTime? = nil) async -> CGImage? {
         let currentSlot = (slot == .slotA) ? slotA : slotB
         guard let url = currentSlot.url else { return nil }
-        let targetTime = time ?? currentSlot.player.currentTime()
+        let rawTime = time ?? currentSlot.player.currentTime()
+        guard rawTime.isValid && rawTime.isNumeric else { return nil }
+        let fps = max(1.0, currentSlot.fps)
+        let rawSecs = CMTimeGetSeconds(rawTime)
+        guard rawSecs.isFinite && !rawSecs.isNaN else { return nil }
+        // Snap to exact frame-center PTS so AVAssetImageGenerator zero tolerance lands squarely inside target frame
+        let frameIdx = max(0, Int(floor(rawSecs * fps + 1e-4)))
+        let targetSecs = (Double(frameIdx) + 0.5) / fps
+        let targetTime = CMTime(seconds: targetSecs, preferredTimescale: 60000)
         return await currentSlot.frameExtractor.capture(at: targetTime, fallbackURL: url)
     }
     

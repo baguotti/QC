@@ -189,10 +189,27 @@ public struct FileSystemTreeBuilder {
         return result
     }
     
+    private static var cachedHasSubfoldersNodes: [FileSystemTreeNode] = []
+    private static var cachedHasSubfoldersResult: Bool = false
+
     /// Checks if any directory nodes exist in the tree.
     public static func hasSubfolders(in nodes: [FileSystemTreeNode]) -> Bool {
-        return nodes.contains(where: { $0.isDirectory })
+        if nodes == cachedHasSubfoldersNodes {
+            return cachedHasSubfoldersResult
+        }
+        let result = nodes.contains(where: { $0.isDirectory })
+        cachedHasSubfoldersNodes = nodes
+        cachedHasSubfoldersResult = result
+        return result
     }
+    
+    // Memoization cache for flatten to avoid rebuilding on every view evaluation (e.g. 120 FPS timeline scrubbing)
+    private static var cachedFlattenNodes: [FileSystemTreeNode] = []
+    private static var cachedCollapsedIDs: Set<String> = []
+    private static var cachedHiddenIDs: Set<String> = []
+    private static var cachedHideAllFolders: Bool = false
+    private static var cachedFilterText: String = ""
+    private static var cachedFlattenedResult: [FileSystemTreeNode] = []
     
     /// Flattens a tree into a linear list of visible nodes respecting collapsed folder IDs, hidden folder IDs, global folder visibility, and search filters.
     public static func flatten(
@@ -202,6 +219,14 @@ public struct FileSystemTreeBuilder {
         hideAllFolders: Bool = false,
         filterText: String = ""
     ) -> [FileSystemTreeNode] {
+        if nodes == cachedFlattenNodes &&
+           collapsedIDs == cachedCollapsedIDs &&
+           hiddenIDs == cachedHiddenIDs &&
+           hideAllFolders == cachedHideAllFolders &&
+           filterText == cachedFilterText {
+            return cachedFlattenedResult
+        }
+        
         let cleanFilter = filterText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         
         // If filter is active, check if a node or any of its descendants matches
@@ -251,6 +276,13 @@ public struct FileSystemTreeBuilder {
         }
         
         traverse(nodes)
+        
+        cachedFlattenNodes = nodes
+        cachedCollapsedIDs = collapsedIDs
+        cachedHiddenIDs = hiddenIDs
+        cachedHideAllFolders = hideAllFolders
+        cachedFilterText = filterText
+        cachedFlattenedResult = result
         return result
     }
     

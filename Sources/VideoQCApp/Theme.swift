@@ -212,6 +212,33 @@ extension View {
             .background(background, in: RoundedRectangle(cornerRadius: radius))
             .overlay(RoundedRectangle(cornerRadius: radius).stroke(border, lineWidth: width))
     }
+}
 
+// MARK: - Muted Review Note Theme
+public struct QCNoteTheme {
+    public static func color(for tag: String) -> Color {
+        switch tag.lowercased() {
+        case "cyan":
+            return Color(red: 0.35, green: 0.62, blue: 0.72)
+        case "yellow":
+            return Color(red: 0.82, green: 0.68, blue: 0.34)
+        case "green":
+            return Color(red: 0.42, green: 0.68, blue: 0.50)
+        case "red":
+            return Color(red: 0.80, green: 0.42, blue: 0.42)
+        case "purple":
+            return Color(red: 0.62, green: 0.50, blue: 0.75)
+        default:
+            return Color(red: 0.35, green: 0.62, blue: 0.72)
+        }
+    }
+    
+    public static let availableColors: [(id: String, name: String, color: Color)] = [
+        ("cyan", "Cyan", color(for: "cyan")),
+        ("yellow", "Yellow", color(for: "yellow")),
+        ("green", "Green", color(for: "green")),
+        ("red", "Red", color(for: "red")),
+        ("purple", "Purple", color(for: "purple"))
+    ]
 }
 

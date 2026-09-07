@@ -142,25 +142,29 @@ public final class PlayerContainerNSView: NSView {
         return nil
     }()
     
+    private var lastScale: CGFloat = -1
+    
     public override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
         wantsLayer = true
-        layerUsesCoreImageFilters = true
         layer?.masksToBounds = true
         layer?.backgroundColor = NSColor(red: 0.08, green: 0.08, blue: 0.08, alpha: 1.0).cgColor
         
         // Canvas Container Layer (anchored at center for clean scaling & translation)
         canvasLayer.anchorPoint = CGPoint(x: 0.5, y: 0.5)
         canvasLayer.backgroundColor = NSColor.clear.cgColor
-        canvasLayer.masksToBounds = true
+        canvasLayer.masksToBounds = false
         canvasLayer.borderWidth = 0
         canvasLayer.shadowOpacity = 0
+        canvasLayer.magnificationFilter = .nearest
+        canvasLayer.minificationFilter = .nearest
         layer?.addSublayer(canvasLayer)
         
         // Slot B: Player Video Layer (active during comparison playback)
+        playerLayerB.anchorPoint = CGPoint(x: 0.5, y: 0.5)
         playerLayerB.videoGravity = .resize
-        playerLayerB.magnificationFilter = .linear
-        playerLayerB.minificationFilter = .linear
+        playerLayerB.magnificationFilter = .nearest
+        playerLayerB.minificationFilter = .nearest
         playerLayerB.backgroundColor = NSColor.clear.cgColor
         playerLayerB.borderWidth = 0
         playerLayerB.shadowOpacity = 0
@@ -169,9 +173,10 @@ public final class PlayerContainerNSView: NSView {
         canvasLayer.addSublayer(playerLayerB)
         
         // Still Frame Layer B (active when paused for 100% pixel-perfect inspection)
+        stillFrameLayerB.anchorPoint = CGPoint(x: 0.5, y: 0.5)
         stillFrameLayerB.contentsGravity = .resize
-        stillFrameLayerB.magnificationFilter = .linear
-        stillFrameLayerB.minificationFilter = .linear
+        stillFrameLayerB.magnificationFilter = .nearest
+        stillFrameLayerB.minificationFilter = .nearest
         stillFrameLayerB.backgroundColor = NSColor.clear.cgColor
         stillFrameLayerB.borderWidth = 0
         stillFrameLayerB.shadowOpacity = 0
@@ -180,9 +185,10 @@ public final class PlayerContainerNSView: NSView {
         canvasLayer.addSublayer(stillFrameLayerB)
         
         // Slot A: Player Video Layer (Master playback)
+        playerLayerA.anchorPoint = CGPoint(x: 0.5, y: 0.5)
         playerLayerA.videoGravity = .resize
-        playerLayerA.magnificationFilter = .linear
-        playerLayerA.minificationFilter = .linear
+        playerLayerA.magnificationFilter = .nearest
+        playerLayerA.minificationFilter = .nearest
         playerLayerA.backgroundColor = NSColor.clear.cgColor
         playerLayerA.borderWidth = 0
         playerLayerA.shadowOpacity = 0
@@ -190,9 +196,10 @@ public final class PlayerContainerNSView: NSView {
         canvasLayer.addSublayer(playerLayerA)
         
         // Still Frame Layer A (active when paused for 100% pixel-perfect inspection)
+        stillFrameLayerA.anchorPoint = CGPoint(x: 0.5, y: 0.5)
         stillFrameLayerA.contentsGravity = .resize
-        stillFrameLayerA.magnificationFilter = .linear
-        stillFrameLayerA.minificationFilter = .linear
+        stillFrameLayerA.magnificationFilter = .nearest
+        stillFrameLayerA.minificationFilter = .nearest
         stillFrameLayerA.backgroundColor = NSColor.clear.cgColor
         stillFrameLayerA.borderWidth = 0
         stillFrameLayerA.shadowOpacity = 0
@@ -237,6 +244,7 @@ public final class PlayerContainerNSView: NSView {
         crosshairLayerA.lineWidth = 1.0
         crosshairLayerA.shadowOpacity = 0
         crosshairLayerA.zPosition = 100
+        crosshairLayerA.isHidden = true
         crosshairLayerA.actions = ["hidden": NSNull(), "opacity": NSNull(), "position": NSNull(), "bounds": NSNull(), "frame": NSNull(), "path": NSNull(), "lineWidth": NSNull()]
         canvasLayer.addSublayer(crosshairLayerA)
         
@@ -246,6 +254,7 @@ public final class PlayerContainerNSView: NSView {
         crosshairLayerB.lineWidth = 1.0
         crosshairLayerB.shadowOpacity = 0
         crosshairLayerB.zPosition = 100
+        crosshairLayerB.isHidden = true
         crosshairLayerB.actions = ["hidden": NSNull(), "opacity": NSNull(), "position": NSNull(), "bounds": NSNull(), "frame": NSNull(), "path": NSNull(), "lineWidth": NSNull()]
         canvasLayer.addSublayer(crosshairLayerB)
         
@@ -255,6 +264,7 @@ public final class PlayerContainerNSView: NSView {
         titleSafeLayerA.lineWidth = 1.0
         titleSafeLayerA.shadowOpacity = 0
         titleSafeLayerA.zPosition = 101
+        titleSafeLayerA.isHidden = true
         titleSafeLayerA.actions = ["hidden": NSNull(), "opacity": NSNull(), "position": NSNull(), "bounds": NSNull(), "frame": NSNull(), "path": NSNull(), "lineWidth": NSNull()]
         canvasLayer.addSublayer(titleSafeLayerA)
         
@@ -264,6 +274,7 @@ public final class PlayerContainerNSView: NSView {
         titleSafeLayerB.lineWidth = 1.0
         titleSafeLayerB.shadowOpacity = 0
         titleSafeLayerB.zPosition = 101
+        titleSafeLayerB.isHidden = true
         titleSafeLayerB.actions = ["hidden": NSNull(), "opacity": NSNull(), "position": NSNull(), "bounds": NSNull(), "frame": NSNull(), "path": NSNull(), "lineWidth": NSNull()]
         canvasLayer.addSublayer(titleSafeLayerB)
         
@@ -353,6 +364,7 @@ public final class PlayerContainerNSView: NSView {
         
         let canvasColor = isLightMode ? NSColor(white: 0.88, alpha: 1.0).cgColor : NSColor(red: 0.08, green: 0.08, blue: 0.08, alpha: 1.0).cgColor
         layer?.backgroundColor = canvasColor
+        canvasLayer.backgroundColor = NSColor.clear.cgColor
         
         layoutPlayerLayer()
         updateCompareLayers()
@@ -374,6 +386,8 @@ public final class PlayerContainerNSView: NSView {
     }
     
     private func updateScale(for scale: CGFloat) {
+        guard scale != lastScale else { return }
+        lastScale = scale
         layer?.contentsScale = scale
         canvasLayer.contentsScale = scale
         playerLayerA.contentsScale = scale
@@ -400,28 +414,76 @@ public final class PlayerContainerNSView: NSView {
     
     // MARK: - Video Aspect Ratio & Layout
     
-    private func getVideoAspectRatioA() -> CGFloat {
+    private func getVideoPresentationSizeA() -> CGSize {
         if let item = playerLayerA.player?.currentItem, item.presentationSize.width > 0, item.presentationSize.height > 0 {
-            return item.presentationSize.width / item.presentationSize.height
+            return item.presentationSize
         }
-        guard let engine = engine else { return 16.0 / 9.0 }
+        guard let engine = engine else { return CGSize(width: 1920, height: 1080) }
         let size = engine.slotA.videoSize
         if size.width > 0 && size.height > 0 {
-            return size.width / size.height
+            return size
         }
-        return 16.0 / 9.0
+        return CGSize(width: 1920, height: 1080)
+    }
+    
+    private func getVideoPresentationSizeB() -> CGSize {
+        if let item = playerLayerB.player?.currentItem, item.presentationSize.width > 0, item.presentationSize.height > 0 {
+            return item.presentationSize
+        }
+        guard let engine = engine else { return getVideoPresentationSizeA() }
+        let size = engine.slotB.videoSize
+        if size.width > 0 && size.height > 0 {
+            return size
+        }
+        return getVideoPresentationSizeA()
+    }
+    
+    private func getVideoAspectRatioA() -> CGFloat {
+        let size = getVideoPresentationSizeA()
+        return max(0.01, size.width / max(1.0, size.height))
     }
     
     private func getVideoAspectRatioB() -> CGFloat {
-        if let item = playerLayerB.player?.currentItem, item.presentationSize.width > 0, item.presentationSize.height > 0 {
-            return item.presentationSize.width / item.presentationSize.height
+        let size = getVideoPresentationSizeB()
+        return max(0.01, size.width / max(1.0, size.height))
+    }
+    
+    private func gcd(_ a: Int, _ b: Int) -> Int {
+        var x = abs(a)
+        var y = abs(b)
+        while y != 0 {
+            let t = y
+            y = x % y
+            x = t
         }
-        guard let engine = engine else { return getVideoAspectRatioA() }
-        let size = engine.slotB.videoSize
-        if size.width > 0 && size.height > 0 {
-            return size.width / size.height
+        return x
+    }
+    
+    /// Reduces video dimensions to a low-integer rational aspect ratio (num:den)
+    /// to guarantee that bounds calculations step in whole physical display pixels with zero letterbox margin.
+    private func getRationalAspect(width: Int, height: Int) -> (num: Int, den: Int) {
+        guard width > 0, height > 0 else { return (16, 9) }
+        let g = gcd(width, height)
+        let num = width / g
+        let den = height / g
+        if num <= 64 && den <= 64 {
+            return (num, den)
         }
-        return getVideoAspectRatioA()
+        let target = Double(width) / Double(height)
+        var bestNum = num
+        var bestDen = den
+        var bestDiff = Double.infinity
+        for d in 1...64 {
+            let n = Int(round(Double(d) * target))
+            let diff = abs(Double(n) / Double(d) - target)
+            if diff < bestDiff {
+                bestDiff = diff
+                bestNum = n
+                bestDen = d
+                if diff < 1e-6 { break }
+            }
+        }
+        return (bestNum, bestDen)
     }
     
     // MARK: - Subpixel & Display Alignment Helpers
@@ -435,12 +497,12 @@ public final class PlayerContainerNSView: NSView {
         return round(value * scale) / scale
     }
     
-    /// Snaps a size to physical display pixels, ensuring physical pixel dimensions are even integers
-    /// (necessary for YUV 4:2:0 hardware video decoders and eliminating CoreMedia letterboxing).
+    /// Snaps a dimension to even physical display pixels ((Int(round(val * scale)) / 2) * 2 / scale)
+    /// to guarantee that bounds and half-dimensions (w/2, h/2) never land on a 0.5 fractional subpixel.
     private func snapToEvenPixels(_ value: CGFloat, scale: CGFloat) -> CGFloat {
-        let pixels = floor(value * scale)
-        let evenPixels = floor(pixels / 2.0) * 2.0
-        return max(2.0 / scale, evenPixels / scale)
+        let pixels = round(value * scale)
+        let evenPixels = (Int(pixels) / 2) * 2
+        return CGFloat(evenPixels) / scale
     }
     
     private func getBaseFittedSize(in bounds: CGRect) -> CGSize {
@@ -556,18 +618,11 @@ public final class PlayerContainerNSView: NSView {
         }
         
         // Pixel-aligned positioning:
-        // Snap the raw top-left origin of canvasLayer to the physical display pixel grid,
-        // then derive the layer position from the snapped origin. This guarantees that canvasLayer.frame.origin
-        // is at whole display pixel boundaries, eliminating subpixel jitter between CALayer and AVPlayerLayer.
-        let scaledW = baseSize.width * zoomScale
-        let scaledH = baseSize.height * zoomScale
-        let rawOriginX = viewBounds.midX - (scaledW / 2.0) + panOffset.width
-        let rawOriginY = viewBounds.midY - (scaledH / 2.0) + panOffset.height
-        let snappedOriginX = snapToPixel(rawOriginX, scale: scale)
-        let snappedOriginY = snapToPixel(rawOriginY, scale: scale)
-        let centerX = snappedOriginX + (scaledW / 2.0)
-        let centerY = snappedOriginY + (scaledH / 2.0)
+        // Snap the center of canvasLayer to physical display pixels to eliminate fractional-pixel blurring.
+        let centerX = snapToPixel(viewBounds.midX + panOffset.width, scale: scale)
+        let centerY = snapToPixel(viewBounds.midY + panOffset.height, scale: scale)
         
+        canvasLayer.anchorPoint = CGPoint(x: 0.5, y: 0.5)
         canvasLayer.position = CGPoint(x: centerX, y: centerY)
         canvasLayer.setAffineTransform(CGAffineTransform(scaleX: zoomScale, y: zoomScale))
         
@@ -632,18 +687,20 @@ public final class PlayerContainerNSView: NSView {
             stillFrameLayerB.opacity = 1.0
             playerLayerB.zPosition = 0
             stillFrameLayerB.zPosition = 0
-            // Fit Slot B in canvas bounds preserving its native aspect ratio
-            let aspectB = max(0.01, getVideoAspectRatioB())
-            let canvasAspect = w / h
-            let frameB: CGRect
-            if abs(canvasAspect - aspectB) / max(canvasAspect, aspectB) < 0.02 {
-                frameB = canvasLayer.bounds
-            } else {
-                let scale = min(w / aspectB, h)
-                let fitW = round(scale * aspectB)
-                let fitH = round(scale)
-                frameB = CGRect(x: round((w - fitW) / 2), y: round((h - fitH) / 2), width: fitW, height: fitH)
-            }
+            // Fit Slot B in canvas bounds preserving its native rational aspect ratio
+            let pSizeB = getVideoPresentationSizeB()
+            let (numB, denB) = getRationalAspect(width: Int(round(pSizeB.width)), height: Int(round(pSizeB.height)))
+            let scaleVal = currentBackingScale()
+            let maxPixelW = floor(w * scaleVal)
+            let maxPixelH = floor(h * scaleVal)
+            let steps = max(1.0, min(floor(maxPixelW / CGFloat(numB)), floor(maxPixelH / CGFloat(denB))))
+            let pixelWB = steps * CGFloat(numB)
+            let pixelHB = steps * CGFloat(denB)
+            let fitW = pixelWB / scaleVal
+            let fitH = pixelHB / scaleVal
+            let originX = snapToPixel((w - fitW) / 2, scale: scaleVal)
+            let originY = snapToPixel((h - fitH) / 2, scale: scaleVal)
+            let frameB = CGRect(x: originX, y: originY, width: fitW, height: fitH)
             playerLayerB.frame = frameB
             stillFrameLayerB.frame = frameB
             
@@ -792,22 +849,24 @@ public final class PlayerContainerNSView: NSView {
             stillFrameLayerB.compositingFilter = nil
             
             let scale = currentBackingScale()
-            let halfW = snapToEvenPixels((w - 4) / 2, scale: scale)
-            let aspectA = max(0.01, getVideoAspectRatioA())
-            let aspectB = max(0.01, getVideoAspectRatioB())
+            let pSizeA = getVideoPresentationSizeA()
+            let (numA, denA) = getRationalAspect(width: Int(round(pSizeA.width)), height: Int(round(pSizeA.height)))
+            let pSizeB = getVideoPresentationSizeB()
+            let (numB, denB) = getRationalAspect(width: Int(round(pSizeB.width)), height: Int(round(pSizeB.height)))
+            let halfW = snapToPixel((w - 4) / 2, scale: scale)
+            let maxPixelHalfW = floor(halfW * scale)
+            let maxPixelH = floor(h * scale)
             
-            // Fit Slot A in left half (halfW, h)
-            let scaleA = min(halfW / aspectA, h)
-            let fitHeightA = snapToEvenPixels(scaleA, scale: scale)
-            let fitWidthA = snapToEvenPixels(fitHeightA * aspectA, scale: scale)
+            let stepsA = max(1.0, min(floor(maxPixelHalfW / CGFloat(numA)), floor(maxPixelH / CGFloat(denA))))
+            let fitWidthA = (stepsA * CGFloat(numA)) / scale
+            let fitHeightA = (stepsA * CGFloat(denA)) / scale
             let yPosA = snapToPixel((h - fitHeightA) / 2, scale: scale)
             let xPosA = snapToPixel((halfW - fitWidthA) / 2, scale: scale)
             let frameA = CGRect(x: xPosA, y: yPosA, width: fitWidthA, height: fitHeightA)
             
-            // Fit Slot B in right half (halfW, h)
-            let scaleB = min(halfW / aspectB, h)
-            let fitHeightB = snapToEvenPixels(scaleB, scale: scale)
-            let fitWidthB = snapToEvenPixels(fitHeightB * aspectB, scale: scale)
+            let stepsB = max(1.0, min(floor(maxPixelHalfW / CGFloat(numB)), floor(maxPixelH / CGFloat(denB))))
+            let fitWidthB = (stepsB * CGFloat(numB)) / scale
+            let fitHeightB = (stepsB * CGFloat(denB)) / scale
             let yPosB = snapToPixel((h - fitHeightB) / 2, scale: scale)
             let xPosB = snapToPixel(w / 2 + 2 + (halfW - fitWidthB) / 2, scale: scale)
             let frameB = CGRect(x: xPosB, y: yPosB, width: fitWidthB, height: fitHeightB)
@@ -833,23 +892,24 @@ public final class PlayerContainerNSView: NSView {
             stillFrameLayerB.compositingFilter = nil
             
             let scale = currentBackingScale()
-            let halfH = snapToEvenPixels((h - 4) / 2, scale: scale)
-            let aspectA = max(0.01, getVideoAspectRatioA())
-            let aspectB = max(0.01, getVideoAspectRatioB())
+            let pSizeA = getVideoPresentationSizeA()
+            let (numA, denA) = getRationalAspect(width: Int(round(pSizeA.width)), height: Int(round(pSizeA.height)))
+            let pSizeB = getVideoPresentationSizeB()
+            let (numB, denB) = getRationalAspect(width: Int(round(pSizeB.width)), height: Int(round(pSizeB.height)))
+            let halfH = snapToPixel((h - 4) / 2, scale: scale)
+            let maxPixelW = floor(w * scale)
+            let maxPixelHalfH = floor(halfH * scale)
             
-            // In AppKit, y=0 is bottom (Slot B), y=h is top (Slot A)
-            // Fit Slot A in top half (w, halfH)
-            let scaleA = min(w, halfH * aspectA)
-            let fitHeightA = snapToEvenPixels(scaleA / aspectA, scale: scale)
-            let fitWidthA = snapToEvenPixels(scaleA, scale: scale)
+            let stepsA = max(1.0, min(floor(maxPixelW / CGFloat(numA)), floor(maxPixelHalfH / CGFloat(denA))))
+            let fitWidthA = (stepsA * CGFloat(numA)) / scale
+            let fitHeightA = (stepsA * CGFloat(denA)) / scale
             let xPosA = snapToPixel((w - fitWidthA) / 2, scale: scale)
             let yPosA = snapToPixel(h / 2 + 2 + (halfH - fitHeightA) / 2, scale: scale)
             let frameA = CGRect(x: xPosA, y: yPosA, width: fitWidthA, height: fitHeightA)
             
-            // Fit Slot B in bottom half (w, halfH)
-            let scaleB = min(w, halfH * aspectB)
-            let fitHeightB = snapToEvenPixels(scaleB / aspectB, scale: scale)
-            let fitWidthB = snapToEvenPixels(scaleB, scale: scale)
+            let stepsB = max(1.0, min(floor(maxPixelW / CGFloat(numB)), floor(maxPixelHalfH / CGFloat(denB))))
+            let fitWidthB = (stepsB * CGFloat(numB)) / scale
+            let fitHeightB = (stepsB * CGFloat(denB)) / scale
             let xPosB = snapToPixel((w - fitWidthB) / 2, scale: scale)
             let yPosB = snapToPixel((halfH - fitHeightB) / 2, scale: scale)
             let frameB = CGRect(x: xPosB, y: yPosB, width: fitWidthB, height: fitHeightB)
@@ -927,26 +987,41 @@ public final class PlayerContainerNSView: NSView {
     // MARK: - Dynamic Texture Filtering
     
     private func updateMagnificationFilters() {
-        guard let engine = engine else { return }
-        // Dynamic texture filtering:
-        // When inspecting pixel-level details at >= 175% zoom (e.g. 200%, 400%, 800%),
-        // use .nearest so individual pixels display as crisp, discrete square blocks for line/pixel QC.
-        // At normal viewing / fit zoom (< 175% or fit to window), use .linear so paused still
-        // frames match live playback quality with smooth, anti-aliased graphics, text, and edges.
-        let isZoomedInForQC = (!engine.isFitZoom && engine.zoomScale >= 1.75)
-        let targetFilter: CALayerContentsFilter = isZoomedInForQC ? .nearest : .linear
-        
-        if stillFrameLayerA.magnificationFilter != targetFilter {
-            stillFrameLayerA.magnificationFilter = targetFilter
+        guard let _ = engine else { return }
+        // ARCHITECTURAL MANDATE (AGENTS.md Section 2):
+        // All layers (canvasLayer, playerLayerA/B, stillFrameLayerA/B) MUST ALWAYS use .nearest
+        // for BOTH magnificationFilter and minificationFilter.
+        // Using .linear causes bilinear downsampling/interpolation that averages 1-pixel edge lines
+        // into adjacent pixels, turning green lines white during 1x playback and timeline scrubbing.
+        if canvasLayer.magnificationFilter != .nearest {
+            canvasLayer.magnificationFilter = .nearest
         }
-        if stillFrameLayerB.magnificationFilter != targetFilter {
-            stillFrameLayerB.magnificationFilter = targetFilter
+        if canvasLayer.minificationFilter != .nearest {
+            canvasLayer.minificationFilter = .nearest
         }
-        if playerLayerA.magnificationFilter != targetFilter {
-            playerLayerA.magnificationFilter = targetFilter
+        if stillFrameLayerA.magnificationFilter != .nearest {
+            stillFrameLayerA.magnificationFilter = .nearest
         }
-        if playerLayerB.magnificationFilter != targetFilter {
-            playerLayerB.magnificationFilter = targetFilter
+        if stillFrameLayerA.minificationFilter != .nearest {
+            stillFrameLayerA.minificationFilter = .nearest
+        }
+        if stillFrameLayerB.magnificationFilter != .nearest {
+            stillFrameLayerB.magnificationFilter = .nearest
+        }
+        if stillFrameLayerB.minificationFilter != .nearest {
+            stillFrameLayerB.minificationFilter = .nearest
+        }
+        if playerLayerA.magnificationFilter != .nearest {
+            playerLayerA.magnificationFilter = .nearest
+        }
+        if playerLayerA.minificationFilter != .nearest {
+            playerLayerA.minificationFilter = .nearest
+        }
+        if playerLayerB.magnificationFilter != .nearest {
+            playerLayerB.magnificationFilter = .nearest
+        }
+        if playerLayerB.minificationFilter != .nearest {
+            playerLayerB.minificationFilter = .nearest
         }
     }
     
@@ -956,13 +1031,19 @@ public final class PlayerContainerNSView: NSView {
         guard let engine = engine else { return }
         let mode = (engine.slotB.url == nil) ? CompareMode.single : engine.compareMode
         let isBlink = engine.isBlinkCompareB && engine.slotB.url != nil
-        let isPlayingOrScrubbing = engine.isPlaying || engine.isScrubbing || engine.isSeeking
+        let isPlaying = engine.isPlaying
         
-        // Check if still frame A is truly ready AND matches current playhead timestamp (<0.03s tolerance)
+        // Dynamic tolerance for still frame freshness:
+        // Strictly adhere to AGENTS.md Rule 4:
+        // Tolerance MUST be strictly less than 1 frame duration (min(0.03, 0.5 / fps))
+        // to guarantee that an adjacent frame (1 frame away) is NEVER falsely matched.
+        let frameDurationA = 1.0 / max(1.0, engine.slotA.fps)
+        let toleranceA = min(0.03, frameDurationA * 0.5)
+        
         let currentTimeSecsA = CMTimeGetSeconds(engine.currentTime)
         let isStillReadyA: Bool
         if let lastA = lastCapturedTimeA, stillFrameLayerA.contents != nil {
-            isStillReadyA = abs(CMTimeGetSeconds(lastA) - currentTimeSecsA) < 0.03
+            isStillReadyA = abs(CMTimeGetSeconds(lastA) - currentTimeSecsA) <= toleranceA
         } else {
             isStillReadyA = false
         }
@@ -970,54 +1051,68 @@ public final class PlayerContainerNSView: NSView {
         // Check if still frame B is truly ready AND matches current playhead timestamp
         let isStillReadyB: Bool
         if let lastB = lastCapturedTimeB, stillFrameLayerB.contents != nil {
+            let frameDurationB = 1.0 / max(1.0, engine.slotB.fps)
+            let toleranceB = min(0.03, frameDurationB * 0.5)
             let timeSecsB = CMTimeGetSeconds(engine.slotB.player.currentTime())
-            isStillReadyB = abs(CMTimeGetSeconds(lastB) - timeSecsB) < 0.03
+            isStillReadyB = abs(CMTimeGetSeconds(lastB) - timeSecsB) <= toleranceB
         } else {
             isStillReadyB = false
+        }
+        
+        let targetStillHiddenA: Bool
+        let targetPlayerHiddenA: Bool
+        let targetStillHiddenB: Bool
+        let targetPlayerHiddenB: Bool
+        
+        if isBlink {
+            targetStillHiddenA = true
+            targetPlayerHiddenA = true
+            if !isPlaying && isStillReadyB {
+                targetStillHiddenB = false
+                targetPlayerHiddenB = true
+            } else {
+                targetStillHiddenB = true
+                targetPlayerHiddenB = false
+            }
+        } else {
+            if !isPlaying && isStillReadyA {
+                targetStillHiddenA = false
+                targetPlayerHiddenA = true
+            } else {
+                targetStillHiddenA = true
+                targetPlayerHiddenA = false
+            }
+            
+            if mode == .single || engine.slotB.url == nil {
+                targetStillHiddenB = true
+                targetPlayerHiddenB = true
+            } else {
+                if !isPlaying && isStillReadyB {
+                    targetStillHiddenB = false
+                    targetPlayerHiddenB = true
+                } else {
+                    targetStillHiddenB = true
+                    targetPlayerHiddenB = false
+                }
+            }
+        }
+        
+        // Fast path: skip expensive CoreAnimation transactions if layer visibility is already identical
+        if stillFrameLayerA.isHidden == targetStillHiddenA &&
+           playerLayerA.isHidden == targetPlayerHiddenA &&
+           stillFrameLayerB.isHidden == targetStillHiddenB &&
+           playerLayerB.isHidden == targetPlayerHiddenB {
+            return
         }
         
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         updateMagnificationFilters()
         
-        if isBlink {
-            stillFrameLayerA.isHidden = true
-            playerLayerA.isHidden = true
-            if !isPlayingOrScrubbing && isStillReadyB {
-                stillFrameLayerB.isHidden = false
-                playerLayerB.isHidden = true
-            } else {
-                stillFrameLayerB.isHidden = true
-                playerLayerB.isHidden = false
-            }
-            CATransaction.commit()
-            return
-        }
-        
-        // Slot A visibility:
-        // Only present stillFrameLayerA when stationary AND it holds the verified current frame.
-        // During seeks, scrubbing, or when a new frame is being extracted, playerLayerA displays the live frame seamlessly.
-        if !isPlayingOrScrubbing && isStillReadyA {
-            stillFrameLayerA.isHidden = false
-            playerLayerA.isHidden = true
-        } else {
-            stillFrameLayerA.isHidden = true
-            playerLayerA.isHidden = false
-        }
-        
-        // Slot B visibility
-        if mode == .single || engine.slotB.url == nil {
-            stillFrameLayerB.isHidden = true
-            playerLayerB.isHidden = true
-        } else {
-            if !isPlayingOrScrubbing && isStillReadyB {
-                stillFrameLayerB.isHidden = false
-                playerLayerB.isHidden = true
-            } else {
-                stillFrameLayerB.isHidden = true
-                playerLayerB.isHidden = false
-            }
-        }
+        stillFrameLayerA.isHidden = targetStillHiddenA
+        playerLayerA.isHidden = targetPlayerHiddenA
+        stillFrameLayerB.isHidden = targetStillHiddenB
+        playerLayerB.isHidden = targetPlayerHiddenB
         
         CATransaction.commit()
     }
@@ -1025,10 +1120,15 @@ public final class PlayerContainerNSView: NSView {
     private func checkStillFrameDisplay() {
         guard let engine = engine, engine.slotA.url != nil else { return }
         
-        // If playing or actively scrubbing or seeking, show live AVPlayerLayers
-        if engine.isPlaying || engine.isScrubbing || engine.isSeeking {
+        // If actively playing, show live AVPlayerLayers
+        if engine.isPlaying && !engine.isScrubbing {
+            // Fast path during playback: if already purged and layers correctly hidden/shown, do nothing
+            if stillFrameLayerA.contents == nil && stillFrameLayerA.isHidden && !playerLayerA.isHidden {
+                return
+            }
+            
             // When actively playing, purge the cached still frame so stale textures can never flash
-            if engine.isPlaying && stillFrameLayerA.contents != nil {
+            if stillFrameLayerA.contents != nil {
                 stillFrameLayerA.contents = nil
                 rawStillFrameA = nil
                 lastCapturedTimeA = nil
@@ -1042,9 +1142,11 @@ public final class PlayerContainerNSView: NSView {
         
         let timeA = engine.currentTime
         let timeSecsA = CMTimeGetSeconds(timeA)
+        let frameDurationA = 1.0 / max(1.0, engine.slotA.fps)
+        let toleranceA = min(0.03, frameDurationA * 0.5)
         
         // Slot A still frame check
-        if let lastA = lastCapturedTimeA, abs(CMTimeGetSeconds(lastA) - timeSecsA) < 0.03, stillFrameLayerA.contents != nil {
+        if let lastA = lastCapturedTimeA, abs(CMTimeGetSeconds(lastA) - timeSecsA) <= toleranceA, stillFrameLayerA.contents != nil {
             updateLayerVisibility()
         } else if !isCapturingStillA {
             isCapturingStillA = true
@@ -1055,16 +1157,20 @@ public final class PlayerContainerNSView: NSView {
                     self.isCapturingStillA = false
                     guard let curEngine = self.engine else { return }
                     if let img = img {
-                        if !curEngine.isPlaying && !curEngine.isScrubbing && !curEngine.isSeeking && abs(CMTimeGetSeconds(curEngine.currentTime) - timeSecsA) < 0.04 {
-                            self.lastCapturedTimeA = timeA
-                            self.rawStillFrameA = img
-                            let exposedImg = ExposureAdjuster.shared.applyExposure(to: img, ev: curEngine.exposureEV)
-                            self.stillFrameLayerA.contents = exposedImg
-                            self.updateLayerVisibility()
-                        } else if !curEngine.isPlaying && !curEngine.isScrubbing && !curEngine.isSeeking {
-                            self.checkStillFrameDisplay()
+                        if !curEngine.isPlaying && !curEngine.isScrubbing {
+                            let curSecs = CMTimeGetSeconds(curEngine.currentTime)
+                            let curTol = min(0.03, (1.0 / max(1.0, curEngine.slotA.fps)) * 0.5)
+                            if abs(curSecs - timeSecsA) <= curTol {
+                                self.lastCapturedTimeA = timeA
+                                self.rawStillFrameA = img
+                                let exposedImg = ExposureAdjuster.shared.applyExposure(to: img, ev: curEngine.exposureEV)
+                                self.stillFrameLayerA.contents = exposedImg
+                                self.updateLayerVisibility()
+                            } else {
+                                self.checkStillFrameDisplay()
+                            }
                         }
-                    } else if !curEngine.isPlaying && !curEngine.isScrubbing && !curEngine.isSeeking {
+                    } else if !curEngine.isPlaying && !curEngine.isScrubbing {
                         // Retry shortly if asset was warming up
                         DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in
                             self?.checkStillFrameDisplay()
@@ -1078,7 +1184,9 @@ public final class PlayerContainerNSView: NSView {
         if engine.slotB.url != nil && engine.compareMode != .single {
             let timeB = engine.slotB.player.currentTime()
             let timeSecsB = CMTimeGetSeconds(timeB)
-            if let lastB = lastCapturedTimeB, abs(CMTimeGetSeconds(lastB) - timeSecsB) < 0.03, stillFrameLayerB.contents != nil {
+            let frameDurationB = 1.0 / max(1.0, engine.slotB.fps)
+            let toleranceB = min(0.03, frameDurationB * 0.5)
+            if let lastB = lastCapturedTimeB, abs(CMTimeGetSeconds(lastB) - timeSecsB) <= toleranceB, stillFrameLayerB.contents != nil {
                 updateLayerVisibility()
             } else if !isCapturingStillB {
                 isCapturingStillB = true
@@ -1089,14 +1197,20 @@ public final class PlayerContainerNSView: NSView {
                         self.isCapturingStillB = false
                         guard let curEngine = self.engine else { return }
                         if let imgB = imgB {
-                            if !curEngine.isPlaying && !curEngine.isScrubbing && !curEngine.isSeeking {
-                                self.lastCapturedTimeB = timeB
-                                self.rawStillFrameB = imgB
-                                let exposedImgB = ExposureAdjuster.shared.applyExposure(to: imgB, ev: curEngine.exposureEV)
-                                self.stillFrameLayerB.contents = exposedImgB
-                                self.updateLayerVisibility()
+                            if !curEngine.isPlaying && !curEngine.isScrubbing {
+                                let curSecsB = CMTimeGetSeconds(curEngine.slotB.player.currentTime())
+                                let curTolB = min(0.03, (1.0 / max(1.0, curEngine.slotB.fps)) * 0.5)
+                                if abs(curSecsB - timeSecsB) <= curTolB {
+                                    self.lastCapturedTimeB = timeB
+                                    self.rawStillFrameB = imgB
+                                    let exposedImgB = ExposureAdjuster.shared.applyExposure(to: imgB, ev: curEngine.exposureEV)
+                                    self.stillFrameLayerB.contents = exposedImgB
+                                    self.updateLayerVisibility()
+                                } else {
+                                    self.checkStillFrameDisplay()
+                                }
                             }
-                        } else if !curEngine.isPlaying && !curEngine.isScrubbing && !curEngine.isSeeking {
+                        } else if !curEngine.isPlaying && !curEngine.isScrubbing {
                             DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in
                                 self?.checkStillFrameDisplay()
                             }

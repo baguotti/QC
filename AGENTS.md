@@ -37,12 +37,16 @@
    - **DO NOT** change these to `.resizeAspect`.
    - `canvasLayer.bounds` (`baseSize`) is already calculated to match the video's exact aspect ratio down to the pixel.
    - Using `.resizeAspect` introduces floating-point subpixel rounding discrepancies inside `AVPlayerLayer`, causing 1-pixel letterbox/pillarbox bars that clip or wash out edge lines.
-2. **Dynamic Magnification Filter (`.linear` for Fit/100%, `.nearest` for 200%+ QC Zoom)**:
-   - At normal viewing scales (`isFitZoom` or `zoomScale < 1.75`), `magnificationFilter` must be `.linear`. Using `.nearest` at normal/fit scale on Retina displays causes severe nearest-neighbor aliasing, jagged text/subtitles, and stair-stepped graphics when paused.
-   - When users zoom into 200%, 400%, or 800% (`zoomScale >= 1.75`) to inspect edge line glitches, `magnificationFilter` dynamically switches to `.nearest` so pixels are displayed as sharp, discrete square pixels.
-   - Using `.linear` at 400% causes bilinear interpolation that blurs edge pixels into neighboring white pixels, while using `.nearest` at 100%/Fit causes jagged graphics. Dynamic switching gives both broadcast fidelity and pixel-accurate QC inspection.
-3. **`minificationFilter = .linear`**:
-   - Preserves smooth anti-aliased representation when zoomed out to fit smaller displays.
+2. **`magnificationFilter = .nearest` and `minificationFilter = .nearest` (MANDATORY)**:
+   - ALL layers (`canvasLayer`, `playerLayerA`, `playerLayerB`, `stillFrameLayerA`, `stillFrameLayerB`) MUST ALWAYS use `.nearest` for BOTH magnification and minification filters.
+   - Using `.linear` causes bilinear downsampling and interpolation that blurs/averages 1-pixel edge glitch lines with neighboring pixels (e.g. turning a 1-pixel neon green line white) during 1x playback and timeline scrubbing at normal/fit scales.
+   - Dynamic switching to `.linear` is STRICTLY FORBIDDEN as it destroys single-pixel QC line detection.
+   - Using `.nearest` guarantees discrete square pixel fidelity where single-pixel glitches retain 100% color saturation and contrast across all zoom levels (Fit, 100%, 200%, 400%, 800%) both when playing and when paused.
+3. **Even Physical Pixel Dimensions (`snapToEvenPixels`) & Outer Edge Alignment**:
+   - `canvasLayer.bounds` (`baseSize`) dimensions and positions MUST ALWAYS be snapped to EVEN physical pixels (`(Int(round(val * scale)) / 2) * 2 / scale`).
+   - If a layer's width or height is an odd number of physical pixels, centering via `anchorPoint = (0.5, 0.5)` places the layer origin on a half-pixel boundary (`0.5` physical px). When composited against a light window background, the half-pixel boundary antialiasing averages 1-pixel edge glitch lines with the window background, turning them white.
+   - Snapping both width and height to even physical pixels guarantees that half-dimensions (`w/2`, `h/2`) are integers in display pixels, aligning all four edges squarely with the physical pixel grid.
+   - `canvasLayer.masksToBounds` MUST ALWAYS remain `false` so outer edge pixels are never clipped.
 
 ---
 
@@ -85,7 +89,8 @@ Before committing any changes affecting `VideoViewportView.swift`, `PlayerEngine
 - [ ] Ensure `stillFrameLayerA` and `stillFrameLayerB` are present in `VideoViewportView`.
 - [ ] Verify `updateLayerVisibility()` displays still frame layers when paused and live player layers when playing.
 - [ ] Verify `videoGravity` and `contentsGravity` remain `.resize`.
-- [ ] Verify dynamic `magnificationFilter`: `.linear` at normal/fit zoom for smooth broadcast playback & paused graphics; `.nearest` at >= 1.75x (200%+) for sharp pixel QC.
+- [ ] Verify `magnificationFilter` and `minificationFilter` remain `.nearest` across all layers.
+- [ ] Verify `snapToEvenPixels` is used for canvas dimensions and `canvasLayer.masksToBounds` remains `false`.
 - [ ] Verify `layer.setNeedsDisplay()` is NEVER called on `playerLayer` or `stillFrameLayer`.
 - [ ] Verify `playerLayer.filters` is NEVER assigned a `CIFilter` (live video filtering belongs in `AVVideoComposition`).
 - [ ] Run `swift build` with 0 warnings/errors under Swift 6.

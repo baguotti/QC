@@ -217,14 +217,7 @@ struct NotesDrawerPanelView: View {
     }
     
     private func colorForTag(_ tag: String) -> Color {
-        switch tag.lowercased() {
-        case "cyan": return Color(red: 0.20, green: 0.75, blue: 1.0)
-        case "yellow": return Color(red: 1.0, green: 0.85, blue: 0.20)
-        case "green": return Color(red: 0.30, green: 0.85, blue: 0.40)
-        case "red": return Color(red: 1.0, green: 0.30, blue: 0.35)
-        case "purple": return Color(red: 0.75, green: 0.40, blue: 1.0)
-        default: return palette.accentPositive
-        }
+        QCNoteTheme.color(for: tag)
     }
     
     private func copyToClipboard(_ text: String) {
