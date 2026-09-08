@@ -1478,9 +1478,6 @@ public final class PlayerEngine: ObservableObject {
             startScrubbing()
         }
         let clamped = min(1.0, max(0.0, progress))
-        if abs(self.currentProgress - clamped) > 1e-4 {
-            self.currentProgress = clamped
-        }
         
         let durSecs = CMTimeGetSeconds(duration)
         if durSecs > 0 && durSecs.isFinite && !durSecs.isNaN {
@@ -1490,6 +1487,7 @@ public final class PlayerEngine: ObservableObject {
             let frameIdx = (calcVal.isFinite && !calcVal.isNaN) ? max(0, min(max(0, totalFrames - 1), Int(floor(calcVal)))) : 0
             if frameIdx != self.currentFrame {
                 self.currentFrame = frameIdx
+                self.currentProgress = clamped
                 self.currentTimecode = TimecodeFormatter.format(frameIndex: frameIdx, fps: activeFps)
                 
                 let targetSecs = (Double(frameIdx) + 0.5) / fps
@@ -1497,6 +1495,10 @@ public final class PlayerEngine: ObservableObject {
                 self.currentTime = targetTime
                 self.slotA.currentTime = targetTime
                 seek(toTime: targetTime)
+            }
+        } else {
+            if abs(self.currentProgress - clamped) > 1e-4 {
+                self.currentProgress = clamped
             }
         }
     }
@@ -1573,22 +1575,14 @@ public final class PlayerEngine: ObservableObject {
         let curCompletion = completion
         
         // Fast seek during interactive scrubbing:
-        // When sweeping across the timeline fast, use wide/keyframe tolerance (.positiveInfinity)
+        // When sweeping across the timeline, use keyframe/fast tolerance (.positiveInfinity)
         // so AVPlayer / VideoToolbox seeks in <1ms without reconstructing deep GOP inter-frame chains.
-        // For fine scrubbing (delta <= 0.25s) or stepping, use tighter tolerance.
         // When paused or concluding scrub, tolerance is .zero for pixel-perfect frame accuracy.
         let tol: CMTime
         if let explicitTol = tolerance {
             tol = explicitTol
         } else if isScrubbing {
-            let lastSecs = CMTimeGetSeconds(slotA.player.currentTime())
-            let targetSecs = CMTimeGetSeconds(time)
-            let delta = abs(targetSecs - lastSecs)
-            if delta > 0.5 {
-                tol = .positiveInfinity
-            } else {
-                tol = .zero
-            }
+            tol = .positiveInfinity
         } else {
             tol = .zero
         }

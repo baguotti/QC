@@ -338,7 +338,7 @@ public final class PlayerContainerNSView: NSView {
             playerLayerB.player = engine.slotB.player
         }
         
-        if engine.isPlaying {
+        if engine.isPlaying || engine.isScrubbing {
             displayLink?.isPaused = false
         } else {
             displayLink?.isPaused = true
@@ -405,7 +405,7 @@ public final class PlayerContainerNSView: NSView {
         guard displayLink == nil else { return }
         let link = self.displayLink(target: self, selector: #selector(onDisplayLinkTick))
         link.add(to: .main, forMode: .common)
-        link.isPaused = !(engine?.isPlaying ?? false)
+        link.isPaused = !(engine?.isPlaying ?? false || engine?.isScrubbing ?? false)
         self.displayLink = link
     }
     
@@ -415,22 +415,30 @@ public final class PlayerContainerNSView: NSView {
     }
     
     @objc private func onDisplayLinkTick() {
-        guard let engine = engine, engine.isPlaying else { return }
+        guard let engine = engine, engine.isPlaying || engine.isScrubbing else { return }
         renderPlaybackFrames()
     }
     
     private func renderPlaybackFrames() {
         guard let engine = engine else { return }
         
-        // Slot A playback frame extraction:
+        // Slot A frame extraction:
         if let outputA = engine.slotA.videoOutput {
-            let timeA = engine.slotA.player.currentTime()
-            var displayTime = CMTime.zero
-            if let pbA = outputA.copyPixelBuffer(forItemTime: timeA, itemTimeForDisplay: &displayTime) {
+            let targetTimeA = engine.isScrubbing ? engine.currentTime : engine.slotA.player.currentTime()
+            var pbA: CVPixelBuffer? = nil
+            if engine.isScrubbing {
+                pbA = outputA.copyPixelBuffer(forItemTime: targetTimeA, itemTimeForDisplay: nil)
+            }
+            if pbA == nil {
+                let playerTimeA = engine.slotA.player.currentTime()
+                var displayTime = CMTime.zero
+                pbA = outputA.copyPixelBuffer(forItemTime: playerTimeA, itemTimeForDisplay: &displayTime)
+            }
+            if let pb = pbA {
                 var cgImageA: CGImage?
-                VTCreateCGImageFromCVPixelBuffer(pbA, options: nil, imageOut: &cgImageA)
+                VTCreateCGImageFromCVPixelBuffer(pb, options: nil, imageOut: &cgImageA)
                 if let img = cgImageA {
-                    self.lastCapturedTimeA = timeA
+                    self.lastCapturedTimeA = targetTimeA
                     self.rawStillFrameA = img
                     CATransaction.begin()
                     CATransaction.setDisableActions(true)
@@ -440,15 +448,23 @@ public final class PlayerContainerNSView: NSView {
             }
         }
         
-        // Slot B playback frame extraction (in compare modes):
+        // Slot B frame extraction (in compare modes):
         if engine.slotB.url != nil, let outputB = engine.slotB.videoOutput {
-            let timeB = engine.slotB.player.currentTime()
-            var displayTime = CMTime.zero
-            if let pbB = outputB.copyPixelBuffer(forItemTime: timeB, itemTimeForDisplay: &displayTime) {
+            let targetTimeB = engine.isScrubbing ? engine.slotB.currentTime : engine.slotB.player.currentTime()
+            var pbB: CVPixelBuffer? = nil
+            if engine.isScrubbing {
+                pbB = outputB.copyPixelBuffer(forItemTime: targetTimeB, itemTimeForDisplay: nil)
+            }
+            if pbB == nil {
+                let playerTimeB = engine.slotB.player.currentTime()
+                var displayTime = CMTime.zero
+                pbB = outputB.copyPixelBuffer(forItemTime: playerTimeB, itemTimeForDisplay: &displayTime)
+            }
+            if let pb = pbB {
                 var cgImageB: CGImage?
-                VTCreateCGImageFromCVPixelBuffer(pbB, options: nil, imageOut: &cgImageB)
+                VTCreateCGImageFromCVPixelBuffer(pb, options: nil, imageOut: &cgImageB)
                 if let imgB = cgImageB {
-                    self.lastCapturedTimeB = timeB
+                    self.lastCapturedTimeB = targetTimeB
                     self.rawStillFrameB = imgB
                     CATransaction.begin()
                     CATransaction.setDisableActions(true)
@@ -1147,8 +1163,8 @@ public final class PlayerContainerNSView: NSView {
     private func checkStillFrameDisplay() {
         guard let engine = engine, engine.slotA.url != nil else { return }
         
-        // If actively playing, displayLink handles frame updates at screen refresh rate
-        if engine.isPlaying {
+        // If actively playing or scrubbing, displayLink handles frame updates at screen refresh rate
+        if engine.isPlaying || engine.isScrubbing {
             updateLayerVisibility()
             return
         }

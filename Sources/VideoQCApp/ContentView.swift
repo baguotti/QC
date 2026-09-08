@@ -27,6 +27,11 @@ struct ContentView: View {
     // Shared Folder & Video Files
     @State var folderURL: URL? = nil
     @State var videoFiles: [URL] = []
+    @State var playerTreeNodes: [FileSystemTreeNode] = []
+    
+    func updatePlayerTreeNodes() {
+        playerTreeNodes = FileSystemTreeBuilder.buildTree(rootURL: folderURL, files: videoFiles)
+    }
     
     // MARK: - Tab 1: Player State
     @StateObject var playerEngine = PlayerEngine()
@@ -267,7 +272,14 @@ struct ContentView: View {
                 }
             }
         }
+        .onChange(of: videoFiles) { _, _ in
+            updatePlayerTreeNodes()
+        }
+        .onChange(of: folderURL) { _, _ in
+            updatePlayerTreeNodes()
+        }
         .onAppear {
+            updatePlayerTreeNodes()
             setupKeyboardMonitor()
             loadFinderTagsForQueue()
             updateManager.checkForUpdates(userInitiated: false)

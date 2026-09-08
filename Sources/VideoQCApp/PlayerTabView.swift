@@ -106,6 +106,696 @@ struct ExposureScrubberView: View {
     }
 }
 
+// MARK: - Equatable Isolated Video Queue Panel
+
+public struct PlayerQueuePanelView: View, Equatable {
+    public var isLightMode: Bool
+    public var folderURL: URL?
+    public var videoFiles: [URL]
+    public var playerTreeNodes: [FileSystemTreeNode]
+    @Binding public var playerFilterText: String
+    @Binding public var playerCollapsedFolderIDs: Set<String>
+    public var hiddenFolderIDs: Set<String>
+    public var hideAllFolders: Bool
+    public var fileTagsMap: [URL: FinderTagColor]
+    public var isScanning: Bool
+    public var isAutoplayEnabled: Bool
+    
+    // Slot selection / metadata for rows
+    public var slotAURL: URL?
+    public var slotAResolution: String
+    public var slotAFps: Double
+    public var slotACodec: String
+    
+    public var slotBURL: URL?
+    public var slotBResolution: String
+    public var slotBFps: Double
+    public var slotBCodec: String
+    
+    public var activeTarget: SlotTarget
+    
+    @Binding public var queueScrollTarget: URL?
+    public var hoveredQueueClip: (name: String, location: CGPoint)?
+    public var hoverExplanation: Binding<String>?
+    
+    // Action Callbacks:
+    public var onSelectAssets: (_ append: Bool) -> Void
+    public var onToggleHideFolders: () -> Void
+    public var onToggleAutoplay: () -> Void
+    public var onToggleAllPlayerFolders: () -> Void
+    public var onToggleFolderCollapse: (_ folderID: String) -> Void
+    public var onHideFolder: (_ folderID: String) -> Void
+    public var onClearFolder: (_ node: FileSystemTreeNode) -> Void
+    public var onLoadVideo: (_ url: URL, _ target: SlotTarget) -> Void
+    public var onSwapSlots: () -> Void
+    public var onClearSlotB: () -> Void
+    public var onOpenProperties: (_ url: URL) -> Void
+    public var onToggleTag: (_ tag: FinderTagColor, _ url: URL) -> Void
+    public var onClearTag: (_ url: URL) -> Void
+    public var onDrop: (_ providers: [NSItemProvider]) -> Bool
+    public var onHoverClip: (_ name: String, _ location: CGPoint) -> Void
+    public var onHoverClipEnded: (_ name: String) -> Void
+    
+    public nonisolated static func == (lhs: PlayerQueuePanelView, rhs: PlayerQueuePanelView) -> Bool {
+        MainActor.assumeIsolated {
+            lhs.isLightMode == rhs.isLightMode &&
+            lhs.folderURL == rhs.folderURL &&
+            lhs.videoFiles == rhs.videoFiles &&
+            lhs.playerFilterText == rhs.playerFilterText &&
+            lhs.playerCollapsedFolderIDs == rhs.playerCollapsedFolderIDs &&
+            lhs.hiddenFolderIDs == rhs.hiddenFolderIDs &&
+            lhs.hideAllFolders == rhs.hideAllFolders &&
+            lhs.fileTagsMap == rhs.fileTagsMap &&
+            lhs.isScanning == rhs.isScanning &&
+            lhs.isAutoplayEnabled == rhs.isAutoplayEnabled &&
+            lhs.slotAURL == rhs.slotAURL &&
+            lhs.slotAResolution == rhs.slotAResolution &&
+            lhs.slotAFps == rhs.slotAFps &&
+            lhs.slotACodec == rhs.slotACodec &&
+            lhs.slotBURL == rhs.slotBURL &&
+            lhs.slotBResolution == rhs.slotBResolution &&
+            lhs.slotBFps == rhs.slotBFps &&
+            lhs.slotBCodec == rhs.slotBCodec &&
+            lhs.activeTarget == rhs.activeTarget &&
+            lhs.queueScrollTarget == rhs.queueScrollTarget &&
+            lhs.hoveredQueueClip?.name == rhs.hoveredQueueClip?.name &&
+            lhs.hoveredQueueClip?.location == rhs.hoveredQueueClip?.location
+        }
+    }
+    
+    private var bgMain: Color { StudioTheme.bgMain(isLightMode) }
+    private var bgPanel: Color { StudioTheme.bgPanel(isLightMode) }
+    private var bgSubtle: Color { StudioTheme.bgSubtle(isLightMode) }
+    private var bgCardHeader: Color { StudioTheme.bgCardHeader(isLightMode) }
+    private var bgCardSubtle: Color { StudioTheme.bgCardSubtle(isLightMode) }
+    private var borderLine: Color { StudioTheme.borderLine(isLightMode) }
+    private var borderStrong: Color { StudioTheme.borderStrong(isLightMode) }
+    private var textMain: Color { StudioTheme.textMain(isLightMode) }
+    private var textMuted: Color { StudioTheme.textMuted(isLightMode) }
+    private var textSubtle: Color { StudioTheme.textSubtle(isLightMode) }
+    private var accentPositive: Color { StudioTheme.positive }
+    private var accentSlotB: Color { StudioTheme.slotBAccent }
+    private var accentBlue: Color { StudioTheme.accentBlue(isLightMode) }
+    
+    private var hasSubfolders: Bool {
+        FileSystemTreeBuilder.hasSubfolders(in: playerTreeNodes)
+    }
+    
+    private var flattenedNodes: [FileSystemTreeNode] {
+        FileSystemTreeBuilder.flatten(
+            nodes: playerTreeNodes,
+            collapsedIDs: playerCollapsedFolderIDs,
+            hiddenIDs: hiddenFolderIDs,
+            hideAllFolders: hideAllFolders,
+            filterText: playerFilterText
+        )
+    }
+    
+    private var filteredFiles: [URL] {
+        let treeOrder = FileSystemTreeBuilder.orderedVideoURLs(from: playerTreeNodes)
+        let baseFiles = treeOrder.isEmpty ? videoFiles : treeOrder
+        if playerFilterText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return baseFiles
+        }
+        return baseFiles.filter { $0.lastPathComponent.localizedCaseInsensitiveContains(playerFilterText) }
+    }
+    
+    public var body: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            // Asset Picker Section
+            deliveryAssetsSection
+            
+            // Search Filter
+            if !videoFiles.isEmpty {
+                HStack(spacing: 6) {
+                    Image(systemName: "magnifyingglass")
+                        .font(.system(size: 10))
+                        .foregroundColor(textMuted)
+                    
+                    ZStack(alignment: .leading) {
+                        if playerFilterText.isEmpty {
+                            Text("FILTER ASSETS...")
+                                .font(.system(size: 11, weight: .bold, design: .monospaced))
+                                .foregroundColor(textMuted)
+                                .allowsHitTesting(false)
+                        }
+                        TextField("", text: $playerFilterText)
+                            .font(.system(size: 11, weight: .medium, design: .monospaced))
+                            .textFieldStyle(.plain)
+                            .foregroundColor(textMain)
+                            .onSubmit {
+                                NSApp.keyWindow?.makeFirstResponder(nil)
+                            }
+                    }
+                    
+                    if !playerFilterText.isEmpty {
+                        Button(action: { playerFilterText = "" }) {
+                            Image(systemName: "xmark.circle.fill")
+                                .font(.system(size: 10))
+                                .foregroundColor(textMuted)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+                .padding(.horizontal, 8)
+                .padding(.vertical, 6)
+                .studioBox(background: bgSubtle, border: borderLine)
+            }
+            
+            // Asset List
+            VStack(alignment: .leading, spacing: 6) {
+                HStack {
+                    Text("QUEUE (\(filteredFiles.count))")
+                        .font(.system(size: 10, weight: .black, design: .monospaced))
+                        .foregroundColor(textMuted)
+                    
+                    if hasSubfolders && !hideAllFolders {
+                        Button(action: onToggleAllPlayerFolders) {
+                            Image(systemName: playerCollapsedFolderIDs.isEmpty ? "chevron.down.circle" : "chevron.right.circle")
+                                .font(.system(size: 10, weight: .bold))
+                                .foregroundColor(textMuted)
+                        }
+                        .buttonStyle(.plain)
+                        .explain(playerCollapsedFolderIDs.isEmpty ? "Collapse all folders in playback queue." : "Expand all folders in playback queue.", binding: hoverExplanation)
+                    }
+                    
+                    Spacer()
+                    
+                    // Autoplay Toggle Button
+                    Button(action: onToggleAutoplay) {
+                        HStack(spacing: 3) {
+                            Image(systemName: isAutoplayEnabled ? "play.fill" : "play.slash.fill")
+                                .font(.system(size: 7, weight: .bold))
+                            Text("AUTO")
+                                .font(.system(size: 8, weight: .black, design: .monospaced))
+                        }
+                        .padding(.horizontal, 4)
+                        .frame(height: 18)
+                        .foregroundColor(isAutoplayEnabled ? accentPositive : textMuted)
+                        .studioBox(background: isAutoplayEnabled ? accentPositive.opacity(0.18) : bgSubtle,
+                                   border: isAutoplayEnabled ? accentPositive : borderLine)
+                    }
+                    .buttonStyle(.plain)
+                    .explain(isAutoplayEnabled ? "Autoplay: ON (Videos play from start when clicked or navigating with ↑/↓)" : "Autoplay: OFF (Videos load paused at frame 0)", binding: hoverExplanation)
+                }
+                
+                if videoFiles.isEmpty {
+                    VStack(spacing: 8) {
+                        Spacer()
+                        Image(systemName: "film")
+                            .font(.system(size: 24))
+                            .foregroundColor(textMuted)
+                        Text("NO VIDEO FILES LOADED")
+                            .font(.system(size: 10, weight: .bold, design: .monospaced))
+                            .foregroundColor(textMuted)
+                        Text("Select or drop a folder to populate playback queue.")
+                            .font(.system(size: 9, design: .monospaced))
+                            .foregroundColor(textSubtle)
+                            .multilineTextAlignment(.center)
+                        Spacer()
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .padding(12)
+                    .studioBox(background: bgCardSubtle, border: borderLine)
+                } else {
+                    GeometryReader { queueGeo in
+                        ZStack(alignment: .topLeading) {
+                            ScrollViewReader { scrollProxy in
+                                ScrollView {
+                                    LazyVStack(spacing: 4) {
+                                        if hasSubfolders {
+                                            ForEach(flattenedNodes) { node in
+                                                if node.isDirectory {
+                                                    folderRow(node: node)
+                                                        .id(node.id)
+                                                } else {
+                                                    fileRow(url: node.url, depth: node.depth)
+                                                        .id(node.url)
+                                                }
+                                            }
+                                        } else {
+                                            ForEach(filteredFiles, id: \.self) { url in
+                                                fileRow(url: url, depth: 0)
+                                                    .id(url)
+                                            }
+                                        }
+                                    }
+                                }
+                                .onChange(of: queueScrollTarget) { _, targetURL in
+                                    if let targetURL = targetURL {
+                                        withAnimation(.easeInOut(duration: 0.15)) {
+                                            scrollProxy.scrollTo(targetURL, anchor: nil)
+                                        }
+                                    }
+                                }
+                                .onChange(of: slotAURL) { _, newURL in
+                                    if let newURL = newURL {
+                                        revealFolderContaining(url: newURL)
+                                    }
+                                }
+                                .onChange(of: slotBURL) { _, newURL in
+                                    if let newURL = newURL, activeTarget == .slotB {
+                                        revealFolderContaining(url: newURL)
+                                    }
+                                }
+                            }
+                            .studioBox(background: bgCardSubtle, border: borderLine)
+                            .onDrop(of: [UTType.fileURL.identifier], isTargeted: nil) { providers in
+                                onDrop(providers)
+                            }
+                            
+                            // Floating Clip Name Tooltip: revealed right next to mouse cursor
+                            if let hover = hoveredQueueClip {
+                                let tipY = hover.location.y > (queueGeo.size.height - 36) ? (hover.location.y - 28) : (hover.location.y + 14)
+                                let tipX = min(hover.location.x + 14, max(10, queueGeo.size.width - 60))
+                                
+                                HStack(spacing: 6) {
+                                    Image(systemName: "film.fill")
+                                        .font(.system(size: 8.5))
+                                        .foregroundColor(accentPositive)
+                                    Text(hover.name)
+                                        .font(.system(size: 10, weight: .bold, design: .monospaced))
+                                        .foregroundColor(textMain)
+                                        .lineLimit(1)
+                                }
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 5)
+                                .background(bgPanel)
+                                .cornerRadius(4)
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 4)
+                                        .stroke(borderStrong, lineWidth: 1)
+                                )
+                                .shadow(color: Color.black.opacity(0.45), radius: 6, x: 0, y: 3)
+                                .fixedSize()
+                                .offset(x: tipX, y: tipY)
+                                .transition(.opacity.combined(with: .scale(scale: 0.96)))
+                                .allowsHitTesting(false)
+                                .zIndex(100)
+                            }
+                        }
+                    }
+                    .coordinateSpace(name: "QueueContainer")
+                    .onHover { isHovering in
+                        if !isHovering {
+                            onHoverClipEnded("")
+                        }
+                    }
+                }
+            }
+            .frame(maxHeight: .infinity)
+        }
+        .padding(22)
+        .frame(minWidth: 280, idealWidth: 420, maxWidth: 1200)
+        .background(bgPanel)
+        .onDrop(of: [UTType.fileURL.identifier], isTargeted: nil) { providers in
+            onDrop(providers)
+        }
+    }
+    
+    private var deliveryAssetsSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 6) {
+                Text("01")
+                    .font(.system(size: 9, weight: .black, design: .monospaced))
+                    .foregroundColor(textMain)
+                Text("// LOAD ASSETS")
+                    .font(.system(size: 9, weight: .bold, design: .monospaced))
+                    .foregroundColor(textMuted)
+                    .tracking(1.0)
+            }
+            
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(spacing: 4) {
+                    Button(action: { onSelectAssets(false) }) {
+                        HStack(spacing: 3) {
+                            Image(systemName: folderURL == nil && videoFiles.isEmpty ? "folder.badge.plus" : "arrow.triangle.2.circlepath")
+                                .font(.system(size: 8, weight: .bold))
+                            Text(folderURL == nil && videoFiles.isEmpty ? "SELECT" : "CHANGE")
+                                .font(.system(size: 9.5, weight: .bold, design: .monospaced))
+                                .lineLimit(1)
+                        }
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 7)
+                        .foregroundColor(textMain)
+                        .studioBox(background: bgSubtle, border: borderLine)
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(isScanning)
+                    .explain(folderURL == nil && videoFiles.isEmpty ? "Opens file picker to select video files or a folder to inspect." : "Replaces currently loaded assets with a new folder or file selection.", binding: hoverExplanation)
+                    
+                    Button(action: { onSelectAssets(true) }) {
+                        HStack(spacing: 3) {
+                            Image(systemName: "plus")
+                                .font(.system(size: 8, weight: .bold))
+                            Text("ADD")
+                                .font(.system(size: 9.5, weight: .bold, design: .monospaced))
+                                .lineLimit(1)
+                        }
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 7)
+                        .foregroundColor(textMain)
+                        .studioBox(background: bgSubtle, border: borderLine)
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(isScanning)
+                    .explain("Opens file picker to add more video files or folders to current list without losing existing assets.", binding: hoverExplanation)
+                    
+                    let isHidden = hideAllFolders || !hiddenFolderIDs.isEmpty
+                    let canToggle = hasSubfolders || !videoFiles.isEmpty
+                    Button(action: onToggleHideFolders) {
+                        HStack(spacing: 3) {
+                            Image(systemName: isHidden ? "folder" : "folder.badge.minus")
+                                .font(.system(size: 8, weight: .bold))
+                            Text(isHidden ? "SHOW" : "HIDE")
+                                .font(.system(size: 9.5, weight: .bold, design: .monospaced))
+                                .lineLimit(1)
+                        }
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 7)
+                        .foregroundColor(canToggle ? textMain : textSubtle)
+                        .studioBox(background: bgSubtle, border: borderLine)
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(isScanning || !canToggle)
+                    .explain(isHidden ? "Show all folder headers in asset lists." : "Hide folder headers and display assets in a flat list.", binding: hoverExplanation)
+                }
+                
+                if let folder = folderURL {
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(folder.lastPathComponent.uppercased())
+                            .font(.system(size: 12, weight: .black, design: .monospaced))
+                            .foregroundColor(textMain)
+                            .lineLimit(1)
+                        Text("\(videoFiles.count) ASSET(S) FOUND IN DIRECTORY")
+                            .font(.system(size: 9, weight: .bold, design: .monospaced))
+                            .foregroundColor(textMuted)
+                    }
+                    .padding(10)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .studioBox(background: bgCardSubtle, border: borderLine)
+                    .contentShape(Rectangle())
+                    .explain(folder.path, binding: hoverExplanation)
+                    .contextMenu {
+                        Button("Copy Path") {
+                            NSPasteboard.general.clearContents()
+                            NSPasteboard.general.setString(folder.path, forType: .string)
+                        }
+                        Button("Reveal in Finder") {
+                            NSWorkspace.shared.activateFileViewerSelecting([folder])
+                        }
+                    }
+                } else if !videoFiles.isEmpty {
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text("LOOSE ASSET SELECTION")
+                            .font(.system(size: 11, weight: .bold, design: .monospaced))
+                            .foregroundColor(textMain)
+                            .lineLimit(1)
+                        Text("\(videoFiles.count) FILE(S) LOADED")
+                            .font(.system(size: 9, weight: .bold, design: .monospaced))
+                            .foregroundColor(textMuted)
+                    }
+                    .padding(10)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .studioBox(background: bgCardSubtle, border: borderLine)
+                    .contentShape(Rectangle())
+                }
+            }
+        }
+    }
+    
+    private func folderRow(node: FileSystemTreeNode) -> some View {
+        let isCollapsed = playerCollapsedFolderIDs.contains(node.id)
+        
+        return HStack(spacing: 6) {
+            Image(systemName: isCollapsed ? "chevron.right" : "chevron.down")
+                .font(.system(size: 9, weight: .bold))
+                .foregroundColor(textMuted)
+                .frame(width: 12)
+            
+            Image(systemName: "folder.fill")
+                .font(.system(size: 11))
+                .foregroundColor(textSubtle)
+            
+            Text(node.name.uppercased())
+                .font(.system(size: 10, weight: .bold, design: .monospaced))
+                .foregroundColor(textMain)
+                .lineLimit(1)
+            
+            Spacer()
+            
+            Text("\(node.videoCount)")
+                .font(.system(size: 8, weight: .black, design: .monospaced))
+                .foregroundColor(textSubtle)
+                .padding(.horizontal, 5)
+                .padding(.vertical, 1)
+                .background(RoundedRectangle(cornerRadius: 3).fill(bgSubtle))
+        }
+        .padding(.leading, CGFloat(node.depth * 14) + 6)
+        .padding(.trailing, 8)
+        .padding(.vertical, 5)
+        .contentShape(Rectangle())
+        .onTapGesture {
+            onToggleFolderCollapse(node.id)
+        }
+        .explain(node.url.path, binding: hoverExplanation)
+        .help(node.name)
+        .contextMenu {
+            Button("Hide Folder") {
+                onHideFolder(node.id)
+            }
+            Button("Clear Folder") {
+                onClearFolder(node)
+            }
+            Divider()
+            Button("Copy Path") {
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString(node.url.path, forType: .string)
+            }
+            Button("Reveal in Finder") {
+                NSWorkspace.shared.activateFileViewerSelecting([node.url])
+            }
+        }
+    }
+    
+    private func fileRow(url: URL, depth: Int = 0) -> some View {
+        let isSlotA = slotAURL == url
+        let isSlotB = slotBURL == url
+        let isSelected = isSlotA || isSlotB
+        let currentTag = fileTagsMap[url]
+        
+        return HStack(spacing: 6) {
+            Button(action: {
+                if NSEvent.modifierFlags.contains(.option) {
+                    onLoadVideo(url, .slotB)
+                } else {
+                    onLoadVideo(url, .slotA)
+                }
+            }) {
+                HStack(spacing: 8) {
+                    Rectangle()
+                        .fill(isSlotA ? accentPositive : (isSlotB ? accentSlotB : Color.clear))
+                        .frame(width: 3)
+                    
+                    if depth > 0 {
+                        Spacer().frame(width: CGFloat(depth * 14))
+                    }
+                    
+                    Image(systemName: isSlotA ? "a.circle.fill" : (isSlotB ? "b.circle.fill" : "play.circle.fill"))
+                        .font(.system(size: 13))
+                        .foregroundColor(isSlotA ? accentPositive : (isSlotB ? accentSlotB : textMuted))
+                    
+                    VStack(alignment: .leading, spacing: 2) {
+                        HStack(spacing: 6) {
+                            if let tag = currentTag {
+                                Circle()
+                                    .fill(tag.color)
+                                    .frame(width: 7, height: 7)
+                            }
+                            Text(url.lastPathComponent)
+                                .font(.system(size: 11, weight: .bold, design: .monospaced))
+                                .foregroundColor(isSelected ? textMain : textSubtle)
+                                .lineLimit(1)
+                        }
+                        
+                        if isSlotA && !slotAResolution.isEmpty {
+                            Text("\(slotAResolution) • \(String(format: "%.1f", slotAFps))fps • \(slotACodec)")
+                                .font(.system(size: 8, weight: .bold, design: .monospaced))
+                                .foregroundColor(accentPositive)
+                                .lineLimit(1)
+                        } else if isSlotB && !slotBResolution.isEmpty {
+                            Text("\(slotBResolution) • \(String(format: "%.1f", slotBFps))fps • \(slotBCodec)")
+                                .font(.system(size: 8, weight: .bold, design: .monospaced))
+                                .foregroundColor(accentSlotB)
+                                .lineLimit(1)
+                        } else {
+                            Text(" ")
+                                .font(.system(size: 8, weight: .bold, design: .monospaced))
+                                .foregroundColor(.clear)
+                                .lineLimit(1)
+                        }
+                    }
+                    
+                    Spacer()
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            
+            HStack(spacing: 4) {
+                if isSlotA {
+                    Text("A: MASTER")
+                        .font(.system(size: 8, weight: .black, design: .monospaced))
+                        .padding(.horizontal, 5)
+                        .padding(.vertical, 3)
+                        .foregroundColor(accentPositive)
+                        .studioBox(background: accentPositive.opacity(0.18), border: accentPositive.opacity(0.8))
+                } else {
+                    Button(action: { onLoadVideo(url, .slotA) }) {
+                        Text("+A")
+                            .font(.system(size: 8, weight: .bold, design: .monospaced))
+                            .padding(.horizontal, 4)
+                            .padding(.vertical, 2)
+                            .foregroundColor(textMuted)
+                            .studioBox(background: bgSubtle, border: borderLine)
+                    }
+                    .buttonStyle(.plain)
+                    .explain("Load as Slot A (Master)", binding: hoverExplanation)
+                }
+                
+                if isSlotB {
+                    HStack(spacing: 2) {
+                        Text("B: COMPARE")
+                            .font(.system(size: 8, weight: .black, design: .monospaced))
+                            .padding(.horizontal, 5)
+                            .padding(.vertical, 3)
+                            .foregroundColor(accentSlotB)
+                            .studioBox(background: accentSlotB.opacity(0.18), border: accentSlotB.opacity(0.8))
+                        
+                        Button(action: { onClearSlotB() }) {
+                            Image(systemName: "xmark")
+                                .font(.system(size: 7, weight: .bold))
+                                .frame(width: 14, height: 14)
+                                .foregroundColor(textMuted)
+                        }
+                        .buttonStyle(.plain)
+                        .explain("Clear Slot B", binding: hoverExplanation)
+                    }
+                } else {
+                    Button(action: { onLoadVideo(url, .slotB) }) {
+                        Text("+B")
+                            .font(.system(size: 8, weight: .bold, design: .monospaced))
+                            .padding(.horizontal, 4)
+                            .padding(.vertical, 2)
+                            .foregroundColor(textMuted)
+                            .studioBox(background: bgSubtle, border: borderLine)
+                    }
+                    .buttonStyle(.plain)
+                    .explain("Load as Slot B (Compare / ⌥+Click)", binding: hoverExplanation)
+                }
+            }
+            .padding(.trailing, 6)
+        }
+        .frame(maxWidth: .infinity)
+        .frame(height: 42)
+        .padding(.leading, 8)
+        .studioBox(background: isSelected ? bgSubtle : Color.clear, border: isSelected ? borderLine : Color.clear)
+        .contentShape(Rectangle())
+        .explain(url.path, binding: hoverExplanation)
+        .onContinuousHover(coordinateSpace: .named("QueueContainer")) { phase in
+            switch phase {
+            case .active(let location):
+                onHoverClip(url.lastPathComponent, location)
+            case .ended:
+                onHoverClipEnded(url.lastPathComponent)
+            }
+        }
+        .help(url.lastPathComponent)
+        .contextMenu {
+            Button(action: {
+                onOpenProperties(url)
+            }) {
+                Label("Properties", systemImage: "info.circle")
+            }
+            .keyboardShortcut("p", modifiers: .command)
+            Divider()
+            Button("Copy Path") {
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString(url.path, forType: .string)
+            }
+            Button("Reveal in Finder") {
+                NSWorkspace.shared.activateFileViewerSelecting([url])
+            }
+            Divider()
+            Button("Set as Slot A (Master)") {
+                onLoadVideo(url, .slotA)
+            }
+            Button("Set as Slot B (Compare)") {
+                onLoadVideo(url, .slotB)
+            }
+            if slotBURL != nil {
+                Divider()
+                Button("Swap Slot A ⇄ B") {
+                    onSwapSlots()
+                }
+                Button("Clear Slot B (Single Mode)") {
+                    onClearSlotB()
+                }
+            }
+            Divider()
+            Menu("Tags") {
+                ForEach(FinderTagColor.allCases) { tag in
+                    Button(action: {
+                        onToggleTag(tag, url)
+                    }) {
+                        HStack {
+                            Text(tag.rawValue)
+                            if currentTag == tag {
+                                Image(systemName: "checkmark")
+                            }
+                        }
+                    }
+                }
+                Divider()
+                Button(action: {
+                    onClearTag(url)
+                }) {
+                    Text("Remove Tag")
+                }
+            }
+        }
+    }
+    
+    private func revealFolderContaining(url: URL) {
+        guard !playerCollapsedFolderIDs.isEmpty else { return }
+        let targetPath = url.standardizedFileURL.path
+        
+        var idsToExpand: Set<String> = []
+        func checkNode(_ node: FileSystemTreeNode) {
+            guard node.isDirectory else { return }
+            let dirPath = node.url.standardizedFileURL.path
+            let isAncestor = targetPath.hasPrefix(dirPath + "/") || node.videoURLs.contains(where: { $0.standardizedFileURL.path == targetPath })
+            if isAncestor {
+                idsToExpand.insert(node.id)
+                for child in node.children {
+                    checkNode(child)
+                }
+            }
+        }
+        
+        for root in playerTreeNodes {
+            checkNode(root)
+        }
+        
+        let intersection = playerCollapsedFolderIDs.intersection(idsToExpand)
+        if !intersection.isEmpty {
+            withAnimation(.easeInOut(duration: 0.2)) {
+                playerCollapsedFolderIDs.subtract(intersection)
+            }
+        }
+    }
+}
+
 extension ContentView {
     
     // MARK: ==================== TAB 1: PLAYER ====================
@@ -134,198 +824,84 @@ extension ContentView {
     
     // MARK: - Left Panel: Video Queue & Explorer
     private var playerQueuePanel: some View {
-        VStack(alignment: .leading, spacing: 18) {
-                // Asset Picker Section
-                deliveryAssetsSection(forTab: .player)
-                
-                // Search Filter
-                if !videoFiles.isEmpty {
-                    HStack(spacing: 6) {
-                        Image(systemName: "magnifyingglass")
-                            .font(.system(size: 10))
-                            .foregroundColor(textMuted)
-                        
-                        ZStack(alignment: .leading) {
-                            if playerFilterText.isEmpty {
-                                Text("FILTER ASSETS...")
-                                    .font(.system(size: 11, weight: .bold, design: .monospaced))
-                                    .foregroundColor(textMuted)
-                                    .allowsHitTesting(false)
-                            }
-                            TextField("", text: $playerFilterText)
-                                .font(.system(size: 11, weight: .medium, design: .monospaced))
-                                .textFieldStyle(.plain)
-                                .foregroundColor(textMain)
-                                .onSubmit {
-                                    NSApp.keyWindow?.makeFirstResponder(nil)
-                                }
-                        }
-                        
-                        if !playerFilterText.isEmpty {
-                            Button(action: { playerFilterText = "" }) {
-                                Image(systemName: "xmark.circle.fill")
-                                    .font(.system(size: 10))
-                                    .foregroundColor(textMuted)
-                            }
-                            .buttonStyle(.plain)
-                        }
-                    }
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 6)
-                    .studioBox(background: bgSubtle, border: borderLine)
+        PlayerQueuePanelView(
+            isLightMode: isLightMode,
+            folderURL: folderURL,
+            videoFiles: videoFiles,
+            playerTreeNodes: playerTreeNodes,
+            playerFilterText: $playerFilterText,
+            playerCollapsedFolderIDs: $playerCollapsedFolderIDs,
+            hiddenFolderIDs: hiddenFolderIDs,
+            hideAllFolders: hideAllFolders,
+            fileTagsMap: fileTagsMap,
+            isScanning: isScanning,
+            isAutoplayEnabled: playerEngine.isAutoplayEnabled,
+            slotAURL: playerEngine.slotA.url,
+            slotAResolution: playerEngine.slotA.resolution,
+            slotAFps: playerEngine.slotA.fps,
+            slotACodec: playerEngine.slotA.codec,
+            slotBURL: playerEngine.slotB.url,
+            slotBResolution: playerEngine.slotB.resolution,
+            slotBFps: playerEngine.slotB.fps,
+            slotBCodec: playerEngine.slotB.codec,
+            activeTarget: playerEngine.activeTarget,
+            queueScrollTarget: $queueScrollTarget,
+            hoveredQueueClip: hoveredQueueClip,
+            hoverExplanation: $hoverExplanation,
+            onSelectAssets: { append in
+                selectAssets(forTab: .player, append: append)
+            },
+            onToggleHideFolders: {
+                toggleHideFolders()
+            },
+            onToggleAutoplay: {
+                playerEngine.isAutoplayEnabled.toggle()
+            },
+            onToggleAllPlayerFolders: {
+                toggleAllPlayerFolders()
+            },
+            onToggleFolderCollapse: { folderID in
+                if playerCollapsedFolderIDs.contains(folderID) {
+                    playerCollapsedFolderIDs.remove(folderID)
+                } else {
+                    playerCollapsedFolderIDs.insert(folderID)
                 }
-                
-                // Asset List
-                VStack(alignment: .leading, spacing: 6) {
-                    HStack {
-                        Text("QUEUE (\(filteredPlayerFiles.count))")
-                            .font(.system(size: 10, weight: .black, design: .monospaced))
-                            .foregroundColor(textMuted)
-                        
-                        if hasPlayerSubfolders && !hideAllFolders {
-                            Button(action: toggleAllPlayerFolders) {
-                                Image(systemName: playerCollapsedFolderIDs.isEmpty ? "chevron.down.circle" : "chevron.right.circle")
-                                    .font(.system(size: 10, weight: .bold))
-                                    .foregroundColor(textMuted)
-                            }
-                            .buttonStyle(.plain)
-                            .explain(playerCollapsedFolderIDs.isEmpty ? "Collapse all folders in playback queue." : "Expand all folders in playback queue.", binding: $hoverExplanation)
-                        }
-                        
-                        Spacer()
-                        
-                        // Autoplay Toggle Button
-                        Button(action: {
-                            playerEngine.isAutoplayEnabled.toggle()
-                        }) {
-                            HStack(spacing: 3) {
-                                Image(systemName: playerEngine.isAutoplayEnabled ? "play.fill" : "play.slash.fill")
-                                    .font(.system(size: 7, weight: .bold))
-                                Text("AUTO")
-                                    .font(.system(size: 8, weight: .black, design: .monospaced))
-                            }
-                            .padding(.horizontal, 4)
-                            .frame(height: 18)
-                            .foregroundColor(playerEngine.isAutoplayEnabled ? accentPositive : textMuted)
-                            .studioBox(background: playerEngine.isAutoplayEnabled ? accentPositive.opacity(0.18) : bgSubtle,
-                                       border: playerEngine.isAutoplayEnabled ? accentPositive : borderLine)
-                        }
-                        .buttonStyle(.plain)
-                        .explain(playerEngine.isAutoplayEnabled ? "Autoplay: ON (Videos play from start when clicked or navigating with ↑/↓)" : "Autoplay: OFF (Videos load paused at frame 0)", binding: $hoverExplanation)
-                    }
-                    
-                    if videoFiles.isEmpty {
-                        VStack(spacing: 8) {
-                            Spacer()
-                            Image(systemName: "film")
-                                .font(.system(size: 24))
-                                .foregroundColor(textMuted)
-                            Text("NO VIDEO FILES LOADED")
-                                .font(.system(size: 10, weight: .bold, design: .monospaced))
-                                .foregroundColor(textMuted)
-                            Text("Select or drop a folder to populate playback queue.")
-                                .font(.system(size: 9, design: .monospaced))
-                                .foregroundColor(textSubtle)
-                                .multilineTextAlignment(.center)
-                            Spacer()
-                        }
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                        .padding(12)
-                        .studioBox(background: bgCardSubtle, border: borderLine)
-                    } else {
-                        GeometryReader { queueGeo in
-                            ZStack(alignment: .topLeading) {
-                                ScrollViewReader { scrollProxy in
-                                    ScrollView {
-                                        LazyVStack(spacing: 4) {
-                                            if hasPlayerSubfolders {
-                                                ForEach(flattenedPlayerNodes) { node in
-                                                    if node.isDirectory {
-                                                        playerFolderRow(node: node)
-                                                            .id(node.id)
-                                                    } else {
-                                                        playerFileRow(url: node.url, depth: node.depth)
-                                                            .id(node.url)
-                                                    }
-                                                }
-                                            } else {
-                                                ForEach(filteredPlayerFiles, id: \.self) { url in
-                                                    playerFileRow(url: url, depth: 0)
-                                                        .id(url)
-                                                }
-                                            }
-                                        }
-                                    }
-                                    .onChange(of: queueScrollTarget) { _, targetURL in
-                                        if let targetURL = targetURL {
-                                            withAnimation(.easeInOut(duration: 0.15)) {
-                                                scrollProxy.scrollTo(targetURL, anchor: nil)
-                                            }
-                                        }
-                                    }
-                                    .onChange(of: playerEngine.activeURL) { _, newURL in
-                                        if let newURL = newURL {
-                                            revealPlayerFolderContaining(url: newURL)
-                                        }
-                                    }
-                                    .onChange(of: playerEngine.slotB.url) { _, newURL in
-                                        if let newURL = newURL, playerEngine.activeTarget == .slotB {
-                                            revealPlayerFolderContaining(url: newURL)
-                                        }
-                                    }
-                                }
-                                .studioBox(background: bgCardSubtle, border: borderLine)
-                                .onDrop(of: [UTType.fileURL.identifier], isTargeted: nil) { providers in
-                                    handleDrop(providers: providers, forTab: .player)
-                                }
-                                
-                                // Floating Clip Name Tooltip: revealed right next to mouse cursor
-                                if let hover = hoveredQueueClip {
-                                    let tipY = hover.location.y > (queueGeo.size.height - 36) ? (hover.location.y - 28) : (hover.location.y + 14)
-                                    let tipX = min(hover.location.x + 14, max(10, queueGeo.size.width - 60))
-                                    
-                                    HStack(spacing: 6) {
-                                        Image(systemName: "film.fill")
-                                            .font(.system(size: 8.5))
-                                            .foregroundColor(accentPositive)
-                                        Text(hover.name)
-                                            .font(.system(size: 10, weight: .bold, design: .monospaced))
-                                            .foregroundColor(textMain)
-                                            .lineLimit(1)
-                                    }
-                                    .padding(.horizontal, 8)
-                                    .padding(.vertical, 5)
-                                    .background(bgPanel)
-                                    .cornerRadius(4)
-                                    .overlay(
-                                        RoundedRectangle(cornerRadius: 4)
-                                            .stroke(borderStrong, lineWidth: 1)
-                                    )
-                                    .shadow(color: Color.black.opacity(0.45), radius: 6, x: 0, y: 3)
-                                    .fixedSize()
-                                    .offset(x: tipX, y: tipY)
-                                    .transition(.opacity.combined(with: .scale(scale: 0.96)))
-                                    .allowsHitTesting(false)
-                                    .zIndex(100)
-                                }
-                            }
-                        }
-                        .coordinateSpace(name: "QueueContainer")
-                        .onHover { isHovering in
-                            if !isHovering {
-                                handleQueueHoverEnded(name: "")
-                            }
-                        }
-                    }
-                }
-                .frame(maxHeight: .infinity)
-            }
-            .padding(22)
-            .frame(minWidth: 280, idealWidth: 420, maxWidth: 1200)
-            .background(bgPanel)
-            .onDrop(of: [UTType.fileURL.identifier], isTargeted: nil) { providers in
+            },
+            onHideFolder: { folderID in
+                hideSpecificFolder(id: folderID)
+            },
+            onClearFolder: { node in
+                clearFolder(node: node)
+            },
+            onLoadVideo: { url, target in
+                playerEngine.loadVideo(url: url, into: target, autoplay: true)
+            },
+            onSwapSlots: {
+                playerEngine.swapSlots()
+            },
+            onClearSlotB: {
+                playerEngine.clearSlotB()
+            },
+            onOpenProperties: { url in
+                openProperties(for: url)
+            },
+            onToggleTag: { tag, url in
+                toggleFinderTag(tag, for: url)
+            },
+            onClearTag: { url in
+                setFinderTag(nil, for: url)
+            },
+            onDrop: { providers in
                 handleDrop(providers: providers, forTab: .player)
+            },
+            onHoverClip: { name, location in
+                handleQueueHover(name: name, location: location)
+            },
+            onHoverClipEnded: { name in
+                handleQueueHoverEnded(name: name)
             }
+        )
+        .equatable()
     }
     
     // MARK: - Right Panel: Program Monitor & Timeline
@@ -454,257 +1030,6 @@ extension ContentView {
                 }
             )
             .transition(.move(edge: .trailing).combined(with: .opacity))
-    }
-    
-    // MARK: - Folder & File Rows
-    
-    private func playerFolderRow(node: FileSystemTreeNode) -> some View {
-        let isCollapsed = playerCollapsedFolderIDs.contains(node.id)
-        
-        return HStack(spacing: 6) {
-            Image(systemName: isCollapsed ? "chevron.right" : "chevron.down")
-                .font(.system(size: 9, weight: .bold))
-                .foregroundColor(textMuted)
-                .frame(width: 12)
-            
-            Image(systemName: "folder.fill")
-                .font(.system(size: 11))
-                .foregroundColor(textSubtle)
-            
-            Text(node.name.uppercased())
-                .font(.system(size: 10, weight: .bold, design: .monospaced))
-                .foregroundColor(textMain)
-                .lineLimit(1)
-            
-            Spacer()
-            
-            Text("\(node.videoCount)")
-                .font(.system(size: 8, weight: .black, design: .monospaced))
-                .foregroundColor(textSubtle)
-                .padding(.horizontal, 5)
-                .padding(.vertical, 1)
-                .background(RoundedRectangle(cornerRadius: 3).fill(bgSubtle))
-        }
-        .padding(.leading, CGFloat(node.depth * 14) + 6)
-        .padding(.trailing, 8)
-        .padding(.vertical, 5)
-        .contentShape(Rectangle())
-        .onTapGesture {
-            if isCollapsed {
-                playerCollapsedFolderIDs.remove(node.id)
-            } else {
-                playerCollapsedFolderIDs.insert(node.id)
-            }
-        }
-        .explain(node.url.path, binding: $hoverExplanation)
-        .help(node.name)
-        .contextMenu {
-            Button("Hide Folder") {
-                hideSpecificFolder(id: node.id)
-            }
-            Button("Clear Folder") {
-                clearFolder(node: node)
-            }
-            Divider()
-            Button("Copy Path") {
-                NSPasteboard.general.clearContents()
-                NSPasteboard.general.setString(node.url.path, forType: .string)
-            }
-            Button("Reveal in Finder") {
-                NSWorkspace.shared.activateFileViewerSelecting([node.url])
-            }
-        }
-    }
-    
-    private func playerFileRow(url: URL, depth: Int = 0) -> some View {
-        let isSlotA = playerEngine.slotA.url == url
-        let isSlotB = playerEngine.slotB.url == url
-        let isSelected = isSlotA || isSlotB
-        let currentTag = fileTagsMap[url]
-        
-        return HStack(spacing: 6) {
-            // Row Click to Load
-            Button(action: {
-                if NSEvent.modifierFlags.contains(.option) {
-                    playerEngine.loadVideo(url: url, into: .slotB, autoplay: true)
-                } else {
-                    playerEngine.loadVideo(url: url, into: .slotA, autoplay: true)
-                }
-            }) {
-                HStack(spacing: 8) {
-                    Rectangle()
-                        .fill(isSlotA ? accentPositive : (isSlotB ? accentSlotB : Color.clear))
-                        .frame(width: 3)
-                    
-                    if depth > 0 {
-                        Spacer().frame(width: CGFloat(depth * 14))
-                    }
-                    
-                    Image(systemName: isSlotA ? "a.circle.fill" : (isSlotB ? "b.circle.fill" : "play.circle.fill"))
-                        .font(.system(size: 13))
-                        .foregroundColor(isSlotA ? accentPositive : (isSlotB ? accentSlotB : textMuted))
-                    
-                    VStack(alignment: .leading, spacing: 2) {
-                        HStack(spacing: 6) {
-                            if let tag = currentTag {
-                                Circle()
-                                    .fill(tag.color)
-                                    .frame(width: 7, height: 7)
-                            }
-                            Text(url.lastPathComponent)
-                                .font(.system(size: 11, weight: .bold, design: .monospaced))
-                                .foregroundColor(isSelected ? textMain : textSubtle)
-                                .lineLimit(1)
-                        }
-                        
-                        // Metadata line
-                        if isSlotA && !playerEngine.slotA.resolution.isEmpty {
-                            Text("\(playerEngine.slotA.resolution) • \(String(format: "%.1f", playerEngine.slotA.fps))fps • \(playerEngine.slotA.codec)")
-                                .font(.system(size: 8, weight: .bold, design: .monospaced))
-                                .foregroundColor(accentPositive)
-                                .lineLimit(1)
-                        } else if isSlotB && !playerEngine.slotB.resolution.isEmpty {
-                            Text("\(playerEngine.slotB.resolution) • \(String(format: "%.1f", playerEngine.slotB.fps))fps • \(playerEngine.slotB.codec)")
-                                .font(.system(size: 8, weight: .bold, design: .monospaced))
-                                .foregroundColor(accentSlotB)
-                                .lineLimit(1)
-                        } else {
-                            Text(" ")
-                                .font(.system(size: 8, weight: .bold, design: .monospaced))
-                                .foregroundColor(.clear)
-                                .lineLimit(1)
-                        }
-                    }
-                    
-                    Spacer()
-                }
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            
-            // Slot badges & Quick assignment buttons
-            HStack(spacing: 4) {
-                if isSlotA {
-                    Text("A: MASTER")
-                        .font(.system(size: 8, weight: .black, design: .monospaced))
-                        .padding(.horizontal, 5)
-                        .padding(.vertical, 3)
-                        .foregroundColor(accentPositive)
-                        .studioBox(background: accentPositive.opacity(0.18), border: accentPositive.opacity(0.8))
-                } else {
-                    Button(action: { playerEngine.loadVideo(url: url, into: .slotA, autoplay: true) }) {
-                        Text("+A")
-                            .font(.system(size: 8, weight: .bold, design: .monospaced))
-                            .padding(.horizontal, 4)
-                            .padding(.vertical, 2)
-                            .foregroundColor(textMuted)
-                            .studioBox(background: bgSubtle, border: borderLine)
-                    }
-                    .buttonStyle(.plain)
-                    .explain("Load as Slot A (Master)", binding: $hoverExplanation)
-                }
-                
-                if isSlotB {
-                    HStack(spacing: 2) {
-                        Text("B: COMPARE")
-                            .font(.system(size: 8, weight: .black, design: .monospaced))
-                            .padding(.horizontal, 5)
-                            .padding(.vertical, 3)
-                            .foregroundColor(accentSlotB)
-                            .studioBox(background: accentSlotB.opacity(0.18), border: accentSlotB.opacity(0.8))
-                        
-                        Button(action: { playerEngine.clearSlotB() }) {
-                            Image(systemName: "xmark")
-                                .font(.system(size: 7, weight: .bold))
-                                .frame(width: 14, height: 14)
-                                .foregroundColor(textMuted)
-                        }
-                        .buttonStyle(.plain)
-                        .explain("Clear Slot B", binding: $hoverExplanation)
-                    }
-                } else {
-                    Button(action: { playerEngine.loadVideo(url: url, into: .slotB, autoplay: true) }) {
-                        Text("+B")
-                            .font(.system(size: 8, weight: .bold, design: .monospaced))
-                            .padding(.horizontal, 4)
-                            .padding(.vertical, 2)
-                            .foregroundColor(textMuted)
-                            .studioBox(background: bgSubtle, border: borderLine)
-                    }
-                    .buttonStyle(.plain)
-                    .explain("Load as Slot B (Compare / ⌥+Click)", binding: $hoverExplanation)
-                }
-            }
-            .padding(.trailing, 6)
-        }
-        .frame(maxWidth: .infinity)
-        .frame(height: 42)
-        .padding(.leading, 8)
-        .studioBox(background: isSelected ? bgSubtle : Color.clear, border: isSelected ? borderLine : Color.clear)
-        .contentShape(Rectangle())
-        .explain(url.path, binding: $hoverExplanation)
-        .onContinuousHover(coordinateSpace: .named("QueueContainer")) { phase in
-            switch phase {
-            case .active(let location):
-                handleQueueHover(name: url.lastPathComponent, location: location)
-            case .ended:
-                handleQueueHoverEnded(name: url.lastPathComponent)
-            }
-        }
-        .help(url.lastPathComponent)
-        .contextMenu {
-            Button(action: {
-                openProperties(for: url)
-            }) {
-                Label("Properties", systemImage: "info.circle")
-            }
-            .keyboardShortcut("p", modifiers: .command)
-            Divider()
-            Button("Copy Path") {
-                NSPasteboard.general.clearContents()
-                NSPasteboard.general.setString(url.path, forType: .string)
-            }
-            Button("Reveal in Finder") {
-                NSWorkspace.shared.activateFileViewerSelecting([url])
-            }
-            Divider()
-            Button("Set as Slot A (Master)") {
-                playerEngine.loadVideo(url: url, into: .slotA, autoplay: true)
-            }
-            Button("Set as Slot B (Compare)") {
-                playerEngine.loadVideo(url: url, into: .slotB, autoplay: true)
-            }
-            if playerEngine.slotB.url != nil {
-                Divider()
-                Button("Swap Slot A ⇄ B") {
-                    playerEngine.swapSlots()
-                }
-                Button("Clear Slot B (Single Mode)") {
-                    playerEngine.clearSlotB()
-                }
-            }
-            Divider()
-            Menu("Tags") {
-                ForEach(FinderTagColor.allCases) { tag in
-                    Button(action: {
-                        toggleFinderTag(tag, for: url)
-                    }) {
-                        HStack {
-                            Text(tag.rawValue)
-                            if currentTag == tag {
-                                Image(systemName: "checkmark")
-                            }
-                        }
-                    }
-                }
-                Divider()
-                Button(action: {
-                    setFinderTag(nil, for: url)
-                }) {
-                    Text("Remove Tag")
-                }
-            }
-        }
     }
     
     // MARK: - Monitor Header
@@ -1160,11 +1485,6 @@ extension ContentView {
                 .frame(width: 210)
         }
         .frame(height: 28)
-    }
-    
-    
-    var playerTreeNodes: [FileSystemTreeNode] {
-        FileSystemTreeBuilder.buildTree(rootURL: folderURL, files: videoFiles)
     }
     
     var hasPlayerSubfolders: Bool {
