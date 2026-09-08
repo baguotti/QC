@@ -70,7 +70,7 @@ struct NotesDrawerPanelView: View {
                         .font(.system(size: 11, weight: .bold, design: .monospaced))
                         .foregroundColor(palette.textMain)
                     Text("Pause on any frame and press M to log a timecoded note for your team.")
-                        .font(.system(size: 9.5, design: .monospaced))
+                        .font(.system(size: 10, design: .monospaced))
                         .foregroundColor(palette.textSubtle)
                         .multilineTextAlignment(.center)
                         .padding(.horizontal, 20)
@@ -129,7 +129,7 @@ struct NotesDrawerPanelView: View {
                         Image(systemName: "square.and.arrow.up")
                             .font(.system(size: 9, weight: .bold))
                         Text("EXPORT")
-                            .font(.system(size: 9.5, weight: .bold, design: .monospaced))
+                            .font(.system(size: 9, weight: .bold, design: .monospaced))
                         Image(systemName: "chevron.down")
                             .font(.system(size: 7, weight: .bold))
                     }
@@ -145,7 +145,7 @@ struct NotesDrawerPanelView: View {
                 Spacer()
                 
                 Text("\(notes.filter { $0.isResolved }.count)/\(notes.count) RESOLVED")
-                    .font(.system(size: 8.5, weight: .bold, design: .monospaced))
+                    .font(.system(size: 9, weight: .bold, design: .monospaced))
                     .foregroundColor(palette.textSubtle)
             }
             .padding(.horizontal, 14)
@@ -167,7 +167,7 @@ struct NotesDrawerPanelView: View {
                         Image(systemName: "play.fill")
                             .font(.system(size: 6))
                         Text(note.timecode)
-                            .font(.system(size: 9.5, weight: .black, design: .monospaced))
+                            .font(.system(size: 9, weight: .bold, design: .monospaced))
                     }
                     .padding(.horizontal, 6)
                     .padding(.vertical, 3)
@@ -179,7 +179,7 @@ struct NotesDrawerPanelView: View {
                 
                 // Author
                 Text(note.author)
-                    .font(.system(size: 9.5, weight: .bold, design: .monospaced))
+                    .font(.system(size: 9, weight: .bold, design: .monospaced))
                     .foregroundColor(palette.textMain)
                     .lineLimit(1)
                 

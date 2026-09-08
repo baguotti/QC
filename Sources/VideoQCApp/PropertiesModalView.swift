@@ -396,7 +396,7 @@ public struct PropertiesModalView: View {
                     .help("Close (ESC)")
                     
                     Text("MEDIA INFO")
-                        .font(.system(size: 11, weight: .black, design: .monospaced))
+                        .font(.system(size: 11, weight: .bold, design: .monospaced))
                         .foregroundColor(palette.textMain)
                         .tracking(0.8)
                     
@@ -511,13 +511,13 @@ public struct PropertiesModalView: View {
                     }
                 }) {
                     Text(tab.rawValue)
-                        .font(.system(size: 10.5, weight: selectedTab == tab ? .bold : .medium, design: .monospaced))
+                        .font(.system(size: 10, weight: selectedTab == tab ? .bold : .medium, design: .monospaced))
                         .padding(.horizontal, 12)
                         .padding(.vertical, 4)
-                        .foregroundColor(selectedTab == tab ? Color.white : palette.textMuted)
+                        .foregroundColor(selectedTab == tab ? (isLightMode ? Color.black : Color.white) : palette.textMuted)
                         .background(
                             selectedTab == tab
-                                ? RoundedRectangle(cornerRadius: 10).fill(Color.white.opacity(isLightMode ? 0.25 : 0.20))
+                                ? RoundedRectangle(cornerRadius: 10).fill(isLightMode ? Color.white : Color.white.opacity(0.20))
                                 : RoundedRectangle(cornerRadius: 10).fill(Color.clear)
                         )
                 }
@@ -543,7 +543,7 @@ public struct PropertiesModalView: View {
             // VIDEO SECTION
             VStack(alignment: .leading, spacing: 8) {
                 Text("VIDEO")
-                    .font(.system(size: 11, weight: .black, design: .monospaced))
+                    .font(.system(size: 11, weight: .bold, design: .monospaced))
                     .foregroundColor(palette.textMain)
                     .tracking(1.0)
                 
@@ -566,7 +566,7 @@ public struct PropertiesModalView: View {
             // AUDIO SECTION
             VStack(alignment: .leading, spacing: 8) {
                 Text("AUDIO")
-                    .font(.system(size: 11, weight: .black, design: .monospaced))
+                    .font(.system(size: 11, weight: .bold, design: .monospaced))
                     .foregroundColor(palette.textMain)
                     .tracking(1.0)
                 
@@ -595,7 +595,7 @@ public struct PropertiesModalView: View {
     private func tracksTabView(asset: DeliverableAsset, info: ExtendedMediaInfo) -> some View {
         VStack(alignment: .leading, spacing: 16) {
             Text("CONTAINER TRACK INVENTORY (\(info.tracks.count) TRACKS)")
-                .font(.system(size: 11, weight: .black, design: .monospaced))
+                .font(.system(size: 11, weight: .bold, design: .monospaced))
                 .foregroundColor(palette.textMain)
                 .tracking(1.0)
             
@@ -603,7 +603,7 @@ public struct PropertiesModalView: View {
                 VStack(alignment: .leading, spacing: 6) {
                     HStack {
                         Text(track.typeName)
-                            .font(.system(size: 10, weight: .black, design: .monospaced))
+                            .font(.system(size: 10, weight: .bold, design: .monospaced))
                             .foregroundColor(track.typeName.contains("VIDEO") ? palette.accentPositive : (track.typeName.contains("AUDIO") ? palette.accentSlotB : palette.textMain))
                         
                         Spacer()
@@ -638,7 +638,7 @@ public struct PropertiesModalView: View {
         VStack(alignment: .leading, spacing: 18) {
             VStack(alignment: .leading, spacing: 8) {
                 Text("FILE SYSTEM SPECIFICATIONS")
-                    .font(.system(size: 11, weight: .black, design: .monospaced))
+                    .font(.system(size: 11, weight: .bold, design: .monospaced))
                     .foregroundColor(palette.textMain)
                     .tracking(1.0)
                 
@@ -656,7 +656,7 @@ public struct PropertiesModalView: View {
             
             VStack(alignment: .leading, spacing: 8) {
                 Text("TIMING & RASTER")
-                    .font(.system(size: 11, weight: .black, design: .monospaced))
+                    .font(.system(size: 11, weight: .bold, design: .monospaced))
                     .foregroundColor(palette.textMain)
                     .tracking(1.0)
                 
@@ -707,12 +707,12 @@ public struct PropertiesModalView: View {
     private func infoRow(label: String, value: String, copyable: Bool = false) -> some View {
         HStack(alignment: .top, spacing: 12) {
             Text(label)
-                .font(.system(size: 10.5, weight: .bold, design: .monospaced))
+                .font(.system(size: 11, weight: .bold, design: .monospaced))
                 .foregroundColor(palette.textMuted)
                 .frame(width: 118, alignment: .leading)
             
             Text(value)
-                .font(.system(size: 10.5, weight: .medium, design: .monospaced))
+                .font(.system(size: 11, weight: .medium, design: .monospaced))
                 .foregroundColor(palette.textMain)
                 .lineLimit(label == "File Path:" ? 3 : 2)
                 .truncationMode(label == "File Path:" ? .middle : .tail)
@@ -725,7 +725,7 @@ public struct PropertiesModalView: View {
                     copyToClipboard(value)
                 }) {
                     Image(systemName: "doc.on.doc")
-                        .font(.system(size: 8.5, weight: .bold))
+                        .font(.system(size: 9, weight: .bold))
                         .foregroundColor(palette.textSubtle)
                 }
                 .buttonStyle(.plain)
@@ -749,7 +749,7 @@ public struct PropertiesModalView: View {
                         Image(systemName: "doc.on.doc")
                             .font(.system(size: 9, weight: .bold))
                         Text("COPY SPECS")
-                            .font(.system(size: 9.5, weight: .black, design: .monospaced))
+                            .font(.system(size: 9, weight: .bold, design: .monospaced))
                     }
                     .padding(.horizontal, 9)
                     .padding(.vertical, 6)
@@ -767,7 +767,7 @@ public struct PropertiesModalView: View {
                         Image(systemName: "folder")
                             .font(.system(size: 9, weight: .bold))
                         Text("REVEAL")
-                            .font(.system(size: 9.5, weight: .bold, design: .monospaced))
+                            .font(.system(size: 9, weight: .bold, design: .monospaced))
                     }
                     .padding(.horizontal, 8)
                     .padding(.vertical, 6)
@@ -784,7 +784,7 @@ public struct PropertiesModalView: View {
                 }) {
                     HStack(spacing: 3) {
                         Text("+A")
-                            .font(.system(size: 8.5, weight: .black, design: .monospaced))
+                            .font(.system(size: 9, weight: .bold, design: .monospaced))
                         Text("MASTER")
                             .font(.system(size: 9, weight: .bold, design: .monospaced))
                     }
@@ -801,7 +801,7 @@ public struct PropertiesModalView: View {
                 }) {
                     HStack(spacing: 3) {
                         Text("+B")
-                            .font(.system(size: 8.5, weight: .black, design: .monospaced))
+                            .font(.system(size: 9, weight: .bold, design: .monospaced))
                         Text("COMPARE")
                             .font(.system(size: 9, weight: .bold, design: .monospaced))
                     }

@@ -1,14 +1,15 @@
 #!/usr/bin/env bash
 set -e
 
-# Navigate to the directory where this script is located
-cd "$(dirname "$0")"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+cd "$PROJECT_ROOT"
 
 echo "=========================================="
 echo " Building QCpie..."
 echo "=========================================="
 
-./BuildApp.sh
+"${SCRIPT_DIR}/BuildApp.sh"
 
 echo ""
 echo "=========================================="

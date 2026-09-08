@@ -1,8 +1,12 @@
 #!/bin/bash
 set -e
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+cd "$PROJECT_ROOT"
+
 APP_NAME="QCpie"
-BUILD_DIR="$(pwd)/build"
+BUILD_DIR="${PROJECT_ROOT}/build"
 APP_BUNDLE="${BUILD_DIR}/${APP_NAME}.app"
 DMG_STAGING="${BUILD_DIR}/dmg_staging"
 DMG_OUTPUT="${BUILD_DIR}/QCpie.dmg"
@@ -12,7 +16,7 @@ echo "💿 Creating Standalone DMG Installer for ${APP_NAME}..."
 # 1. Ensure latest build exists
 if [ ! -d "${APP_BUNDLE}" ]; then
     echo "🔨 App bundle not found. Building release bundle first..."
-    ./BuildApp.sh
+    "${SCRIPT_DIR}/BuildApp.sh"
 fi
 
 # 2. Prepare staging directory

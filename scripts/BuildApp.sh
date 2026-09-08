@@ -1,18 +1,22 @@
 #!/bin/bash
 set -e
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+cd "$PROJECT_ROOT"
+
 echo "🔨 Building QCpie for Apple Silicon (Release mode)..."
 
 BIN_NAME="QCpie"
 APP_NAME="QCpie"
-BUILD_DIR="$(pwd)/build"
+BUILD_DIR="${PROJECT_ROOT}/build"
 APP_BUNDLE="${BUILD_DIR}/${APP_NAME}.app"
 CONTENTS="${APP_BUNDLE}/Contents"
 MACOS="${CONTENTS}/MacOS"
 RESOURCES="${CONTENTS}/Resources"
 
 # Version & Metadata
-APP_VERSION="0.4.6"
+APP_VERSION="0.5.0"
 GIT_COMMIT_COUNT=$(git rev-list --count HEAD 2>/dev/null || echo "1")
 
 echo "📌 Version: v${APP_VERSION} (Build: ${GIT_COMMIT_COUNT})"
@@ -54,6 +58,11 @@ if [ -f "Resources/TikTokSafeAreaTemplateBlack.png" ]; then
     cp "Resources/TikTokSafeAreaTemplateBlack.png" "${RESOURCES}/TikTokSafeAreaTemplateBlack.png"
 fi
 
+if [ -f "Resources/Click.aac" ]; then
+    echo "🔊 Bundling Click.aac..."
+    cp "Resources/Click.aac" "${RESOURCES}/Click.aac"
+fi
+
 # 5. Create Info.plist
 cat << EOF > "${CONTENTS}/Info.plist"
 <?xml version="1.0" encoding="UTF-8"?>
@@ -88,10 +97,10 @@ cat << EOF > "${CONTENTS}/Info.plist"
 </plist>
 EOF
 
-# 5. Create PkgInfo
+# 6. Create PkgInfo
 echo -n "APPL????" > "${CONTENTS}/PkgInfo"
 
-# 6. Ad-Hoc Code Signing
+# 7. Ad-Hoc Code Signing
 echo "🔐 Ad-hoc code signing app bundle..."
 codesign --force --deep --sign - "${APP_BUNDLE}"
 

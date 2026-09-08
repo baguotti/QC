@@ -208,11 +208,11 @@ extension ContentView {
             } else {
                 let isReady = !videoFiles.isEmpty && RGBColor(hex: hexCode) != nil
                 Button(action: startScan) {
-                    Text("[ START LINE QC AUDIT ]")
-                        .font(.system(size: 12, weight: .black, design: .monospaced))
-                        .tracking((isAuditBtnHovered && isReady) ? 1.0 : 0.6)
+                    Text("START LINE QC AUDIT")
+                        .font(.system(size: 11, weight: .bold, design: .monospaced))
+                        .tracking((isAuditBtnHovered && isReady) ? 0.8 : 0.5)
                         .frame(maxWidth: .infinity)
-                        .padding(.vertical, 12)
+                        .padding(.vertical, 10)
                         .foregroundColor(videoFiles.isEmpty ? textMuted : primaryBtnFg)
                         .studioBox(
                             background: videoFiles.isEmpty ? bgSubtle : (
@@ -236,14 +236,15 @@ extension ContentView {
         VStack(alignment: .leading, spacing: 24) {
             HStack {
                 Text("SCANNING IN PROGRESS")
-                    .font(.system(size: 28, weight: .black, design: .default))
+                    .font(.system(size: 28, weight: .heavy, design: .default))
                     .foregroundColor(textMain)
                     .tracking(1.0)
                 Spacer()
-                Text("[PROCESSING]")
-                    .font(.system(size: 11, weight: .bold, design: .monospaced))
+                Text("PROCESSING")
+                    .font(.system(size: 10, weight: .bold, design: .monospaced))
                     .foregroundColor(textMain)
-                    .padding(6)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
                     .studioBox(background: bgSubtle, border: borderLine)
             }
             
@@ -378,14 +379,16 @@ extension ContentView {
                                 
                                 Rectangle().fill(borderLine).frame(height: 1)
                                 
+                                
                                 HStack(spacing: 8) {
                                     Text("#").frame(width: 25, alignment: .leading)
-                                    Text("LOCATION").frame(width: 155, alignment: .leading)
+                                    Text("FRAME").frame(width: 76, alignment: .leading)
+                                    Text("LOCATION").frame(width: 140, alignment: .leading)
                                     Text("TIMECODE RANGE").frame(width: 155, alignment: .leading)
-                                    Text("DURATION").frame(width: 135, alignment: .leading)
+                                    Text("DURATION").frame(width: 130, alignment: .leading)
                                     Text("FRAMES").frame(width: 75, alignment: .leading)
                                     Spacer()
-                                    Text("COLOR").frame(width: 80, alignment: .trailing)
+                                    Text("COLOR").frame(width: 75, alignment: .trailing)
                                     Text("PLAYER").frame(width: 75, alignment: .trailing)
                                 }
                                 .font(.system(size: 9, weight: .bold, design: .monospaced))
@@ -397,65 +400,7 @@ extension ContentView {
                                 Rectangle().fill(borderLine).frame(height: 1)
                                 
                                 ForEach(Array(segments.enumerated()), id: \.offset) { idx, seg in
-                                    Button(action: {
-                                        jumpToGlitchInPlayer(fileURL: result.fileURL, frameIndex: seg.startFrame)
-                                    }) {
-                                        HStack(spacing: 8) {
-                                            Text(String(format: "%02d", idx + 1))
-                                                .frame(width: 25, alignment: .leading)
-                                                .foregroundColor(textMuted)
-                                            
-                                            Text("\(seg.edge.rawValue.uppercased()) (\(seg.avgThickness)PX)")
-                                                .frame(width: 155, alignment: .leading)
-                                                .fontWeight(.bold)
-                                                .foregroundColor(textMain)
-                                            
-                                            Text(seg.startTimecode == seg.endTimecode ? seg.startTimecode : "\(seg.startTimecode) -> \(seg.endTimecode)")
-                                                .frame(width: 155, alignment: .leading)
-                                                .fontWeight(.heavy)
-                                                .foregroundColor(textMain)
-                                            
-                                            Text(seg.frameCount == 1 ? "1 FRAME (0.04S)" : "\(seg.frameCount) FRAMES (\(String(format: "%.2f", seg.durationSeconds))S)")
-                                                .frame(width: 135, alignment: .leading)
-                                                .foregroundColor(textSubtle)
-                                            
-                                            Text("[\(seg.startFrame == seg.endFrame ? "\(seg.startFrame)" : "\(seg.startFrame)-\(seg.endFrame)")]")
-                                                .frame(width: 75, alignment: .leading)
-                                                .foregroundColor(textMuted)
-                                            
-                                            Spacer()
-                                            
-                                            HStack(spacing: 5) {
-                                                Rectangle()
-                                                    .fill(Color(red: Double(seg.detectedColor.r)/255, green: Double(seg.detectedColor.g)/255, blue: Double(seg.detectedColor.b)/255))
-                                                    .frame(width: 10, height: 10)
-                                                    .border(borderStrong, width: 1)
-                                                Text(seg.detectedColor.hexString.uppercased())
-                                                    .font(.system(size: 10, weight: .bold, design: .monospaced))
-                                                    .foregroundColor(textMain)
-                                            }
-                                            .frame(width: 80, alignment: .trailing)
-                                            
-                                            // Jump to Player Inspect Action Button
-                                            HStack(spacing: 4) {
-                                                Image(systemName: "play.circle.fill")
-                                                    .font(.system(size: 10, weight: .bold))
-                                                Text("INSPECT")
-                                                    .font(.system(size: 9, weight: .bold, design: .monospaced))
-                                            }
-                                            .padding(.horizontal, 7)
-                                            .padding(.vertical, 3)
-                                            .foregroundColor(primaryBtnFg)
-                                            .studioBox(background: primaryBtnBg, border: primaryBtnBg)
-                                            .frame(width: 75, alignment: .trailing)
-                                        }
-                                        .font(.system(size: 11, design: .monospaced))
-                                        .padding(.horizontal, 14)
-                                        .padding(.vertical, 8)
-                                        .contentShape(Rectangle())
-                                    }
-                                    .buttonStyle(.plain)
-                                    .explain("Click to jump immediately to \(seg.startTimecode) in the Player tab to inspect this glitch frame.", binding: $hoverExplanation)
+                                    glitchTableRow(result: result, seg: seg, idx: idx)
                                     
                                     if idx < segments.count - 1 {
                                         Rectangle().fill(borderLine.opacity(0.6)).frame(height: 1)
@@ -473,6 +418,82 @@ extension ContentView {
             }
         }
         .padding(28)
+    }
+    
+    
+    @ViewBuilder
+    private func glitchTableRow(result: VideoQCResult, seg: GlitchSegment, idx: Int) -> some View {
+        Button(action: {
+            jumpToGlitchInPlayer(fileURL: result.fileURL, frameIndex: seg.startFrame)
+        }) {
+            HStack(spacing: 8) {
+                Text(String(format: "%02d", idx + 1))
+                    .frame(width: 25, alignment: .leading)
+                    .foregroundColor(textMuted)
+                
+                GlitchThumbnailView(
+                    fileURL: result.fileURL,
+                    frameIndex: seg.startFrame,
+                    fps: result.fps,
+                    timecode: seg.startTimecode,
+                    edge: seg.edge,
+                    detectedColor: seg.detectedColor,
+                    width: 72,
+                    height: 40
+                )
+                .frame(width: 76, alignment: .leading)
+                
+                Text("\(seg.edge.rawValue.uppercased()) (\(seg.avgThickness)PX)")
+                    .frame(width: 140, alignment: .leading)
+                    .fontWeight(.bold)
+                    .foregroundColor(textMain)
+                
+                Text(seg.startTimecode == seg.endTimecode ? seg.startTimecode : "\(seg.startTimecode) -> \(seg.endTimecode)")
+                    .frame(width: 155, alignment: .leading)
+                    .fontWeight(.heavy)
+                    .foregroundColor(textMain)
+                
+                Text(seg.frameCount == 1 ? "1 FRAME (0.04S)" : "\(seg.frameCount) FRAMES (\(String(format: "%.2f", seg.durationSeconds))S)")
+                    .frame(width: 130, alignment: .leading)
+                    .foregroundColor(textSubtle)
+                
+                Text("[\(seg.startFrame == seg.endFrame ? "\(seg.startFrame)" : "\(seg.startFrame)-\(seg.endFrame)")]")
+                    .frame(width: 75, alignment: .leading)
+                    .foregroundColor(textMuted)
+                
+                Spacer()
+                
+                HStack(spacing: 5) {
+                    Rectangle()
+                        .fill(Color(red: Double(seg.detectedColor.r)/255, green: Double(seg.detectedColor.g)/255, blue: Double(seg.detectedColor.b)/255))
+                        .frame(width: 10, height: 10)
+                        .border(borderStrong, width: 1)
+                    Text(seg.detectedColor.hexString.uppercased())
+                        .font(.system(size: 10, weight: .bold, design: .monospaced))
+                        .foregroundColor(textMain)
+                }
+                .frame(width: 75, alignment: .trailing)
+                
+                // Jump to Player Inspect Action Button
+                HStack(spacing: 4) {
+                    Image(systemName: "play.fill")
+                        .font(.system(size: 8, weight: .bold))
+                    Text("INSPECT")
+                        .font(.system(size: 9, weight: .bold, design: .monospaced))
+                }
+                .padding(.horizontal, 7)
+                .padding(.vertical, 3)
+                .foregroundColor(primaryBtnFg)
+                .studioBox(background: primaryBtnBg, border: primaryBtnBg)
+                .frame(width: 75, alignment: .trailing)
+            }
+            .font(.system(size: 11, design: .monospaced))
+            .padding(.horizontal, 14)
+            .padding(.vertical, 8)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .explain("Click to jump immediately to \(seg.startTimecode) in the Player tab to inspect this glitch frame.", binding: $hoverExplanation)
     }
     
     private func flaggedResultHeader(result: VideoQCResult, segmentsCount: Int) -> some View {

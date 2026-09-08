@@ -66,23 +66,23 @@ public struct RulerTicksCanvasView: View, Equatable {
                 let tc = TimecodeFormatter.format(frameIndex: frame, fps: fps)
                 
                 let text = Text(tc)
-                    .font(.system(size: 7.5, weight: .semibold, design: .monospaced))
+                    .font(.system(size: 8, weight: .semibold, design: .monospaced))
                     .foregroundColor(textColor)
                 
                 let anchor: UnitPoint
                 if x < 40 {
-                    anchor = .leading
+                    anchor = .topLeading
                 } else if x > width - 40 {
-                    anchor = .trailing
+                    anchor = .topTrailing
                 } else {
-                    anchor = .center
+                    anchor = .top
                 }
                 
-                context.draw(text, at: CGPoint(x: x, y: 4), anchor: anchor)
+                context.draw(text, at: CGPoint(x: x, y: 6), anchor: anchor)
                 labelSec += intervalSecs
             }
         }
-        .frame(width: width, height: 18)
+        .frame(width: width, height: 22)
     }
 }
 
@@ -179,9 +179,9 @@ public struct TimelineScrubberView: View {
                 Rectangle()
                     .fill(rulerDivider)
                     .frame(height: 0.75)
-                    .offset(y: 19)
+                    .offset(y: 22)
                 
-                // MARK: - Time Ruler (Top 19px)
+                // MARK: - Time Ruler (Top 22px)
                 ZStack(alignment: .topLeading) {
                     RulerTicksCanvasView(
                         duration: durSecs,
@@ -202,7 +202,7 @@ public struct TimelineScrubberView: View {
                                 .fill(Color(red: 0.85, green: 0.38, blue: 0.38))
                                 .frame(width: 3.5, height: 3.5)
                                 .shadow(color: Color.red.opacity(0.35), radius: 1)
-                                .position(x: markerX, y: 17)
+                                .position(x: markerX, y: 20)
                         }
                     }
                     
@@ -216,11 +216,11 @@ public struct TimelineScrubberView: View {
                                 .fill(QCNoteTheme.color(for: note.colorTag))
                                 .frame(width: 4.5, height: 4.5)
                                 .shadow(color: QCNoteTheme.color(for: note.colorTag).opacity(0.35), radius: 1)
-                                .position(x: noteX, y: 17)
+                                .position(x: noteX, y: 20)
                         }
                     }
                 }
-                .frame(height: 19)
+                .frame(height: 22)
                 
                 // MARK: - Modern Floating Scrubber Track (Bottom, Height: 12px, centered in 26px area)
                 ZStack(alignment: .leading) {
@@ -275,7 +275,7 @@ public struct TimelineScrubberView: View {
                     }
                 }
                 .frame(width: trackWidth, height: 12)
-                .offset(x: trackInset, y: 26)
+                .offset(x: trackInset, y: 30)
                 
                 // MARK: - Hover Ghost Needle
                 if let hX = hoverX, isHovering && !isDragging && durSecs > 0 {
@@ -284,7 +284,7 @@ public struct TimelineScrubberView: View {
                     // Subtle Ghost Needle (hairline guide)
                     Rectangle()
                         .fill(Color.white.opacity(0.18))
-                        .frame(width: 1, height: 36)
+                        .frame(width: 1, height: 42)
                         .offset(x: clampedHX - 0.5, y: 5)
                         .allowsHitTesting(false)
                 }
@@ -293,7 +293,7 @@ public struct TimelineScrubberView: View {
                 // 1. Full-Height Precision Needle (Clean, no glow)
                 Capsule()
                     .fill(playheadAccent)
-                    .frame(width: isDragging ? 2.0 : 1.5, height: 38)
+                    .frame(width: isDragging ? 2.0 : 1.5, height: 44)
                     .offset(x: playheadX - (isDragging ? 1.0 : 0.75), y: 4)
                     .allowsHitTesting(false)
                 

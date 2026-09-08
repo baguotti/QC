@@ -1,4 +1,5 @@
 import SwiftUI
+import VideoQCLib
 
 // MARK: - Application Navigation Tabs
 
@@ -96,6 +97,34 @@ struct StudioTheme {
     static func primaryBtnFg(_ isLight: Bool) -> Color {
         isLight ? Color.white : Color.black
     }
+}
+
+// MARK: - Standardized Studio Typography Tokens
+
+public struct StudioFont {
+    /// Micro status tags, sub-second pips, key badges (8pt)
+    public static let micro = Font.system(size: 8, weight: .bold, design: .monospaced)
+    
+    /// Section eyebrows, tooltips, and secondary metadata (9pt)
+    public static let caption = Font.system(size: 9, weight: .bold, design: .monospaced)
+    
+    /// Standard controls, buttons, table cells, inspector rows (10pt)
+    public static let body = Font.system(size: 10, weight: .bold, design: .monospaced)
+    public static let bodyMedium = Font.system(size: 10, weight: .medium, design: .monospaced)
+    public static let bodyRegular = Font.system(size: 10, weight: .regular, design: .monospaced)
+    
+    /// Tab titles, prominent button labels, modal subheads (11pt)
+    public static let subhead = Font.system(size: 11, weight: .bold, design: .monospaced)
+    public static let subheadMedium = Font.system(size: 11, weight: .medium, design: .monospaced)
+    
+    /// Panel titles, asset filenames, card titles (12pt)
+    public static let title = Font.system(size: 12, weight: .bold, design: .monospaced)
+    
+    /// Key metrics & frame index readouts (16pt)
+    public static let metric = Font.system(size: 16, weight: .bold, design: .monospaced)
+    
+    /// Hero status headers & large announcements (24pt)
+    public static let display = Font.system(size: 24, weight: .heavy, design: .default)
 }
 
 // MARK: - Convenient Theme Palette Bundle

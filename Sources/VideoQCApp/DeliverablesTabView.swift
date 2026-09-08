@@ -18,7 +18,7 @@ extension ContentView {
                     
                     Button(action: rescanDeliverables) {
                         HStack {
-                            Text("[ RESCAN FOLDER / ASSETS ]")
+                            Text("RESCAN FOLDER / ASSETS")
                                 .font(.system(size: 11, weight: .bold, design: .monospaced))
                             Spacer()
                             Image(systemName: "arrow.clockwise")
@@ -26,7 +26,7 @@ extension ContentView {
                         }
                         .frame(maxWidth: .infinity)
                         .padding(.horizontal, 12)
-                        .padding(.vertical, 9)
+                        .padding(.vertical, 8)
                         .foregroundColor((videoFiles.isEmpty && folderURL == nil) ? textMuted : textMain)
                         .studioBox(background: bgSubtle, border: borderLine)
                     }
@@ -40,15 +40,15 @@ extension ContentView {
                         }
                     }) {
                         HStack {
-                            Text("[ OPEN IN GOOGLE SHEETS ]")
-                                .font(.system(size: 11, weight: .black, design: .monospaced))
+                            Text("OPEN IN GOOGLE SHEETS")
+                                .font(.system(size: 11, weight: .bold, design: .monospaced))
                             Spacer()
                             Image(systemName: "arrow.up.right.square")
                                 .font(.system(size: 11, weight: .bold))
                         }
                         .frame(maxWidth: .infinity)
-                        .padding(.vertical, 10)
-                        .padding(.horizontal, 10)
+                        .padding(.vertical, 9)
+                        .padding(.horizontal, 12)
                         .foregroundColor(deliverableAssets.isEmpty ? textMuted : primaryBtnFg)
                         .studioBox(background: deliverableAssets.isEmpty ? bgSubtle : primaryBtnBg, border: borderLine)
                     }
@@ -62,10 +62,10 @@ extension ContentView {
                                 exportDeliverablesManifest()
                             }
                         }) {
-                            Text("[ SAVE CSV ]")
+                            Text("SAVE CSV")
                                 .font(.system(size: 10, weight: .bold, design: .monospaced))
                                 .frame(maxWidth: .infinity)
-                                .padding(.vertical, 8)
+                                .padding(.vertical, 7)
                                 .foregroundColor(deliverableAssets.isEmpty ? textMuted : textMain)
                                 .studioBox(background: bgSubtle, border: borderLine)
                         }
@@ -78,10 +78,10 @@ extension ContentView {
                                 openManifestHTML()
                             }
                         }) {
-                            Text("[ OPEN HTML ]")
+                            Text("OPEN HTML")
                                 .font(.system(size: 10, weight: .bold, design: .monospaced))
                                 .frame(maxWidth: .infinity)
-                                .padding(.vertical, 8)
+                                .padding(.vertical, 7)
                                 .foregroundColor(deliverableAssets.isEmpty ? textMuted : textMain)
                                 .studioBox(background: bgSubtle, border: borderLine)
                         }
@@ -94,10 +94,10 @@ extension ContentView {
                         Button(action: {
                             NSWorkspace.shared.activateFileViewerSelecting([firstURL])
                         }) {
-                            Text("[ REVEAL IN FINDER ]")
+                            Text("REVEAL IN FINDER")
                                 .font(.system(size: 11, weight: .bold, design: .monospaced))
                                 .frame(maxWidth: .infinity)
-                                .padding(.vertical, 9)
+                                .padding(.vertical, 8)
                                 .foregroundColor(textMain)
                                 .studioBox(background: bgSubtle, border: borderLine)
                         }
@@ -109,7 +109,7 @@ extension ContentView {
                         Button(action: {
                             deliverableAssets = []
                         }) {
-                            Text("[ CLEAR LIST ]")
+                            Text("CLEAR LIST")
                                 .font(.system(size: 10, weight: .bold, design: .monospaced))
                                 .foregroundColor(textMuted)
                                 .frame(maxWidth: .infinity, alignment: .center)
@@ -215,8 +215,8 @@ extension ContentView {
                     // Primary Action: Google Sheets
                     Button(action: openDeliverablesInGoogleSheets) {
                         HStack(spacing: 5) {
-                            Text("[ GOOGLE SHEETS ]")
-                                .font(.system(size: 11, weight: .black, design: .monospaced))
+                            Text("GOOGLE SHEETS")
+                                .font(.system(size: 11, weight: .bold, design: .monospaced))
                             Image(systemName: "arrow.up.right.square")
                                 .font(.system(size: 10, weight: .bold))
                         }
@@ -290,6 +290,30 @@ extension ContentView {
                         .fixedSize()
                         .explain("Folder view options: Toggle folder groups vs flat list, collapse or expand all.", binding: $hoverExplanation)
                     }
+                    
+                    // View Mode Toggle (3 Modes: Inline -> Thumbs -> Large)
+                    Button(action: {
+                        if specsDisplayMode == "inline" {
+                            specsDisplayMode = "thumbnail"
+                        } else if specsDisplayMode == "thumbnail" {
+                            specsDisplayMode = "large"
+                        } else {
+                            specsDisplayMode = "inline"
+                        }
+                    }) {
+                        HStack(spacing: 4) {
+                            Image(systemName: specsDisplayMode == "large" ? "photo.fill" : (specsDisplayMode == "thumbnail" ? "photo" : "list.bullet"))
+                                .font(.system(size: 8, weight: .bold))
+                            Text(specsDisplayMode == "large" ? "LARGE" : (specsDisplayMode == "thumbnail" ? "THUMBS" : "INLINE"))
+                                .font(.system(size: 10, weight: .bold, design: .monospaced))
+                        }
+                        .padding(.horizontal, 9)
+                        .padding(.vertical, 8)
+                        .foregroundColor(textMain)
+                        .studioBox(background: bgSubtle, border: borderLine)
+                    }
+                    .buttonStyle(.plain)
+                    .explain(specsDisplayMode == "large" ? "Specs table mode: Large Thumbs (click for compact inline list)" : (specsDisplayMode == "thumbnail" ? "Specs table mode: Compact Thumbs (click for large thumbnails)" : "Specs table mode: Inline (click for thumbnails)"), binding: $hoverExplanation)
                 }
             }
             
@@ -306,6 +330,11 @@ extension ContentView {
                 // Table Header
                 HStack(spacing: 8) {
                     Text("#").frame(width: 25, alignment: .center)
+                    if specsDisplayMode == "large" {
+                        Text("PREVIEW").frame(width: 86, alignment: .center)
+                    } else if specsDisplayMode == "thumbnail" {
+                        Text("PREVIEW").frame(width: 54, alignment: .center)
+                    }
                     Text("FILE NAME").frame(minWidth: 140, maxWidth: 220, alignment: .leading)
                     Text("TIMECODE (TC)").frame(width: 130, alignment: .center)
                     Text("RATIO & SIZE").frame(width: 135, alignment: .center)
@@ -319,7 +348,7 @@ extension ContentView {
                 .font(.system(size: 9, weight: .bold, design: .monospaced))
                 .foregroundColor(textMuted)
                 .padding(.horizontal, 14)
-                .padding(.vertical, 9)
+                .padding(.vertical, specsDisplayMode == "large" ? 10 : (specsDisplayMode == "thumbnail" ? 8 : 6))
                 .background(bgCardHeader)
                 
                 Rectangle().fill(borderLine).frame(height: 1)
@@ -419,9 +448,10 @@ extension ContentView {
                 .frame(width: 25, alignment: .center)
             
             HStack(spacing: 6) {
-                Image(systemName: "folder.fill")
-                    .font(.system(size: 11))
+                Image(systemName: "folder")
+                    .font(.system(size: 11, weight: .medium))
                     .foregroundColor(textSubtle)
+                    .frame(width: 14, height: 14)
                 
                 Text(node.relativePath.isEmpty ? node.name.uppercased() : "\(node.relativePath.uppercased())/")
                     .font(.system(size: 11, weight: .black, design: .monospaced))
@@ -492,6 +522,14 @@ extension ContentView {
             Text(String(format: "%02d", idx + 1))
                 .frame(width: 25, alignment: .center)
                 .foregroundColor(textMuted)
+            
+            if specsDisplayMode == "large" {
+                AssetThumbnailView(fileURL: asset.fileURL, width: 80, height: 46, cornerRadius: 3.5)
+                    .frame(width: 86, alignment: .center)
+            } else if specsDisplayMode == "thumbnail" {
+                AssetThumbnailView(fileURL: asset.fileURL, width: 50, height: 29, cornerRadius: 2)
+                    .frame(width: 54, alignment: .center)
+            }
             
             HStack(spacing: 4) {
                 if hasDeliverablesSubfolders && depth > 0 && !hideAllFolders {
@@ -606,7 +644,7 @@ extension ContentView {
         }
         .font(.system(size: 11, design: .monospaced))
         .padding(.horizontal, 14)
-        .padding(.vertical, 9)
+        .padding(.vertical, specsDisplayMode == "large" ? 10 : (specsDisplayMode == "thumbnail" ? 7 : 4))
         .background(hasMismatch ? alertRed.opacity(0.12) : (idx % 2 == 0 ? bgPanel : bgCardSubtle))
         .overlay(
             hasMismatch ? Rectangle().fill(alertRed).frame(width: 3) : nil,

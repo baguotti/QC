@@ -17,6 +17,7 @@ struct ContentView: View {
     @State var showAddNoteModal: Bool = false
     @State var showNotesDrawer: Bool = false
     @AppStorage("reviewerName") var reviewerName: String = ""
+    @AppStorage("specsDisplayMode") var specsDisplayMode: String = "inline"
     @State var propertiesAsset: DeliverableAsset? = nil
     @State var propertiesURL: URL? = nil
     @State var isInspectingProperties: Bool = false
@@ -585,7 +586,7 @@ struct ContentView: View {
                                 .foregroundColor(textMain)
                             Spacer()
                             Text("?")
-                                .font(.system(size: 9.5, weight: .bold, design: .monospaced))
+                                .font(.system(size: 9, weight: .bold, design: .monospaced))
                                 .foregroundColor(textMuted)
                                 .padding(.horizontal, 5)
                                 .padding(.vertical, 1)
@@ -675,86 +676,88 @@ struct ContentView: View {
     private let tabLength: CGFloat = 148
     
     private var tabBarStrip: some View {
-        HStack(alignment: .bottom, spacing: 6) {
-            ForEach(AppTab.allCases) { tab in
-                let isActive = (selectedTab == tab)
-                let isHovered = (hoveredTab == tab)
-                
-                Button(action: {
-                    withAnimation(.spring(response: 0.22, dampingFraction: 0.85)) {
-                        selectedTab = tab
+        HStack(spacing: 6) {
+            HStack(alignment: .bottom, spacing: 6) {
+                ForEach(AppTab.allCases) { tab in
+                    let isActive = (selectedTab == tab)
+                    let isHovered = (hoveredTab == tab)
+                    
+                    Button(action: {
+                        withAnimation(.spring(response: 0.22, dampingFraction: 0.85)) {
+                            selectedTab = tab
+                        }
+                        if tab == .specs && deliverableAssets.isEmpty && !videoFiles.isEmpty {
+                            inspectDeliverablesBatch(urls: videoFiles)
+                        } else if tab == .player && playerEngine.activeURL == nil, let first = videoFiles.first {
+                            playerEngine.loadVideo(url: first)
+                        }
+                    }) {
+                        HStack(spacing: 7) {
+                            Capsule()
+                                .fill(accentBlue)
+                                .frame(width: isActive ? 3 : 2, height: 11)
+                                .opacity(isActive ? 1.0 : (isHovered ? 0.45 : 0.0))
+                                .scaleEffect(isActive ? 1.0 : (isHovered ? 0.85 : 0.4), anchor: .center)
+                            
+                            Text(tab.title)
+                                .font(.system(size: 11, weight: isActive ? .bold : .medium, design: .monospaced))
+                                .tracking(0.5)
+                                .lineLimit(1)
+                                .fixedSize(horizontal: true, vertical: false)
+                        }
+                        .frame(width: tabLength, height: 28)
+                        .padding(.bottom, 3)
+                        .foregroundColor(
+                            isActive
+                                ? (isLightMode ? Color.black : Color.white)
+                                : (isHovered ? textMain : textMuted.opacity(0.72))
+                        )
+                        .background(
+                            UnevenRoundedRectangle(topLeadingRadius: 5, bottomLeadingRadius: 0, bottomTrailingRadius: 0, topTrailingRadius: 5)
+                                .fill(
+                                    isActive
+                                        ? (isLightMode ? Color.white : Color(white: 0.22))
+                                        : (isHovered ? bgSubtle.opacity(isLightMode ? 0.85 : 0.55) : bgSubtle.opacity(isLightMode ? 0.4 : 0.22))
+                                )
+                        )
+                        .overlay(
+                            UnevenRoundedRectangle(topLeadingRadius: 5, bottomLeadingRadius: 0, bottomTrailingRadius: 0, topTrailingRadius: 5)
+                                .stroke(
+                                    isActive
+                                        ? (isLightMode ? borderStrong : Color(white: 0.38))
+                                        : (isHovered ? borderLine : borderLine.opacity(isLightMode ? 0.45 : 0.25)),
+                                    lineWidth: 1
+                                )
+                        )
+                        .contentShape(Rectangle())
                     }
-                    if tab == .specs && deliverableAssets.isEmpty && !videoFiles.isEmpty {
-                        inspectDeliverablesBatch(urls: videoFiles)
-                    } else if tab == .player && playerEngine.activeURL == nil, let first = videoFiles.first {
-                        playerEngine.loadVideo(url: first)
-                    }
-                }) {
-                    HStack(spacing: 7) {
-                        Capsule()
-                            .fill(accentBlue)
-                            .frame(width: isActive ? 3 : 2, height: 11)
-                            .opacity(isActive ? 1.0 : (isHovered ? 0.45 : 0.0))
-                            .scaleEffect(isActive ? 1.0 : (isHovered ? 0.85 : 0.4), anchor: .center)
-                        
-                        Text(tab.title)
-                            .font(.system(size: 11, weight: isActive ? .bold : .medium, design: .monospaced))
-                            .tracking(0.5)
-                            .lineLimit(1)
-                            .fixedSize(horizontal: true, vertical: false)
-                    }
-                    .frame(width: tabLength, height: 28)
-                    .padding(.bottom, 3)
-                    .foregroundColor(
-                        isActive
-                            ? (isLightMode ? Color.black : Color.white)
-                            : (isHovered ? textMain : textMuted.opacity(0.72))
-                    )
-                    .background(
-                        UnevenRoundedRectangle(topLeadingRadius: 5, bottomLeadingRadius: 0, bottomTrailingRadius: 0, topTrailingRadius: 5)
-                            .fill(
-                                isActive
-                                    ? (isLightMode ? Color.white : Color(white: 0.22))
-                                    : (isHovered ? bgSubtle.opacity(isLightMode ? 0.85 : 0.55) : bgSubtle.opacity(isLightMode ? 0.4 : 0.22))
-                            )
-                    )
-                    .overlay(
-                        UnevenRoundedRectangle(topLeadingRadius: 5, bottomLeadingRadius: 0, bottomTrailingRadius: 0, topTrailingRadius: 5)
-                            .stroke(
-                                isActive
-                                    ? (isLightMode ? borderStrong : Color(white: 0.38))
-                                    : (isHovered ? borderLine : borderLine.opacity(isLightMode ? 0.45 : 0.25)),
-                                lineWidth: 1
-                            )
-                    )
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .onHover { hovering in
-                    withAnimation(.easeInOut(duration: 0.12)) {
-                        if hovering {
-                            hoveredTab = tab
-                        } else if hoveredTab == tab {
-                            hoveredTab = nil
+                    .buttonStyle(.plain)
+                    .onHover { hovering in
+                        withAnimation(.easeInOut(duration: 0.12)) {
+                            if hovering {
+                                hoveredTab = tab
+                            } else if hoveredTab == tab {
+                                hoveredTab = nil
+                            }
                         }
                     }
+                    .explain(
+                        tab == .player ? "01 // PLAYER: High-performance delivery playback with J-K-L shuttle, timeline scrubbing, and zoom." :
+                        (tab == .specs ? "02 // SPECS: Reads container resolution, timecode, audio, and codecs." :
+                         "03 // LINE FINDER: Scans video frames for edge line glitches and blanking errors."),
+                        binding: $hoverExplanation
+                    )
                 }
-                .explain(
-                    tab == .player ? "01 // PLAYER: High-performance delivery playback with J-K-L shuttle, timeline scrubbing, and zoom." :
-                    (tab == .specs ? "02 // SPECS: Reads container resolution, timecode, audio, and codecs." :
-                     "03 // LINE FINDER: Scans video frames for edge line glitches and blanking errors."),
-                    binding: $hoverExplanation
-                )
             }
+            .frame(maxHeight: .infinity, alignment: .bottom)
             
             Spacer()
             
             topControls
-                .padding(.bottom, 3)
+                .frame(maxHeight: .infinity, alignment: .center)
         }
         .padding(.horizontal, 20)
-        .padding(.top, 8)
-        .padding(.bottom, 0)
+        .frame(height: 42)
         .background(bgPanel)
     }
     
@@ -773,7 +776,7 @@ struct ContentView: View {
                             Image(systemName: isSelectEmpty ? "folder.badge.plus" : "arrow.triangle.2.circlepath")
                                 .font(.system(size: 9, weight: .bold))
                             Text(isSelectEmpty ? "SELECT" : "CHANGE")
-                                .font(.system(size: 9.5, weight: .bold, design: .monospaced))
+                                .font(.system(size: 9, weight: .bold, design: .monospaced))
                                 .lineLimit(1)
                         }
                         .padding(.horizontal, 9)
@@ -793,7 +796,7 @@ struct ContentView: View {
                             Image(systemName: "plus")
                                 .font(.system(size: 9, weight: .bold))
                             Text("ADD")
-                                .font(.system(size: 9.5, weight: .bold, design: .monospaced))
+                                .font(.system(size: 9, weight: .bold, design: .monospaced))
                                 .lineLimit(1)
                         }
                         .padding(.horizontal, 8)
@@ -812,7 +815,7 @@ struct ContentView: View {
                             Image(systemName: isHidden ? "folder" : "folder.badge.minus")
                                 .font(.system(size: 9, weight: .bold))
                             Text(isHidden ? "SHOW" : "HIDE")
-                                .font(.system(size: 9.5, weight: .bold, design: .monospaced))
+                                .font(.system(size: 9, weight: .bold, design: .monospaced))
                                 .lineLimit(1)
                         }
                         .padding(.horizontal, 8)
@@ -1404,7 +1407,7 @@ struct ContentView: View {
     func sectionHeader(num: String, title: String) -> some View {
         HStack(spacing: 6) {
             Text(num)
-                .font(.system(size: 9, weight: .black, design: .monospaced))
+                .font(.system(size: 9, weight: .bold, design: .monospaced))
                 .foregroundColor(textMain)
             Text("// \(title)")
                 .font(.system(size: 9, weight: .bold, design: .monospaced))
@@ -1978,7 +1981,7 @@ struct StudioStatusBarView: View {
                     .font(.system(size: 9))
                     .foregroundColor(hoverCoordinator.text.isEmpty ? textMuted : textMain)
                 Text("INFO //")
-                    .font(.system(size: 9, weight: .black, design: .monospaced))
+                    .font(.system(size: 9, weight: .bold, design: .monospaced))
                     .foregroundColor(hoverCoordinator.text.isEmpty ? textMuted : textMain)
             }
             

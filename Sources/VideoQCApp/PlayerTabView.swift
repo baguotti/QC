@@ -47,7 +47,7 @@ struct ExposureScrubberView: View {
                 }
             }) {
                 Image(systemName: "camera.aperture")
-                    .font(.system(size: 12.5, weight: .semibold))
+                    .font(.system(size: 12, weight: .semibold))
                     .foregroundColor(iconColor)
                     .frame(width: 22, height: 26)
                     .contentShape(Rectangle())
@@ -122,6 +122,7 @@ public struct PlayerQueueFileRowView: View, Equatable {
     public let slotBFps: Double
     public let slotBCodec: String
     public let isLightMode: Bool
+    public let displayMode: String
     public var hoverExplanation: Binding<String>?
     
     // Callbacks
@@ -146,7 +147,8 @@ public struct PlayerQueueFileRowView: View, Equatable {
             lhs.slotBResolution == rhs.slotBResolution &&
             lhs.slotBFps == rhs.slotBFps &&
             lhs.slotBCodec == rhs.slotBCodec &&
-            lhs.isLightMode == rhs.isLightMode
+            lhs.isLightMode == rhs.isLightMode &&
+            lhs.displayMode == rhs.displayMode
         }
     }
     
@@ -187,114 +189,21 @@ public struct PlayerQueueFileRowView: View, Equatable {
                     onLoadVideo(url, .slotA)
                 }
             }) {
-                HStack(spacing: 8) {
-                    Rectangle()
-                        .fill(isSlotA ? accentPositive : (isSlotB ? accentSlotB : Color.clear))
-                        .frame(width: 4)
-                    
-                    if depth > 0 {
-                        Spacer().frame(width: CGFloat(depth * 14))
-                    }
-                    
-                    Image(systemName: isSlotA ? "a.circle.fill" : (isSlotB ? "b.circle.fill" : "play.circle.fill"))
-                        .font(.system(size: 13))
-                        .foregroundColor(isSlotA ? accentPositive : (isSlotB ? accentSlotB : textMuted))
-                    
-                    VStack(alignment: .leading, spacing: 2) {
-                        HStack(spacing: 6) {
-                            if let tag = currentTag {
-                                Circle()
-                                    .fill(tag.color)
-                                    .frame(width: 7, height: 7)
-                            }
-                            Text(url.lastPathComponent)
-                                .font(.system(size: 11, weight: isSelected ? .bold : .medium, design: .monospaced))
-                                .foregroundColor(isSelected ? textMain : textSubtle)
-                                .lineLimit(1)
-                        }
-                        
-                        if isSlotA && !slotAResolution.isEmpty {
-                            Text("\(slotAResolution) • \(String(format: "%.1f", slotAFps))fps • \(slotACodec)")
-                                .font(.system(size: 8, weight: .bold, design: .monospaced))
-                                .foregroundColor(accentPositive)
-                                .lineLimit(1)
-                        } else if isSlotB && !slotBResolution.isEmpty {
-                            Text("\(slotBResolution) • \(String(format: "%.1f", slotBFps))fps • \(slotBCodec)")
-                                .font(.system(size: 8, weight: .bold, design: .monospaced))
-                                .foregroundColor(accentSlotB)
-                                .lineLimit(1)
-                        } else {
-                            Text(" ")
-                                .font(.system(size: 8, weight: .bold, design: .monospaced))
-                                .foregroundColor(.clear)
-                                .lineLimit(1)
-                        }
-                    }
-                    
-                    Spacer()
+                switch displayMode {
+                case "large":
+                    largeThumbnailRowContent(isSelected: isSelected)
+                case "thumbnail":
+                    thumbnailRowContent(isSelected: isSelected)
+                default:
+                    inlineRowContent(isSelected: isSelected)
                 }
-                .padding(.leading, 8)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             
-            HStack(spacing: 4) {
-                if isSlotA {
-                    Text("A: MASTER")
-                        .font(.system(size: 8, weight: .black, design: .monospaced))
-                        .padding(.horizontal, 5)
-                        .padding(.vertical, 3)
-                        .foregroundColor(accentPositive)
-                        .studioBox(background: accentPositive.opacity(0.18), border: accentPositive.opacity(0.8))
-                } else {
-                    Button(action: { onLoadVideo(url, .slotA) }) {
-                        Text("+A")
-                            .font(.system(size: 8, weight: .bold, design: .monospaced))
-                            .padding(.horizontal, 4)
-                            .padding(.vertical, 2)
-                            .foregroundColor(textMuted)
-                            .studioBox(background: bgSubtle, border: borderLine)
-                    }
-                    .buttonStyle(.plain)
-                    .explain("Load as Slot A (Master)", binding: hoverExplanation)
-                }
-                
-                if isSlotB {
-                    HStack(spacing: 2) {
-                        Text("B: COMPARE")
-                            .font(.system(size: 8, weight: .black, design: .monospaced))
-                            .padding(.horizontal, 5)
-                            .padding(.vertical, 3)
-                            .foregroundColor(accentSlotB)
-                            .studioBox(background: accentSlotB.opacity(0.18), border: accentSlotB.opacity(0.8))
-                        
-                        Button(action: { onClearSlotB() }) {
-                            Image(systemName: "xmark")
-                                .font(.system(size: 7, weight: .bold))
-                                .frame(width: 14, height: 14)
-                                .foregroundColor(textMuted)
-                        }
-                        .buttonStyle(.plain)
-                        .explain("Clear Slot B", binding: hoverExplanation)
-                    }
-                } else {
-                    Button(action: { onLoadVideo(url, .slotB) }) {
-                        Text("+B")
-                            .font(.system(size: 8, weight: .bold, design: .monospaced))
-                            .padding(.horizontal, 4)
-                            .padding(.vertical, 2)
-                            .foregroundColor(textMuted)
-                            .studioBox(background: bgSubtle, border: borderLine)
-                    }
-                    .buttonStyle(.plain)
-                    .explain("Load as Slot B (Compare / ⌥+Click)", binding: hoverExplanation)
-                }
-            }
-            .padding(.trailing, 6)
+            queueActionButtons
         }
         .frame(maxWidth: .infinity)
-        .frame(height: 42)
+        .frame(height: displayMode == "large" ? 64 : (displayMode == "thumbnail" ? 46 : 28))
         .studioBox(background: rowBg, border: rowBorder)
         .contentShape(Rectangle())
         .explain(url.path, binding: hoverExplanation)
@@ -352,6 +261,216 @@ public struct PlayerQueueFileRowView: View, Equatable {
                 }
             }
         }
+    }
+    
+    @ViewBuilder
+    private func inlineRowContent(isSelected: Bool) -> some View {
+        HStack(spacing: 6) {
+            Rectangle()
+                .fill(isSlotA ? accentPositive : (isSlotB ? accentSlotB : Color.clear))
+                .frame(width: 3)
+            
+            if depth > 0 {
+                Spacer().frame(width: CGFloat(depth * 12))
+            }
+            
+            if let tag = currentTag {
+                Circle()
+                    .fill(tag.color)
+                    .frame(width: 6, height: 6)
+            }
+            
+            Text(url.lastPathComponent)
+                .font(.system(size: 10.5, weight: isSelected ? .bold : .medium, design: .monospaced))
+                .foregroundColor(isSelected ? textMain : textSubtle)
+                .lineLimit(1)
+            
+            if isSlotA && !slotAResolution.isEmpty {
+                Text("• \(slotAResolution) \(slotACodec)")
+                    .font(.system(size: 8, weight: .bold, design: .monospaced))
+                    .foregroundColor(accentPositive)
+                    .lineLimit(1)
+            } else if isSlotB && !slotBResolution.isEmpty {
+                Text("• \(slotBResolution) \(slotBCodec)")
+                    .font(.system(size: 8, weight: .bold, design: .monospaced))
+                    .foregroundColor(accentSlotB)
+                    .lineLimit(1)
+            }
+            
+            Spacer(minLength: 4)
+        }
+        .padding(.leading, 6)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .contentShape(Rectangle())
+    }
+    
+    @ViewBuilder
+    private func thumbnailRowContent(isSelected: Bool) -> some View {
+        HStack(spacing: 8) {
+            Rectangle()
+                .fill(isSlotA ? accentPositive : (isSlotB ? accentSlotB : Color.clear))
+                .frame(width: 3)
+            
+            if depth > 0 {
+                Spacer().frame(width: CGFloat(depth * 12))
+            }
+            
+            AssetThumbnailView(
+                fileURL: url,
+                width: 48,
+                height: 28,
+                cornerRadius: 2.5
+            )
+            
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(spacing: 5) {
+                    if let tag = currentTag {
+                        Circle()
+                            .fill(tag.color)
+                            .frame(width: 6, height: 6)
+                    }
+                    Text(url.lastPathComponent)
+                        .font(.system(size: 10.5, weight: isSelected ? .bold : .medium, design: .monospaced))
+                        .foregroundColor(isSelected ? textMain : textSubtle)
+                        .lineLimit(1)
+                }
+                
+                if isSlotA && !slotAResolution.isEmpty {
+                    Text("\(slotAResolution) • \(String(format: "%.1f", slotAFps))fps • \(slotACodec)")
+                        .font(.system(size: 8, weight: .bold, design: .monospaced))
+                        .foregroundColor(accentPositive)
+                        .lineLimit(1)
+                } else if isSlotB && !slotBResolution.isEmpty {
+                    Text("\(slotBResolution) • \(String(format: "%.1f", slotBFps))fps • \(slotBCodec)")
+                        .font(.system(size: 8, weight: .bold, design: .monospaced))
+                        .foregroundColor(accentSlotB)
+                        .lineLimit(1)
+                } else {
+                    Text(url.pathExtension.uppercased())
+                        .font(.system(size: 8, weight: .bold, design: .monospaced))
+                        .foregroundColor(textMuted.opacity(0.8))
+                        .lineLimit(1)
+                }
+            }
+            
+            Spacer(minLength: 4)
+        }
+        .padding(.leading, 6)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .contentShape(Rectangle())
+    }
+    
+    @ViewBuilder
+    private func largeThumbnailRowContent(isSelected: Bool) -> some View {
+        HStack(spacing: 8) {
+            Rectangle()
+                .fill(isSlotA ? accentPositive : (isSlotB ? accentSlotB : Color.clear))
+                .frame(width: 3)
+            
+            if depth > 0 {
+                Spacer().frame(width: CGFloat(depth * 12))
+            }
+            
+            AssetThumbnailView(
+                fileURL: url,
+                width: 80,
+                height: 46,
+                cornerRadius: 3.5
+            )
+            
+            VStack(alignment: .leading, spacing: 3) {
+                HStack(spacing: 5) {
+                    if let tag = currentTag {
+                        Circle()
+                            .fill(tag.color)
+                            .frame(width: 6, height: 6)
+                    }
+                    Text(url.lastPathComponent)
+                        .font(.system(size: 11, weight: isSelected ? .bold : .medium, design: .monospaced))
+                        .foregroundColor(isSelected ? textMain : textSubtle)
+                        .lineLimit(1)
+                }
+                
+                if isSlotA && !slotAResolution.isEmpty {
+                    Text("\(slotAResolution) • \(String(format: "%.1f", slotAFps))fps • \(slotACodec)")
+                        .font(.system(size: 8.5, weight: .bold, design: .monospaced))
+                        .foregroundColor(accentPositive)
+                        .lineLimit(1)
+                } else if isSlotB && !slotBResolution.isEmpty {
+                    Text("\(slotBResolution) • \(String(format: "%.1f", slotBFps))fps • \(slotBCodec)")
+                        .font(.system(size: 8.5, weight: .bold, design: .monospaced))
+                        .foregroundColor(accentSlotB)
+                        .lineLimit(1)
+                } else {
+                    Text(url.pathExtension.uppercased())
+                        .font(.system(size: 8, weight: .bold, design: .monospaced))
+                        .foregroundColor(textMuted.opacity(0.8))
+                        .lineLimit(1)
+                }
+            }
+            
+            Spacer(minLength: 4)
+        }
+        .padding(.leading, 6)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .contentShape(Rectangle())
+    }
+    
+    @ViewBuilder
+    private var queueActionButtons: some View {
+        HStack(spacing: 4) {
+            if isSlotA {
+                Text("A: MASTER")
+                    .font(.system(size: 8, weight: .black, design: .monospaced))
+                    .padding(.horizontal, 5)
+                    .padding(.vertical, displayMode == "inline" ? 2 : 3)
+                    .foregroundColor(accentPositive)
+                    .studioBox(background: accentPositive.opacity(0.18), border: accentPositive.opacity(0.8))
+            } else {
+                Button(action: { onLoadVideo(url, .slotA) }) {
+                    Text("+A")
+                        .font(.system(size: 8, weight: .bold, design: .monospaced))
+                        .padding(.horizontal, 4)
+                        .padding(.vertical, displayMode == "inline" ? 1 : 2)
+                        .foregroundColor(textMuted)
+                        .studioBox(background: bgSubtle, border: borderLine)
+                }
+                .buttonStyle(.plain)
+                .explain("Load as Slot A (Master)", binding: hoverExplanation)
+            }
+            
+            if isSlotB {
+                HStack(spacing: 2) {
+                    Text("B: COMPARE")
+                        .font(.system(size: 8, weight: .black, design: .monospaced))
+                        .padding(.horizontal, 5)
+                        .padding(.vertical, displayMode == "inline" ? 2 : 3)
+                        .foregroundColor(accentSlotB)
+                        .studioBox(background: accentSlotB.opacity(0.18), border: accentSlotB.opacity(0.8))
+                    
+                    Button(action: { onClearSlotB() }) {
+                        Image(systemName: "xmark")
+                            .font(.system(size: 7, weight: .bold))
+                            .frame(width: 14, height: 14)
+                            .foregroundColor(textMuted)
+                    }
+                    .buttonStyle(.plain)
+                    .explain("Clear Slot B", binding: hoverExplanation)
+                }
+            } else {
+                Button(action: { onLoadVideo(url, .slotB) }) {
+                    Text("+B")
+                        .font(.system(size: 8, weight: .bold, design: .monospaced))
+                        .padding(.horizontal, 4)
+                        .padding(.vertical, displayMode == "inline" ? 1 : 2)
+                        .foregroundColor(textMuted)
+                        .studioBox(background: bgSubtle, border: borderLine)
+                }
+                .buttonStyle(.plain)
+                .explain("Load as Slot B (Compare / ⌥+Click)", binding: hoverExplanation)
+            }
+        }
+        .padding(.trailing, 6)
     }
 }
 
@@ -440,6 +559,7 @@ public struct PlayerQueuePanelView: View, Equatable {
     private var accentPositive: Color { StudioTheme.positive }
     private var accentSlotB: Color { StudioTheme.slotBAccent }
     private var accentBlue: Color { StudioTheme.accentBlue(isLightMode) }
+    @AppStorage("queueDisplayMode") private var queueDisplayMode: String = "inline"
     
     private var hasSubfolders: Bool {
         FileSystemTreeBuilder.hasSubfolders(in: playerTreeNodes)
@@ -508,7 +628,7 @@ public struct PlayerQueuePanelView: View, Equatable {
             
             // Asset List
             VStack(alignment: .leading, spacing: 6) {
-                HStack {
+                HStack(spacing: 5) {
                     Text("QUEUE (\(filteredFiles.count))")
                         .font(.system(size: 10, weight: .black, design: .monospaced))
                         .foregroundColor(textMuted)
@@ -524,6 +644,30 @@ public struct PlayerQueuePanelView: View, Equatable {
                     }
                     
                     Spacer()
+                    
+                    // View Mode Toggle (3 Modes: Inline -> Thumbs -> Large)
+                    Button(action: {
+                        if queueDisplayMode == "inline" {
+                            queueDisplayMode = "thumbnail"
+                        } else if queueDisplayMode == "thumbnail" {
+                            queueDisplayMode = "large"
+                        } else {
+                            queueDisplayMode = "inline"
+                        }
+                    }) {
+                        HStack(spacing: 3) {
+                            Image(systemName: queueDisplayMode == "large" ? "photo.fill" : (queueDisplayMode == "thumbnail" ? "photo" : "list.bullet"))
+                                .font(.system(size: 7.5, weight: .bold))
+                            Text(queueDisplayMode == "large" ? "LARGE" : (queueDisplayMode == "thumbnail" ? "THUMBS" : "INLINE"))
+                                .font(.system(size: 8, weight: .black, design: .monospaced))
+                        }
+                        .padding(.horizontal, 4)
+                        .frame(height: 18)
+                        .foregroundColor(textMain)
+                        .studioBox(background: bgSubtle, border: borderLine)
+                    }
+                    .buttonStyle(.plain)
+                    .explain(queueDisplayMode == "large" ? "Queue display mode: Large Thumbs (click to switch to compact inline list)" : (queueDisplayMode == "thumbnail" ? "Queue display mode: Compact Thumbs (click for large thumbnails)" : "Queue display mode: Inline (click for thumbnails)"), binding: hoverExplanation)
                     
                     // Autoplay Toggle Button
                     Button(action: onToggleAutoplay) {
@@ -546,7 +690,7 @@ public struct PlayerQueuePanelView: View, Equatable {
                 if videoFiles.isEmpty {
                     VStack(spacing: 8) {
                         Spacer()
-                        Image(systemName: "film")
+                        Image(systemName: "video")
                             .font(.system(size: 24))
                             .foregroundColor(textMuted)
                         Text("NO VIDEO FILES LOADED")
@@ -564,7 +708,7 @@ public struct PlayerQueuePanelView: View, Equatable {
                 } else {
                     ScrollViewReader { scrollProxy in
                         ScrollView {
-                            VStack(spacing: 4) {
+                            VStack(spacing: queueDisplayMode == "inline" ? 2 : 4) {
                                 if hasSubfolders {
                                     ForEach(flattenedNodes) { node in
                                         if node.isDirectory {
@@ -574,7 +718,7 @@ public struct PlayerQueuePanelView: View, Equatable {
                                             let isSelA = isSameURL(slotAURL, node.url)
                                             let isSelB = isSameURL(slotBURL, node.url)
                                             makeFileRow(url: node.url, depth: node.depth, isSlotA: isSelA, isSlotB: isSelB)
-                                                .id("\(node.url.path)_\(isSelA ? "A" : "_")_\(isSelB ? "B" : "_")")
+                                                .id("\(node.url.path)_\(isSelA ? "A" : "_")_\(isSelB ? "B" : "_")_\(queueDisplayMode)")
                                         }
                                     }
                                 } else {
@@ -582,11 +726,12 @@ public struct PlayerQueuePanelView: View, Equatable {
                                         let isSelA = isSameURL(slotAURL, url)
                                         let isSelB = isSameURL(slotBURL, url)
                                         makeFileRow(url: url, depth: 0, isSlotA: isSelA, isSlotB: isSelB)
-                                            .id("\(url.path)_\(isSelA ? "A" : "_")_\(isSelB ? "B" : "_")")
+                                            .id("\(url.path)_\(isSelA ? "A" : "_")_\(isSelB ? "B" : "_")_\(queueDisplayMode)")
                                     }
                                 }
                             }
                         }
+                        .clipped()
                         .studioBox(background: bgCardSubtle, border: borderLine)
                         .onDrop(of: [UTType.fileURL.identifier], isTargeted: nil) { providers in
                             onDrop(providers)
@@ -625,7 +770,7 @@ public struct PlayerQueuePanelView: View, Equatable {
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 6) {
                 Text("01")
-                    .font(.system(size: 9, weight: .black, design: .monospaced))
+                    .font(.system(size: 9, weight: .bold, design: .monospaced))
                     .foregroundColor(textMain)
                 Text("// LOAD ASSETS")
                     .font(.system(size: 9, weight: .bold, design: .monospaced))
@@ -642,7 +787,7 @@ public struct PlayerQueuePanelView: View, Equatable {
                             Image(systemName: isSelectEmpty ? "folder.badge.plus" : "arrow.triangle.2.circlepath")
                                 .font(.system(size: 9, weight: .bold))
                             Text(isSelectEmpty ? "SELECT" : "CHANGE")
-                                .font(.system(size: 9.5, weight: .bold, design: .monospaced))
+                                .font(.system(size: 9, weight: .bold, design: .monospaced))
                                 .lineLimit(1)
                         }
                         .padding(.horizontal, 9)
@@ -662,7 +807,7 @@ public struct PlayerQueuePanelView: View, Equatable {
                             Image(systemName: "plus")
                                 .font(.system(size: 9, weight: .bold))
                             Text("ADD")
-                                .font(.system(size: 9.5, weight: .bold, design: .monospaced))
+                                .font(.system(size: 9, weight: .bold, design: .monospaced))
                                 .lineLimit(1)
                         }
                         .padding(.horizontal, 8)
@@ -681,7 +826,7 @@ public struct PlayerQueuePanelView: View, Equatable {
                             Image(systemName: isHidden ? "folder" : "folder.badge.minus")
                                 .font(.system(size: 9, weight: .bold))
                             Text(isHidden ? "SHOW" : "HIDE")
-                                .font(.system(size: 9.5, weight: .bold, design: .monospaced))
+                                .font(.system(size: 9, weight: .bold, design: .monospaced))
                                 .lineLimit(1)
                         }
                         .padding(.horizontal, 8)
@@ -765,9 +910,10 @@ public struct PlayerQueuePanelView: View, Equatable {
                 .foregroundColor(textMuted)
                 .frame(width: 12)
             
-            Image(systemName: "folder.fill")
-                .font(.system(size: 11))
+            Image(systemName: "folder")
+                .font(.system(size: 11, weight: .medium))
                 .foregroundColor(textSubtle)
+                .frame(width: 14, height: 14)
             
             Text(node.name.uppercased())
                 .font(.system(size: 10, weight: .bold, design: .monospaced))
@@ -825,6 +971,7 @@ public struct PlayerQueuePanelView: View, Equatable {
             slotBFps: slotBFps,
             slotBCodec: slotBCodec,
             isLightMode: isLightMode,
+            displayMode: queueDisplayMode,
             hoverExplanation: hoverExplanation,
             onLoadVideo: onLoadVideo,
             onClearSlotB: onClearSlotB,
@@ -1050,7 +1197,7 @@ extension ContentView {
                     
                     // Timeline Scrubber
                     TimelineScrubberView(engine: playerEngine, isLightMode: isLightMode)
-                        .frame(height: 46)
+                        .frame(height: 52)
                         .disabled(playerEngine.activeURL == nil)
                     
                     // Transport Strip
@@ -1177,9 +1324,9 @@ extension ContentView {
             Button(action: { openAddNoteModal() }) {
                 HStack(spacing: 3) {
                     Image(systemName: "plus")
-                        .font(.system(size: 9.5, weight: .bold))
+                        .font(.system(size: 9, weight: .bold))
                     Text("NOTE")
-                        .font(.system(size: 9.5, weight: .bold, design: .monospaced))
+                        .font(.system(size: 9, weight: .bold, design: .monospaced))
                 }
                 .frame(height: 24)
                 .padding(.horizontal, 5)
@@ -1196,7 +1343,7 @@ extension ContentView {
             HStack(spacing: 1) {
                 Button(action: { playerEngine.jumpToPreviousNote() }) {
                     Image(systemName: "chevron.left.to.line")
-                        .font(.system(size: 9.5, weight: .bold))
+                        .font(.system(size: 9, weight: .bold))
                         .frame(width: 18, height: 24)
                         .foregroundColor(hasNotes ? textMain : textMuted)
                         .contentShape(Rectangle())
@@ -1212,9 +1359,9 @@ extension ContentView {
                 }) {
                     HStack(spacing: 3) {
                         Image(systemName: showNotesDrawer ? "text.bubble.fill" : "text.bubble")
-                            .font(.system(size: 9.5, weight: .semibold))
+                            .font(.system(size: 9, weight: .semibold))
                         Text(hasNotes ? "\(notesCount)" : "NOTES")
-                            .font(.system(size: 9.5, weight: .bold, design: .monospaced))
+                            .font(.system(size: 9, weight: .bold, design: .monospaced))
                     }
                     .frame(height: 24)
                     .padding(.horizontal, 4)
@@ -1227,7 +1374,7 @@ extension ContentView {
                 
                 Button(action: { playerEngine.jumpToNextNote() }) {
                     Image(systemName: "chevron.right.to.line")
-                        .font(.system(size: 9.5, weight: .bold))
+                        .font(.system(size: 9, weight: .bold))
                         .frame(width: 18, height: 24)
                         .foregroundColor(hasNotes ? textMain : textMuted)
                         .contentShape(Rectangle())
@@ -1283,7 +1430,7 @@ extension ContentView {
         return HStack(spacing: 1) {
             Button(action: { jumpToPreviousGlitchFinding() }) {
                 Image(systemName: "chevron.left.to.line")
-                    .font(.system(size: 9.5, weight: .bold))
+                    .font(.system(size: 9, weight: .bold))
                     .frame(width: 18, height: 24)
                     .foregroundColor(hasGlitches ? alertRed : textMuted)
                     .contentShape(Rectangle())
@@ -1296,13 +1443,13 @@ extension ContentView {
             )
             
             Text("LINE")
-                .font(.system(size: 9.5, weight: .bold, design: .monospaced))
+                .font(.system(size: 9, weight: .bold, design: .monospaced))
                 .foregroundColor(hasGlitches ? alertRed : textMuted)
                 .padding(.horizontal, 3)
             
             Button(action: { jumpToNextGlitchFinding() }) {
                 Image(systemName: "chevron.right.to.line")
-                    .font(.system(size: 9.5, weight: .bold))
+                    .font(.system(size: 9, weight: .bold))
                     .frame(width: 18, height: 24)
                     .foregroundColor(hasGlitches ? alertRed : textMuted)
                     .contentShape(Rectangle())
@@ -1367,7 +1514,7 @@ extension ContentView {
     // 7. Duration / Total Frames Label
     private var playerDurationLabel: some View {
         Text(playerEngine.displayTimeAsFrames ? "\(playerEngine.totalFrames) frames" : playerEngine.durationTimecode)
-            .font(.system(size: 10.5, weight: .medium, design: .monospaced))
+            .font(.system(size: 11, weight: .medium, design: .monospaced))
             .foregroundColor(textMuted)
             .lineLimit(1)
     }
@@ -1551,6 +1698,56 @@ extension ContentView {
     
     // MARK: - Screenshot Capture & Export
     
+    @MainActor
+    private final class ScreenshotSoundPlayer {
+        static let shared = ScreenshotSoundPlayer()
+        private var sound: NSSound?
+        
+        private init() {
+            prepareSound()
+        }
+        
+        private func locateSoundURL() -> URL? {
+            if let url = Bundle.main.url(forResource: "Click", withExtension: "aac") {
+                return url
+            }
+            let appBundleResourceURL = Bundle.main.bundleURL.appendingPathComponent("Contents/Resources/Click.aac")
+            if FileManager.default.fileExists(atPath: appBundleResourceURL.path) {
+                return appBundleResourceURL
+            }
+            let devPaths = [
+                URL(fileURLWithPath: FileManager.default.currentDirectoryPath).appendingPathComponent("Resources/Click.aac"),
+                URL(fileURLWithPath: FileManager.default.currentDirectoryPath).appendingPathComponent("_icon/Click.aac")
+            ]
+            for url in devPaths {
+                if FileManager.default.fileExists(atPath: url.path) {
+                    return url
+                }
+            }
+            return nil
+        }
+        
+        private func prepareSound() {
+            if let url = locateSoundURL() {
+                sound = NSSound(contentsOf: url, byReference: true)
+            }
+        }
+        
+        func play() {
+            if let sound = sound {
+                sound.stop()
+                sound.play()
+                return
+            }
+            if let url = locateSoundURL(), let newSound = NSSound(contentsOf: url, byReference: true) {
+                sound = newSound
+                newSound.play()
+                return
+            }
+            NSSound(named: "Tink")?.play()
+        }
+    }
+    
     private func exportCurrentFrameScreenshot() {
         let currentTarget = playerEngine.activeTarget
         let currentSlot: SlotTarget = (currentTarget == .slotB && playerEngine.slotB.url != nil) ? .slotB : .slotA
@@ -1575,7 +1772,7 @@ extension ContentView {
             Task { @MainActor in
                 do {
                     try await playerEngine.exportCurrentFrameAsJPEG(for: currentSlot, to: targetURL, quality: 0.65)
-                    NSSound(named: "Tink")?.play()
+                    ScreenshotSoundPlayer.shared.play()
                 } catch {
                     print("[Screenshot] Export error: \(error.localizedDescription)")
                 }
@@ -1841,7 +2038,7 @@ struct PlayerComparisonBar: View {
                 
                 if isLocked {
                     Image(systemName: "lock.fill")
-                        .font(.system(size: 6.5, weight: .bold))
+                        .font(.system(size: 7, weight: .bold))
                         .foregroundColor(textMuted.opacity(0.85))
                         .offset(x: -1, y: 1)
                 }
@@ -2236,7 +2433,7 @@ struct FullscreenPlayerView: View {
         VStack(spacing: 12) {
             // Timeline Scrubber
             TimelineScrubberView(engine: engine, isLightMode: false)
-                .frame(height: 46)
+                .frame(height: 52)
             
             // Transport & Timecode Bar
             HStack(spacing: 12) {

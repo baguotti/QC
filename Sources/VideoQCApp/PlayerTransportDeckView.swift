@@ -225,9 +225,9 @@ struct PlayerTransportDeckView: View {
                         Button(action: onAdd) {
                             HStack(spacing: 3) {
                                 Image(systemName: "plus")
-                                    .font(.system(size: 9.5, weight: .bold))
+                                    .font(.system(size: 9, weight: .bold))
                                 Text("NOTE")
-                                    .font(.system(size: 9.5, weight: .bold, design: .monospaced))
+                                    .font(.system(size: 9, weight: .bold, design: .monospaced))
                             }
                             .frame(height: 28)
                             .padding(.horizontal, 5)
@@ -246,7 +246,7 @@ struct PlayerTransportDeckView: View {
                     HStack(spacing: 1) {
                         Button(action: { onJumpPrevNote?() }) {
                             Image(systemName: "chevron.left.to.line")
-                                .font(.system(size: 9.5, weight: .bold))
+                                .font(.system(size: 9, weight: .bold))
                                 .frame(width: 18, height: 28)
                                 .foregroundColor(hasNotes ? textMain : textMuted)
                                 .contentShape(Rectangle())
@@ -259,9 +259,9 @@ struct PlayerTransportDeckView: View {
                             Button(action: onToggle) {
                                 HStack(spacing: 3) {
                                     Image(systemName: isNotesDrawerOpen ? "text.bubble.fill" : "text.bubble")
-                                        .font(.system(size: 9.5, weight: .semibold))
+                                        .font(.system(size: 9, weight: .semibold))
                                     Text(hasNotes ? "\(notesCount)" : "NOTES")
-                                        .font(.system(size: 9.5, weight: .bold, design: .monospaced))
+                                        .font(.system(size: 9, weight: .bold, design: .monospaced))
                                 }
                                 .frame(height: 28)
                                 .padding(.horizontal, 4)
@@ -273,14 +273,14 @@ struct PlayerTransportDeckView: View {
                             .explain(hasNotes ? "Toggle Review Notes drawer (\(notesCount) notes)." : "Toggle Review Notes drawer.", binding: hoverExplanation)
                         } else {
                             Text(hasNotes ? "\(notesCount)" : "NOTE")
-                                .font(.system(size: 9.5, weight: .bold, design: .monospaced))
+                                .font(.system(size: 9, weight: .bold, design: .monospaced))
                                 .foregroundColor(hasNotes ? textMain : textMuted)
                                 .padding(.horizontal, 3)
                         }
                         
                         Button(action: { onJumpNextNote?() }) {
                             Image(systemName: "chevron.right.to.line")
-                                .font(.system(size: 9.5, weight: .bold))
+                                .font(.system(size: 9, weight: .bold))
                                 .frame(width: 18, height: 28)
                                 .foregroundColor(hasNotes ? textMain : textMuted)
                                 .contentShape(Rectangle())
@@ -304,7 +304,7 @@ struct PlayerTransportDeckView: View {
                     HStack(spacing: 1) {
                         Button(action: onJumpPrevGlitch) {
                             Image(systemName: "chevron.left.to.line")
-                                .font(.system(size: 9.5, weight: .bold))
+                                .font(.system(size: 9, weight: .bold))
                                 .frame(width: 18, height: 28)
                                 .foregroundColor(hasGlitches ? alertRed : textMuted)
                                 .contentShape(Rectangle())
@@ -317,13 +317,13 @@ struct PlayerTransportDeckView: View {
                         )
                         
                         Text("LINE")
-                            .font(.system(size: 9.5, weight: .bold, design: .monospaced))
+                            .font(.system(size: 9, weight: .bold, design: .monospaced))
                             .foregroundColor(hasGlitches ? alertRed : textMuted)
                             .padding(.horizontal, 3)
                         
                         Button(action: onJumpNextGlitch) {
                             Image(systemName: "chevron.right.to.line")
-                                .font(.system(size: 9.5, weight: .bold))
+                                .font(.system(size: 9, weight: .bold))
                                 .frame(width: 18, height: 28)
                                 .foregroundColor(hasGlitches ? alertRed : textMuted)
                                 .contentShape(Rectangle())
