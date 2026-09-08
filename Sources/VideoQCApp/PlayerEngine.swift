@@ -1102,7 +1102,11 @@ public final class PlayerEngine: ObservableObject {
         
         if slotB.url != nil && slotB.player.currentItem != nil {
             let timeB = slotB.player.currentTime()
-            if timeB.isValid && timeB.isNumeric {
+            if self.isLinked {
+                let offsetSecs = Double(slotB.slipOffsetFrames) / max(1.0, slotB.fps)
+                let targetSecsB = max(0.0, currSecs + offsetSecs)
+                self.slotB.currentTime = CMTime(seconds: targetSecsB, preferredTimescale: 60000)
+            } else if timeB.isValid && timeB.isNumeric {
                 self.slotB.currentTime = timeB
             }
             
@@ -1385,6 +1389,16 @@ public final class PlayerEngine: ObservableObject {
             let pausedTime = slotA.player.currentTime()
             if pausedTime.isValid && pausedTime.isNumeric {
                 updateCurrentTime(time: pausedTime)
+                
+                // Align Slot B player accurately to the master paused frame
+                if isLinked && slotB.url != nil && slotB.player.currentItem != nil {
+                    let masterSecs = CMTimeGetSeconds(pausedTime)
+                    let offsetSecs = Double(slotB.slipOffsetFrames) / max(1.0, slotB.fps)
+                    let targetSecsB = max(0.0, masterSecs + offsetSecs)
+                    let targetTimeB = CMTime(seconds: targetSecsB, preferredTimescale: 60000)
+                    self.slotB.currentTime = targetTimeB
+                    self.slotB.player.seek(to: targetTimeB, toleranceBefore: .zero, toleranceAfter: .zero)
+                }
             }
         }
     }
