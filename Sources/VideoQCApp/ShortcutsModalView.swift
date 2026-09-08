@@ -126,10 +126,10 @@ struct ShortcutsModalView: View {
             explanation: "Pauses playback and opens Frame.io-style timecoded note logger at current frame."
         ),
         ShortcutItem(
-            keys: ["⌘ + P"],
+            keys: ["⌃ + I"],
             icon: "info.circle.fill",
-            title: "FILE PROPERTIES",
-            explanation: "Opens Premiere Pro-style properties window with complete technical specs for the deliverable."
+            title: "MEDIA INFO",
+            explanation: "Opens Media Info inspector with complete audio, video, container, and track specs."
         )
     ]
     

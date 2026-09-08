@@ -36,11 +36,10 @@
    - **DO NOT** change these to `.resizeAspect`.
    - `canvasLayer.bounds` (`baseSize`) is already calculated to match the video's exact aspect ratio down to the pixel.
    - Using `.resizeAspect` introduces floating-point subpixel rounding discrepancies inside `AVPlayerLayer`, causing 1-pixel letterbox/pillarbox bars that clip or wash out edge lines.
-2. **`magnificationFilter = .nearest` and `minificationFilter = .nearest` (MANDATORY)**:
-   - ALL layers (`canvasLayer`, `playerLayerA`, `playerLayerB`, `stillFrameLayerA`, `stillFrameLayerB`) MUST ALWAYS use `.nearest` for BOTH magnification and minification filters.
-   - Using `.linear` causes bilinear downsampling and interpolation that blurs/averages 1-pixel edge glitch lines with neighboring pixels (e.g. turning a 1-pixel neon green line white) during 1x playback and timeline scrubbing at normal/fit scales.
-   - Dynamic switching to `.linear` is STRICTLY FORBIDDEN as it destroys single-pixel QC line detection.
-   - Using `.nearest` guarantees discrete square pixel fidelity where single-pixel glitches retain 100% color saturation and contrast across all zoom levels (Fit, 100%, 200%, 400%, 800%) both when playing, scrubbing, and paused.
+2. **Adaptive High-Fidelity & QC Pixel Texture Filtering**:
+   - **Normal Viewing & Fit Zoom (`zoomScale < 1.75` or `isFitZoom == true`)**: ALL presentation layers (`canvasLayer`, `playerLayerA/B`, `stillFrameLayerA/B`) use `.linear` for both `magnificationFilter` and `minificationFilter`. This eliminates jagged staircase aliasing on diagonal lines, graphics, text, and logos, matching QuickTime's anti-aliased GPU rendering quality at full 60/120 FPS performance.
+   - **Zoomed-In Pixel QC (`zoomScale >= 1.75`, e.g. 200%, 400%, 800%)**: `magnificationFilter` dynamically switches to `.nearest` so individual square pixels and single-pixel QC glitches remain discrete, square, and unblurred.
+   - **`minificationFilter = .linear`**: Downsampling always uses `.linear` to prevent nearest-neighbor pixel-dropping and staircasing when fitting deliverables into the window.
 3. **Even Physical Pixel Dimensions & Rational Aspect Ratios (`getRationalAspect`)**:
    - `canvasLayer.bounds` (`baseSize`) dimensions MUST be computed using rational aspect ratios (`getRationalAspect(width:height:)`) with an even multiplier step count (`evenSteps * num / scale`), guaranteeing an exact aspect ratio with 0.0 subpixel rounding distortion.
    - Snapping both width and height to even physical pixels guarantees that half-dimensions (`w/2`, `h/2`) are integers in display pixels, aligning all four edges squarely with the physical pixel grid without subpixel edge bleeding against the background.
@@ -87,7 +86,7 @@ Before committing any changes affecting `VideoViewportView.swift`, `PlayerEngine
 - [ ] Ensure `stillFrameLayerA` and `stillFrameLayerB` are present in `VideoViewportView`.
 - [ ] Verify `stillFrameLayerA` and `stillFrameLayerB` are the exclusive visual presentation layers across playback, scrubbing, and paused states, with `playerLayerA`/`playerLayerB` kept hidden.
 - [ ] Verify `videoGravity` and `contentsGravity` remain `.resize`.
-- [ ] Verify `magnificationFilter` and `minificationFilter` remain `.nearest` across all layers.
+- [ ] Verify adaptive texture filtering operates correctly: `.linear` at fit/normal zoom for QuickTime-grade anti-aliasing, and `.nearest` when zoomed in (>= 1.75x) for pixel QC.
 - [ ] Verify rational aspect ratio with even pixel step sizing is used for canvas dimensions and `canvasLayer.masksToBounds` remains `false`.
 - [ ] Verify `layer.setNeedsDisplay()` is NEVER called on `playerLayer` or `stillFrameLayer`.
 - [ ] Verify `playerLayer.filters` is NEVER assigned a `CIFilter` (live video filtering belongs in `AVVideoComposition`).
@@ -105,3 +104,24 @@ Before committing any changes affecting `VideoViewportView.swift`, `PlayerEngine
 > 2. **DO NOT push to remote repositories (`git push`)** unless the user explicitly requests a push.
 > 3. **DO NOT run packaging/release scripts (`BuildApp.sh`, `CreateDMG.sh`, etc.)** unless the user explicitly instructs to package or build the release.
 > 4. **Testing code changes**: ALWAYS use `swift build` (quick debug build) to verify compilation correctness and 0 errors/warnings. Never commit or package as part of routine verification.
+
+---
+
+## 7. Project Behavior Rules
+
+### Communication Style
+- Be extremely direct, concise, and technical.
+- Zero conversational filler: no greetings, apologies, meta-announcements ("Sure, I can help with that"), or concluding summaries.
+- Never flatter or validate bad architecture. Challenge assumptions if an approach is inefficient or over-engineered.
+
+### Token Economy & Output Control
+- Output ONLY relevant code diffs or targeted snippets. Never rewrite or reproduce entire files unless explicitly instructed.
+- Use unified diff format or standard `// ... existing code ...` anchors to indicate placement.
+- Do not repeat or parrot back the user's prompt or code before answering.
+- Write zero redundant code comments (no explaining obvious syntax like `// set count to 0`).
+- Explain root causes and architectural decisions in 1–2 dense sentences maximum.
+
+### Engineering Standards
+- Strict YAGNI: reject speculative abstractions, unnecessary wrappers, and unused dependencies.
+- Prefer idiomatic, native implementations over adding new libraries.
+- If a simpler, lower-complexity solution exists, implement that instead of patching over-engineered logic.

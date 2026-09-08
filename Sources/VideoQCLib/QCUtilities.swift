@@ -13,6 +13,14 @@ public enum QCUtilities: Sendable {
         supportedVideoExtensions.contains(url.pathExtension.lowercased())
     }
     
+    /// Robust URL equality comparison that handles path standardization and symlinks
+    @inline(__always)
+    public static func isSameURL(_ lhs: URL?, _ rhs: URL?) -> Bool {
+        guard let lhs = lhs, let rhs = rhs else { return lhs == nil && rhs == nil }
+        if lhs == rhs { return true }
+        return lhs.standardizedFileURL.path == rhs.standardizedFileURL.path
+    }
+    
     /// Greatest common divisor for rational aspect ratio calculations
     public static func gcd(_ a: Int, _ b: Int) -> Int {
         var x = abs(a)
@@ -53,4 +61,9 @@ public enum QCUtilities: Sendable {
         s = s.replacingOccurrences(of: "\r", with: " ")
         return s
     }
+}
+
+@inline(__always)
+public func isSameURL(_ lhs: URL?, _ rhs: URL?) -> Bool {
+    QCUtilities.isSameURL(lhs, rhs)
 }

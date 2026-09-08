@@ -160,15 +160,15 @@ public final class PlayerContainerNSView: NSView {
         canvasLayer.masksToBounds = false
         canvasLayer.borderWidth = 0
         canvasLayer.shadowOpacity = 0
-        canvasLayer.magnificationFilter = .nearest
-        canvasLayer.minificationFilter = .nearest
+        canvasLayer.magnificationFilter = .linear
+        canvasLayer.minificationFilter = .linear
         layer?.addSublayer(canvasLayer)
         
         // Slot B: Player Video Layer (active during comparison playback)
         playerLayerB.anchorPoint = CGPoint(x: 0.5, y: 0.5)
         playerLayerB.videoGravity = .resize
-        playerLayerB.magnificationFilter = .nearest
-        playerLayerB.minificationFilter = .nearest
+        playerLayerB.magnificationFilter = .linear
+        playerLayerB.minificationFilter = .linear
         playerLayerB.backgroundColor = NSColor.clear.cgColor
         playerLayerB.borderWidth = 0
         playerLayerB.shadowOpacity = 0
@@ -179,8 +179,8 @@ public final class PlayerContainerNSView: NSView {
         // Still Frame Layer B (active when paused for 100% pixel-perfect inspection)
         stillFrameLayerB.anchorPoint = CGPoint(x: 0.5, y: 0.5)
         stillFrameLayerB.contentsGravity = .resize
-        stillFrameLayerB.magnificationFilter = .nearest
-        stillFrameLayerB.minificationFilter = .nearest
+        stillFrameLayerB.magnificationFilter = .linear
+        stillFrameLayerB.minificationFilter = .linear
         stillFrameLayerB.backgroundColor = NSColor.clear.cgColor
         stillFrameLayerB.borderWidth = 0
         stillFrameLayerB.shadowOpacity = 0
@@ -191,8 +191,8 @@ public final class PlayerContainerNSView: NSView {
         // Slot A: Player Video Layer (Master playback)
         playerLayerA.anchorPoint = CGPoint(x: 0.5, y: 0.5)
         playerLayerA.videoGravity = .resize
-        playerLayerA.magnificationFilter = .nearest
-        playerLayerA.minificationFilter = .nearest
+        playerLayerA.magnificationFilter = .linear
+        playerLayerA.minificationFilter = .linear
         playerLayerA.backgroundColor = NSColor.clear.cgColor
         playerLayerA.borderWidth = 0
         playerLayerA.shadowOpacity = 0
@@ -202,8 +202,8 @@ public final class PlayerContainerNSView: NSView {
         // Still Frame Layer A (active when paused for 100% pixel-perfect inspection)
         stillFrameLayerA.anchorPoint = CGPoint(x: 0.5, y: 0.5)
         stillFrameLayerA.contentsGravity = .resize
-        stillFrameLayerA.magnificationFilter = .nearest
-        stillFrameLayerA.minificationFilter = .nearest
+        stillFrameLayerA.magnificationFilter = .linear
+        stillFrameLayerA.minificationFilter = .linear
         stillFrameLayerA.backgroundColor = NSColor.clear.cgColor
         stillFrameLayerA.borderWidth = 0
         stillFrameLayerA.shadowOpacity = 0
@@ -1157,41 +1157,48 @@ public final class PlayerContainerNSView: NSView {
     // MARK: - Dynamic Texture Filtering
     
     private func updateMagnificationFilters() {
-        guard let _ = engine else { return }
-        // ARCHITECTURAL MANDATE (AGENTS.md Section 2):
-        // All layers (canvasLayer, playerLayerA/B, stillFrameLayerA/B) MUST ALWAYS use .nearest
-        // for BOTH magnificationFilter and minificationFilter.
-        // Using .linear causes bilinear downsampling/interpolation that averages 1-pixel edge lines
-        // into adjacent pixels, turning green lines white during 1x playback and timeline scrubbing.
-        if canvasLayer.magnificationFilter != .nearest {
-            canvasLayer.magnificationFilter = .nearest
+        guard let engine = engine else { return }
+        // High-Fidelity & QC Pixel Filter Pipeline:
+        // - At normal / Fit zoom (< 175% or Fit to window): use .linear (bilinear) for both
+        //   minification and magnification. Matches QuickTime's anti-aliased rendering quality
+        //   with zero aliasing/jaggies on diagonal lines, graphics, text, and logos.
+        // - At zoomed-in inspection (>= 175% zoom, e.g. 200%, 400%, 800%): switch magnification
+        //   to .nearest so individual pixels and single-pixel glitches display as crisp, discrete
+        //   square blocks for precision line/pixel QC.
+        // - Minification ALWAYS uses .linear so downscaling never skips pixel columns or introduces staircasing.
+        let isZoomedInForQC = (!engine.isFitZoom && engine.zoomScale >= 1.75)
+        let magFilter: CALayerContentsFilter = isZoomedInForQC ? .nearest : .linear
+        let minFilter: CALayerContentsFilter = .linear
+        
+        if canvasLayer.magnificationFilter != magFilter {
+            canvasLayer.magnificationFilter = magFilter
         }
-        if canvasLayer.minificationFilter != .nearest {
-            canvasLayer.minificationFilter = .nearest
+        if canvasLayer.minificationFilter != minFilter {
+            canvasLayer.minificationFilter = minFilter
         }
-        if stillFrameLayerA.magnificationFilter != .nearest {
-            stillFrameLayerA.magnificationFilter = .nearest
+        if stillFrameLayerA.magnificationFilter != magFilter {
+            stillFrameLayerA.magnificationFilter = magFilter
         }
-        if stillFrameLayerA.minificationFilter != .nearest {
-            stillFrameLayerA.minificationFilter = .nearest
+        if stillFrameLayerA.minificationFilter != minFilter {
+            stillFrameLayerA.minificationFilter = minFilter
         }
-        if stillFrameLayerB.magnificationFilter != .nearest {
-            stillFrameLayerB.magnificationFilter = .nearest
+        if stillFrameLayerB.magnificationFilter != magFilter {
+            stillFrameLayerB.magnificationFilter = magFilter
         }
-        if stillFrameLayerB.minificationFilter != .nearest {
-            stillFrameLayerB.minificationFilter = .nearest
+        if stillFrameLayerB.minificationFilter != minFilter {
+            stillFrameLayerB.minificationFilter = minFilter
         }
-        if playerLayerA.magnificationFilter != .nearest {
-            playerLayerA.magnificationFilter = .nearest
+        if playerLayerA.magnificationFilter != magFilter {
+            playerLayerA.magnificationFilter = magFilter
         }
-        if playerLayerA.minificationFilter != .nearest {
-            playerLayerA.minificationFilter = .nearest
+        if playerLayerA.minificationFilter != minFilter {
+            playerLayerA.minificationFilter = minFilter
         }
-        if playerLayerB.magnificationFilter != .nearest {
-            playerLayerB.magnificationFilter = .nearest
+        if playerLayerB.magnificationFilter != magFilter {
+            playerLayerB.magnificationFilter = magFilter
         }
-        if playerLayerB.minificationFilter != .nearest {
-            playerLayerB.minificationFilter = .nearest
+        if playerLayerB.minificationFilter != minFilter {
+            playerLayerB.minificationFilter = minFilter
         }
     }
     

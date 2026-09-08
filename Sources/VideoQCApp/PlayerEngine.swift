@@ -1,4 +1,5 @@
 import Foundation
+import os
 @preconcurrency import AVFoundation
 import Combine
 import CoreMedia
@@ -302,6 +303,7 @@ public final class PlayerEngine: ObservableObject {
     // MARK: - Backwards Compatible Single-Player Properties (Reflects Slot A / Master)
     
     @Published public var activeURL: URL? = nil
+    @Published public var slotBURL: URL? = nil
     @Published public var activeFileName: String = ""
     @Published public var activeResolution: String = ""
     @Published public var activeFps: Double = 25.0
@@ -491,9 +493,10 @@ public final class PlayerEngine: ObservableObject {
     }
     
     private func loadVideoIntoSlotA(url: URL, initialSeekFrame: Int? = nil, autoplay: Bool = false) {
-        self.activeMarkers = markersMap[url] ?? []
+        let stdURL = url.standardizedFileURL
+        self.activeMarkers = markersMap[stdURL] ?? markersMap[url] ?? []
         
-        if slotA.url == url {
+        if let currentA = slotA.url, currentA.standardizedFileURL.path == stdURL.path {
             if let frame = initialSeekFrame {
                 seek(toFrame: frame)
             } else if autoplay {
@@ -509,10 +512,11 @@ public final class PlayerEngine: ObservableObject {
         self.pendingAutoplayB = false
         pause()
         
-        slotA.url = url
-        slotA.fileName = url.lastPathComponent
-        self.activeURL = url
-        self.activeFileName = url.lastPathComponent
+        self.objectWillChange.send()
+        slotA.url = stdURL
+        slotA.fileName = stdURL.lastPathComponent
+        self.activeURL = stdURL
+        self.activeFileName = stdURL.lastPathComponent
         self.currentTime = .zero
         self.currentProgress = 0.0
         self.currentTimecode = "00:00:00:00"
@@ -571,7 +575,8 @@ public final class PlayerEngine: ObservableObject {
     }
     
     private func loadVideoIntoSlotB(url: URL, autoplay: Bool = false) {
-        if slotB.url == url {
+        let stdURL = url.standardizedFileURL
+        if let currentB = slotB.url, currentB.standardizedFileURL.path == stdURL.path {
             if autoplay {
                 seek(toTime: .zero) { [weak self] in
                     self?.play()
@@ -587,13 +592,15 @@ public final class PlayerEngine: ObservableObject {
         isSeekingB = false
         pendingSeekTimeB = nil
         
-        slotB.url = url
-        slotB.fileName = url.lastPathComponent
+        self.objectWillChange.send()
+        slotB.url = stdURL
+        slotB.fileName = stdURL.lastPathComponent
         slotB.slipOffsetFrames = 0
+        self.slotBURL = stdURL
         
-        let asset = AVURLAsset(url: url)
+        let asset = AVURLAsset(url: stdURL)
         Task { [slotB] in
-            await slotB.frameExtractor.setURL(url)
+            await slotB.frameExtractor.setURL(stdURL)
         }
         
         let item = AVPlayerItem(asset: asset)
@@ -705,6 +712,7 @@ public final class PlayerEngine: ObservableObject {
                 }
                 self.enforceCompatibleCompareMode()
             } else {
+                self.objectWillChange.send()
                 self.slotB.duration = dur
                 self.slotB.fps = detectedFps
                 self.slotB.resolution = resStr
@@ -844,6 +852,7 @@ public final class PlayerEngine: ObservableObject {
                 }
         }
         
+        self.objectWillChange.send()
         slotB.url = tempURL_A
         slotB.fileName = tempFileName_A
         slotB.resolution = tempRes_A
@@ -888,6 +897,7 @@ public final class PlayerEngine: ObservableObject {
         }
         
         self.activeURL = slotA.url
+        self.slotBURL = slotB.url
         self.activeFileName = slotA.fileName
         self.activeResolution = slotA.resolution
         self.activeFps = slotA.fps
@@ -918,6 +928,7 @@ public final class PlayerEngine: ObservableObject {
     }
     
     public func clearSlotB() {
+        self.objectWillChange.send()
         slotB.player.pause()
         slotB.detachVideoOutput()
         slotB.player.replaceCurrentItem(with: nil)
@@ -926,6 +937,7 @@ public final class PlayerEngine: ObservableObject {
         itemPresentationSizeCancellableB?.cancel()
         itemPresentationSizeCancellableB = nil
         slotB.url = nil
+        self.slotBURL = nil
         slotB.fileName = ""
         slotB.resolution = ""
         slotB.codec = ""
@@ -945,6 +957,7 @@ public final class PlayerEngine: ObservableObject {
     }
     
     public func clearSlotA() {
+        self.objectWillChange.send()
         slotA.player.pause()
         slotA.detachVideoOutput()
         slotA.player.replaceCurrentItem(with: nil)
@@ -954,6 +967,7 @@ public final class PlayerEngine: ObservableObject {
         itemPresentationSizeCancellable = nil
         pendingAutoplay = false
         slotA.url = nil
+        self.activeURL = nil
         slotA.fileName = ""
         slotA.resolution = ""
         slotA.codec = ""
@@ -1644,11 +1658,11 @@ public final class PlayerEngine: ObservableObject {
         let targetSecsB = hasSlotB ? max(0.0, CMTimeGetSeconds(time) + offsetSeconds) : 0.0
         let targetTimeB = hasSlotB ? CMTime(seconds: targetSecsB, preferredTimescale: 60000) : .zero
         
-        var completedA = false
-        var completedB = !hasSlotB
+        let lock = OSAllocatedUnfairLock(initialState: (completedA: false, completedB: !hasSlotB))
         
         let checkParallelDone = { @MainActor in
-            guard completedA && completedB else { return }
+            let (doneA, doneB) = lock.withLock { ($0.completedA, $0.completedB) }
+            guard doneA && doneB else { return }
             self.isSeeking = false
             
             // When scrubbing, update timecode & frame index ONLY when a decoded frame lands
@@ -1693,7 +1707,7 @@ public final class PlayerEngine: ObservableObject {
             }
             let runSlotA = { @MainActor in
                 guard let self = self else { return }
-                completedA = true
+                lock.withLock { $0.completedA = true }
                 self.onFrameDecoded?(.slotA, time)
                 checkParallelDone()
             }
@@ -1709,7 +1723,7 @@ public final class PlayerEngine: ObservableObject {
             slotB.player.seek(to: targetTimeB, toleranceBefore: tol, toleranceAfter: tol) { [weak self] _ in
                 let runSlotB = { @MainActor in
                     guard let self = self else { return }
-                    completedB = true
+                    lock.withLock { $0.completedB = true }
                     self.onFrameDecoded?(.slotB, targetTimeB)
                     checkParallelDone()
                 }

@@ -39,8 +39,6 @@ struct ContentView: View {
     @State var playerCollapsedFolderIDs: Set<String> = []
     @State var fileTagsMap: [URL: FinderTagColor] = [:]
     @State var showTagPickerPopover: Bool = false
-    @State var hoveredQueueClip: (name: String, location: CGPoint)? = nil
-    @State var queueHoverTask: Task<Void, Never>? = nil
     @State var queueScrollTarget: URL? = nil
     @State private var hasSetupKeyboardMonitor: Bool = false
     @State private var eventMonitors = EventMonitorCoordinator()
@@ -1562,6 +1560,7 @@ struct ContentView: View {
             
             let isShift = event.modifierFlags.contains(.shift)
             let isCommand = event.modifierFlags.contains(.command)
+            let isControl = event.modifierFlags.contains(.control)
             
             // J K L Shuttle
             if let chars = event.charactersIgnoringModifiers?.lowercased() {
@@ -1620,7 +1619,7 @@ struct ContentView: View {
                 } else if chars == "?" || (isCommand && chars == "/") {
                     self.showShortcutsModal.toggle()
                     return nil
-                } else if chars == "p" && isCommand {
+                } else if (chars == "i" && (isControl || isCommand)) || (chars == "p" && isCommand) {
                     self.togglePropertiesModalForActiveOrSelected()
                     return nil
                 }
@@ -1671,7 +1670,7 @@ struct ContentView: View {
         guard !files.isEmpty else { return }
         let target = playerEngine.activeTarget
         let currentURL = (target == .slotB && playerEngine.slotB.url != nil) ? playerEngine.slotB.url : playerEngine.activeURL
-        if let currentURL = currentURL, let idx = files.firstIndex(of: currentURL) {
+        if let currentURL = currentURL, let idx = files.firstIndex(where: { isSameURL($0, currentURL) }) {
             let prevIdx = max(0, idx - 1)
             let selectedURL = files[prevIdx]
             revealPlayerFolderContaining(url: selectedURL)
@@ -1690,7 +1689,7 @@ struct ContentView: View {
         guard !files.isEmpty else { return }
         let target = playerEngine.activeTarget
         let currentURL = (target == .slotB && playerEngine.slotB.url != nil) ? playerEngine.slotB.url : playerEngine.activeURL
-        if let currentURL = currentURL, let idx = files.firstIndex(of: currentURL) {
+        if let currentURL = currentURL, let idx = files.firstIndex(where: { isSameURL($0, currentURL) }) {
             let nextIdx = min(files.count - 1, idx + 1)
             let selectedURL = files[nextIdx]
             revealPlayerFolderContaining(url: selectedURL)
@@ -1876,36 +1875,6 @@ struct ContentView: View {
         let targetURL = (playerEngine.activeTarget == .slotB && playerEngine.slotB.url != nil) ? playerEngine.slotB.url : (playerEngine.activeURL ?? playerEngine.slotA.url ?? filteredPlayerFiles.first)
         if let url = targetURL {
             openProperties(for: url)
-        }
-    }
-    
-    // MARK: - Queue Hover Tooltip with Dwell Delay
-    
-    func handleQueueHover(name: String, location: CGPoint) {
-        if hoveredQueueClip?.name == name {
-            // Already visible for this item: update position smoothly without re-triggering delay
-            hoveredQueueClip = (name: name, location: location)
-            return
-        }
-        
-        // New item: cancel pending dwell timer and wait for dwell threshold before popping up
-        queueHoverTask?.cancel()
-        queueHoverTask = Task { @MainActor in
-            try? await Task.sleep(nanoseconds: 350_000_000) // ~0.35s dwell time
-            guard !Task.isCancelled else { return }
-            withAnimation(.easeInOut(duration: 0.12)) {
-                self.hoveredQueueClip = (name: name, location: location)
-            }
-        }
-    }
-    
-    func handleQueueHoverEnded(name: String) {
-        queueHoverTask?.cancel()
-        queueHoverTask = nil
-        if hoveredQueueClip?.name == name {
-            withAnimation(.easeInOut(duration: 0.1)) {
-                self.hoveredQueueClip = nil
-            }
         }
     }
     
