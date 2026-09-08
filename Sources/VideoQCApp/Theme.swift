@@ -6,7 +6,6 @@ enum AppTab: Int, CaseIterable, Identifiable {
     case player = 0
     case specs = 1
     case lineFinder = 2
-    case batchRenamer = 3
     
     // Compatibility aliases
     static let deliverables = AppTab.specs
@@ -18,7 +17,6 @@ enum AppTab: Int, CaseIterable, Identifiable {
         case .player: return "01 // PLAYER"
         case .specs: return "02 // SPECS"
         case .lineFinder: return "03 // LINE FINDER"
-        case .batchRenamer: return "04 // BATCH RENAMER"
         }
     }
 }
@@ -173,37 +171,49 @@ struct StudioToggleStyle: ToggleStyle {
     }
 }
 
+// MARK: - Centralized Hover Explanation Coordinator
+
+@MainActor
+public final class HoverExplanationCoordinator: ObservableObject {
+    public static let shared = HoverExplanationCoordinator()
+    @Published public var text: String = ""
+    
+    public init() {}
+    
+    public func setExplanation(_ str: String) {
+        if text != str {
+            text = str
+        }
+    }
+    
+    public func clearExplanation(_ str: String) {
+        if text == str {
+            text = ""
+        }
+    }
+}
+
 // MARK: - Interactive Element Explanation Modifier
 
 struct StudioExplanationModifier: ViewModifier {
     let explanation: String
-    @Binding var binding: String
     
     func body(content: Content) -> some View {
         content
             .help(explanation)
             .onHover { isHovered in
                 if isHovered {
-                    binding = explanation
-                } else if binding == explanation {
-                    binding = ""
+                    HoverExplanationCoordinator.shared.setExplanation(explanation)
+                } else {
+                    HoverExplanationCoordinator.shared.clearExplanation(explanation)
                 }
             }
     }
 }
 
 extension View {
-    func explain(_ text: String, binding: Binding<String>) -> some View {
-        self.modifier(StudioExplanationModifier(explanation: text, binding: binding))
-    }
-    
-    @ViewBuilder
-    func explain(_ text: String, binding: Binding<String>?) -> some View {
-        if let binding = binding {
-            self.modifier(StudioExplanationModifier(explanation: text, binding: binding))
-        } else {
-            self.help(text)
-        }
+    func explain(_ text: String, binding: Binding<String>? = nil) -> some View {
+        self.modifier(StudioExplanationModifier(explanation: text))
     }
     
     /// Applies the rounded studio box background and border using master corner radius

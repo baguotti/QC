@@ -63,7 +63,6 @@ struct UserGuideView: View {
                     guideTabButton(title: "01 // PLAYER", index: 0)
                     guideTabButton(title: "02 // SPECS", index: 1)
                     guideTabButton(title: "03 // LINE FINDER", index: 2)
-                    guideTabButton(title: "04 // BATCH RENAMER", index: 3)
                     Spacer()
                 }
                 .padding(.horizontal, 14)
@@ -78,8 +77,7 @@ struct UserGuideView: View {
                         switch selectedGuideTab {
                         case 0: playerGuide
                         case 1: deliverablesGuide
-                        case 2: lineScannerGuide
-                        default: batchRenamerGuide
+                        default: lineScannerGuide
                         }
                     }
                     .padding(18)
@@ -207,26 +205,7 @@ struct UserGuideView: View {
         }
     }
     
-    // MARK: - Tab 4 Guide // BATCH RENAMER
-    
-    private var batchRenamerGuide: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            guideRow(name: "RENAMING MODES", desc: "Template (token-based), Find & Replace (text match), or Prefix / Suffix.")
-            guideRow(name: "PROJECT / ASSET NAME {NAME}", desc: "Custom text to replace the {NAME} token. Defaults to original filename if blank.")
-            guideRow(name: "TOKENS: {NAME}, {ORIGINAL}", desc: "{NAME} = Custom field value. {ORIGINAL} = Original filename without extension.")
-            guideRow(name: "TOKENS: {DUR}, {RATIO}, {TAG1-3}", desc: "{DUR} = Duration in seconds. {RATIO} = Ratio tag (16x9, 9x16). {TAG1}, {TAG2}, {TAG3} = Custom tags (empty by default, automatically added when filled).")
-            guideRow(name: "TOKENS: {RES}, {DIMS}, {FPS}", desc: "{RES} = 1080p/4K. {DIMS} = 1920x1080. {FPS} = Frame rate (e.g. 25fps).")
-            guideRow(name: "TOKENS: {CODEC}, {AUDIO}", desc: "{CODEC} = Video codec (e.g. ProRes422HQ). {AUDIO} = Audio channels (Stereo, 5.1).")
-            guideRow(name: "TOKENS: {INDEX}, {DATE}", desc: "{INDEX} = Sequential counter (01, 02). {DATE} = Current date (YYYYMMDD).")
-            guideRow(name: "CASING", desc: "Preserve, UPPERCASE, lowercase, or Capitalize.")
-            guideRow(name: "INDEX SETTINGS", desc: "Sets start number and digit padding (e.g. 01 vs 001).")
-            guideRow(name: "SELECT ALL / DESELECT ALL", desc: "Toggles selection for all files.")
-            guideRow(name: "ROW CLICK / CHECKBOXES", desc: "Click any row to include or exclude a file. Excluded files are not renamed on disk.")
-            guideRow(name: "STATUS BADGES", desc: "PENDING (ready), UNCHANGED (same name), EXCLUDED (skipped), COLLISION (duplicate name), OVERWRITE (file exists on disk).")
-            guideRow(name: "[ RENAME SELECTED FILE(S) ]", desc: "Renames selected files on disk.")
-            guideRow(name: "[ ⎌ UNDO / REVERT ]", desc: "Reverses the last rename operation on disk.")
-        }
-    }
+
     
     private func guideRow(name: String, desc: String) -> some View {
         VStack(alignment: .leading, spacing: 3) {

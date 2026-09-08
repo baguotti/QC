@@ -129,8 +129,8 @@ public actor QCNotesManager {
         lines.append("Marker Name,Description,In,Out,Duration,Marker Type")
         
         for note in sorted {
-            let safeAuthor = escapeCSV(note.author)
-            let safeText = escapeCSV(note.text)
+            let safeAuthor = QCUtilities.escapeCSV(note.author)
+            let safeText = QCUtilities.escapeCSV(note.text)
             let tc = note.timecode
             lines.append("\(safeAuthor),\(safeText),\(tc),\(tc),00:00:00:00,Comment")
         }
@@ -155,13 +155,5 @@ public actor QCNotesManager {
             lines.append("")
         }
         return lines.joined(separator: "\n")
-    }
-    
-    private nonisolated static func escapeCSV(_ str: String) -> String {
-        if str.contains(",") || str.contains("\"") || str.contains("\n") {
-            let escaped = str.replacingOccurrences(of: "\"", with: "\"\"")
-            return "\"\(escaped)\""
-        }
-        return str
     }
 }

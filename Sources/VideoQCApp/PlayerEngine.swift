@@ -177,24 +177,13 @@ public final class PlayerSlot: ObservableObject {
         if abs(aspect - 2.35) < 0.03 { return "2.35:1 (\(w)x\(h))" }
         if abs(aspect - 1.85) < 0.03 { return "1.85:1 (\(w)x\(h))" }
         
-        let g = gcd(w, h)
+        let g = QCUtilities.gcd(w, h)
         let simpW = w / g
         let simpH = h / g
         if simpW <= 20 && simpH <= 20 {
             return "\(simpW):\(simpH) (\(w)x\(h))"
         }
         return String(format: "%.2f:1 (%dx%d)", aspect, w, h)
-    }
-    
-    private func gcd(_ a: Int, _ b: Int) -> Int {
-        var x = abs(a)
-        var y = abs(b)
-        while y != 0 {
-            let t = y
-            y = x % y
-            x = t
-        }
-        return max(1, x)
     }
     
     public init(id: SlotTarget) {
@@ -361,44 +350,21 @@ public final class PlayerEngine: ObservableObject {
         }
         let ev = self.exposureEV
         let asset = item.asset
-        if #available(macOS 15.0, *) {
-            AVVideoComposition.videoComposition(with: asset, applyingCIFiltersWithHandler: { request in
-                let source = request.sourceImage
-                guard let filter = CIFilter(name: "CIExposureAdjust") else {
-                    request.finish(with: source, context: nil)
-                    return
-                }
-                filter.setValue(source, forKey: kCIInputImageKey)
-                filter.setValue(ev, forKey: kCIInputEVKey)
-                if let output = filter.outputImage {
-                    request.finish(with: output, context: nil)
-                } else {
-                    request.finish(with: source, context: nil)
-                }
-            }, completionHandler: { [weak self, weak item, weak slot] comp, _ in
-                let safeComp = comp
-                DispatchQueue.main.async {
-                    guard let _ = self, let comp = safeComp, let item = item, let slot = slot, item === slot.player.currentItem else { return }
-                    item.videoComposition = comp
-                }
-            })
-        } else {
-            let comp = AVVideoComposition(asset: asset, applyingCIFiltersWithHandler: { request in
-                let source = request.sourceImage
-                guard let filter = CIFilter(name: "CIExposureAdjust") else {
-                    request.finish(with: source, context: nil)
-                    return
-                }
-                filter.setValue(source, forKey: kCIInputImageKey)
-                filter.setValue(ev, forKey: kCIInputEVKey)
-                if let output = filter.outputImage {
-                    request.finish(with: output, context: nil)
-                } else {
-                    request.finish(with: source, context: nil)
-                }
-            })
-            item.videoComposition = comp
-        }
+        let comp = AVVideoComposition(asset: asset, applyingCIFiltersWithHandler: { request in
+            let source = request.sourceImage
+            guard let filter = CIFilter(name: "CIExposureAdjust") else {
+                request.finish(with: source, context: nil)
+                return
+            }
+            filter.setValue(source, forKey: kCIInputImageKey)
+            filter.setValue(ev, forKey: kCIInputEVKey)
+            if let output = filter.outputImage {
+                request.finish(with: output, context: nil)
+            } else {
+                request.finish(with: source, context: nil)
+            }
+        })
+        item.videoComposition = comp
     }
     
     // Glitch Markers from Line Scanner
@@ -738,13 +704,7 @@ public final class PlayerEngine: ObservableObject {
     }
     
     private func fourCCToString(_ fourCC: FourCharCode) -> String {
-        let chars: [Character] = [
-            Character(UnicodeScalar((fourCC >> 24) & 0xff) ?? " "),
-            Character(UnicodeScalar((fourCC >> 16) & 0xff) ?? " "),
-            Character(UnicodeScalar((fourCC >> 8) & 0xff) ?? " "),
-            Character(UnicodeScalar(fourCC & 0xff) ?? " ")
-        ]
-        let raw = String(chars).trimmingCharacters(in: .whitespacesAndNewlines)
+        let raw = QCUtilities.fourCCToString(fourCC)
         switch raw.lowercased() {
         case "ap4h": return "ProRes 4444"
         case "apch": return "ProRes 422HQ"

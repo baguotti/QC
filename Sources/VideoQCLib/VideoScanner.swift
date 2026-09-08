@@ -53,7 +53,6 @@ public actor VideoScanner {
     /// Finds all video files within a given directory
     public static func findVideoFiles(in directoryURL: URL) -> [URL] {
         let fileManager = FileManager.default
-        let supportedExtensions = ["mp4", "mov", "m4v", "mkv", "avi", "prores"]
         
         guard let enumerator = fileManager.enumerator(
             at: directoryURL,
@@ -65,8 +64,7 @@ public actor VideoScanner {
         
         var videoURLs: [URL] = []
         for case let fileURL as URL in enumerator {
-            let ext = fileURL.pathExtension.lowercased()
-            if supportedExtensions.contains(ext) {
+            if QCUtilities.isSupportedVideo(url: fileURL) {
                 videoURLs.append(fileURL)
             }
         }
@@ -216,6 +214,7 @@ public actor VideoScanner {
         var errorFrames: [FrameError] = []
         var frameCount = 0
         let startTime = CFAbsoluteTimeGetCurrent()
+        var lastProgressDispatchTime: CFAbsoluteTime = 0.0
         
         while reader.status == .reading && !isCancelled {
             var shouldBreak = false
@@ -241,9 +240,11 @@ public actor VideoScanner {
             
             frameCount += 1
             
-            // Send periodic progress update (every 10 frames or at key intervals)
-            if frameCount % 15 == 0 || frameCount == totalEstimatedFrames {
-                let elapsed = CFAbsoluteTimeGetCurrent() - startTime
+            // Send periodic progress update (throttled to ~30 fps or at completion)
+            let now = CFAbsoluteTimeGetCurrent()
+            if (now - lastProgressDispatchTime >= 0.033 && frameCount % 15 == 0) || frameCount == totalEstimatedFrames {
+                lastProgressDispatchTime = now
+                let elapsed = now - startTime
                 let currentFps = elapsed > 0 ? Double(frameCount) / elapsed : fps
                 
                 let progress = ScanProgress(

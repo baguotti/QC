@@ -46,11 +46,16 @@ public struct FileSystemTreeNode: Identifiable, Hashable, Sendable {
 @MainActor
 public struct FileSystemTreeBuilder {
     
-    // Memoization cache to avoid 60Hz tree rebuilding during playback and UI interactions
-    private static var cachedRootURL: URL? = nil
-    private static var cachedFiles: [URL] = []
-    private static var cachedTree: [FileSystemTreeNode] = []
-    private static var cachedOrderedURLs: [URL] = []
+    private static let maxCacheEntries = 8
+    
+    // Multi-entry cache to avoid thrashing across different tabs (Player, Deliverables, Scanner)
+    private struct TreeCacheEntry {
+        let rootURL: URL?
+        let files: [URL]
+        let tree: [FileSystemTreeNode]
+        let orderedURLs: [URL]
+    }
+    private static var treeCache: [TreeCacheEntry] = []
     
     /// Builds a hierarchical tree of nodes representing the folder and file structure.
     /// If rootURL is provided, hierarchy is relative to rootURL.
@@ -58,8 +63,8 @@ public struct FileSystemTreeBuilder {
     public static func buildTree(rootURL: URL?, files: [URL]) -> [FileSystemTreeNode] {
         guard !files.isEmpty else { return [] }
         
-        if rootURL == cachedRootURL && files == cachedFiles {
-            return cachedTree
+        if let match = treeCache.first(where: { $0.rootURL == rootURL && $0.files == files }) {
+            return match.tree
         }
         
         let baseDirectory: URL
@@ -182,34 +187,43 @@ public struct FileSystemTreeBuilder {
             return items
         }
         let result = convert(dir: rootNode, depth: 0)
-        cachedRootURL = rootURL
-        cachedFiles = files
-        cachedTree = result
-        cachedOrderedURLs.removeAll()
+        let ordered = extractOrderedURLs(from: result)
+        if treeCache.count >= maxCacheEntries {
+            treeCache.removeFirst()
+        }
+        treeCache.append(TreeCacheEntry(rootURL: rootURL, files: files, tree: result, orderedURLs: ordered))
         return result
     }
     
-    private static var cachedHasSubfoldersNodes: [FileSystemTreeNode] = []
-    private static var cachedHasSubfoldersResult: Bool = false
+    private struct HasSubfoldersCacheEntry {
+        let nodes: [FileSystemTreeNode]
+        let result: Bool
+    }
+    private static var hasSubfoldersCache: [HasSubfoldersCacheEntry] = []
 
     /// Checks if any directory nodes exist in the tree.
     public static func hasSubfolders(in nodes: [FileSystemTreeNode]) -> Bool {
-        if nodes == cachedHasSubfoldersNodes {
-            return cachedHasSubfoldersResult
+        if let match = hasSubfoldersCache.first(where: { $0.nodes == nodes }) {
+            return match.result
         }
         let result = nodes.contains(where: { $0.isDirectory })
-        cachedHasSubfoldersNodes = nodes
-        cachedHasSubfoldersResult = result
+        if hasSubfoldersCache.count >= maxCacheEntries {
+            hasSubfoldersCache.removeFirst()
+        }
+        hasSubfoldersCache.append(HasSubfoldersCacheEntry(nodes: nodes, result: result))
         return result
     }
     
-    // Memoization cache for flatten to avoid rebuilding on every view evaluation (e.g. 120 FPS timeline scrubbing)
-    private static var cachedFlattenNodes: [FileSystemTreeNode] = []
-    private static var cachedCollapsedIDs: Set<String> = []
-    private static var cachedHiddenIDs: Set<String> = []
-    private static var cachedHideAllFolders: Bool = false
-    private static var cachedFilterText: String = ""
-    private static var cachedFlattenedResult: [FileSystemTreeNode] = []
+    // Multi-entry memoization cache for flatten to avoid rebuilding on every view evaluation (e.g. 120 FPS timeline scrubbing)
+    private struct FlattenCacheEntry {
+        let nodes: [FileSystemTreeNode]
+        let collapsedIDs: Set<String>
+        let hiddenIDs: Set<String>
+        let hideAllFolders: Bool
+        let filterText: String
+        let result: [FileSystemTreeNode]
+    }
+    private static var flattenCache: [FlattenCacheEntry] = []
     
     /// Flattens a tree into a linear list of visible nodes respecting collapsed folder IDs, hidden folder IDs, global folder visibility, and search filters.
     public static func flatten(
@@ -219,12 +233,14 @@ public struct FileSystemTreeBuilder {
         hideAllFolders: Bool = false,
         filterText: String = ""
     ) -> [FileSystemTreeNode] {
-        if nodes == cachedFlattenNodes &&
-           collapsedIDs == cachedCollapsedIDs &&
-           hiddenIDs == cachedHiddenIDs &&
-           hideAllFolders == cachedHideAllFolders &&
-           filterText == cachedFilterText {
-            return cachedFlattenedResult
+        if let match = flattenCache.first(where: {
+            $0.hideAllFolders == hideAllFolders &&
+            $0.filterText == filterText &&
+            $0.collapsedIDs == collapsedIDs &&
+            $0.hiddenIDs == hiddenIDs &&
+            $0.nodes == nodes
+        }) {
+            return match.result
         }
         
         let cleanFilter = filterText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
@@ -277,21 +293,29 @@ public struct FileSystemTreeBuilder {
         
         traverse(nodes)
         
-        cachedFlattenNodes = nodes
-        cachedCollapsedIDs = collapsedIDs
-        cachedHiddenIDs = hiddenIDs
-        cachedHideAllFolders = hideAllFolders
-        cachedFilterText = filterText
-        cachedFlattenedResult = result
+        if flattenCache.count >= maxCacheEntries {
+            flattenCache.removeFirst()
+        }
+        flattenCache.append(FlattenCacheEntry(
+            nodes: nodes,
+            collapsedIDs: collapsedIDs,
+            hiddenIDs: hiddenIDs,
+            hideAllFolders: hideAllFolders,
+            filterText: filterText,
+            result: result
+        ))
         return result
     }
     
     /// Extracts all video URLs in depth-first traversal order
     public static func orderedVideoURLs(from nodes: [FileSystemTreeNode]) -> [URL] {
-        if nodes == cachedTree && !cachedOrderedURLs.isEmpty {
-            return cachedOrderedURLs
+        if let match = treeCache.first(where: { $0.tree == nodes }) {
+            return match.orderedURLs
         }
-        
+        return extractOrderedURLs(from: nodes)
+    }
+    
+    private static func extractOrderedURLs(from nodes: [FileSystemTreeNode]) -> [URL] {
         var urls: [URL] = []
         func collect(_ list: [FileSystemTreeNode]) {
             for node in list {
@@ -303,10 +327,6 @@ public struct FileSystemTreeBuilder {
             }
         }
         collect(nodes)
-        
-        if nodes == cachedTree {
-            cachedOrderedURLs = urls
-        }
         return urls
     }
     

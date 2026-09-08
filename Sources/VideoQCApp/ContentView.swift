@@ -66,25 +66,6 @@ struct ContentView: View {
     @State var generatedCSVURL: URL? = nil
     @State var scannerActor: VideoScanner? = nil
     
-    // MARK: - Tab 4: Batch Renamer State
-    @State var renamerCollapsedFolderIDs: Set<String> = []
-    @State var renameMode: RenameMode = .template
-    @State var customNameText: String = ""
-    @State var templateText: String = "{NAME}_{DUR}sec_{RATIO}"
-    @State var findText: String = ""
-    @State var replaceText: String = ""
-    @State var prefixText: String = ""
-    @State var suffixText: String = ""
-    @State var customTag1: String = ""
-    @State var customTag2: String = ""
-    @State var customTag3: String = ""
-    @State var textCase: TextCaseOption = .uppercase
-    @State var indexStart: Int = 1
-    @State var indexPadding: Int = 2
-    @State var lastTransaction: RenameTransaction? = nil
-    @State var selectedAssetIDs: Set<UUID> = []
-    @State var directoryFilesCache: [URL: Set<String>] = [:]
-    
     // MARK: - Folder Grouping State
     @State var hideAllFolders: Bool = false
     @State var hiddenFolderIDs: Set<String> = []
@@ -121,27 +102,6 @@ struct ContentView: View {
     @State var fullscreenMode: FullscreenMode = .none
     var isFullscreenVideo: Bool { fullscreenMode != .none }
     @State var didToggleWindowForFullscreen: Bool = false
-    
-    var renameItems: [RenameItem] {
-        RenamerEngine.generateProposedItems(
-            assets: deliverableAssets,
-            mode: renameMode,
-            customName: customNameText,
-            templateString: templateText,
-            findString: findText,
-            replaceString: replaceText,
-            prefixString: prefixText,
-            suffixString: suffixText,
-            customTag: customTag1,
-            customTag2: customTag2,
-            customTag3: customTag3,
-            caseOption: textCase,
-            indexStart: indexStart,
-            indexPadding: indexPadding,
-            selectedAssetIDs: selectedAssetIDs,
-            existingFilesByDir: directoryFilesCache
-        )
-    }
     
     var isTargetBlack: Bool {
         guard let rgb = RGBColor(hex: hexCode) else { return false }
@@ -336,8 +296,6 @@ struct ContentView: View {
                 deliverablesTabView
             case .lineFinder:
                 lineScannerTabView
-            case .batchRenamer:
-                batchRenamerTabView
             }
             
             // 4. Bottom Contextual Explanation Bar
@@ -345,28 +303,7 @@ struct ContentView: View {
                 .fill(borderLine)
                 .frame(height: 1)
             
-            HStack(spacing: 8) {
-                HStack(spacing: 5) {
-                    Image(systemName: "cursorarrow.rays")
-                        .font(.system(size: 9))
-                        .foregroundColor(hoverExplanation.isEmpty ? textMuted : textMain)
-                    Text("INFO //")
-                        .font(.system(size: 9, weight: .black, design: .monospaced))
-                        .foregroundColor(hoverExplanation.isEmpty ? textMuted : textMain)
-                }
-                
-                Text(hoverExplanation.isEmpty ? "Hover over any button, field, or control for function details." : hoverExplanation)
-                    .font(.system(size: 10, weight: hoverExplanation.isEmpty ? .regular : .semibold, design: .monospaced))
-                    .foregroundColor(hoverExplanation.isEmpty ? textMuted : textMain)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-                
-                Spacer()
-                
-                Text("v\(AppVersionInfo.version)")
-                    .font(.system(size: 9, weight: .bold, design: .monospaced))
-                    .foregroundColor(textMuted)
-            }
+            StudioStatusBarView(textMuted: textMuted, textMain: textMain)
             .padding(.horizontal, 16)
             .padding(.vertical, 7)
             .background(bgPanel)
@@ -727,7 +664,6 @@ struct ContentView: View {
         case .player: return 165
         case .specs: return 165
         case .lineFinder: return 260
-        case .batchRenamer: return 220
         }
     }
     
@@ -736,7 +672,7 @@ struct ContentView: View {
             ForEach(AppTab.allCases) { tab in
                 Button(action: {
                     selectedTab = tab
-                    if (tab == .specs || tab == .batchRenamer) && deliverableAssets.isEmpty && !videoFiles.isEmpty {
+                    if tab == .specs && deliverableAssets.isEmpty && !videoFiles.isEmpty {
                         inspectDeliverablesBatch(urls: videoFiles)
                     } else if tab == .player && playerEngine.activeURL == nil, let first = videoFiles.first {
                         playerEngine.loadVideo(url: first)
@@ -755,7 +691,7 @@ struct ContentView: View {
                         
                         Spacer(minLength: 6)
                         
-                        if (tab == .specs || tab == .batchRenamer) && !deliverableAssets.isEmpty {
+                        if tab == .specs && !deliverableAssets.isEmpty {
                             Text("[\(deliverableAssets.count)]")
                                 .font(.system(size: 10, weight: .bold, design: .monospaced))
                                 .foregroundColor(selectedTab == tab ? primaryBtnFg : textSubtle)
@@ -786,8 +722,7 @@ struct ContentView: View {
                 .explain(
                     tab == .player ? "01 // PLAYER: High-performance delivery playback with J-K-L shuttle, timeline scrubbing, and zoom." :
                     (tab == .specs ? "02 // SPECS: Reads container resolution, timecode, audio, and codecs." :
-                     (tab == .lineFinder ? "03 // LINE FINDER: Scans video frames for edge line glitches and blanking errors." :
-                      "04 // BATCH RENAMER: Renames files using inspected video metadata and custom templates.")),
+                     "03 // LINE FINDER: Scans video frames for edge line glitches and blanking errors."),
                     binding: $hoverExplanation
                 )
             }
@@ -992,7 +927,6 @@ struct ContentView: View {
             let allFolderIDs = Set(collectFolderIDs(node))
             playerCollapsedFolderIDs.subtract(allFolderIDs)
             deliverablesCollapsedFolderIDs.subtract(allFolderIDs)
-            renamerCollapsedFolderIDs.subtract(allFolderIDs)
             hiddenFolderIDs.subtract(allFolderIDs)
             
             if videoFiles.isEmpty {
@@ -1060,8 +994,7 @@ struct ContentView: View {
                         if detectedFolder == nil {
                             detectedFolder = url.deletingLastPathComponent()
                         }
-                        let ext = url.pathExtension.lowercased()
-                        if ["mp4", "mov", "m4v", "mkv", "avi", "prores"].contains(ext) {
+                        if QCUtilities.isSupportedVideo(url: url) {
                             collectedVideos.append(url)
                         }
                     }
@@ -1110,7 +1043,6 @@ struct ContentView: View {
                 self.videoFiles = uniqueVideos
                 self.playerCollapsedFolderIDs = []
                 self.deliverablesCollapsedFolderIDs = []
-                self.renamerCollapsedFolderIDs = []
                 self.scanResults = []
                 self.generatedReportURL = nil
                 self.generatedCSVURL = nil
@@ -1168,8 +1100,7 @@ struct ContentView: View {
                         if detectedFolder == nil {
                             detectedFolder = url.deletingLastPathComponent()
                         }
-                        let ext = url.pathExtension.lowercased()
-                        if ["mp4", "mov", "m4v", "mkv", "avi", "prores"].contains(ext) {
+                        if QCUtilities.isSupportedVideo(url: url) {
                             collectedVideos.append(url)
                         }
                     }
@@ -1253,6 +1184,9 @@ struct ContentView: View {
                 self.scanResults = results
                 self.lastScanConfig = config
                 self.playerEngine.setScanResults(results)
+                for res in results where res.isFlagged {
+                    self.fileTagsMap[res.fileURL] = .red
+                }
                 self.isScanning = false
                 self.scannerActor = nil
             }
@@ -1347,14 +1281,6 @@ struct ContentView: View {
         Task {
             let assets = await DeliverablesInspector.inspectBatch(urls: urls)
             
-            // Build directory files cache off the main thread
-            var cache: [URL: Set<String>] = [:]
-            let dirs = Set(urls.map { $0.deletingLastPathComponent() })
-            for dir in dirs {
-                let files = (try? FileManager.default.contentsOfDirectory(atPath: dir.path)) ?? []
-                cache[dir] = Set(files.map { $0.lowercased() })
-            }
-            
             DispatchQueue.main.async {
                 if append {
                     var existingMap = Dictionary(uniqueKeysWithValues: self.deliverableAssets.map { ($0.fileURL.standardizedFileURL, $0) })
@@ -1363,14 +1289,10 @@ struct ContentView: View {
                         if existingMap[key] == nil {
                             existingMap[key] = asset
                             self.deliverableAssets.append(asset)
-                            self.selectedAssetIDs.insert(asset.id)
                         }
                     }
-                    self.directoryFilesCache.merge(cache) { _, new in new }
                 } else {
                     self.deliverableAssets = assets
-                    self.directoryFilesCache = cache
-                    self.selectedAssetIDs = Set(assets.map { $0.id })
                 }
                 self.isInspectingDeliverables = false
             }
@@ -2026,6 +1948,38 @@ struct ContentView: View {
         let fps = playerEngine.activeFps
         Task {
             await QCNotesManager.shared.saveNotes(notes, for: url, fps: fps)
+        }
+    }
+}
+
+// MARK: - Isolated Studio Status Bar View
+struct StudioStatusBarView: View {
+    @ObservedObject private var hoverCoordinator = HoverExplanationCoordinator.shared
+    let textMuted: Color
+    let textMain: Color
+    
+    var body: some View {
+        HStack(spacing: 8) {
+            HStack(spacing: 5) {
+                Image(systemName: "cursorarrow.rays")
+                    .font(.system(size: 9))
+                    .foregroundColor(hoverCoordinator.text.isEmpty ? textMuted : textMain)
+                Text("INFO //")
+                    .font(.system(size: 9, weight: .black, design: .monospaced))
+                    .foregroundColor(hoverCoordinator.text.isEmpty ? textMuted : textMain)
+            }
+            
+            Text(hoverCoordinator.text.isEmpty ? "Hover over any button, field, or control for function details." : hoverCoordinator.text)
+                .font(.system(size: 10, weight: hoverCoordinator.text.isEmpty ? .regular : .semibold, design: .monospaced))
+                .foregroundColor(hoverCoordinator.text.isEmpty ? textMuted : textMain)
+                .lineLimit(1)
+                .truncationMode(.middle)
+            
+            Spacer()
+            
+            Text("v\(AppVersionInfo.version)")
+                .font(.system(size: 9, weight: .bold, design: .monospaced))
+                .foregroundColor(textMuted)
         }
     }
 }

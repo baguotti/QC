@@ -4,6 +4,7 @@ import AVFoundation
 import CoreImage
 import ImageIO
 import VideoToolbox
+import VideoQCLib
 
 public struct VideoViewportView: NSViewRepresentable {
     @ObservedObject var engine: PlayerEngine
@@ -115,6 +116,8 @@ public final class PlayerContainerNSView: NSView {
     private var rawStillFrameB: CGImage? = nil
     private var isCapturingStillA: Bool = false
     private var isCapturingStillB: Bool = false
+    private var pendingCaptureTimeA: CMTime? = nil
+    private var pendingCaptureTimeB: CMTime? = nil
     
     private static var tikTokImage: CGImage? = {
         let name = "TikTokSafeAreaTemplateBlack"
@@ -131,8 +134,7 @@ public final class PlayerContainerNSView: NSView {
         }
         let devPaths = [
             URL(fileURLWithPath: FileManager.default.currentDirectoryPath).appendingPathComponent("Resources/\(name).png"),
-            URL(fileURLWithPath: FileManager.default.currentDirectoryPath).appendingPathComponent("_icon/\(name).png"),
-            URL(fileURLWithPath: "/Users/riccardofusetti/Documents/Coding/The LineFinder 5000/_icon/TikTokSafeAreaTemplateBlack.png")
+            URL(fileURLWithPath: FileManager.default.currentDirectoryPath).appendingPathComponent("_icon/\(name).png")
         ]
         for url in devPaths {
             if FileManager.default.fileExists(atPath: url.path),
@@ -430,10 +432,9 @@ public final class PlayerContainerNSView: NSView {
                 if let img = cgImageA {
                     self.lastCapturedTimeA = timeA
                     self.rawStillFrameA = img
-                    let finalImg = (engine.exposureEV != 0.0) ? ExposureAdjuster.shared.applyExposure(to: img, ev: engine.exposureEV) : img
                     CATransaction.begin()
                     CATransaction.setDisableActions(true)
-                    self.stillFrameLayerA.contents = finalImg
+                    self.stillFrameLayerA.contents = img
                     CATransaction.commit()
                 }
             }
@@ -449,10 +450,9 @@ public final class PlayerContainerNSView: NSView {
                 if let imgB = cgImageB {
                     self.lastCapturedTimeB = timeB
                     self.rawStillFrameB = imgB
-                    let finalImgB = (engine.exposureEV != 0.0) ? ExposureAdjuster.shared.applyExposure(to: imgB, ev: engine.exposureEV) : imgB
                     CATransaction.begin()
                     CATransaction.setDisableActions(true)
-                    self.stillFrameLayerB.contents = finalImgB
+                    self.stillFrameLayerB.contents = imgB
                     CATransaction.commit()
                 }
             }
@@ -527,22 +527,11 @@ public final class PlayerContainerNSView: NSView {
         return max(0.01, size.width / max(1.0, size.height))
     }
     
-    private func gcd(_ a: Int, _ b: Int) -> Int {
-        var x = abs(a)
-        var y = abs(b)
-        while y != 0 {
-            let t = y
-            y = x % y
-            x = t
-        }
-        return x
-    }
-    
     /// Reduces video dimensions to a low-integer rational aspect ratio (num:den)
     /// to guarantee that bounds calculations step in whole physical display pixels with zero letterbox margin.
     private func getRationalAspect(width: Int, height: Int) -> (num: Int, den: Int) {
         guard width > 0, height > 0 else { return (16, 9) }
-        let g = gcd(width, height)
+        let g = QCUtilities.gcd(width, height)
         let num = width / g
         let den = height / g
         if num <= 64 && den <= 64 {
@@ -1197,23 +1186,31 @@ public final class PlayerContainerNSView: NSView {
             }
             
             // 3. Fallback to FrameExtractor (AVAssetImageGenerator ~9.8ms) if videoOutput hasn't buffered this seek frame
-            if !fetchedFromOutputA && !isCapturingStillA {
-                isCapturingStillA = true
-                Task { [weak self] in
-                    guard let self = self, let curEngine = self.engine else { return }
-                    let img = await curEngine.captureCurrentFrame(for: .slotA, at: timeA)
-                    await MainActor.run {
-                        self.isCapturingStillA = false
-                        guard let curEngine = self.engine else { return }
-                        if let img = img {
-                            self.lastCapturedTimeA = timeA
-                            self.rawStillFrameA = img
-                            let exposedImg = (curEngine.exposureEV != 0.0) ? ExposureAdjuster.shared.applyExposure(to: img, ev: curEngine.exposureEV) : img
-                            CATransaction.begin()
-                            CATransaction.setDisableActions(true)
-                            self.stillFrameLayerA.contents = exposedImg
-                            CATransaction.commit()
-                            self.updateLayerVisibility()
+            if !fetchedFromOutputA {
+                if isCapturingStillA {
+                    self.pendingCaptureTimeA = timeA
+                } else {
+                    self.pendingCaptureTimeA = nil
+                    isCapturingStillA = true
+                    Task { [weak self] in
+                        guard let self = self, let curEngine = self.engine else { return }
+                        let img = await curEngine.captureCurrentFrame(for: .slotA, at: timeA)
+                        await MainActor.run {
+                            self.isCapturingStillA = false
+                            guard let curEngine = self.engine else { return }
+                            if let img = img {
+                                self.lastCapturedTimeA = timeA
+                                self.rawStillFrameA = img
+                                let exposedImg = (curEngine.exposureEV != 0.0) ? ExposureAdjuster.shared.applyExposure(to: img, ev: curEngine.exposureEV) : img
+                                CATransaction.begin()
+                                CATransaction.setDisableActions(true)
+                                self.stillFrameLayerA.contents = exposedImg
+                                CATransaction.commit()
+                                self.updateLayerVisibility()
+                            }
+                            if let pending = self.pendingCaptureTimeA, pending != timeA {
+                                self.checkStillFrameDisplay()
+                            }
                         }
                     }
                 }
@@ -1252,23 +1249,31 @@ public final class PlayerContainerNSView: NSView {
                     }
                 }
                 
-                if !fetchedFromOutputB && !isCapturingStillB {
-                    isCapturingStillB = true
-                    Task { [weak self] in
-                        guard let self = self, let curEngine = self.engine else { return }
-                        let imgB = await curEngine.captureCurrentFrame(for: .slotB, at: timeB)
-                        await MainActor.run {
-                            self.isCapturingStillB = false
-                            guard let curEngine = self.engine else { return }
-                            if let imgB = imgB {
-                                self.lastCapturedTimeB = timeB
-                                self.rawStillFrameB = imgB
-                                let exposedImgB = (curEngine.exposureEV != 0.0) ? ExposureAdjuster.shared.applyExposure(to: imgB, ev: curEngine.exposureEV) : imgB
-                                CATransaction.begin()
-                                CATransaction.setDisableActions(true)
-                                self.stillFrameLayerB.contents = exposedImgB
-                                CATransaction.commit()
-                                self.updateLayerVisibility()
+                if !fetchedFromOutputB {
+                    if isCapturingStillB {
+                        self.pendingCaptureTimeB = timeB
+                    } else {
+                        self.pendingCaptureTimeB = nil
+                        isCapturingStillB = true
+                        Task { [weak self] in
+                            guard let self = self, let curEngine = self.engine else { return }
+                            let imgB = await curEngine.captureCurrentFrame(for: .slotB, at: timeB)
+                            await MainActor.run {
+                                self.isCapturingStillB = false
+                                guard let curEngine = self.engine else { return }
+                                if let imgB = imgB {
+                                    self.lastCapturedTimeB = timeB
+                                    self.rawStillFrameB = imgB
+                                    let exposedImgB = (curEngine.exposureEV != 0.0) ? ExposureAdjuster.shared.applyExposure(to: imgB, ev: curEngine.exposureEV) : imgB
+                                    CATransaction.begin()
+                                    CATransaction.setDisableActions(true)
+                                    self.stillFrameLayerB.contents = exposedImgB
+                                    CATransaction.commit()
+                                    self.updateLayerVisibility()
+                                }
+                                if let pendingB = self.pendingCaptureTimeB, pendingB != timeB {
+                                    self.checkStillFrameDisplay()
+                                }
                             }
                         }
                     }

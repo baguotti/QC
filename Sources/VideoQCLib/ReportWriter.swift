@@ -6,19 +6,14 @@ public struct ReportWriter: Sendable {
     
     /// Marks a single video file in macOS Finder with a Red label/tag
     public static func setRedTag(for url: URL) {
-        let nsURL = url as NSURL
-        try? nsURL.setResourceValue(["Red\n6"] as NSArray, forKey: .tagNamesKey)
-        var mutableURL = url
-        var resourceValues = URLResourceValues()
-        resourceValues.labelNumber = 6
-        try? mutableURL.setResourceValues(resourceValues)
+        FinderTagManager.setTag(.red, for: url)
     }
     
     /// Marks all flagged video files in macOS Finder with a Red label/tag
     public static func tagFlaggedFilesInFinder(results: [VideoQCResult]) {
         for result in results {
             if result.isFlagged {
-                setRedTag(for: result.fileURL)
+                FinderTagManager.setTag(.red, for: result.fileURL)
             }
         }
     }
@@ -31,19 +26,11 @@ public struct ReportWriter: Sendable {
     ) -> String {
         var csv = "File Name,Lines Found,Timecode,Location,Duration,Detected Color\n"
         
-        func escapeCSV(_ str: String) -> String {
-            if str.contains(",") || str.contains("\"") || str.contains("\n") {
-                let escaped = str.replacingOccurrences(of: "\"", with: "\"\"")
-                return "\"\(escaped)\""
-            }
-            return str
-        }
-        
         for result in results {
             let fileName = result.fileName
             if !result.isFlagged || result.glitchSegments.isEmpty {
                 // Clean file
-                csv += "\(escapeCSV(fileName)),No,--,--,--,--\n"
+                csv += "\(QCUtilities.escapeCSV(fileName)),No,--,--,--,--\n"
             } else {
                 let segments = result.glitchSegments
                 for (idx, seg) in segments.enumerated() {
@@ -60,7 +47,7 @@ public struct ReportWriter: Sendable {
                     let duration = seg.frameCount == 1 ? "1 frame (0.04s)" : "\(seg.frameCount) frames (\(String(format: "%.2f", seg.durationSeconds))s)"
                     let color = seg.detectedColor.hexString.uppercased()
                     
-                    csv += "\(escapeCSV(displayName)),\(escapeCSV(linesFound)),\(escapeCSV(timecode)),\(escapeCSV(location)),\(escapeCSV(duration)),\(escapeCSV(color))\n"
+                    csv += "\(QCUtilities.escapeCSV(displayName)),\(QCUtilities.escapeCSV(linesFound)),\(QCUtilities.escapeCSV(timecode)),\(QCUtilities.escapeCSV(location)),\(QCUtilities.escapeCSV(duration)),\(QCUtilities.escapeCSV(color))\n"
                 }
             }
         }
@@ -76,19 +63,11 @@ public struct ReportWriter: Sendable {
     ) -> String {
         var tsv = "File Name\tLines Found\tTimecode\tLocation\tDuration\tDetected Color\n"
         
-        func escapeTSV(_ str: String) -> String {
-            if str.contains("\t") || str.contains("\"") || str.contains("\n") {
-                let escaped = str.replacingOccurrences(of: "\"", with: "\"\"")
-                return "\"\(escaped)\""
-            }
-            return str
-        }
-        
         for result in results {
             let fileName = result.fileName
             if !result.isFlagged || result.glitchSegments.isEmpty {
                 // Clean file
-                tsv += "\(escapeTSV(fileName))\tNo\t--\t--\t--\t--\n"
+                tsv += "\(QCUtilities.escapeTSV(fileName))\tNo\t--\t--\t--\t--\n"
             } else {
                 let segments = result.glitchSegments
                 for (idx, seg) in segments.enumerated() {
@@ -105,7 +84,7 @@ public struct ReportWriter: Sendable {
                     let duration = seg.frameCount == 1 ? "1 frame (0.04s)" : "\(seg.frameCount) frames (\(String(format: "%.2f", seg.durationSeconds))s)"
                     let color = seg.detectedColor.hexString.uppercased()
                     
-                    tsv += "\(escapeTSV(displayName))\t\(escapeTSV(linesFound))\t\(escapeTSV(timecode))\t\(escapeTSV(location))\t\(escapeTSV(duration))\t\(escapeTSV(color))\n"
+                    tsv += "\(QCUtilities.escapeTSV(displayName))\t\(QCUtilities.escapeTSV(linesFound))\t\(QCUtilities.escapeTSV(timecode))\t\(QCUtilities.escapeTSV(location))\t\(QCUtilities.escapeTSV(duration))\t\(QCUtilities.escapeTSV(color))\n"
                 }
             }
         }

@@ -249,16 +249,7 @@ public struct DeliverablesInspector: Sendable {
         if abs(ratio - 1.85) < 0.05 { return "1.85:1" }
         
         // GCD fallback
-        func gcd(_ a: Int, _ b: Int) -> Int {
-            var a = a, b = b
-            while b != 0 {
-                let temp = b
-                b = a % b
-                a = temp
-            }
-            return a
-        }
-        let divisor = gcd(width, height)
+        let divisor = QCUtilities.gcd(width, height)
         if divisor > 10 && (width / divisor) < 30 {
             return "\(width / divisor):\(height / divisor)"
         }
@@ -301,7 +292,7 @@ public struct DeliverablesInspector: Sendable {
         case kCMVideoCodecType_HEVC: return "H.265 (HEVC)"
         case kCMVideoCodecType_HEVCWithAlpha: return "HEVC + Alpha"
         default:
-            let fourCC = fourCCToString(subType)
+            let fourCC = QCUtilities.fourCCToString(subType)
             return fourCC.isEmpty ? "Video" : fourCC
         }
     }
@@ -345,7 +336,7 @@ public struct DeliverablesInspector: Sendable {
         case kAudioFormatFLAC:
             codecName = "FLAC"
         default:
-            let fourCC = fourCCToString(formatID)
+            let fourCC = QCUtilities.fourCCToString(formatID)
             codecName = fourCC.isEmpty ? "Audio" : fourCC
         }
         
@@ -402,16 +393,6 @@ public struct DeliverablesInspector: Sendable {
         let fullDesc = fullParts.joined(separator: " • ")
         
         return (codec: codecName, bitrate: bitrateStr, subDetail: subDetail, fullDesc: fullDesc)
-    }
-    
-    private static func fourCCToString(_ fourCC: FourCharCode) -> String {
-        let bytes: [UInt8] = [
-            UInt8((fourCC >> 24) & 0xff),
-            UInt8((fourCC >> 16) & 0xff),
-            UInt8((fourCC >> 8) & 0xff),
-            UInt8(fourCC & 0xff)
-        ]
-        return String(decoding: bytes, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
     }
     
     // MARK: - Subtitles & Closed Captions Extraction
@@ -492,14 +473,6 @@ public struct DeliverablesInspector: Sendable {
     public static func generateManifestCSV(assets: [DeliverableAsset], rootFolderURL: URL? = nil) -> String {
         var csv = "Folder,File Name,Status,Validation Notes,Timecode,Duration,Total Frames,Resolution,Aspect Ratio,FPS,File Size,Created Date,Subtitles / CC,Video Codec,Audio Codec,Audio Bitrate,Audio Details,Container,File Path\n"
         
-        func escapeCSV(_ str: String) -> String {
-            if str.contains(",") || str.contains("\"") || str.contains("\n") {
-                let escaped = str.replacingOccurrences(of: "\"", with: "\"\"")
-                return "\"\(escaped)\""
-            }
-            return str
-        }
-        
         for a in assets {
             var folderRel = ""
             if let root = rootFolderURL {
@@ -515,7 +488,7 @@ public struct DeliverablesInspector: Sendable {
             }
             let status = a.validation.hasAnyMismatch ? "MISMATCH FLAGGED" : "MATCHED"
             let notes = a.validation.summaryString
-            csv += "\(escapeCSV(folderRel)),\(escapeCSV(a.fileName)),\(escapeCSV(status)),\(escapeCSV(notes)),\(escapeCSV(a.timecode)),\(escapeCSV(a.formattedDuration)),\(a.totalFrames),\(escapeCSV(a.resolutionString)),\(escapeCSV(a.aspectRatioString)),\(String(format: "%.2f", a.fps)),\(escapeCSV(a.formattedFileSize)),\(escapeCSV(a.formattedCreationDate)),\(escapeCSV(a.subtitlesInfo)),\(escapeCSV(a.videoCodec)),\(escapeCSV(a.audioCodec)),\(escapeCSV(a.audioBitrate)),\(escapeCSV(a.audioConfig)),\(escapeCSV(a.container)),\(escapeCSV(a.fileURL.path))\n"
+            csv += "\(QCUtilities.escapeCSV(folderRel)),\(QCUtilities.escapeCSV(a.fileName)),\(QCUtilities.escapeCSV(status)),\(QCUtilities.escapeCSV(notes)),\(QCUtilities.escapeCSV(a.timecode)),\(QCUtilities.escapeCSV(a.formattedDuration)),\(a.totalFrames),\(QCUtilities.escapeCSV(a.resolutionString)),\(QCUtilities.escapeCSV(a.aspectRatioString)),\(String(format: "%.2f", a.fps)),\(QCUtilities.escapeCSV(a.formattedFileSize)),\(QCUtilities.escapeCSV(a.formattedCreationDate)),\(QCUtilities.escapeCSV(a.subtitlesInfo)),\(QCUtilities.escapeCSV(a.videoCodec)),\(QCUtilities.escapeCSV(a.audioCodec)),\(QCUtilities.escapeCSV(a.audioBitrate)),\(QCUtilities.escapeCSV(a.audioConfig)),\(QCUtilities.escapeCSV(a.container)),\(QCUtilities.escapeCSV(a.fileURL.path))\n"
         }
         
         return csv
@@ -526,14 +499,6 @@ public struct DeliverablesInspector: Sendable {
     public static func generateManifestTSV(assets: [DeliverableAsset], rootFolderURL: URL? = nil) -> String {
         var tsv = "Folder\tFile Name\tStatus\tValidation Notes\tTimecode\tDuration\tTotal Frames\tResolution\tAspect Ratio\tFPS\tFile Size\tCreated Date\tSubtitles / CC\tVideo Codec\tAudio Codec\tAudio Bitrate\tAudio Details\tContainer\tFile Path\n"
         
-        func escapeTSV(_ str: String) -> String {
-            if str.contains("\t") || str.contains("\"") || str.contains("\n") {
-                let escaped = str.replacingOccurrences(of: "\"", with: "\"\"")
-                return "\"\(escaped)\""
-            }
-            return str
-        }
-        
         for a in assets {
             var folderRel = ""
             if let root = rootFolderURL {
@@ -549,7 +514,7 @@ public struct DeliverablesInspector: Sendable {
             }
             let status = a.validation.hasAnyMismatch ? "MISMATCH FLAGGED" : "MATCHED"
             let notes = a.validation.summaryString
-            tsv += "\(escapeTSV(folderRel))\t\(escapeTSV(a.fileName))\t\(escapeTSV(status))\t\(escapeTSV(notes))\t\(escapeTSV(a.timecode))\t\(escapeTSV(a.formattedDuration))\t\(a.totalFrames)\t\(escapeTSV(a.resolutionString))\t\(escapeTSV(a.aspectRatioString))\t\(String(format: "%.2f", a.fps))\t\(escapeTSV(a.formattedFileSize))\t\(escapeTSV(a.formattedCreationDate))\t\(escapeTSV(a.subtitlesInfo))\t\(escapeTSV(a.videoCodec))\t\(escapeTSV(a.audioCodec))\t\(escapeTSV(a.audioBitrate))\t\(escapeTSV(a.audioConfig))\t\(escapeTSV(a.container))\t\(escapeTSV(a.fileURL.path))\n"
+            tsv += "\(QCUtilities.escapeTSV(folderRel))\t\(QCUtilities.escapeTSV(a.fileName))\t\(QCUtilities.escapeTSV(status))\t\(QCUtilities.escapeTSV(notes))\t\(QCUtilities.escapeTSV(a.timecode))\t\(QCUtilities.escapeTSV(a.formattedDuration))\t\(a.totalFrames)\t\(QCUtilities.escapeTSV(a.resolutionString))\t\(QCUtilities.escapeTSV(a.aspectRatioString))\t\(String(format: "%.2f", a.fps))\t\(QCUtilities.escapeTSV(a.formattedFileSize))\t\(QCUtilities.escapeTSV(a.formattedCreationDate))\t\(QCUtilities.escapeTSV(a.subtitlesInfo))\t\(QCUtilities.escapeTSV(a.videoCodec))\t\(QCUtilities.escapeTSV(a.audioCodec))\t\(QCUtilities.escapeTSV(a.audioBitrate))\t\(QCUtilities.escapeTSV(a.audioConfig))\t\(QCUtilities.escapeTSV(a.container))\t\(QCUtilities.escapeTSV(a.fileURL.path))\n"
         }
         
         return tsv

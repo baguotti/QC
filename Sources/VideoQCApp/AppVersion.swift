@@ -2,5 +2,5 @@ import Foundation
 
 /// Application Version Metadata
 public struct AppVersionInfo {
-    public static let version = "0.4.2"
+    public static let version = "0.4.3"
 }
