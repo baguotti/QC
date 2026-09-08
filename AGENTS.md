@@ -17,18 +17,16 @@
 - When the mouse stops moving, CoreMedia waits ~500ms to 1s before restoring full resolution, causing the line to pop back to green.
 
 ### The Inviolable Rule:
-1. **Unified Direct-Pixel Pipeline**:
-   - `stillFrameLayerA` & `stillFrameLayerB` (`CALayer` backed by uncompressed `CGImage` in `contents`): The **EXCLUSIVE** visual display layers for **ALL** states: continuous live playback, timeline scrubbing, stepping, and paused inspection.
-   - `playerLayerA` & `playerLayerB` (`AVPlayerLayer`): Kept **PERMANENTLY HIDDEN** (`isHidden = true`). Used exclusively for audio playback and transport clock timing.
-   - *Why AVPlayerLayer is retired from visual display*: Apple's `AVPlayerLayer` wraps internal CoreMedia compositor layers (`FigVideoContainerLayer` / `FigVideoLayer`) whose texture samplers are hardcoded to bilinear filtering (`linear`). `AVPlayerLayer` ignores `.nearest` layer filters and applies dynamic proxy downsampling during live playback and motion, washing out 1-pixel edge glitches (turning neon green lines white).
+1. **Hybrid Direct-Pixel & Hardware Scrub Pipeline**:
+   - **Active Timeline Scrubbing (`isScrubbing == true`)**: `playerLayerA` & `playerLayerB` (`AVPlayerLayer`) are revealed directly. Frames are presented on the GPU hardware compositor with zero copy overhead, streaming fluidly at 60–120 FPS with QuickTime-grade responsiveness.
+   - **Paused Inspection, Stepping & Canvas Pan/Zoom (`isScrubbing == false`)**: `stillFrameLayerA` & `stillFrameLayerB` (`CALayer` backed by uncompressed `CGImage` in `contents`) are the EXCLUSIVE visual display layers. This ensures 100% immunity to CoreMedia dynamic proxy downsampling when panning or zooming with the hand tool. Single-pixel edge lines retain 100% saturation and square pixel fidelity.
    - *How Live Playback Works*: Each `PlayerSlot` attaches an `AVPlayerItemVideoOutput` (32BGRA). `VideoViewportView` uses AppKit's native `CADisplayLink` (synchronized to 60Hz / 120Hz ProMotion). On each display tick, frames are extracted via `copyPixelBuffer` and converted zero-copy to `CGImage` via `VTCreateCGImageFromCVPixelBuffer` (<0.14 ms per frame), then set directly to `stillFrameLayer.contents`.
-2. **Why Static `CALayer.contents` is Immune**:
-   - CoreAnimation treats a `CALayer` with a static `CGImage` as an immutable GPU texture. It **never** applies CoreMedia dynamic proxy downsampling during playback, panning, scrolling, scrubbing, or zooming. The 1-pixel edge line remains solid green at all times.
+2. **Why Static `CALayer.contents` is Immune While Paused**:
+   - CoreAnimation treats a `CALayer` with a static `CGImage` as an immutable GPU texture. It **never** applies CoreMedia dynamic proxy downsampling during panning, scrolling, stepping, or zooming while paused. The 1-pixel edge line remains solid green at all times.
 3. **Compare Modes Synchronization**:
-   - Every compare mode (single, split vertical, split horizontal, side-by-side, side-by-side vertical, difference, 50% overlay, blink) operates directly and cleanly on `stillFrameLayerA` and `stillFrameLayerB` (`frames`, `masks`, `compositingFilter`, `opacity`, `zPosition`).
+   - Every compare mode (single, split vertical, split horizontal, side-by-side, side-by-side vertical, difference, 50% overlay, blink) operates directly and cleanly on both `playerLayerA/B` (during scrub) and `stillFrameLayerA/B` (when paused) (`frames`, `masks`, `compositingFilter`, `opacity`, `zPosition`).
 4. **Instant Seeking & Frame Delivery**:
-   - When scrubbing or paused, `checkStillFrameDisplay()` queries `slot.videoOutput?.copyPixelBuffer` first (<0.15ms). If not yet buffered, it falls back to `slot.frameExtractor.capture(at:)` (~9.8ms).
-   - `stillFrameLayerA` and `stillFrameLayerB` remain visible at all times, updating smoothly without blanking or flashing.
+   - When scrubbing ends or stepping, exact frame seek (`.zero` tolerance) snaps to the exact target frame, and `displayImmediateDecodedFrame` or `slot.frameExtractor.capture(at:)` delivers the uncompressed still frame immediately.
 
 ---
 

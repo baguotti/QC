@@ -347,7 +347,7 @@ public final class PlayerContainerNSView: NSView {
             playerLayerB.player = engine.slotB.player
         }
         
-        if engine.isPlaying || engine.isScrubbing {
+        if engine.isPlaying {
             displayLink?.isPaused = false
         } else {
             displayLink?.isPaused = true
@@ -395,12 +395,20 @@ public final class PlayerContainerNSView: NSView {
     
     public func displayImmediateDecodedFrame(slot: SlotTarget, at time: CMTime) {
         guard let engine = engine else { return }
+        // During active scrubbing, AVPlayerLayer displays frames directly via hardware.
+        // Avoid expensive CPU pixel buffer copying and CGImage conversion while scrubbing.
+        if engine.isScrubbing { return }
         
         var imgToDisplay: CGImage? = nil
         var targetLayer: CALayer? = nil
         
         if slot == .slotA, let outputA = engine.slotA.videoOutput {
-            if let pb = outputA.copyPixelBuffer(forItemTime: time, itemTimeForDisplay: nil) {
+            var pbA = outputA.copyPixelBuffer(forItemTime: time, itemTimeForDisplay: nil)
+            if pbA == nil {
+                var displayTime = CMTime.zero
+                pbA = outputA.copyPixelBuffer(forItemTime: engine.slotA.player.currentTime(), itemTimeForDisplay: &displayTime)
+            }
+            if let pb = pbA {
                 var cgImageA: CGImage?
                 VTCreateCGImageFromCVPixelBuffer(pb, options: nil, imageOut: &cgImageA)
                 if let img = cgImageA {
@@ -410,14 +418,19 @@ public final class PlayerContainerNSView: NSView {
                     targetLayer = stillFrameLayerA
                 }
             }
-        } else if slot == .slotB, let outputB = engine.slotB.videoOutput {
-            if let pb = outputB.copyPixelBuffer(forItemTime: time, itemTimeForDisplay: nil) {
+        } else if slot == .slotB, (engine.compareMode != .single), let outputB = engine.slotB.videoOutput {
+            var pbB = outputB.copyPixelBuffer(forItemTime: time, itemTimeForDisplay: nil)
+            if pbB == nil {
+                var displayTime = CMTime.zero
+                pbB = outputB.copyPixelBuffer(forItemTime: engine.slotB.player.currentTime(), itemTimeForDisplay: &displayTime)
+            }
+            if let pb = pbB {
                 var cgImageB: CGImage?
                 VTCreateCGImageFromCVPixelBuffer(pb, options: nil, imageOut: &cgImageB)
-                if let img = cgImageB {
+                if let imgB = cgImageB {
                     self.lastCapturedTimeB = time
-                    self.rawStillFrameB = img
-                    imgToDisplay = (engine.exposureEV != 0.0) ? ExposureAdjuster.shared.applyExposure(to: img, ev: engine.exposureEV) : img
+                    self.rawStillFrameB = imgB
+                    imgToDisplay = (engine.exposureEV != 0.0) ? ExposureAdjuster.shared.applyExposure(to: imgB, ev: engine.exposureEV) : imgB
                     targetLayer = stillFrameLayerB
                 }
             }
@@ -453,7 +466,7 @@ public final class PlayerContainerNSView: NSView {
         guard displayLink == nil else { return }
         let link = self.displayLink(target: self, selector: #selector(onDisplayLinkTick))
         link.add(to: .main, forMode: .common)
-        link.isPaused = !(engine?.isPlaying ?? false || engine?.isScrubbing ?? false)
+        link.isPaused = !(engine?.isPlaying ?? false)
         self.displayLink = link
     }
     
@@ -463,32 +476,24 @@ public final class PlayerContainerNSView: NSView {
     }
     
     @objc private func onDisplayLinkTick() {
-        guard let engine = engine, engine.isPlaying || engine.isScrubbing else { return }
+        guard let engine = engine, engine.isPlaying else { return }
         renderPlaybackFrames()
     }
     
     private func renderPlaybackFrames() {
-        guard let engine = engine else { return }
+        guard let engine = engine, engine.isPlaying else { return }
         
         var newImgA: CGImage? = nil
         var newTimeA: CMTime? = nil
         var newImgB: CGImage? = nil
         var newTimeB: CMTime? = nil
         
-        let masterTime = engine.isScrubbing ? engine.currentTime : engine.slotA.player.currentTime()
+        let masterTime = engine.slotA.player.currentTime()
         
         // Slot A frame extraction:
         if let outputA = engine.slotA.videoOutput {
-            var pbA: CVPixelBuffer? = nil
-            if engine.isScrubbing {
-                pbA = outputA.copyPixelBuffer(forItemTime: masterTime, itemTimeForDisplay: nil)
-            }
-            if pbA == nil {
-                let playerTimeA = engine.slotA.player.currentTime()
-                var displayTime = CMTime.zero
-                pbA = outputA.copyPixelBuffer(forItemTime: playerTimeA, itemTimeForDisplay: &displayTime)
-            }
-            if let pb = pbA {
+            var displayTime = CMTime.zero
+            if let pb = outputA.copyPixelBuffer(forItemTime: masterTime, itemTimeForDisplay: &displayTime) {
                 var cgImageA: CGImage?
                 VTCreateCGImageFromCVPixelBuffer(pb, options: nil, imageOut: &cgImageA)
                 if let img = cgImageA {
@@ -498,20 +503,15 @@ public final class PlayerContainerNSView: NSView {
             }
         }
         
-        // Slot B frame extraction (master-locked in compare modes):
-        if engine.slotB.url != nil, let outputB = engine.slotB.videoOutput {
+        // Slot B frame extraction (ONLY in active compare modes):
+        if engine.compareMode != .single && engine.slotB.url != nil, let outputB = engine.slotB.videoOutput {
             let offsetSecs = Double(engine.slotB.slipOffsetFrames) / max(1.0, engine.slotB.fps)
             let masterSecs = CMTimeGetSeconds(masterTime)
             let targetSecsB = max(0.0, (masterSecs.isFinite && !masterSecs.isNaN ? masterSecs : 0.0) + offsetSecs)
             let targetTimeB = CMTime(seconds: targetSecsB, preferredTimescale: 60000)
             
-            var pbB: CVPixelBuffer? = outputB.copyPixelBuffer(forItemTime: targetTimeB, itemTimeForDisplay: nil)
-            if pbB == nil {
-                let playerTimeB = engine.slotB.player.currentTime()
-                var displayTime = CMTime.zero
-                pbB = outputB.copyPixelBuffer(forItemTime: playerTimeB, itemTimeForDisplay: &displayTime)
-            }
-            if let pb = pbB {
+            var displayTime = CMTime.zero
+            if let pb = outputB.copyPixelBuffer(forItemTime: targetTimeB, itemTimeForDisplay: &displayTime) {
                 var cgImageB: CGImage?
                 VTCreateCGImageFromCVPixelBuffer(pb, options: nil, imageOut: &cgImageB)
                 if let imgB = cgImageB {
@@ -1190,14 +1190,37 @@ public final class PlayerContainerNSView: NSView {
         guard let engine = engine else { return }
         let mode = (engine.slotB.url == nil) ? CompareMode.single : engine.compareMode
         let isBlink = engine.isBlinkCompareB && engine.slotB.url != nil
+        let isScrubbing = engine.isScrubbing
         
         let targetStillHiddenA: Bool
         let targetStillHiddenB: Bool
+        let targetPlayerHiddenA: Bool
+        let targetPlayerHiddenB: Bool
         
         if isBlink {
             targetStillHiddenA = true
             targetStillHiddenB = (engine.slotB.url == nil)
+            targetPlayerHiddenA = true
+            targetPlayerHiddenB = true
+        } else if isScrubbing {
+            // NATIVE HARDWARE ACCELERATED SCRUBBING (QuickTime-grade):
+            // While dragging the timeline, reveal AVPlayerLayer directly.
+            // CoreMedia hardware compositor decodes and presents frames with 0 copy overhead.
+            targetPlayerHiddenA = (engine.slotA.url == nil)
+            targetStillHiddenA = true
+            if mode == .single || engine.slotB.url == nil {
+                targetPlayerHiddenB = true
+                targetStillHiddenB = true
+            } else {
+                targetPlayerHiddenB = false
+                targetStillHiddenB = true
+            }
         } else {
+            // PAUSED & STEPPING & LIVE PLAYBACK:
+            // stillFrameLayer is the display layer, using uncompressed CGImage with .nearest
+            // filtering, 100% immune to CoreMedia motion-downsampling during hand tool panning/zooming.
+            targetPlayerHiddenA = true
+            targetPlayerHiddenB = true
             targetStillHiddenA = (engine.slotA.url == nil)
             if mode == .single || engine.slotB.url == nil {
                 targetStillHiddenB = true
@@ -1209,8 +1232,8 @@ public final class PlayerContainerNSView: NSView {
         // Fast path: skip expensive CoreAnimation transactions if layer visibility is already identical
         if stillFrameLayerA.isHidden == targetStillHiddenA &&
            stillFrameLayerB.isHidden == targetStillHiddenB &&
-           playerLayerA.isHidden == true &&
-           playerLayerB.isHidden == true {
+           playerLayerA.isHidden == targetPlayerHiddenA &&
+           playerLayerB.isHidden == targetPlayerHiddenB {
             return
         }
         
@@ -1220,8 +1243,8 @@ public final class PlayerContainerNSView: NSView {
         
         stillFrameLayerA.isHidden = targetStillHiddenA
         stillFrameLayerB.isHidden = targetStillHiddenB
-        playerLayerA.isHidden = true
-        playerLayerB.isHidden = true
+        playerLayerA.isHidden = targetPlayerHiddenA
+        playerLayerB.isHidden = targetPlayerHiddenB
         
         CATransaction.commit()
     }

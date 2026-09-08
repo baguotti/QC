@@ -12,7 +12,7 @@ MACOS="${CONTENTS}/MacOS"
 RESOURCES="${CONTENTS}/Resources"
 
 # Version & Metadata
-APP_VERSION="0.4.3"
+APP_VERSION="0.4.4"
 GIT_COMMIT_COUNT=$(git rev-list --count HEAD 2>/dev/null || echo "1")
 
 echo "📌 Version: v${APP_VERSION} (Build: ${GIT_COMMIT_COUNT})"
@@ -96,4 +96,10 @@ echo "🔐 Ad-hoc code signing app bundle..."
 codesign --force --deep --sign - "${APP_BUNDLE}"
 
 echo "✅ Successfully built: ${APP_BUNDLE}"
+if [ -d "/Applications/${APP_NAME}.app" ]; then
+    echo "📲 Updating /Applications/${APP_NAME}.app..."
+    rm -rf "/Applications/${APP_NAME}.app"
+    cp -R "${APP_BUNDLE}" "/Applications/${APP_NAME}.app"
+    echo "✅ /Applications/${APP_NAME}.app updated successfully!"
+fi
 echo "📦 You can now double-click or drag '${APP_NAME}.app' to /Applications or any Silicon Mac!"

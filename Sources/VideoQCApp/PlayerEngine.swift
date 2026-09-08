@@ -1490,37 +1490,30 @@ public final class PlayerEngine: ObservableObject {
         if !self.isScrubbing {
             startScrubbing()
         }
+        #if DEBUG
+        QCScrubDiagnostic.shared.recordScrubCall()
+        #endif
         let clamped = min(1.0, max(0.0, progress))
         
         let durSecs = CMTimeGetSeconds(duration)
-        if durSecs > 0 && durSecs.isFinite && !durSecs.isNaN {
-            let currSecs = clamped * durSecs
-            let fps = max(1.0, activeFps)
-            let calcVal = currSecs * fps + 1e-4
-            let frameIdx = (calcVal.isFinite && !calcVal.isNaN) ? max(0, min(max(0, totalFrames - 1), Int(floor(calcVal)))) : 0
-            if frameIdx != self.currentFrame {
-                self.currentFrame = frameIdx
-                self.currentProgress = clamped
-                self.currentTimecode = TimecodeFormatter.format(frameIndex: frameIdx, fps: activeFps)
-                
-                let targetSecs = (Double(frameIdx) + 0.5) / fps
-                let targetTime = CMTime(seconds: targetSecs, preferredTimescale: 60000)
-                self.currentTime = targetTime
-                self.slotA.currentTime = targetTime
-                
-                if self.isLinked && self.slotB.url != nil {
-                    let offsetSecs = Double(self.slotB.slipOffsetFrames) / max(1.0, self.slotB.fps)
-                    let targetSecsB = max(0.0, targetSecs + offsetSecs)
-                    self.slotB.currentTime = CMTime(seconds: targetSecsB, preferredTimescale: 60000)
-                }
-                
-                seek(toTime: targetTime)
-            }
-        } else {
-            if abs(self.currentProgress - clamped) > 1e-4 {
-                self.currentProgress = clamped
-            }
+        guard durSecs > 0 && durSecs.isFinite && !durSecs.isNaN else { return }
+        let currSecs = clamped * durSecs
+        let fps = max(1.0, activeFps)
+        let calcVal = currSecs * fps + 1e-4
+        let frameIdx = (calcVal.isFinite && !calcVal.isNaN) ? max(0, min(max(0, totalFrames - 1), Int(floor(calcVal)))) : 0
+        
+        let targetSecs = (Double(frameIdx) + 0.5) / fps
+        let targetTime = CMTime(seconds: targetSecs, preferredTimescale: 60000)
+        
+        if self.compareMode != .single && self.isLinked && self.slotB.url != nil {
+            let offsetSecs = Double(self.slotB.slipOffsetFrames) / max(1.0, self.slotB.fps)
+            let targetSecsB = max(0.0, targetSecs + offsetSecs)
+            self.slotB.currentTime = CMTime(seconds: targetSecsB, preferredTimescale: 60000)
         }
+        
+        // Pure seek dispatch: zero SwiftUI objectWillChange storm during active mouse drag.
+        // Timeline playhead tracks at 120 FPS via local dragProgress.
+        seek(toTime: targetTime)
     }
     
     /// Concludes interactive scrubbing: if previously playing, resumes playback from the new point; if paused, stays paused
@@ -1541,7 +1534,7 @@ public final class PlayerEngine: ObservableObject {
         self.currentTime = targetTime
         self.slotA.currentTime = targetTime
         
-        if self.isLinked && self.slotB.url != nil {
+        if self.compareMode != .single && self.isLinked && self.slotB.url != nil {
             let offsetSecs = Double(self.slotB.slipOffsetFrames) / max(1.0, self.slotB.fps)
             let targetSecsB = max(0.0, currSecs + offsetSecs)
             self.slotB.currentTime = CMTime(seconds: targetSecsB, preferredTimescale: 60000)
@@ -1601,20 +1594,19 @@ public final class PlayerEngine: ObservableObject {
         let curCompletion = completion
         
         // Fast seek during interactive scrubbing:
-        // Use a tight single-frame tolerance so AVPlayer decodes the nearest frame directly
-        // rather than jumping distant seconds to keyframes (.positiveInfinity).
+        // Use a 2-frame tolerance so AVPlayer decodes the nearest frame directly without stalling.
         // When paused or concluding scrub, tolerance is .zero for pixel-perfect frame accuracy.
         let tol: CMTime
         if let explicitTol = tolerance {
             tol = explicitTol
         } else if isScrubbing {
             let fps = max(1.0, activeFps)
-            tol = CMTime(seconds: 1.0 / fps, preferredTimescale: 60000)
+            tol = CMTime(seconds: 2.0 / fps, preferredTimescale: 60000)
         } else {
             tol = .zero
         }
         
-        let hasSlotB = self.isLinked && self.slotB.url != nil && self.slotB.player.currentItem != nil
+        let hasSlotB = (self.compareMode != .single) && self.isLinked && self.slotB.url != nil && self.slotB.player.currentItem != nil
         let offsetSeconds = hasSlotB ? (Double(self.slotB.slipOffsetFrames) / max(1.0, self.slotB.fps)) : 0.0
         let targetSecsB = hasSlotB ? max(0.0, CMTimeGetSeconds(time) + offsetSeconds) : 0.0
         let targetTimeB = hasSlotB ? CMTime(seconds: targetSecsB, preferredTimescale: 60000) : .zero
@@ -1626,9 +1618,16 @@ public final class PlayerEngine: ObservableObject {
             guard completedA && completedB else { return }
             self.isSeeking = false
             
-            // When not scrubbing, update time and progress (e.g. playback, jumps, frame step)
-            // During scrubbing, scrubTo(progress:) already eagerly updates UI at 120 FPS
-            if !self.isScrubbing && self.pendingSeekTime == nil {
+            // When scrubbing, update timecode & frame index ONLY when a decoded frame lands
+            if self.isScrubbing {
+                let currSecs = CMTimeGetSeconds(time)
+                let fps = max(1.0, self.activeFps)
+                let frameIdx = max(0, min(max(0, self.totalFrames - 1), Int(floor(currSecs * fps + 1e-4))))
+                if self.currentFrame != frameIdx {
+                    self.currentFrame = frameIdx
+                    self.currentTimecode = TimecodeFormatter.format(frameIndex: frameIdx, fps: self.activeFps)
+                }
+            } else if self.pendingSeekTime == nil {
                 self.updateCurrentTime(time: time)
             }
             
@@ -1637,6 +1636,10 @@ public final class PlayerEngine: ObservableObject {
             }
             
             curCompletion?()
+            
+            #if DEBUG
+            QCScrubDiagnostic.shared.recordSeekCompleted()
+            #endif
             
             if let nextTime = self.pendingSeekTime {
                 let nextComp = self.pendingSeekCompletion
@@ -1649,7 +1652,12 @@ public final class PlayerEngine: ObservableObject {
         }
         
         // Parallel dispatch to Slot A
+        let seekStartA = CFAbsoluteTimeGetCurrent()
         slotA.player.seek(to: time, toleranceBefore: tol, toleranceAfter: tol) { [weak self] _ in
+            let seekDurationMs = (CFAbsoluteTimeGetCurrent() - seekStartA) * 1000.0
+            if seekDurationMs > 30.0 {
+                print("⏱️ [SEEK SLOW] slotA.player.seek took \(String(format: "%.1f", seekDurationMs))ms for time \(CMTimeGetSeconds(time))s")
+            }
             let runSlotA = { @MainActor in
                 guard let self = self else { return }
                 completedA = true
@@ -1799,3 +1807,41 @@ public final class PlayerEngine: ObservableObject {
         try jpegData.write(to: destinationURL, options: .atomic)
     }
 }
+
+#if DEBUG
+@MainActor
+public final class QCScrubDiagnostic {
+    public static let shared = QCScrubDiagnostic()
+    private var scrubCalls = 0
+    private var seeksCompleted = 0
+    private var lastLogged: CFAbsoluteTime = 0
+    
+    public func recordScrubCall() {
+        scrubCalls += 1
+        checkLog()
+    }
+    
+    public func recordSeekCompleted() {
+        seeksCompleted += 1
+        checkLog()
+    }
+    
+    private func checkLog() {
+        let now = CFAbsoluteTimeGetCurrent()
+        if lastLogged == 0 {
+            lastLogged = now
+            return
+        }
+        let elapsed = now - lastLogged
+        if elapsed >= 1.0 {
+            let scrubRate = Double(scrubCalls) / elapsed
+            let seekRate = Double(seeksCompleted) / elapsed
+            print("📊 [SCRUB DIAGNOSTIC] Mouse drag calls: \(String(format: "%.1f", scrubRate))/s | Seeks completed: \(String(format: "%.1f", seekRate))/s")
+            scrubCalls = 0
+            seeksCompleted = 0
+            lastLogged = now
+        }
+    }
+}
+#endif
+
