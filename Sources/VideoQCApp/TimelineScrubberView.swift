@@ -327,6 +327,40 @@ public struct TimelineScrubberView: View {
                 .animation(.spring(response: 0.2, dampingFraction: 0.7), value: isDragging)
                 .offset(x: playheadX - 5.5, y: 2)
                 .allowsHitTesting(false)
+                
+                // Native AppKit Scroll Wheel & Trackpad Interceptor
+                TimelineScrollTrackerView { delta, phase, isPrecise in
+                    let durSecs = CMTimeGetSeconds(engine.duration)
+                    guard durSecs > 0, durSecs.isFinite, !durSecs.isNaN else { return }
+                    let trackWidth = max(1.0, width - (trackInset * 2))
+                    
+                    if isPrecise {
+                        let progressDelta = Double(delta / trackWidth)
+                        let currentProg = dragProgress ?? engine.currentProgress
+                        let newProg = min(1.0, max(0.0, currentProg + progressDelta))
+                        
+                        if phase.contains(.began) {
+                            isDragging = true
+                            dragProgress = newProg
+                            engine.startScrubbing()
+                            engine.scrubTo(progress: newProg)
+                        } else if phase.contains(.changed) {
+                            dragProgress = newProg
+                            engine.scrubTo(progress: newProg)
+                        } else if phase.contains(.ended) || phase.contains(.cancelled) {
+                            isDragging = false
+                            dragProgress = nil
+                            engine.endScrubbing(at: newProg)
+                        } else {
+                            dragProgress = newProg
+                            engine.scrubTo(progress: newProg)
+                        }
+                    } else {
+                        let forward = delta > 0
+                        engine.stepFrames(count: 1, forward: forward)
+                    }
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
             .clipShape(RoundedRectangle(cornerRadius: 8))
             .contentShape(Rectangle())
@@ -388,5 +422,52 @@ public struct TimelineScrubberView: View {
             )
         }
         .frame(height: 46)
+    }
+}
+
+// MARK: - Native AppKit Scroll Wheel & Trackpad Gesture View
+
+struct TimelineScrollTrackerView: NSViewRepresentable {
+    var onScroll: (CGFloat, NSEvent.Phase, Bool) -> Void
+    
+    func makeNSView(context: Context) -> TimelineScrollNSView {
+        let view = TimelineScrollNSView()
+        view.onScroll = onScroll
+        return view
+    }
+    
+    func updateNSView(_ nsView: TimelineScrollNSView, context: Context) {
+        nsView.onScroll = onScroll
+    }
+}
+
+final class TimelineScrollNSView: NSView {
+    var onScroll: ((CGFloat, NSEvent.Phase, Bool) -> Void)?
+    
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        // Intercept scroll wheel events so trackpad two-finger swipes and mouse wheel are handled here,
+        // but return nil for mouse clicks so SwiftUI's DragGesture continues to handle clicking and dragging.
+        if let currentEvent = NSApp.currentEvent, currentEvent.type == .scrollWheel {
+            return self
+        }
+        return nil
+    }
+    
+    override func scrollWheel(with event: NSEvent) {
+        let delta: CGFloat
+        let isPrecise = event.hasPreciseScrollingDeltas
+        
+        if abs(event.scrollingDeltaX) > 0.001 {
+            delta = event.scrollingDeltaX
+        } else if abs(event.scrollingDeltaY) > 0.001 {
+            // Invert Y: scrolling up or right advances forward; scrolling down or left goes backward
+            delta = -event.scrollingDeltaY
+        } else {
+            super.scrollWheel(with: event)
+            return
+        }
+        
+        let phase = event.phase.isEmpty ? event.momentumPhase : event.phase
+        onScroll?(delta, phase, isPrecise)
     }
 }

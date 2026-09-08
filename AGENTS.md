@@ -96,3 +96,14 @@ Before committing any changes affecting `VideoViewportView.swift`, `PlayerEngine
 - [ ] Run `swift build` with 0 warnings/errors under Swift 6.
 - [ ] Test in canvas mode: Zoom into an edge line, pause, and drag the canvas around with the hand tool. Verify the line **does not** turn white during motion.
 - [ ] Test exposure slider: Scrub EV from -5.0 to +5.0 EV while paused and while playing. Verify video never disappears and exposure brightens/darkens smoothly.
+
+---
+
+## 6. Absolute Workflow & Operational Directives
+
+> **INVIOLABLE OPERATIONAL DIRECTIVE**
+>
+> 1. **DO NOT commit to git (`git commit`)** unless the user explicitly requests a commit in their prompt.
+> 2. **DO NOT push to remote repositories (`git push`)** unless the user explicitly requests a push.
+> 3. **DO NOT run packaging/release scripts (`BuildApp.sh`, `CreateDMG.sh`, etc.)** unless the user explicitly instructs to package or build the release.
+> 4. **Testing code changes**: ALWAYS use `swift build` (quick debug build) to verify compilation correctness and 0 errors/warnings. Never commit or package as part of routine verification.

@@ -431,6 +431,9 @@ public final class PlayerEngine: ObservableObject {
     private var pendingSeekTimeB: CMTime? = nil
     private var lastDriftCorrectionTime: Date = .distantPast
     
+    /// Immediate frame presentation callback called when hardware seek decoding finishes
+    public var onFrameDecoded: (@MainActor (SlotTarget, CMTime) -> Void)? = nil
+    
     public init() {
         slotA.player.automaticallyWaitsToMinimizeStalling = false
         slotB.player.automaticallyWaitsToMinimizeStalling = false
@@ -1002,6 +1005,7 @@ public final class PlayerEngine: ObservableObject {
             let runCompletion = { @MainActor in
                 guard let self = self else { return }
                 self.isSeekingB = false
+                self.onFrameDecoded?(.slotB, time)
                 completion?()
                 if !self.isPlaying && !self.isScrubbing {
                     self.objectWillChange.send()
@@ -1083,21 +1087,27 @@ public final class PlayerEngine: ObservableObject {
                 self.slotB.currentTime = timeB
             }
             
-            // Continuous drift correction during linked playback (throttled, only if drift > 0.15s)
+            // Continuous drift correction during linked playback:
+            // Smooth Phase-Locked Loop (PLL) micro-rate adjustment.
+            // NEVER perform a destructive seek while playing, as seeking halts video decode and creates audio pops.
             if self.isLinked && self.isPlaying && self.rate != 0 && !self.isSeekingB {
-                let now = Date()
-                if now.timeIntervalSince(self.lastDriftCorrectionTime) > 1.5 {
-                    let offsetSecs = Double(slotB.slipOffsetFrames) / max(1.0, slotB.fps)
-                    let expectedSecsB = currSecs + offsetSecs
-                    let actualSecsB = CMTimeGetSeconds(timeB)
-                    if abs(actualSecsB - expectedSecsB) > 0.15 {
-                        self.lastDriftCorrectionTime = now
-                        let targetTimeB = CMTime(seconds: max(0.0, expectedSecsB), preferredTimescale: 60000)
-                        let tol = CMTime(value: 1, timescale: 30)
-                        self.seekSlotB(to: targetTimeB, tolerance: tol) { [weak self] in
-                            guard let self = self, self.isPlaying, self.rate != 0 else { return }
-                            self.slotB.player.playImmediately(atRate: self.rate)
-                        }
+                let offsetSecs = Double(slotB.slipOffsetFrames) / max(1.0, slotB.fps)
+                let expectedSecsB = currSecs + offsetSecs
+                let actualSecsB = CMTimeGetSeconds(timeB)
+                let drift = actualSecsB - expectedSecsB
+                
+                let baseRate = self.rate
+                if abs(drift) > 0.008 {
+                    // Drift > 8ms: apply subtle ±4% micro-rate correction to lock back within milliseconds
+                    let correctionFactor: Float = (drift < 0) ? 1.04 : 0.96
+                    let adjustedRate = baseRate * correctionFactor
+                    if abs(slotB.player.rate - adjustedRate) > 0.001 {
+                        slotB.player.rate = adjustedRate
+                    }
+                } else {
+                    // In lockstep: maintain exact base rate
+                    if abs(slotB.player.rate - baseRate) > 0.001 {
+                        slotB.player.rate = baseRate
                     }
                 }
             }
@@ -1386,18 +1396,21 @@ public final class PlayerEngine: ObservableObject {
         let currSecsB = CMTimeGetSeconds(slotB.player.currentTime())
         let frameDur = 1.0 / max(1.0, slotB.fps)
         
-        if abs(currSecsB - targetSecs) > frameDur * 2.0 {
-            let targetTimeB = CMTime(seconds: targetSecs, preferredTimescale: 60000)
-            seekSlotB(to: targetTimeB) { [weak self] in
-                guard let self = self, self.isPlaying, self.rate == newRate else { return }
-                self.slotB.player.playImmediately(atRate: newRate)
-            }
-        } else {
-            slotB.player.playImmediately(atRate: newRate)
+        let startBothPlayers = { @MainActor [weak self] in
+            guard let self = self, self.isPlaying, self.rate == newRate else { return }
+            self.slotB.player.playImmediately(atRate: newRate)
+            self.slotA.player.playImmediately(atRate: newRate)
+            self.updateShuttleText(for: newRate)
         }
         
-        slotA.player.playImmediately(atRate: newRate)
-        updateShuttleText(for: newRate)
+        if abs(currSecsB - targetSecs) > frameDur * 1.5 {
+            let targetTimeB = CMTime(seconds: targetSecs, preferredTimescale: 60000)
+            seekSlotB(to: targetTimeB) {
+                startBothPlayers()
+            }
+        } else {
+            startBothPlayers()
+        }
     }
     
     private func updateShuttleText(for newRate: Float) {
@@ -1494,6 +1507,13 @@ public final class PlayerEngine: ObservableObject {
                 let targetTime = CMTime(seconds: targetSecs, preferredTimescale: 60000)
                 self.currentTime = targetTime
                 self.slotA.currentTime = targetTime
+                
+                if self.isLinked && self.slotB.url != nil {
+                    let offsetSecs = Double(self.slotB.slipOffsetFrames) / max(1.0, self.slotB.fps)
+                    let targetSecsB = max(0.0, targetSecs + offsetSecs)
+                    self.slotB.currentTime = CMTime(seconds: targetSecsB, preferredTimescale: 60000)
+                }
+                
                 seek(toTime: targetTime)
             }
         } else {
@@ -1520,6 +1540,12 @@ public final class PlayerEngine: ObservableObject {
         let targetTime = CMTime(seconds: currSecs, preferredTimescale: 60000)
         self.currentTime = targetTime
         self.slotA.currentTime = targetTime
+        
+        if self.isLinked && self.slotB.url != nil {
+            let offsetSecs = Double(self.slotB.slipOffsetFrames) / max(1.0, self.slotB.fps)
+            let targetSecsB = max(0.0, currSecs + offsetSecs)
+            self.slotB.currentTime = CMTime(seconds: targetSecsB, preferredTimescale: 60000)
+        }
         
         let shouldResume = self.wasPlayingBeforeScrub
         let resumeRate = self.playbackRateBeforeScrub
@@ -1575,62 +1601,81 @@ public final class PlayerEngine: ObservableObject {
         let curCompletion = completion
         
         // Fast seek during interactive scrubbing:
-        // When sweeping across the timeline, use keyframe/fast tolerance (.positiveInfinity)
-        // so AVPlayer / VideoToolbox seeks in <1ms without reconstructing deep GOP inter-frame chains.
+        // Use a tight single-frame tolerance so AVPlayer decodes the nearest frame directly
+        // rather than jumping distant seconds to keyframes (.positiveInfinity).
         // When paused or concluding scrub, tolerance is .zero for pixel-perfect frame accuracy.
         let tol: CMTime
         if let explicitTol = tolerance {
             tol = explicitTol
         } else if isScrubbing {
-            tol = .positiveInfinity
+            let fps = max(1.0, activeFps)
+            tol = CMTime(seconds: 1.0 / fps, preferredTimescale: 60000)
         } else {
             tol = .zero
         }
         
-        slotA.player.seek(to: time, toleranceBefore: tol, toleranceAfter: tol) { [weak self] _ in
-            let runCompletion = { @MainActor in
-                guard let self = self else { return }
-                self.isSeeking = false
-                
-                // When not scrubbing, update time and progress (e.g. playback, jumps, frame step)
-                // During scrubbing, scrubTo(progress:) already eagerly updates UI at 120 FPS
-                if !self.isScrubbing && self.pendingSeekTime == nil {
-                    self.updateCurrentTime(time: time)
-                }
-                
-                if !self.isPlaying && !self.isScrubbing {
-                    self.objectWillChange.send()
-                }
-                
-                if self.isLinked && self.slotB.url != nil && self.slotB.player.currentItem != nil {
-                    let offsetSeconds = Double(self.slotB.slipOffsetFrames) / max(1.0, self.slotB.fps)
-                    let targetSecsB = max(0.0, CMTimeGetSeconds(time) + offsetSeconds)
-                    let targetTimeB = CMTime(seconds: targetSecsB, preferredTimescale: 60000)
-                    let tolB = tolerance ?? (self.isScrubbing ? tol : .zero)
-                    self.seekSlotB(to: targetTimeB, tolerance: tolB)
-                }
-                
-                curCompletion?()
-                
-                if let nextTime = self.pendingSeekTime {
-                    let nextComp = self.pendingSeekCompletion
-                    let nextTol = self.pendingSeekTolerance
-                    self.pendingSeekTime = nil
-                    self.pendingSeekTolerance = nil
-                    self.pendingSeekCompletion = nil
-                    self.seek(toTime: nextTime, tolerance: nextTol, completion: nextComp)
-                }
+        let hasSlotB = self.isLinked && self.slotB.url != nil && self.slotB.player.currentItem != nil
+        let offsetSeconds = hasSlotB ? (Double(self.slotB.slipOffsetFrames) / max(1.0, self.slotB.fps)) : 0.0
+        let targetSecsB = hasSlotB ? max(0.0, CMTimeGetSeconds(time) + offsetSeconds) : 0.0
+        let targetTimeB = hasSlotB ? CMTime(seconds: targetSecsB, preferredTimescale: 60000) : .zero
+        
+        var completedA = false
+        var completedB = !hasSlotB
+        
+        let checkParallelDone = { @MainActor in
+            guard completedA && completedB else { return }
+            self.isSeeking = false
+            
+            // When not scrubbing, update time and progress (e.g. playback, jumps, frame step)
+            // During scrubbing, scrubTo(progress:) already eagerly updates UI at 120 FPS
+            if !self.isScrubbing && self.pendingSeekTime == nil {
+                self.updateCurrentTime(time: time)
             }
             
+            if !self.isPlaying && !self.isScrubbing {
+                self.objectWillChange.send()
+            }
+            
+            curCompletion?()
+            
+            if let nextTime = self.pendingSeekTime {
+                let nextComp = self.pendingSeekCompletion
+                let nextTol = self.pendingSeekTolerance
+                self.pendingSeekTime = nil
+                self.pendingSeekTolerance = nil
+                self.pendingSeekCompletion = nil
+                self.seek(toTime: nextTime, tolerance: nextTol, completion: nextComp)
+            }
+        }
+        
+        // Parallel dispatch to Slot A
+        slotA.player.seek(to: time, toleranceBefore: tol, toleranceAfter: tol) { [weak self] _ in
+            let runSlotA = { @MainActor in
+                guard let self = self else { return }
+                completedA = true
+                self.onFrameDecoded?(.slotA, time)
+                checkParallelDone()
+            }
             if Thread.isMainThread {
-                MainActor.assumeIsolated {
-                    runCompletion()
-                }
+                MainActor.assumeIsolated { runSlotA() }
             } else {
-                DispatchQueue.main.async {
-                    MainActor.assumeIsolated {
-                        runCompletion()
-                    }
+                DispatchQueue.main.async { MainActor.assumeIsolated { runSlotA() } }
+            }
+        }
+        
+        // Parallel dispatch to Slot B
+        if hasSlotB {
+            slotB.player.seek(to: targetTimeB, toleranceBefore: tol, toleranceAfter: tol) { [weak self] _ in
+                let runSlotB = { @MainActor in
+                    guard let self = self else { return }
+                    completedB = true
+                    self.onFrameDecoded?(.slotB, targetTimeB)
+                    checkParallelDone()
+                }
+                if Thread.isMainThread {
+                    MainActor.assumeIsolated { runSlotB() }
+                } else {
+                    DispatchQueue.main.async { MainActor.assumeIsolated { runSlotB() } }
                 }
             }
         }

@@ -325,11 +325,20 @@ public final class PlayerContainerNSView: NSView {
         self.engine = engine
         playerLayerA.player = engine.slotA.player
         playerLayerB.player = engine.slotB.player
+        engine.onFrameDecoded = { [weak self] slot, time in
+            self?.displayImmediateDecodedFrame(slot: slot, at: time)
+        }
         setupDisplayLink()
     }
     
     public func update(engine: PlayerEngine, isLightMode: Bool) {
+        let engineChanged = (self.engine !== engine)
         self.engine = engine
+        if engineChanged {
+            engine.onFrameDecoded = { [weak self] slot, time in
+                self?.displayImmediateDecodedFrame(slot: slot, at: time)
+            }
+        }
         
         if playerLayerA.player != engine.slotA.player {
             playerLayerA.player = engine.slotA.player
@@ -384,6 +393,45 @@ public final class PlayerContainerNSView: NSView {
         checkStillFrameDisplay()
     }
     
+    public func displayImmediateDecodedFrame(slot: SlotTarget, at time: CMTime) {
+        guard let engine = engine else { return }
+        
+        var imgToDisplay: CGImage? = nil
+        var targetLayer: CALayer? = nil
+        
+        if slot == .slotA, let outputA = engine.slotA.videoOutput {
+            if let pb = outputA.copyPixelBuffer(forItemTime: time, itemTimeForDisplay: nil) {
+                var cgImageA: CGImage?
+                VTCreateCGImageFromCVPixelBuffer(pb, options: nil, imageOut: &cgImageA)
+                if let img = cgImageA {
+                    self.lastCapturedTimeA = time
+                    self.rawStillFrameA = img
+                    imgToDisplay = (engine.exposureEV != 0.0) ? ExposureAdjuster.shared.applyExposure(to: img, ev: engine.exposureEV) : img
+                    targetLayer = stillFrameLayerA
+                }
+            }
+        } else if slot == .slotB, let outputB = engine.slotB.videoOutput {
+            if let pb = outputB.copyPixelBuffer(forItemTime: time, itemTimeForDisplay: nil) {
+                var cgImageB: CGImage?
+                VTCreateCGImageFromCVPixelBuffer(pb, options: nil, imageOut: &cgImageB)
+                if let img = cgImageB {
+                    self.lastCapturedTimeB = time
+                    self.rawStillFrameB = img
+                    imgToDisplay = (engine.exposureEV != 0.0) ? ExposureAdjuster.shared.applyExposure(to: img, ev: engine.exposureEV) : img
+                    targetLayer = stillFrameLayerB
+                }
+            }
+        }
+        
+        if let img = imgToDisplay, let layer = targetLayer {
+            CATransaction.begin()
+            CATransaction.setDisableActions(true)
+            layer.contents = img
+            layer.isHidden = false
+            CATransaction.commit()
+        }
+    }
+    
     public override func viewWillMove(toWindow newWindow: NSWindow?) {
         super.viewWillMove(toWindow: newWindow)
         if let window = newWindow {
@@ -422,12 +470,18 @@ public final class PlayerContainerNSView: NSView {
     private func renderPlaybackFrames() {
         guard let engine = engine else { return }
         
+        var newImgA: CGImage? = nil
+        var newTimeA: CMTime? = nil
+        var newImgB: CGImage? = nil
+        var newTimeB: CMTime? = nil
+        
+        let masterTime = engine.isScrubbing ? engine.currentTime : engine.slotA.player.currentTime()
+        
         // Slot A frame extraction:
         if let outputA = engine.slotA.videoOutput {
-            let targetTimeA = engine.isScrubbing ? engine.currentTime : engine.slotA.player.currentTime()
             var pbA: CVPixelBuffer? = nil
             if engine.isScrubbing {
-                pbA = outputA.copyPixelBuffer(forItemTime: targetTimeA, itemTimeForDisplay: nil)
+                pbA = outputA.copyPixelBuffer(forItemTime: masterTime, itemTimeForDisplay: nil)
             }
             if pbA == nil {
                 let playerTimeA = engine.slotA.player.currentTime()
@@ -438,23 +492,20 @@ public final class PlayerContainerNSView: NSView {
                 var cgImageA: CGImage?
                 VTCreateCGImageFromCVPixelBuffer(pb, options: nil, imageOut: &cgImageA)
                 if let img = cgImageA {
-                    self.lastCapturedTimeA = targetTimeA
-                    self.rawStillFrameA = img
-                    CATransaction.begin()
-                    CATransaction.setDisableActions(true)
-                    self.stillFrameLayerA.contents = img
-                    CATransaction.commit()
+                    newImgA = (engine.exposureEV != 0.0) ? ExposureAdjuster.shared.applyExposure(to: img, ev: engine.exposureEV) : img
+                    newTimeA = masterTime
                 }
             }
         }
         
-        // Slot B frame extraction (in compare modes):
+        // Slot B frame extraction (master-locked in compare modes):
         if engine.slotB.url != nil, let outputB = engine.slotB.videoOutput {
-            let targetTimeB = engine.isScrubbing ? engine.slotB.currentTime : engine.slotB.player.currentTime()
-            var pbB: CVPixelBuffer? = nil
-            if engine.isScrubbing {
-                pbB = outputB.copyPixelBuffer(forItemTime: targetTimeB, itemTimeForDisplay: nil)
-            }
+            let offsetSecs = Double(engine.slotB.slipOffsetFrames) / max(1.0, engine.slotB.fps)
+            let masterSecs = CMTimeGetSeconds(masterTime)
+            let targetSecsB = max(0.0, (masterSecs.isFinite && !masterSecs.isNaN ? masterSecs : 0.0) + offsetSecs)
+            let targetTimeB = CMTime(seconds: targetSecsB, preferredTimescale: 60000)
+            
+            var pbB: CVPixelBuffer? = outputB.copyPixelBuffer(forItemTime: targetTimeB, itemTimeForDisplay: nil)
             if pbB == nil {
                 let playerTimeB = engine.slotB.player.currentTime()
                 var displayTime = CMTime.zero
@@ -464,14 +515,29 @@ public final class PlayerContainerNSView: NSView {
                 var cgImageB: CGImage?
                 VTCreateCGImageFromCVPixelBuffer(pb, options: nil, imageOut: &cgImageB)
                 if let imgB = cgImageB {
-                    self.lastCapturedTimeB = targetTimeB
-                    self.rawStillFrameB = imgB
-                    CATransaction.begin()
-                    CATransaction.setDisableActions(true)
-                    self.stillFrameLayerB.contents = imgB
-                    CATransaction.commit()
+                    newImgB = (engine.exposureEV != 0.0) ? ExposureAdjuster.shared.applyExposure(to: imgB, ev: engine.exposureEV) : imgB
+                    newTimeB = targetTimeB
                 }
             }
+        }
+        
+        // Commit both textures synchronously in a single atomic transaction
+        if newImgA != nil || newImgB != nil {
+            CATransaction.begin()
+            CATransaction.setDisableActions(true)
+            if let imgA = newImgA {
+                self.lastCapturedTimeA = newTimeA
+                self.rawStillFrameA = imgA
+                self.stillFrameLayerA.contents = imgA
+                self.stillFrameLayerA.isHidden = false
+            }
+            if let imgB = newImgB {
+                self.lastCapturedTimeB = newTimeB
+                self.rawStillFrameB = imgB
+                self.stillFrameLayerB.contents = imgB
+                self.stillFrameLayerB.isHidden = false
+            }
+            CATransaction.commit()
         }
     }
     

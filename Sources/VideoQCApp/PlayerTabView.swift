@@ -1107,8 +1107,10 @@ extension ContentView {
     
     // MARK: - Review Navigation Strip (Notes, Line Glitches, Finder Tags)
     
+    // MARK: - Review Navigation Strip (Notes, Play Info, Line Glitches, Finder Tags)
+    
     private var playerReviewNavStrip: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: 6) {
             // 1. Compact Review Notes Controls: [+ NOTE] and < 💬 count >
             HStack(spacing: 2) {
                 Button(action: { openAddNoteModal() }) {
@@ -1181,7 +1183,25 @@ extension ContentView {
                 .frame(width: 1, height: 14)
                 .padding(.horizontal, 2)
             
-            // 2. Compact Line Finding Navigation: < LINE >
+            // 2. Play Info / Shuttle Speed Indicator (Rigidly locked frame width to keep everything locked in place)
+            ZStack {
+                if playerEngine.shuttleStateText != "PAUSE" && (playerEngine.isPlaying || playerEngine.rate != 0) {
+                    Text(playerEngine.shuttleStateText)
+                        .font(.system(size: 10, weight: .bold, design: .monospaced))
+                        .monospacedDigit()
+                        .foregroundColor(accentBlue)
+                        .lineLimit(1)
+                }
+            }
+            .frame(width: 96, height: 24)
+            
+            // Group Divider
+            Rectangle()
+                .fill(borderLine.opacity(0.45))
+                .frame(width: 1, height: 14)
+                .padding(.horizontal, 2)
+            
+            // 3. Compact Line Finding Navigation: < LINE >
             let hasGlitches = scanResults.contains(where: { $0.isFlagged && !$0.glitchSegments.isEmpty })
             HStack(spacing: 1) {
                 Button(action: { jumpToPreviousGlitchFinding() }) {
@@ -1224,7 +1244,7 @@ extension ContentView {
                 .frame(width: 1, height: 14)
                 .padding(.horizontal, 2)
             
-            // 3. Finder Tags Button
+            // 4. Finder Tags Button
             let activeURL = playerEngine.activeURL
             let activeTag = activeURL.flatMap { fileTagsMap[$0] }
             Button(action: {
@@ -1361,9 +1381,9 @@ extension ContentView {
                     }
                 }
                 
-                // Zoom Dropdown Menu (Adjusted sizing to fit the longest line: "Fit to Window")
+                // Zoom Dropdown Menu (Compact "Fit" sizing)
                 Menu {
-                    Button("Fit to Window") { playerEngine.setZoomFit() }
+                    Button("Fit") { playerEngine.setZoomFit() }
                     Divider()
                     Button("10%") { playerEngine.setZoomLevel(0.10) }
                     Button("25%") { playerEngine.setZoomLevel(0.25) }
@@ -1375,7 +1395,7 @@ extension ContentView {
                     Button("400%") { playerEngine.setZoomLevel(4.0) }
                 } label: {
                     HStack(spacing: 4) {
-                        Text(playerEngine.isFitZoom ? "Fit to Window" : "\(Int(round(playerEngine.zoomScale * 100)))%")
+                        Text(playerEngine.isFitZoom ? "Fit" : "\(Int(round(playerEngine.zoomScale * 100)))%")
                             .font(.system(size: 11, weight: .medium, design: .monospaced))
                             .foregroundColor(textMain)
                             .lineLimit(1)
@@ -1386,32 +1406,23 @@ extension ContentView {
                             .foregroundColor(textMuted)
                     }
                     .padding(.horizontal, 6)
-                    .frame(width: 118, height: 22)
+                    .frame(width: 62, height: 22)
                     .studioBox(background: bgSubtle, border: borderLine)
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .frame(width: 118)
-                
-                // Shuttle Speed Indicator (Next to zoom, hidden when paused)
-                if playerEngine.shuttleStateText != "PAUSE" && (playerEngine.isPlaying || playerEngine.rate != 0) {
-                    Text(playerEngine.shuttleStateText)
-                        .font(.system(size: 10, weight: .bold, design: .monospaced))
-                        .monospacedDigit()
-                        .foregroundColor(accentBlue)
-                        .tracking(0.5)
-                }
+                .frame(width: 62)
             }
-            .frame(minWidth: 270, alignment: .leading)
+            .frame(minWidth: 216, alignment: .leading)
             
             Spacer(minLength: 8)
             
-            // Center: NOTES, LINE and TAGS related buttons
+            // Center: NOTES, PLAY INFO, LINE and TAGS (Rigidly locked in place)
             playerReviewNavStrip
             
             Spacer(minLength: 8)
             
-            // Right: Duration Timecode / Total Frames (Locked 125px width, balanced minWidth for true center)
+            // Right: Duration Timecode / Total Frames (Balanced minWidth for true center alignment)
             HStack {
                 Spacer()
                 Text(playerEngine.displayTimeAsFrames ? "\(playerEngine.totalFrames) frames" : playerEngine.durationTimecode)
@@ -1422,7 +1433,7 @@ extension ContentView {
                     .lineLimit(1)
                     .frame(width: 125, alignment: .trailing)
             }
-            .frame(minWidth: 270, alignment: .trailing)
+            .frame(minWidth: 216, alignment: .trailing)
         }
         .frame(height: 24)
         .padding(.horizontal, 4)
