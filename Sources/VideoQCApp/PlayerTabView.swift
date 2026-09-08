@@ -634,34 +634,39 @@ public struct PlayerQueuePanelView: View, Equatable {
             }
             
             VStack(alignment: .leading, spacing: 8) {
-                HStack(spacing: 4) {
+                // Action Toolbar: SELECT/CHANGE, ADD, HIDE/SHOW, plus trailing Asset Count
+                HStack(spacing: 5) {
+                    let isSelectEmpty = (folderURL == nil && videoFiles.isEmpty)
                     Button(action: { onSelectAssets(false) }) {
-                        HStack(spacing: 3) {
-                            Image(systemName: folderURL == nil && videoFiles.isEmpty ? "folder.badge.plus" : "arrow.triangle.2.circlepath")
-                                .font(.system(size: 8, weight: .bold))
-                            Text(folderURL == nil && videoFiles.isEmpty ? "SELECT" : "CHANGE")
+                        HStack(spacing: 4) {
+                            Image(systemName: isSelectEmpty ? "folder.badge.plus" : "arrow.triangle.2.circlepath")
+                                .font(.system(size: 9, weight: .bold))
+                            Text(isSelectEmpty ? "SELECT" : "CHANGE")
                                 .font(.system(size: 9.5, weight: .bold, design: .monospaced))
                                 .lineLimit(1)
                         }
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 7)
-                        .foregroundColor(textMain)
-                        .studioBox(background: bgSubtle, border: borderLine)
+                        .padding(.horizontal, 9)
+                        .frame(height: 24)
+                        .foregroundColor(isSelectEmpty ? accentBlue : textMain)
+                        .studioBox(
+                            background: isSelectEmpty ? accentBlue.opacity(0.12) : bgSubtle,
+                            border: isSelectEmpty ? accentBlue.opacity(0.4) : borderLine
+                        )
                     }
                     .buttonStyle(.plain)
                     .disabled(isScanning)
-                    .explain(folderURL == nil && videoFiles.isEmpty ? "Opens file picker to select video files or a folder to inspect." : "Replaces currently loaded assets with a new folder or file selection.", binding: hoverExplanation)
+                    .explain(isSelectEmpty ? "Opens file picker to select video files or a folder to inspect." : "Replaces currently loaded assets with a new folder or file selection.", binding: hoverExplanation)
                     
                     Button(action: { onSelectAssets(true) }) {
-                        HStack(spacing: 3) {
+                        HStack(spacing: 4) {
                             Image(systemName: "plus")
-                                .font(.system(size: 8, weight: .bold))
+                                .font(.system(size: 9, weight: .bold))
                             Text("ADD")
                                 .font(.system(size: 9.5, weight: .bold, design: .monospaced))
                                 .lineLimit(1)
                         }
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 7)
+                        .padding(.horizontal, 8)
+                        .frame(height: 24)
                         .foregroundColor(textMain)
                         .studioBox(background: bgSubtle, border: borderLine)
                     }
@@ -672,21 +677,40 @@ public struct PlayerQueuePanelView: View, Equatable {
                     let isHidden = hideAllFolders || !hiddenFolderIDs.isEmpty
                     let canToggle = hasSubfolders || !videoFiles.isEmpty
                     Button(action: onToggleHideFolders) {
-                        HStack(spacing: 3) {
+                        HStack(spacing: 4) {
                             Image(systemName: isHidden ? "folder" : "folder.badge.minus")
-                                .font(.system(size: 8, weight: .bold))
+                                .font(.system(size: 9, weight: .bold))
                             Text(isHidden ? "SHOW" : "HIDE")
                                 .font(.system(size: 9.5, weight: .bold, design: .monospaced))
                                 .lineLimit(1)
                         }
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 7)
-                        .foregroundColor(canToggle ? textMain : textSubtle)
-                        .studioBox(background: bgSubtle, border: borderLine)
+                        .padding(.horizontal, 8)
+                        .frame(height: 24)
+                        .foregroundColor(canToggle ? (isHidden ? accentBlue : textMain) : textSubtle)
+                        .studioBox(
+                            background: isHidden ? accentBlue.opacity(0.12) : bgSubtle,
+                            border: isHidden ? accentBlue.opacity(0.35) : borderLine
+                        )
                     }
                     .buttonStyle(.plain)
                     .disabled(isScanning || !canToggle)
                     .explain(isHidden ? "Show all folder headers in asset lists." : "Hide folder headers and display assets in a flat list.", binding: hoverExplanation)
+                    
+                    Spacer(minLength: 4)
+                    
+                    if !videoFiles.isEmpty {
+                        HStack(spacing: 4) {
+                            Circle()
+                                .fill(accentPositive)
+                                .frame(width: 5, height: 5)
+                            Text("\(videoFiles.count) \(videoFiles.count == 1 ? "FILE" : "FILES")")
+                                .font(.system(size: 9, weight: .bold, design: .monospaced))
+                                .foregroundColor(textMuted)
+                        }
+                        .padding(.horizontal, 7)
+                        .frame(height: 24)
+                        .studioBox(background: bgSubtle.opacity(0.4), border: borderLine.opacity(0.6))
+                    }
                 }
                 
                 if let folder = folderURL {

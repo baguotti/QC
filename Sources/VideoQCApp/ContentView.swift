@@ -23,6 +23,7 @@ struct ContentView: View {
     @ObservedObject private var updateManager = UpdateManager.shared
     @ObservedObject private var themeManager = ThemeManager.shared
     @State var hoverExplanation: String = ""
+    @State private var hoveredTab: AppTab? = nil
     
     // Shared Folder & Video Files
     @State var folderURL: URL? = nil
@@ -292,11 +293,13 @@ struct ContentView: View {
     private var mainWorkspaceContent: some View {
         VStack(spacing: 0) {
             // 1. Dedicated Prominent Tab Navigation Bar with Right-Hand Controls
-            tabBarStrip
-            
-            Rectangle()
-                .fill(borderLine)
-                .frame(height: 1)
+            ZStack(alignment: .bottom) {
+                tabBarStrip
+                
+                Rectangle()
+                    .fill(borderLine)
+                    .frame(height: 1)
+            }
             
             // 2. Main Tab Content
             switch selectedTab {
@@ -669,66 +672,73 @@ struct ContentView: View {
         }
     }
     
-    private func tabWidth(for tab: AppTab) -> CGFloat {
-        switch tab {
-        case .player: return 165
-        case .specs: return 165
-        case .lineFinder: return 260
-        }
-    }
+    private let tabLength: CGFloat = 148
     
     private var tabBarStrip: some View {
-        HStack(spacing: 10) {
+        HStack(alignment: .bottom, spacing: 6) {
             ForEach(AppTab.allCases) { tab in
+                let isActive = (selectedTab == tab)
+                let isHovered = (hoveredTab == tab)
+                
                 Button(action: {
-                    selectedTab = tab
+                    withAnimation(.spring(response: 0.22, dampingFraction: 0.85)) {
+                        selectedTab = tab
+                    }
                     if tab == .specs && deliverableAssets.isEmpty && !videoFiles.isEmpty {
                         inspectDeliverablesBatch(urls: videoFiles)
                     } else if tab == .player && playerEngine.activeURL == nil, let first = videoFiles.first {
                         playerEngine.loadVideo(url: first)
                     }
                 }) {
-                    HStack(spacing: 8) {
-                        Rectangle()
-                            .fill(selectedTab == tab ? accentBlue : Color.clear)
-                            .frame(width: 4, height: 16)
+                    HStack(spacing: 7) {
+                        Capsule()
+                            .fill(accentBlue)
+                            .frame(width: isActive ? 3 : 2, height: 11)
+                            .opacity(isActive ? 1.0 : (isHovered ? 0.45 : 0.0))
+                            .scaleEffect(isActive ? 1.0 : (isHovered ? 0.85 : 0.4), anchor: .center)
                         
                         Text(tab.title)
-                            .font(.system(size: 12, weight: .black, design: .monospaced))
+                            .font(.system(size: 11, weight: isActive ? .bold : .medium, design: .monospaced))
                             .tracking(0.5)
                             .lineLimit(1)
                             .fixedSize(horizontal: true, vertical: false)
-                        
-                        Spacer(minLength: 6)
-                        
-                        if tab == .specs && !deliverableAssets.isEmpty {
-                            Text("[\(deliverableAssets.count)]")
-                                .font(.system(size: 10, weight: .bold, design: .monospaced))
-                                .foregroundColor(selectedTab == tab ? primaryBtnFg : textSubtle)
-                                .lineLimit(1)
-                                .fixedSize(horizontal: true, vertical: false)
-                        } else if tab == .player && !videoFiles.isEmpty {
-                            Text("[\(videoFiles.count)]")
-                                .font(.system(size: 10, weight: .bold, design: .monospaced))
-                                .foregroundColor(selectedTab == tab ? primaryBtnFg : textSubtle)
-                                .lineLimit(1)
-                                .fixedSize(horizontal: true, vertical: false)
-                        } else if tab == .lineFinder && !scanResults.isEmpty {
-                            let flaggedCount = scanResults.filter { $0.isFlagged }.count
-                            Text(flaggedCount > 0 ? "[\(flaggedCount) FLAGGED]" : "[PASSED]")
-                                .font(.system(size: 10, weight: .bold, design: .monospaced))
-                                .foregroundColor(flaggedCount > 0 ? alertRed : accentPositive)
-                                .lineLimit(1)
-                                .fixedSize(horizontal: true, vertical: false)
-                        }
                     }
-                    .frame(width: tabWidth(for: tab))
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 10)
-                    .foregroundColor(selectedTab == tab ? primaryBtnFg : textSubtle)
-                    .studioBox(background: selectedTab == tab ? primaryBtnBg : bgSubtle, border: selectedTab == tab ? primaryBtnBg : borderLine)
+                    .frame(width: tabLength, height: 28)
+                    .padding(.bottom, 3)
+                    .foregroundColor(
+                        isActive
+                            ? (isLightMode ? Color.black : Color.white)
+                            : (isHovered ? textMain : textMuted.opacity(0.72))
+                    )
+                    .background(
+                        UnevenRoundedRectangle(topLeadingRadius: 5, bottomLeadingRadius: 0, bottomTrailingRadius: 0, topTrailingRadius: 5)
+                            .fill(
+                                isActive
+                                    ? (isLightMode ? Color.white : Color(white: 0.22))
+                                    : (isHovered ? bgSubtle.opacity(isLightMode ? 0.85 : 0.55) : bgSubtle.opacity(isLightMode ? 0.4 : 0.22))
+                            )
+                    )
+                    .overlay(
+                        UnevenRoundedRectangle(topLeadingRadius: 5, bottomLeadingRadius: 0, bottomTrailingRadius: 0, topTrailingRadius: 5)
+                            .stroke(
+                                isActive
+                                    ? (isLightMode ? borderStrong : Color(white: 0.38))
+                                    : (isHovered ? borderLine : borderLine.opacity(isLightMode ? 0.45 : 0.25)),
+                                lineWidth: 1
+                            )
+                    )
+                    .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
+                .onHover { hovering in
+                    withAnimation(.easeInOut(duration: 0.12)) {
+                        if hovering {
+                            hoveredTab = tab
+                        } else if hoveredTab == tab {
+                            hoveredTab = nil
+                        }
+                    }
+                }
                 .explain(
                     tab == .player ? "01 // PLAYER: High-performance delivery playback with J-K-L shuttle, timeline scrubbing, and zoom." :
                     (tab == .specs ? "02 // SPECS: Reads container resolution, timecode, audio, and codecs." :
@@ -740,9 +750,11 @@ struct ContentView: View {
             Spacer()
             
             topControls
+                .padding(.bottom, 3)
         }
         .padding(.horizontal, 20)
-        .padding(.vertical, 8)
+        .padding(.top, 8)
+        .padding(.bottom, 0)
         .background(bgPanel)
     }
     
@@ -753,37 +765,39 @@ struct ContentView: View {
             sectionHeader(num: "01", title: "LOAD ASSETS")
             
             VStack(alignment: .leading, spacing: 8) {
-                // 3 Action Buttons on the same line: CHANGE, ADD, HIDE
-                HStack(spacing: 4) {
-                    // CHANGE / SELECT Button
+                // Action Toolbar: SELECT/CHANGE, ADD, HIDE/SHOW, plus trailing Asset Count
+                HStack(spacing: 5) {
+                    let isSelectEmpty = (folderURL == nil && videoFiles.isEmpty)
                     Button(action: { selectAssets(forTab: forTab, append: false) }) {
-                        HStack(spacing: 3) {
-                            Image(systemName: folderURL == nil && videoFiles.isEmpty ? "folder.badge.plus" : "arrow.triangle.2.circlepath")
-                                .font(.system(size: 8, weight: .bold))
-                            Text(folderURL == nil && videoFiles.isEmpty ? "SELECT" : "CHANGE")
+                        HStack(spacing: 4) {
+                            Image(systemName: isSelectEmpty ? "folder.badge.plus" : "arrow.triangle.2.circlepath")
+                                .font(.system(size: 9, weight: .bold))
+                            Text(isSelectEmpty ? "SELECT" : "CHANGE")
                                 .font(.system(size: 9.5, weight: .bold, design: .monospaced))
                                 .lineLimit(1)
                         }
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 7)
-                        .foregroundColor(textMain)
-                        .studioBox(background: bgSubtle, border: borderLine)
+                        .padding(.horizontal, 9)
+                        .frame(height: 24)
+                        .foregroundColor(isSelectEmpty ? accentBlue : textMain)
+                        .studioBox(
+                            background: isSelectEmpty ? accentBlue.opacity(0.12) : bgSubtle,
+                            border: isSelectEmpty ? accentBlue.opacity(0.4) : borderLine
+                        )
                     }
                     .buttonStyle(.plain)
                     .disabled(isScanning)
-                    .explain(folderURL == nil && videoFiles.isEmpty ? "Opens file picker to select video files or a folder to inspect." : "Replaces currently loaded assets with a new folder or file selection.", binding: $hoverExplanation)
+                    .explain(isSelectEmpty ? "Opens file picker to select video files or a folder to inspect." : "Replaces currently loaded assets with a new folder or file selection.", binding: $hoverExplanation)
                     
-                    // ADD Button
                     Button(action: { selectAssets(forTab: forTab, append: true) }) {
-                        HStack(spacing: 3) {
+                        HStack(spacing: 4) {
                             Image(systemName: "plus")
-                                .font(.system(size: 8, weight: .bold))
+                                .font(.system(size: 9, weight: .bold))
                             Text("ADD")
                                 .font(.system(size: 9.5, weight: .bold, design: .monospaced))
                                 .lineLimit(1)
                         }
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 7)
+                        .padding(.horizontal, 8)
+                        .frame(height: 24)
                         .foregroundColor(textMain)
                         .studioBox(background: bgSubtle, border: borderLine)
                     }
@@ -791,25 +805,43 @@ struct ContentView: View {
                     .disabled(isScanning)
                     .explain("Opens file picker to add more video files or folders to current list without losing existing assets.", binding: $hoverExplanation)
                     
-                    // HIDE / SHOW Folders Button
                     let isHidden = hideAllFolders || !hiddenFolderIDs.isEmpty
                     let canToggle = hasPlayerSubfolders || !videoFiles.isEmpty
                     Button(action: toggleHideFolders) {
-                        HStack(spacing: 3) {
+                        HStack(spacing: 4) {
                             Image(systemName: isHidden ? "folder" : "folder.badge.minus")
-                                .font(.system(size: 8, weight: .bold))
+                                .font(.system(size: 9, weight: .bold))
                             Text(isHidden ? "SHOW" : "HIDE")
                                 .font(.system(size: 9.5, weight: .bold, design: .monospaced))
                                 .lineLimit(1)
                         }
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 7)
-                        .foregroundColor(canToggle ? textMain : textSubtle)
-                        .studioBox(background: bgSubtle, border: borderLine)
+                        .padding(.horizontal, 8)
+                        .frame(height: 24)
+                        .foregroundColor(canToggle ? (isHidden ? accentBlue : textMain) : textSubtle)
+                        .studioBox(
+                            background: isHidden ? accentBlue.opacity(0.12) : bgSubtle,
+                            border: isHidden ? accentBlue.opacity(0.35) : borderLine
+                        )
                     }
                     .buttonStyle(.plain)
                     .disabled(isScanning || !canToggle)
                     .explain(isHidden ? "Show all folder headers in asset lists." : "Hide folder headers and display assets in a flat list.", binding: $hoverExplanation)
+                    
+                    Spacer(minLength: 4)
+                    
+                    if !videoFiles.isEmpty {
+                        HStack(spacing: 4) {
+                            Circle()
+                                .fill(accentPositive)
+                                .frame(width: 5, height: 5)
+                            Text("\(videoFiles.count) \(videoFiles.count == 1 ? "FILE" : "FILES")")
+                                .font(.system(size: 9, weight: .bold, design: .monospaced))
+                                .foregroundColor(textMuted)
+                        }
+                        .padding(.horizontal, 7)
+                        .frame(height: 24)
+                        .studioBox(background: bgSubtle.opacity(0.4), border: borderLine.opacity(0.6))
+                    }
                 }
                 
                 if let folder = folderURL {
