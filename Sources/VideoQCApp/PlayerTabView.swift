@@ -1107,336 +1107,255 @@ extension ContentView {
     
     // MARK: - Review Navigation Strip (Notes, Line Glitches, Finder Tags)
     
-    // MARK: - Review Navigation Strip (Notes, Play Info, Line Glitches, Finder Tags)
+    // MARK: - Review Navigation & Timecode Bar
     
-    private var playerReviewNavStrip: some View {
-        HStack(spacing: 6) {
-            // 1. Compact Review Notes Controls: [+ NOTE] and < 💬 count >
-            HStack(spacing: 2) {
-                Button(action: { openAddNoteModal() }) {
+    // 1. Compact Review Notes Controls: [+ NOTE] and < 💬 count >
+    private var playerNotesGroup: some View {
+        HStack(spacing: 2) {
+            Button(action: { openAddNoteModal() }) {
+                HStack(spacing: 3) {
+                    Image(systemName: "plus")
+                        .font(.system(size: 9.5, weight: .bold))
+                    Text("NOTE")
+                        .font(.system(size: 9.5, weight: .bold, design: .monospaced))
+                }
+                .frame(height: 24)
+                .padding(.horizontal, 5)
+                .foregroundColor(playerEngine.activeURL == nil ? textMuted : textMain)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(TransportIconButtonStyle())
+            .disabled(playerEngine.activeURL == nil)
+            .explain("Add review note at playhead (M).", binding: $hoverExplanation)
+            
+            let notesCount = playerEngine.activeNotes.count
+            let hasNotes = notesCount > 0
+            
+            HStack(spacing: 1) {
+                Button(action: { playerEngine.jumpToPreviousNote() }) {
+                    Image(systemName: "chevron.left.to.line")
+                        .font(.system(size: 9.5, weight: .bold))
+                        .frame(width: 18, height: 24)
+                        .foregroundColor(hasNotes ? textMain : textMuted)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(TransportIconButtonStyle())
+                .disabled(!hasNotes)
+                .explain(hasNotes ? "Jump to previous note" : "No notes logged", binding: $hoverExplanation)
+                
+                Button(action: {
+                    withAnimation(.easeInOut(duration: 0.15)) {
+                        showNotesDrawer.toggle()
+                    }
+                }) {
                     HStack(spacing: 3) {
-                        Image(systemName: "plus")
-                            .font(.system(size: 9.5, weight: .bold))
-                        Text("NOTE")
+                        Image(systemName: showNotesDrawer ? "text.bubble.fill" : "text.bubble")
+                            .font(.system(size: 9.5, weight: .semibold))
+                        Text(hasNotes ? "\(notesCount)" : "NOTES")
                             .font(.system(size: 9.5, weight: .bold, design: .monospaced))
                     }
                     .frame(height: 24)
-                    .padding(.horizontal, 5)
-                    .foregroundColor(playerEngine.activeURL == nil ? textMuted : textMain)
+                    .padding(.horizontal, 4)
+                    .foregroundColor(showNotesDrawer ? accentBlue : (hasNotes ? textMain : textMuted))
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(TransportIconButtonStyle())
                 .disabled(playerEngine.activeURL == nil)
-                .explain("Add review note at playhead (M).", binding: $hoverExplanation)
+                .explain(hasNotes ? "Toggle Review Notes drawer (\(notesCount) notes)." : "Toggle Review Notes drawer.", binding: $hoverExplanation)
                 
-                let notesCount = playerEngine.activeNotes.count
-                let hasNotes = notesCount > 0
-                
-                HStack(spacing: 1) {
-                    Button(action: { playerEngine.jumpToPreviousNote() }) {
-                        Image(systemName: "chevron.left.to.line")
-                            .font(.system(size: 9.5, weight: .bold))
-                            .frame(width: 18, height: 24)
-                            .foregroundColor(hasNotes ? textMain : textMuted)
-                            .contentShape(Rectangle())
-                    }
-                    .buttonStyle(TransportIconButtonStyle())
-                    .disabled(!hasNotes)
-                    .explain(hasNotes ? "Jump to previous note" : "No notes logged", binding: $hoverExplanation)
-                    
-                    Button(action: {
-                        withAnimation(.easeInOut(duration: 0.15)) {
-                            showNotesDrawer.toggle()
-                        }
-                    }) {
-                        HStack(spacing: 3) {
-                            Image(systemName: showNotesDrawer ? "text.bubble.fill" : "text.bubble")
-                                .font(.system(size: 9.5, weight: .semibold))
-                            Text(hasNotes ? "\(notesCount)" : "NOTES")
-                                .font(.system(size: 9.5, weight: .bold, design: .monospaced))
-                        }
-                        .frame(height: 24)
-                        .padding(.horizontal, 4)
-                        .foregroundColor(showNotesDrawer ? accentBlue : (hasNotes ? textMain : textMuted))
-                        .contentShape(Rectangle())
-                    }
-                    .buttonStyle(TransportIconButtonStyle())
-                    .disabled(playerEngine.activeURL == nil)
-                    .explain(hasNotes ? "Toggle Review Notes drawer (\(notesCount) notes)." : "Toggle Review Notes drawer.", binding: $hoverExplanation)
-                    
-                    Button(action: { playerEngine.jumpToNextNote() }) {
-                        Image(systemName: "chevron.right.to.line")
-                            .font(.system(size: 9.5, weight: .bold))
-                            .frame(width: 18, height: 24)
-                            .foregroundColor(hasNotes ? textMain : textMuted)
-                            .contentShape(Rectangle())
-                    }
-                    .buttonStyle(TransportIconButtonStyle())
-                    .disabled(!hasNotes)
-                    .explain(hasNotes ? "Jump to next note" : "No notes logged", binding: $hoverExplanation)
-                }
-            }
-            
-            // Group Divider
-            Rectangle()
-                .fill(borderLine.opacity(0.45))
-                .frame(width: 1, height: 14)
-                .padding(.horizontal, 2)
-            
-            // 2. Play Info / Shuttle Speed Indicator (Rigidly locked frame width to keep everything locked in place)
-            ZStack {
-                if playerEngine.shuttleStateText != "PAUSE" && (playerEngine.isPlaying || playerEngine.rate != 0) {
-                    Text(playerEngine.shuttleStateText)
-                        .font(.system(size: 10, weight: .bold, design: .monospaced))
-                        .monospacedDigit()
-                        .foregroundColor(accentBlue)
-                        .lineLimit(1)
-                }
-            }
-            .frame(width: 96, height: 24)
-            
-            // Group Divider
-            Rectangle()
-                .fill(borderLine.opacity(0.45))
-                .frame(width: 1, height: 14)
-                .padding(.horizontal, 2)
-            
-            // 3. Compact Line Finding Navigation: < LINE >
-            let hasGlitches = scanResults.contains(where: { $0.isFlagged && !$0.glitchSegments.isEmpty })
-            HStack(spacing: 1) {
-                Button(action: { jumpToPreviousGlitchFinding() }) {
-                    Image(systemName: "chevron.left.to.line")
-                        .font(.system(size: 9.5, weight: .bold))
-                        .frame(width: 18, height: 24)
-                        .foregroundColor(hasGlitches ? alertRed : textMuted)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(TransportIconButtonStyle())
-                .disabled(!hasGlitches)
-                .explain(
-                    hasGlitches ? "Jump to previous line glitch (⇧N / cycles backwards through findings of Tab 3)." : "No line glitches found in Tab 3 to cycle through.",
-                    binding: $hoverExplanation
-                )
-                
-                Text("LINE")
-                    .font(.system(size: 9.5, weight: .bold, design: .monospaced))
-                    .foregroundColor(hasGlitches ? alertRed : textMuted)
-                    .padding(.horizontal, 3)
-                
-                Button(action: { jumpToNextGlitchFinding() }) {
+                Button(action: { playerEngine.jumpToNextNote() }) {
                     Image(systemName: "chevron.right.to.line")
                         .font(.system(size: 9.5, weight: .bold))
                         .frame(width: 18, height: 24)
-                        .foregroundColor(hasGlitches ? alertRed : textMuted)
+                        .foregroundColor(hasNotes ? textMain : textMuted)
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(TransportIconButtonStyle())
-                .disabled(!hasGlitches)
-                .explain(
-                    hasGlitches ? "Jump to next line glitch (N / cycles forwards through findings of Tab 3)." : "No line glitches found in Tab 3 to cycle through.",
-                    binding: $hoverExplanation
-                )
-            }
-            
-            // Group Divider
-            Rectangle()
-                .fill(borderLine.opacity(0.45))
-                .frame(width: 1, height: 14)
-                .padding(.horizontal, 2)
-            
-            // 4. Finder Tags Button
-            let activeURL = playerEngine.activeURL
-            let activeTag = activeURL.flatMap { fileTagsMap[$0] }
-            Button(action: {
-                showTagPickerPopover.toggle()
-            }) {
-                HStack(spacing: 4) {
-                    if let tag = activeTag {
-                        Circle()
-                            .fill(tag.color)
-                            .frame(width: 7, height: 7)
-                    } else {
-                        Image(systemName: "tag.fill")
-                            .font(.system(size: 9, weight: .bold))
-                    }
-                    Text("TAGS")
-                        .font(.system(size: 9, weight: .bold, design: .monospaced))
-                }
-                .frame(height: 24)
-                .padding(.horizontal, 5)
-                .foregroundColor(activeTag?.color ?? (activeURL == nil ? textMuted : textMain.opacity(0.85)))
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(TransportIconButtonStyle())
-            .disabled(activeURL == nil)
-            .explain(activeURL != nil ? "Tag current file with native macOS Finder color tags." : "Load a file to apply Finder tags.", binding: $hoverExplanation)
-            .popover(isPresented: $showTagPickerPopover, arrowEdge: .top) {
-                tagPickerPopoverView(for: activeURL)
+                .disabled(!hasNotes)
+                .explain(hasNotes ? "Jump to next note" : "No notes logged", binding: $hoverExplanation)
             }
         }
+    }
+    
+    // 2. Center Shuttle Speed Badge (Simplified: icon + number only; hidden on 1x play and pause)
+    @ViewBuilder
+    private var playerCenterShuttleBadge: some View {
+        if let (icon, text) = shuttleBadgeContent {
+            HStack(spacing: 3) {
+                Image(systemName: icon)
+                    .font(.system(size: 10, weight: .bold))
+                Text(text)
+                    .font(.system(size: 11, weight: .bold, design: .monospaced))
+                    .monospacedDigit()
+            }
+            .foregroundColor(accentBlue)
+            .lineLimit(1)
+        }
+    }
+    
+    private var shuttleBadgeContent: (icon: String, text: String)? {
+        guard playerEngine.isPlaying || playerEngine.rate != 0.0 else { return nil }
+        
+        if playerEngine.isSlowStepping {
+            let isFwd = playerEngine.shuttleStateText.contains("FWD")
+            let parts = playerEngine.shuttleStateText.components(separatedBy: " ")
+            let fps = parts.count >= 3 ? parts[2] : ""
+            let text = fps.isEmpty ? "SLOW" : "\(fps) FPS"
+            return (icon: isFwd ? "forward.fill" : "backward.fill", text: text)
+        }
+        
+        let rate = playerEngine.rate
+        if rate > 1.0 {
+            return (icon: "forward.fill", text: "\(Int(rate))x")
+        } else if rate < 0.0 {
+            return (icon: "backward.fill", text: "\(Int(abs(rate)))x")
+        }
+        
+        // For normal 1x play (rate == 1.0) or paused, show nothing
+        return nil
+    }
+    
+    // 3. Compact Line Finding Navigation: < LINE >
+    private var playerLineGlitchGroup: some View {
+        let hasGlitches = scanResults.contains(where: { $0.isFlagged && !$0.glitchSegments.isEmpty })
+        return HStack(spacing: 1) {
+            Button(action: { jumpToPreviousGlitchFinding() }) {
+                Image(systemName: "chevron.left.to.line")
+                    .font(.system(size: 9.5, weight: .bold))
+                    .frame(width: 18, height: 24)
+                    .foregroundColor(hasGlitches ? alertRed : textMuted)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(TransportIconButtonStyle())
+            .disabled(!hasGlitches)
+            .explain(
+                hasGlitches ? "Jump to previous line glitch (⇧N / cycles backwards through findings of Tab 3)." : "No line glitches found in Tab 3 to cycle through.",
+                binding: $hoverExplanation
+            )
+            
+            Text("LINE")
+                .font(.system(size: 9.5, weight: .bold, design: .monospaced))
+                .foregroundColor(hasGlitches ? alertRed : textMuted)
+                .padding(.horizontal, 3)
+            
+            Button(action: { jumpToNextGlitchFinding() }) {
+                Image(systemName: "chevron.right.to.line")
+                    .font(.system(size: 9.5, weight: .bold))
+                    .frame(width: 18, height: 24)
+                    .foregroundColor(hasGlitches ? alertRed : textMuted)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(TransportIconButtonStyle())
+            .disabled(!hasGlitches)
+            .explain(
+                hasGlitches ? "Jump to next line glitch (N / cycles forwards through findings of Tab 3)." : "No line glitches found in Tab 3 to cycle through.",
+                binding: $hoverExplanation
+            )
+        }
+    }
+    
+    // 4. Finder Tags Button
+    private var playerTagsButton: some View {
+        let activeURL = playerEngine.activeURL
+        let activeTag = activeURL.flatMap { fileTagsMap[$0] }
+        return Button(action: {
+            showTagPickerPopover.toggle()
+        }) {
+            HStack(spacing: 4) {
+                if let tag = activeTag {
+                    Circle()
+                        .fill(tag.color)
+                        .frame(width: 7, height: 7)
+                } else {
+                    Image(systemName: "tag.fill")
+                        .font(.system(size: 9, weight: .bold))
+                }
+                Text("TAGS")
+                    .font(.system(size: 9, weight: .bold, design: .monospaced))
+            }
+            .frame(height: 24)
+            .padding(.horizontal, 5)
+            .foregroundColor(activeTag?.color ?? (activeURL == nil ? textMuted : textMain.opacity(0.85)))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(TransportIconButtonStyle())
+        .disabled(activeURL == nil)
+        .explain(activeURL != nil ? "Tag current file with native macOS Finder color tags." : "Load a file to apply Finder tags.", binding: $hoverExplanation)
+        .popover(isPresented: $showTagPickerPopover, arrowEdge: .top) {
+            tagPickerPopoverView(for: activeURL)
+        }
+    }
+    
+    // 5. Timecode Menu (Tightly aligned, no dead space)
+    private var playerTimecodeMenu: some View {
+        PlayerTimecodeMenuView(playerEngine: playerEngine, accentBlue: accentBlue)
+    }
+    
+    // 6. Zoom Dropdown Menu (Compact "Fit" sizing)
+    private var playerZoomMenu: some View {
+        PlayerZoomMenuView(
+            playerEngine: playerEngine,
+            bgSubtle: bgSubtle,
+            borderLine: borderLine,
+            textMain: textMain,
+            textMuted: textMuted
+        )
+    }
+    
+    // 7. Duration / Total Frames Label
+    private var playerDurationLabel: some View {
+        Text(playerEngine.displayTimeAsFrames ? "\(playerEngine.totalFrames) frames" : playerEngine.durationTimecode)
+            .font(.system(size: 10.5, weight: .medium, design: .monospaced))
+            .foregroundColor(textMuted)
+            .lineLimit(1)
     }
     
     // MARK: - Timecode Bar (above timeline)
     
     private var playerTimecodeBar: some View {
-        HStack(spacing: 0) {
-            // Left: Current SMPTE Timecode / Frames + Zoom (aligned to the left next to timecode)
-            HStack(spacing: 8) {
-                // Current SMPTE Timecode or Frame Count (Fixed width, locked frames alignment)
-                Menu {
-                    Button(action: {
-                        let text = playerEngine.displayTimeAsFrames ? "\(playerEngine.currentFrame)" : playerEngine.currentTimecode
-                        NSPasteboard.general.clearContents()
-                        NSPasteboard.general.setString(text, forType: .string)
-                    }) {
-                        Label("Copy \(playerEngine.displayTimeAsFrames ? "Frame (\(playerEngine.currentFrame))" : "Timecode (\(playerEngine.currentTimecode))")", systemImage: "doc.on.doc")
-                    }
-                    Divider()
-                    Button(action: { playerEngine.displayTimeAsFrames = false }) {
-                        HStack {
-                            Text("SMPTE Timecode (HH:MM:SS:FF)")
-                            if !playerEngine.displayTimeAsFrames {
-                                Image(systemName: "checkmark")
-                            }
-                        }
-                    }
-                    Button(action: { playerEngine.displayTimeAsFrames = true }) {
-                        HStack {
-                            Text("Frames (Frame Count)")
-                            if playerEngine.displayTimeAsFrames {
-                                Image(systemName: "checkmark")
-                            }
-                        }
-                    }
-                } label: {
-                    HStack(spacing: 4) {
-                        if playerEngine.displayTimeAsFrames {
-                            let maxNum = max(playerEngine.totalFrames, playerEngine.currentFrame, 999)
-                            let digitCount = max(4, String(maxNum).count)
-                            let frameColWidth = CGFloat(digitCount) * 8.2
-                            
-                            Text("\(playerEngine.currentFrame)")
-                                .font(.system(size: 13, weight: .bold, design: .monospaced))
-                                .monospacedDigit()
-                                .foregroundColor(accentBlue)
-                                .frame(minWidth: frameColWidth, alignment: .trailing)
-                            
-                            Text("frames")
-                                .font(.system(size: 13, weight: .bold, design: .monospaced))
-                                .foregroundColor(accentBlue)
-                        } else {
-                            Text(playerEngine.currentTimecode)
-                                .font(.system(size: 13, weight: .bold, design: .monospaced))
-                                .monospacedDigit()
-                                .foregroundColor(accentBlue)
-                                .tracking(0.5)
-                                .lineLimit(1)
-                        }
-                        
-                        Image(systemName: "chevron.down")
-                            .font(.system(size: 8, weight: .bold))
-                            .foregroundColor(accentBlue.opacity(0.8))
-                    }
-                    .frame(width: 140, alignment: .leading)
-                    .contentShape(Rectangle())
+        ZStack(alignment: .center) {
+            // Absolute Center: Shuttle Speed Indicator (hidden on 1x play and pause)
+            playerCenterShuttleBadge
+            
+            // Balanced Distribution Across the Bar
+            HStack(spacing: 0) {
+                // Left: Timecode + Zoom (tightly paired with 8pt spacing)
+                HStack(spacing: 8) {
+                    playerTimecodeMenu
+                    playerZoomMenu
                 }
-                .buttonStyle(.plain)
-                .contextMenu {
-                    Button(action: {
-                        let text = playerEngine.displayTimeAsFrames ? "\(playerEngine.currentFrame)" : playerEngine.currentTimecode
-                        NSPasteboard.general.clearContents()
-                        NSPasteboard.general.setString(text, forType: .string)
-                    }) {
-                        Label("Copy Value (\(playerEngine.displayTimeAsFrames ? "\(playerEngine.currentFrame)" : playerEngine.currentTimecode))", systemImage: "doc.on.doc")
-                    }
-                    Divider()
-                    Button(action: {
-                        NSPasteboard.general.clearContents()
-                        NSPasteboard.general.setString(playerEngine.currentTimecode, forType: .string)
-                    }) {
-                        Label("Copy SMPTE (\(playerEngine.currentTimecode))", systemImage: "clock")
-                    }
-                    Button(action: {
-                        NSPasteboard.general.clearContents()
-                        NSPasteboard.general.setString("\(playerEngine.currentFrame)", forType: .string)
-                    }) {
-                        Label("Copy Frame Number (\(playerEngine.currentFrame))", systemImage: "number")
-                    }
-                    Divider()
-                    Button(action: { playerEngine.displayTimeAsFrames = false }) {
-                        HStack {
-                            Text("SMPTE Timecode (HH:MM:SS:FF)")
-                            if !playerEngine.displayTimeAsFrames {
-                                Image(systemName: "checkmark")
-                            }
-                        }
-                    }
-                    Button(action: { playerEngine.displayTimeAsFrames = true }) {
-                        HStack {
-                            Text("Frames (Frame Count)")
-                            if playerEngine.displayTimeAsFrames {
-                                Image(systemName: "checkmark")
-                            }
-                        }
-                    }
+                .frame(minWidth: 160, alignment: .leading)
+                
+                Spacer()
+                
+                // Left-Center: Compact Review Notes Controls: [+ NOTE] and < 💬 count >
+                playerNotesGroup
+                
+                Spacer()
+                
+                // Center Clearance Area for Shuttle Badge (ensures no collision when badge is visible)
+                Color.clear.frame(width: 64, height: 24)
+                    .allowsHitTesting(false)
+                
+                Spacer()
+                
+                // Right-Center: Compact Line Finding Navigation & Tags
+                HStack(spacing: 6) {
+                    playerLineGlitchGroup
+                    Rectangle()
+                        .fill(borderLine.opacity(0.45))
+                        .frame(width: 1, height: 14)
+                    playerTagsButton
                 }
                 
-                // Zoom Dropdown Menu (Compact "Fit" sizing)
-                Menu {
-                    Button("Fit") { playerEngine.setZoomFit() }
-                    Divider()
-                    Button("10%") { playerEngine.setZoomLevel(0.10) }
-                    Button("25%") { playerEngine.setZoomLevel(0.25) }
-                    Button("50%") { playerEngine.setZoomLevel(0.50) }
-                    Button("75%") { playerEngine.setZoomLevel(0.75) }
-                    Button("100%") { playerEngine.setZoomLevel(1.0) }
-                    Button("150%") { playerEngine.setZoomLevel(1.50) }
-                    Button("200%") { playerEngine.setZoomLevel(2.0) }
-                    Button("400%") { playerEngine.setZoomLevel(4.0) }
-                } label: {
-                    HStack(spacing: 4) {
-                        Text(playerEngine.isFitZoom ? "Fit" : "\(Int(round(playerEngine.zoomScale * 100)))%")
-                            .font(.system(size: 11, weight: .medium, design: .monospaced))
-                            .foregroundColor(textMain)
-                            .lineLimit(1)
-                            .frame(maxWidth: .infinity, alignment: .center)
-                        
-                        Image(systemName: "chevron.down")
-                            .font(.system(size: 8, weight: .bold))
-                            .foregroundColor(textMuted)
-                    }
-                    .padding(.horizontal, 6)
-                    .frame(width: 62, height: 22)
-                    .studioBox(background: bgSubtle, border: borderLine)
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .frame(width: 62)
-            }
-            .frame(minWidth: 216, alignment: .leading)
-            
-            Spacer(minLength: 8)
-            
-            // Center: NOTES, PLAY INFO, LINE and TAGS (Rigidly locked in place)
-            playerReviewNavStrip
-            
-            Spacer(minLength: 8)
-            
-            // Right: Duration Timecode / Total Frames (Balanced minWidth for true center alignment)
-            HStack {
                 Spacer()
-                Text(playerEngine.displayTimeAsFrames ? "\(playerEngine.totalFrames) frames" : playerEngine.durationTimecode)
-                    .font(.system(size: 13, weight: .bold, design: .monospaced))
-                    .monospacedDigit()
-                    .foregroundColor(textMuted)
-                    .tracking(0.5)
-                    .lineLimit(1)
-                    .frame(width: 125, alignment: .trailing)
+                
+                // Right: Duration Timecode / Total Frames
+                playerDurationLabel
+                    .frame(minWidth: 160, alignment: .trailing)
             }
-            .frame(minWidth: 216, alignment: .trailing)
         }
         .frame(height: 24)
-        .padding(.horizontal, 4)
     }
     
     // MARK: - Transport Bar
@@ -1463,7 +1382,7 @@ extension ContentView {
                         .foregroundColor(playerEngine.isMuted ? alertRed : textMain)
                         .frame(width: 18, height: 18, alignment: .center)
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(TransportIconButtonStyle())
                 .frame(width: 18, height: 18)
                 .explain(playerEngine.isMuted ? "Unmute audio" : "Mute audio", binding: $hoverExplanation)
                 
@@ -1711,31 +1630,7 @@ struct PlayerComparisonBar: View {
                 .frame(width: 1, height: 14)
                 .padding(.horizontal, 2)
             
-            // Group 2: Rapid Blink (Flicker) Button (Border-free, fixed width to prevent layout jitter)
-            Button(action: {
-                engine.isBlinkCompareB.toggle()
-                onInteraction?()
-            }) {
-                HStack(spacing: 4) {
-                    Image(systemName: engine.isBlinkCompareB ? "eye.fill" : "eye")
-                        .font(.system(size: 10, weight: .bold))
-                        .frame(width: 14, alignment: .center)
-                    Text("(TAB)")
-                        .font(.system(size: 9, weight: .bold, design: .monospaced))
-                }
-                .frame(width: 54, height: 26, alignment: .center)
-                .foregroundColor(engine.isBlinkCompareB ? accentSlotB : textMuted)
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(TransportIconButtonStyle())
-            .explain("Rapid Blink / Flicker Compare (Tab): Click or press Tab to rapidly toggle between Slot A and Slot B.", binding: hoverExplanation)
-            
-            Rectangle()
-                .fill(borderLine.opacity(0.6))
-                .frame(width: 1, height: 14)
-                .padding(.horizontal, 2)
-            
-            // Group 3: Playback Sync & Audio Solo (Icons, no boxes)
+            // Group 2: Playback Sync & Audio Solo (Icons, no boxes)
             HStack(spacing: 4) {
                 // Gang Link Toggle
                 Button(action: {
@@ -1830,6 +1725,24 @@ struct PlayerComparisonBar: View {
         }
     }
     
+    private struct DottedVerticalLine: Shape {
+        func path(in rect: CGRect) -> Path {
+            var p = Path()
+            p.move(to: CGPoint(x: rect.midX, y: rect.minY))
+            p.addLine(to: CGPoint(x: rect.midX, y: rect.maxY))
+            return p
+        }
+    }
+    
+    private struct DottedHorizontalLine: Shape {
+        func path(in rect: CGRect) -> Path {
+            var p = Path()
+            p.move(to: CGPoint(x: rect.minX, y: rect.midY))
+            p.addLine(to: CGPoint(x: rect.maxX, y: rect.midY))
+            return p
+        }
+    }
+    
     private func modeBtn(mode: CompareMode, icon: String, helpText: String) -> some View {
         let requiresMatching = (mode == .splitVertical || mode == .splitHorizontal || mode == .difference || mode == .overlay)
         let isLocked = engine.slotB.url != nil && requiresMatching && !engine.hasMatchingAspectRatios
@@ -1840,13 +1753,22 @@ struct PlayerComparisonBar: View {
             let descA = engine.slotA.aspectRatioDescription
             let descB = engine.slotB.aspectRatioDescription
             explanationText = "Locked: Split wipe and overlay modes require matching aspect ratios. Slot A is \(descA), Slot B is \(descB). Use Side-by-Side (H) or (V) to compare."
+        } else if mode == .single && engine.slotB.url != nil {
+            explanationText = engine.isBlinkCompareB
+                ? "Single Mode: Viewing Slot B (Press Tab to toggle to Slot A Master)."
+                : "Single Mode: Viewing Slot A Master (Press Tab to toggle to Slot B)."
         } else {
             explanationText = helpText
         }
         
         return Button(action: {
             if isLocked { return }
-            engine.compareMode = mode
+            if mode == .single && engine.compareMode == .single && engine.slotB.url != nil {
+                engine.isBlinkCompareB.toggle()
+            } else {
+                engine.isBlinkCompareB = false
+                engine.compareMode = mode
+            }
             onInteraction?()
         }) {
             ZStack(alignment: .topTrailing) {
@@ -1869,17 +1791,98 @@ struct PlayerComparisonBar: View {
     
     @ViewBuilder
     private func modeIconView(mode: CompareMode, icon: String, isActive: Bool) -> some View {
-        if !isActive {
+        switch mode {
+        case .single:
             Image(systemName: icon)
-                .font(.system(size: 13, weight: .bold))
-                .foregroundColor(textMuted)
-        } else {
-            switch mode {
-            case .single:
+                .font(.system(size: 13, weight: isActive ? .black : .bold))
+                .foregroundColor(!isActive ? textMuted : (engine.isBlinkCompareB ? accentSlotB : accentPositive))
+            
+        case .splitVertical:
+            ZStack {
+                RoundedRectangle(cornerRadius: 2)
+                    .strokeBorder(
+                        isActive ? AnyShapeStyle(
+                            LinearGradient(
+                                stops: [
+                                    .init(color: accentPositive, location: 0.0),
+                                    .init(color: accentPositive, location: 0.49),
+                                    .init(color: accentSlotB, location: 0.51),
+                                    .init(color: accentSlotB, location: 1.0)
+                                ],
+                                startPoint: .leading,
+                                endPoint: .trailing
+                            )
+                        ) : AnyShapeStyle(textMuted),
+                        lineWidth: 1.3
+                    )
+                
+                DottedVerticalLine()
+                    .stroke(
+                        isActive ? accentSlotB : textMuted,
+                        style: StrokeStyle(lineWidth: 1.25, dash: [2, 1.5])
+                    )
+                    .padding(.vertical, 1.5)
+            }
+            .frame(width: 16, height: 12)
+            
+        case .splitHorizontal:
+            ZStack {
+                RoundedRectangle(cornerRadius: 2)
+                    .strokeBorder(
+                        isActive ? AnyShapeStyle(
+                            LinearGradient(
+                                stops: [
+                                    .init(color: accentPositive, location: 0.0),
+                                    .init(color: accentPositive, location: 0.49),
+                                    .init(color: accentSlotB, location: 0.51),
+                                    .init(color: accentSlotB, location: 1.0)
+                                ],
+                                startPoint: .top,
+                                endPoint: .bottom
+                            )
+                        ) : AnyShapeStyle(textMuted),
+                        lineWidth: 1.3
+                    )
+                
+                DottedHorizontalLine()
+                    .stroke(
+                        isActive ? accentSlotB : textMuted,
+                        style: StrokeStyle(lineWidth: 1.25, dash: [2, 1.5])
+                    )
+                    .padding(.horizontal, 1.5)
+            }
+            .frame(width: 16, height: 12)
+            
+        case .sideBySide:
+            HStack(spacing: 2.5) {
+                RoundedRectangle(cornerRadius: 1.5)
+                    .strokeBorder(isActive ? accentPositive : textMuted, lineWidth: 1.3)
+                    .frame(width: 7.5, height: 10.5)
+                
+                RoundedRectangle(cornerRadius: 1.5)
+                    .strokeBorder(isActive ? accentSlotB : textMuted, lineWidth: 1.3)
+                    .frame(width: 7.5, height: 10.5)
+            }
+            .frame(width: 18, height: 12)
+            
+        case .sideBySideVertical:
+            VStack(spacing: 2.5) {
+                RoundedRectangle(cornerRadius: 1.5)
+                    .strokeBorder(isActive ? accentPositive : textMuted, lineWidth: 1.3)
+                    .frame(width: 14, height: 5.5)
+                
+                RoundedRectangle(cornerRadius: 1.5)
+                    .strokeBorder(isActive ? accentSlotB : textMuted, lineWidth: 1.3)
+                    .frame(width: 14, height: 5.5)
+            }
+            .frame(width: 16, height: 14)
+            
+        case .difference:
+            if !isActive {
                 Image(systemName: icon)
-                    .font(.system(size: 13, weight: .black))
-                    .foregroundColor(accentPositive)
-            case .splitVertical, .sideBySide:
+                    .font(.system(size: 13, weight: .bold))
+                    .foregroundColor(textMuted)
+            } else {
                 Image(systemName: icon)
                     .font(.system(size: 13, weight: .black))
                     .foregroundStyle(
@@ -1894,37 +1897,14 @@ struct PlayerComparisonBar: View {
                             endPoint: .trailing
                         )
                     )
-            case .splitHorizontal, .sideBySideVertical:
+            }
+            
+        case .overlay:
+            if !isActive {
                 Image(systemName: icon)
-                    .font(.system(size: 13, weight: .black))
-                    .foregroundStyle(
-                        LinearGradient(
-                            stops: [
-                                .init(color: accentPositive, location: 0.0),
-                                .init(color: accentPositive, location: 0.49),
-                                .init(color: accentSlotB, location: 0.51),
-                                .init(color: accentSlotB, location: 1.0)
-                            ],
-                            startPoint: .top,
-                            endPoint: .bottom
-                        )
-                    )
-            case .difference:
-                Image(systemName: icon)
-                    .font(.system(size: 13, weight: .black))
-                    .foregroundStyle(
-                        LinearGradient(
-                            stops: [
-                                .init(color: accentPositive, location: 0.0),
-                                .init(color: accentPositive, location: 0.49),
-                                .init(color: accentSlotB, location: 0.51),
-                                .init(color: accentSlotB, location: 1.0)
-                            ],
-                            startPoint: .leading,
-                            endPoint: .trailing
-                        )
-                    )
-            case .overlay:
+                    .font(.system(size: 13, weight: .bold))
+                    .foregroundColor(textMuted)
+            } else {
                 Image(systemName: icon)
                     .font(.system(size: 13, weight: .black))
                     .foregroundStyle(
@@ -2380,6 +2360,178 @@ struct CleanVideoFullscreenView: View {
                 }
             }
         }
+    }
+}
+
+// MARK: - Timecode & Zoom Interactive Menu Views with Subtle Hover
+
+struct PlayerTimecodeMenuView: View {
+    @ObservedObject var playerEngine: PlayerEngine
+    var accentBlue: Color
+    @State private var isHovered: Bool = false
+    
+    var body: some View {
+        Menu {
+            Button(action: {
+                let text = playerEngine.displayTimeAsFrames ? "\(playerEngine.currentFrame)" : playerEngine.currentTimecode
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString(text, forType: .string)
+            }) {
+                Label("Copy Value (\(playerEngine.displayTimeAsFrames ? "\(playerEngine.currentFrame)" : playerEngine.currentTimecode))", systemImage: "doc.on.doc")
+            }
+            Divider()
+            Button(action: {
+                let text = playerEngine.currentTimecode
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString(text, forType: .string)
+            }) {
+                Label("Copy SMPTE (\(playerEngine.currentTimecode))", systemImage: "clock")
+            }
+            Button(action: {
+                let text = "\(playerEngine.currentFrame)"
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString(text, forType: .string)
+            }) {
+                Label("Copy Frame Number (\(playerEngine.currentFrame))", systemImage: "number")
+            }
+            Divider()
+            Button(action: { playerEngine.displayTimeAsFrames = false }) {
+                HStack {
+                    Text("SMPTE Timecode (HH:MM:SS:FF)")
+                    if !playerEngine.displayTimeAsFrames {
+                        Image(systemName: "checkmark")
+                    }
+                }
+            }
+            Button(action: { playerEngine.displayTimeAsFrames = true }) {
+                HStack {
+                    Text("Frames (Frame Count)")
+                    if playerEngine.displayTimeAsFrames {
+                        Image(systemName: "checkmark")
+                    }
+                }
+            }
+        } label: {
+            HStack(spacing: 4) {
+                if playerEngine.displayTimeAsFrames {
+                    let maxNum = max(playerEngine.totalFrames, playerEngine.currentFrame, 999)
+                    let digitCount = max(4, String(maxNum).count)
+                    let frameColWidth = CGFloat(digitCount) * 8.2
+                    
+                    Text("\(playerEngine.currentFrame)")
+                        .font(.system(size: 13, weight: .bold, design: .monospaced))
+                        .monospacedDigit()
+                        .foregroundColor(accentBlue)
+                        .frame(minWidth: frameColWidth, alignment: .trailing)
+                    
+                    Text("frames")
+                        .font(.system(size: 13, weight: .bold, design: .monospaced))
+                        .foregroundColor(accentBlue)
+                } else {
+                    Text(playerEngine.currentTimecode)
+                        .font(.system(size: 13, weight: .bold, design: .monospaced))
+                        .monospacedDigit()
+                        .foregroundColor(accentBlue)
+                        .tracking(0.5)
+                        .lineLimit(1)
+                }
+                
+                Image(systemName: "chevron.down")
+                    .font(.system(size: 8, weight: .bold))
+                    .foregroundColor(accentBlue.opacity(0.8))
+            }
+            .opacity(isHovered ? 1.0 : 0.82)
+            .brightness(isHovered ? 0.05 : 0.0)
+            .animation(.easeInOut(duration: 0.12), value: isHovered)
+            .onHover { isHovered = $0 }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .contextMenu {
+            Button(action: {
+                let text = playerEngine.displayTimeAsFrames ? "\(playerEngine.currentFrame)" : playerEngine.currentTimecode
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString(text, forType: .string)
+            }) {
+                Label("Copy Value (\(playerEngine.displayTimeAsFrames ? "\(playerEngine.currentFrame)" : playerEngine.currentTimecode))", systemImage: "doc.on.doc")
+            }
+            Divider()
+            Button(action: {
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString(playerEngine.currentTimecode, forType: .string)
+            }) {
+                Label("Copy SMPTE (\(playerEngine.currentTimecode))", systemImage: "clock")
+            }
+            Button(action: {
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString("\(playerEngine.currentFrame)", forType: .string)
+            }) {
+                Label("Copy Frame Number (\(playerEngine.currentFrame))", systemImage: "number")
+            }
+            Divider()
+            Button(action: { playerEngine.displayTimeAsFrames = false }) {
+                HStack {
+                    Text("SMPTE Timecode (HH:MM:SS:FF)")
+                    if !playerEngine.displayTimeAsFrames {
+                        Image(systemName: "checkmark")
+                    }
+                }
+            }
+            Button(action: { playerEngine.displayTimeAsFrames = true }) {
+                HStack {
+                    Text("Frames (Frame Count)")
+                    if playerEngine.displayTimeAsFrames {
+                        Image(systemName: "checkmark")
+                    }
+                }
+            }
+        }
+    }
+}
+
+struct PlayerZoomMenuView: View {
+    @ObservedObject var playerEngine: PlayerEngine
+    var bgSubtle: Color
+    var borderLine: Color
+    var textMain: Color
+    var textMuted: Color
+    @State private var isHovered: Bool = false
+    
+    var body: some View {
+        Menu {
+            Button("Fit") { playerEngine.setZoomFit() }
+            Divider()
+            Button("10%") { playerEngine.setZoomLevel(0.10) }
+            Button("25%") { playerEngine.setZoomLevel(0.25) }
+            Button("50%") { playerEngine.setZoomLevel(0.50) }
+            Button("75%") { playerEngine.setZoomLevel(0.75) }
+            Button("100%") { playerEngine.setZoomLevel(1.0) }
+            Button("150%") { playerEngine.setZoomLevel(1.50) }
+            Button("200%") { playerEngine.setZoomLevel(2.0) }
+            Button("400%") { playerEngine.setZoomLevel(4.0) }
+        } label: {
+            HStack(spacing: 4) {
+                Text(playerEngine.isFitZoom ? "Fit" : "\(Int(round(playerEngine.zoomScale * 100)))%")
+                    .font(.system(size: 11, weight: .medium, design: .monospaced))
+                    .foregroundColor(textMain)
+                    .lineLimit(1)
+                    .frame(maxWidth: .infinity, alignment: .center)
+                
+                Image(systemName: "chevron.down")
+                    .font(.system(size: 8, weight: .bold))
+                    .foregroundColor(textMuted)
+            }
+            .padding(.horizontal, 6)
+            .frame(width: 62, height: 22)
+            .studioBox(background: bgSubtle, border: isHovered ? borderLine.opacity(0.8) : borderLine)
+            .opacity(isHovered ? 1.0 : 0.82)
+            .brightness(isHovered ? 0.05 : 0.0)
+            .animation(.easeInOut(duration: 0.12), value: isHovered)
+            .onHover { isHovered = $0 }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .frame(width: 62)
     }
 }
 

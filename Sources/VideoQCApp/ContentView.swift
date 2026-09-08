@@ -1627,8 +1627,8 @@ struct ContentView: View {
             }
             
             switch event.keyCode {
-            case 48: // Tab key: Rapid Blink / Flicker compare between Slot A and Slot B
-                if self.selectedTab == .player && self.playerEngine.slotB.url != nil {
+            case 48: // Tab key: Rapid Blink / Flicker compare between Slot A and Slot B (Single mode only)
+                if self.selectedTab == .player && self.playerEngine.slotB.url != nil && self.playerEngine.compareMode == .single {
                     self.playerEngine.isBlinkCompareB.toggle()
                     return nil
                 }

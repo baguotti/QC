@@ -206,6 +206,9 @@ public final class PlayerEngine: ObservableObject {
     }
     @Published public var compareMode: CompareMode = .single {
         didSet {
+            if isBlinkCompareB {
+                isBlinkCompareB = false
+            }
             if !hasMatchingAspectRatios && (compareMode == .splitVertical || compareMode == .splitHorizontal || compareMode == .difference || compareMode == .overlay) {
                 compareMode = .sideBySide
             }
@@ -283,7 +286,17 @@ public final class PlayerEngine: ObservableObject {
             updateAudioVolumes()
         }
     }
-    @Published public var isBlinkCompareB: Bool = false
+    @Published public var isBlinkCompareB: Bool = false {
+        didSet {
+            if isBlinkCompareB && compareMode != .single {
+                isBlinkCompareB = false
+                return
+            }
+            if isBlinkCompareB && isLinked && slotB.url != nil {
+                syncSlotBToMaster()
+            }
+        }
+    }
     @Published public var showClipNamesOverlay: Bool = false
     
     // MARK: - Backwards Compatible Single-Player Properties (Reflects Slot A / Master)
@@ -746,6 +759,9 @@ public final class PlayerEngine: ObservableObject {
     
     public func swapSlots() {
         guard slotA.url != nil || slotB.url != nil else { return }
+        if isBlinkCompareB {
+            isBlinkCompareB = false
+        }
         let wasPlaying = self.isPlaying
         pause()
         
@@ -971,6 +987,9 @@ public final class PlayerEngine: ObservableObject {
     
     public func cycleCompareMode() {
         guard slotB.url != nil else { return }
+        if isBlinkCompareB {
+            isBlinkCompareB = false
+        }
         let validModes: [CompareMode] = hasMatchingAspectRatios
             ? CompareMode.allCases
             : [.sideBySide, .sideBySideVertical, .single]
@@ -1505,7 +1524,7 @@ public final class PlayerEngine: ObservableObject {
         let targetSecs = (Double(frameIdx) + 0.5) / fps
         let targetTime = CMTime(seconds: targetSecs, preferredTimescale: 60000)
         
-        if self.compareMode != .single && self.isLinked && self.slotB.url != nil {
+        if (self.compareMode != .single || self.isBlinkCompareB) && self.isLinked && self.slotB.url != nil {
             let offsetSecs = Double(self.slotB.slipOffsetFrames) / max(1.0, self.slotB.fps)
             let targetSecsB = max(0.0, targetSecs + offsetSecs)
             self.slotB.currentTime = CMTime(seconds: targetSecsB, preferredTimescale: 60000)
@@ -1534,7 +1553,7 @@ public final class PlayerEngine: ObservableObject {
         self.currentTime = targetTime
         self.slotA.currentTime = targetTime
         
-        if self.compareMode != .single && self.isLinked && self.slotB.url != nil {
+        if (self.compareMode != .single || self.isBlinkCompareB) && self.isLinked && self.slotB.url != nil {
             let offsetSecs = Double(self.slotB.slipOffsetFrames) / max(1.0, self.slotB.fps)
             let targetSecsB = max(0.0, currSecs + offsetSecs)
             self.slotB.currentTime = CMTime(seconds: targetSecsB, preferredTimescale: 60000)
@@ -1606,7 +1625,7 @@ public final class PlayerEngine: ObservableObject {
             tol = .zero
         }
         
-        let hasSlotB = (self.compareMode != .single) && self.isLinked && self.slotB.url != nil && self.slotB.player.currentItem != nil
+        let hasSlotB = (self.compareMode != .single || self.isBlinkCompareB) && self.isLinked && self.slotB.url != nil && self.slotB.player.currentItem != nil
         let offsetSeconds = hasSlotB ? (Double(self.slotB.slipOffsetFrames) / max(1.0, self.slotB.fps)) : 0.0
         let targetSecsB = hasSlotB ? max(0.0, CMTimeGetSeconds(time) + offsetSeconds) : 0.0
         let targetTimeB = hasSlotB ? CMTime(seconds: targetSecsB, preferredTimescale: 60000) : .zero

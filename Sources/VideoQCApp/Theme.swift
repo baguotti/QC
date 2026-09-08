@@ -145,10 +145,31 @@ extension Color {
 
 struct TransportIconButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
+        TransportIconButtonBody(configuration: configuration)
+    }
+}
+
+private struct TransportIconButtonBody: View {
+    let configuration: ButtonStyle.Configuration
+    @Environment(\.isEnabled) private var isEnabled
+    @State private var isHovered: Bool = false
+    
+    var body: some View {
         configuration.label
-            .opacity(configuration.isPressed ? 0.6 : 1.0)
-            .scaleEffect(configuration.isPressed ? 0.92 : 1.0)
+            .opacity(!isEnabled ? 0.4 : (configuration.isPressed ? 0.6 : (isHovered ? 1.0 : 0.82)))
+            .brightness(isEnabled && isHovered ? 0.05 : 0.0)
+            .background(
+                RoundedRectangle(cornerRadius: 4)
+                    .fill(Color.primary.opacity(isEnabled && isHovered ? 0.05 : 0.0))
+            )
+            .scaleEffect(configuration.isPressed ? 0.94 : 1.0)
             .animation(.easeOut(duration: 0.1), value: configuration.isPressed)
+            .animation(.easeInOut(duration: 0.12), value: isHovered)
+            .onHover { hovering in
+                if isEnabled {
+                    isHovered = hovering
+                }
+            }
     }
 }
 

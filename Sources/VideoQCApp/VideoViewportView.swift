@@ -418,7 +418,7 @@ public final class PlayerContainerNSView: NSView {
                     targetLayer = stillFrameLayerA
                 }
             }
-        } else if slot == .slotB, (engine.compareMode != .single), let outputB = engine.slotB.videoOutput {
+        } else if slot == .slotB, (engine.compareMode != .single || engine.isBlinkCompareB), let outputB = engine.slotB.videoOutput {
             var pbB = outputB.copyPixelBuffer(forItemTime: time, itemTimeForDisplay: nil)
             if pbB == nil {
                 var displayTime = CMTime.zero
@@ -440,7 +440,7 @@ public final class PlayerContainerNSView: NSView {
             CATransaction.begin()
             CATransaction.setDisableActions(true)
             layer.contents = img
-            layer.isHidden = false
+            updateLayerVisibility()
             CATransaction.commit()
         }
     }
@@ -503,8 +503,8 @@ public final class PlayerContainerNSView: NSView {
             }
         }
         
-        // Slot B frame extraction (ONLY in active compare modes):
-        if engine.compareMode != .single && engine.slotB.url != nil, let outputB = engine.slotB.videoOutput {
+        // Slot B frame extraction (in active compare modes or during Blink):
+        if (engine.compareMode != .single || engine.isBlinkCompareB) && engine.slotB.url != nil, let outputB = engine.slotB.videoOutput {
             let offsetSecs = Double(engine.slotB.slipOffsetFrames) / max(1.0, engine.slotB.fps)
             let masterSecs = CMTimeGetSeconds(masterTime)
             let targetSecsB = max(0.0, (masterSecs.isFinite && !masterSecs.isNaN ? masterSecs : 0.0) + offsetSecs)
@@ -529,14 +529,13 @@ public final class PlayerContainerNSView: NSView {
                 self.lastCapturedTimeA = newTimeA
                 self.rawStillFrameA = imgA
                 self.stillFrameLayerA.contents = imgA
-                self.stillFrameLayerA.isHidden = false
             }
             if let imgB = newImgB {
                 self.lastCapturedTimeB = newTimeB
                 self.rawStillFrameB = imgB
                 self.stillFrameLayerB.contents = imgB
-                self.stillFrameLayerB.isHidden = false
             }
+            self.updateLayerVisibility()
             CATransaction.commit()
         }
     }
@@ -798,7 +797,7 @@ public final class PlayerContainerNSView: NSView {
         let h = canvasLayer.bounds.height
         guard w > 0, h > 0 else { return }
         
-        let isBlink = engine.isBlinkCompareB && engine.slotB.url != nil
+        let isBlink = engine.isBlinkCompareB && engine.compareMode == .single && engine.slotB.url != nil
         let mode = (engine.slotB.url == nil) ? CompareMode.single : engine.compareMode
         let splitPos = engine.splitPosition
         let aspectA = max(0.01, getVideoAspectRatioA())
@@ -815,7 +814,7 @@ public final class PlayerContainerNSView: NSView {
             return
         }
         
-        lastCompareMode = mode
+        lastCompareMode = isBlink ? nil : mode
         lastSplitPosition = splitPos
         lastIsBlink = isBlink
         lastCanvasBoundsSize = canvasLayer.bounds.size
@@ -829,14 +828,14 @@ public final class PlayerContainerNSView: NSView {
         if isBlink {
             playerLayerA.isHidden = true
             stillFrameLayerA.isHidden = true
-            if playerLayerA.mask != nil {
-                playerLayerA.mask = nil
-            }
-            if stillFrameLayerA.mask != nil {
-                stillFrameLayerA.mask = nil
-            }
+            if playerLayerA.mask != nil { playerLayerA.mask = nil }
+            if stillFrameLayerA.mask != nil { stillFrameLayerA.mask = nil }
+            if playerLayerB.mask != nil { playerLayerB.mask = nil }
+            if stillFrameLayerB.mask != nil { stillFrameLayerB.mask = nil }
             playerLayerA.compositingFilter = nil
             stillFrameLayerA.compositingFilter = nil
+            playerLayerB.compositingFilter = nil
+            stillFrameLayerB.compositingFilter = nil
             playerLayerA.opacity = 1.0
             stillFrameLayerA.opacity = 1.0
             playerLayerA.zPosition = 0
@@ -865,6 +864,7 @@ public final class PlayerContainerNSView: NSView {
             
             splitDividerLayer.isHidden = true
             splitHandleLayer.isHidden = true
+            updateGuideOverlays()
             updateLayerVisibility()
             CATransaction.commit()
             return
@@ -886,23 +886,29 @@ public final class PlayerContainerNSView: NSView {
         case .single:
             playerLayerB.isHidden = true
             stillFrameLayerB.isHidden = true
-            if playerLayerA.mask != nil {
-                playerLayerA.mask = nil
-            }
-            if stillFrameLayerA.mask != nil {
-                stillFrameLayerA.mask = nil
-            }
+            if playerLayerA.mask != nil { playerLayerA.mask = nil }
+            if stillFrameLayerA.mask != nil { stillFrameLayerA.mask = nil }
+            if playerLayerB.mask != nil { playerLayerB.mask = nil }
+            if stillFrameLayerB.mask != nil { stillFrameLayerB.mask = nil }
             playerLayerA.compositingFilter = nil
             stillFrameLayerA.compositingFilter = nil
+            playerLayerB.compositingFilter = nil
+            stillFrameLayerB.compositingFilter = nil
             playerLayerA.frame = canvasLayer.bounds
             stillFrameLayerA.frame = canvasLayer.bounds
+            playerLayerB.frame = canvasLayer.bounds
+            stillFrameLayerB.frame = canvasLayer.bounds
             
             splitDividerLayer.isHidden = true
             splitHandleLayer.isHidden = true
             
         case .splitVertical:
+            if playerLayerB.mask != nil { playerLayerB.mask = nil }
+            if stillFrameLayerB.mask != nil { stillFrameLayerB.mask = nil }
             playerLayerA.compositingFilter = nil
             stillFrameLayerA.compositingFilter = nil
+            playerLayerB.compositingFilter = nil
+            stillFrameLayerB.compositingFilter = nil
             playerLayerA.frame = canvasLayer.bounds
             playerLayerB.frame = canvasLayer.bounds
             stillFrameLayerA.frame = canvasLayer.bounds
@@ -949,8 +955,12 @@ public final class PlayerContainerNSView: NSView {
             splitHandleGripLayer.path = gripPathV
             
         case .splitHorizontal:
+            if playerLayerB.mask != nil { playerLayerB.mask = nil }
+            if stillFrameLayerB.mask != nil { stillFrameLayerB.mask = nil }
             playerLayerA.compositingFilter = nil
             stillFrameLayerA.compositingFilter = nil
+            playerLayerB.compositingFilter = nil
+            stillFrameLayerB.compositingFilter = nil
             playerLayerA.frame = canvasLayer.bounds
             playerLayerB.frame = canvasLayer.bounds
             stillFrameLayerA.frame = canvasLayer.bounds
@@ -1085,12 +1095,12 @@ public final class PlayerContainerNSView: NSView {
             
         case .difference:
             // Pure GPU difference blend (|RGB_A - RGB_B|) directly between playerLayerA and playerLayerB
-            if playerLayerA.mask != nil {
-                playerLayerA.mask = nil
-            }
-            if stillFrameLayerA.mask != nil {
-                stillFrameLayerA.mask = nil
-            }
+            if playerLayerA.mask != nil { playerLayerA.mask = nil }
+            if stillFrameLayerA.mask != nil { stillFrameLayerA.mask = nil }
+            if playerLayerB.mask != nil { playerLayerB.mask = nil }
+            if stillFrameLayerB.mask != nil { stillFrameLayerB.mask = nil }
+            playerLayerB.compositingFilter = nil
+            stillFrameLayerB.compositingFilter = nil
             playerLayerA.frame = canvasLayer.bounds
             playerLayerB.frame = canvasLayer.bounds
             stillFrameLayerA.frame = canvasLayer.bounds
@@ -1189,7 +1199,7 @@ public final class PlayerContainerNSView: NSView {
     private func updateLayerVisibility() {
         guard let engine = engine else { return }
         let mode = (engine.slotB.url == nil) ? CompareMode.single : engine.compareMode
-        let isBlink = engine.isBlinkCompareB && engine.slotB.url != nil
+        let isBlink = engine.isBlinkCompareB && engine.compareMode == .single && engine.slotB.url != nil
         let isScrubbing = engine.isScrubbing
         
         let targetStillHiddenA: Bool
@@ -1198,10 +1208,17 @@ public final class PlayerContainerNSView: NSView {
         let targetPlayerHiddenB: Bool
         
         if isBlink {
-            targetStillHiddenA = true
-            targetStillHiddenB = (engine.slotB.url == nil)
-            targetPlayerHiddenA = true
-            targetPlayerHiddenB = true
+            if isScrubbing {
+                targetPlayerHiddenA = true
+                targetStillHiddenA = true
+                targetPlayerHiddenB = (engine.slotB.url == nil)
+                targetStillHiddenB = true
+            } else {
+                targetStillHiddenA = true
+                targetStillHiddenB = (engine.slotB.url == nil)
+                targetPlayerHiddenA = true
+                targetPlayerHiddenB = true
+            }
         } else if isScrubbing {
             // NATIVE HARDWARE ACCELERATED SCRUBBING (QuickTime-grade):
             // While dragging the timeline, reveal AVPlayerLayer directly.
@@ -1322,8 +1339,8 @@ public final class PlayerContainerNSView: NSView {
             }
         }
         
-        // Slot B still frame check if active comparison
-        if engine.slotB.url != nil && engine.compareMode != .single {
+        // Slot B still frame check if active comparison or during Blink
+        if engine.slotB.url != nil && (engine.compareMode != .single || engine.isBlinkCompareB) {
             let timeB = engine.slotB.player.currentTime()
             let timeSecsB = CMTimeGetSeconds(timeB)
             let frameDurationB = 1.0 / max(1.0, engine.slotB.fps)
@@ -1459,7 +1476,7 @@ public final class PlayerContainerNSView: NSView {
         let safeAreaMode = engine.safeAreaMode
         let zoomScale = engine.isFitZoom ? 1.0 : engine.zoomScale
         let lineWidth = 1.0 / max(0.01, zoomScale)
-        let isBlink = engine.isBlinkCompareB && engine.slotB.url != nil
+        let isBlink = engine.isBlinkCompareB && engine.compareMode == .single && engine.slotB.url != nil
         let isSideBySide = (engine.compareMode == .sideBySide || engine.compareMode == .sideBySideVertical) && engine.slotB.url != nil
         
         if isBlink {
@@ -1629,7 +1646,7 @@ public final class PlayerContainerNSView: NSView {
     }
     
     private func isNearSplitDivider(windowPoint: NSPoint) -> Bool {
-        guard let engine = engine, engine.slotB.url != nil, engine.compareMode != .single else { return false }
+        guard let engine = engine, engine.slotB.url != nil, engine.compareMode != .single, !engine.isBlinkCompareB else { return false }
         guard engine.hasMatchingAspectRatios else { return false }
         let pt = pointInCanvas(from: windowPoint)
         let w = canvasLayer.bounds.width
