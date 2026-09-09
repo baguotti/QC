@@ -25,9 +25,20 @@ struct NotesDrawerPanelView: View {
                     .font(.system(size: 11, weight: .bold))
                     .foregroundColor(palette.textMain)
                 
-                Text("NOTES (\(notes.count))")
-                    .font(.system(size: 11, weight: .black, design: .monospaced))
-                    .foregroundColor(palette.textMain)
+                HStack(spacing: 0) {
+                    Text("NOTES (")
+                    SlotText(
+                        "\(notes.count)",
+                        mode: .character,
+                        direction: .up,
+                        font: .system(size: 11, weight: .black, design: .monospaced),
+                        foregroundColor: palette.textMain,
+                        tracking: 0.5
+                    )
+                    Text(")")
+                }
+                .font(.system(size: 11, weight: .black, design: .monospaced))
+                .foregroundColor(palette.textMain)
                 
                 Spacer()
                 
@@ -47,14 +58,13 @@ struct NotesDrawerPanelView: View {
                 
                 Button(action: { withAnimation(.easeInOut(duration: 0.15)) { isPresented = false } }) {
                     Image(systemName: "xmark")
-                        .font(.system(size: 9, weight: .bold))
+                        .font(.system(size: 10, weight: .bold))
                         .foregroundColor(palette.textMuted)
-                        .frame(width: 20, height: 20)
                 }
                 .buttonStyle(.plain)
             }
             .padding(.horizontal, 14)
-            .padding(.vertical, 10)
+            .frame(height: 40)
             .background(palette.bgPanel)
             
             Rectangle().fill(palette.borderLine).frame(height: 1)
@@ -63,9 +73,9 @@ struct NotesDrawerPanelView: View {
             if notes.isEmpty {
                 VStack(spacing: 12) {
                     Spacer()
-                    Image(systemName: "square.and.pencil")
-                        .font(.system(size: 26))
-                        .foregroundColor(palette.textMuted)
+                    Image(systemName: "note.text")
+                        .font(.system(size: 28))
+                        .foregroundColor(palette.textMuted.opacity(0.5))
                     Text("NO REVIEW NOTES")
                         .font(.system(size: 11, weight: .bold, design: .monospaced))
                         .foregroundColor(palette.textMain)
@@ -97,6 +107,10 @@ struct NotesDrawerPanelView: View {
                     LazyVStack(spacing: 8) {
                         ForEach(notes.sorted { $0.frameIndex < $1.frameIndex }) { note in
                             noteCard(note: note)
+                                .transition(.asymmetric(
+                                    insertion: .offset(y: 12).combined(with: .opacity),
+                                    removal: .opacity
+                                ))
                         }
                     }
                     .padding(12)
@@ -170,8 +184,15 @@ struct NotesDrawerPanelView: View {
                     HStack(spacing: 3) {
                         Image(systemName: "play.fill")
                             .font(.system(size: 6))
-                        Text(note.timecode)
-                            .font(.system(size: 9, weight: .bold, design: .monospaced))
+                        SlotText(
+                            note.timecode,
+                            mode: .character,
+                            direction: .down,
+                            font: .system(size: 9, weight: .bold, design: .monospaced),
+                            foregroundColor: colorForTag(note.colorTag),
+                            tracking: 0.5,
+                            animateOnAppear: true
+                        )
                     }
                     .padding(.horizontal, 6)
                     .padding(.vertical, 3)

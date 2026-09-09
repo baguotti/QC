@@ -658,8 +658,16 @@ public struct PlayerQueuePanelView: View, Equatable {
                         HStack(spacing: 3) {
                             Image(systemName: queueDisplayMode == "large" ? "photo.fill" : (queueDisplayMode == "thumbnail" ? "photo" : "list.bullet"))
                                 .font(.system(size: 7.5, weight: .bold))
-                            Text(queueDisplayMode == "large" ? "LARGE" : (queueDisplayMode == "thumbnail" ? "THUMBS" : "INLINE"))
-                                .font(.system(size: 8, weight: .black, design: .monospaced))
+                            SlotText(
+                                queueDisplayMode == "large" ? "LARGE" : (queueDisplayMode == "thumbnail" ? "THUMBS" : "INLINE"),
+                                mode: .character,
+                                direction: .up,
+                                font: .system(size: 8, weight: .black, design: .monospaced),
+                                foregroundColor: textMain,
+                                tracking: 0.3,
+                                stagger: 0.018,
+                                rollDistance: 9
+                            )
                         }
                         .padding(.horizontal, 4)
                         .frame(height: 18)
@@ -674,8 +682,17 @@ public struct PlayerQueuePanelView: View, Equatable {
                         HStack(spacing: 3) {
                             Image(systemName: isAutoplayEnabled ? "play.fill" : "play.slash.fill")
                                 .font(.system(size: 7, weight: .bold))
-                            Text("AUTO")
-                                .font(.system(size: 8, weight: .black, design: .monospaced))
+                            SlotText(
+                                "AUTO",
+                                mode: .character,
+                                direction: .up,
+                                font: .system(size: 8, weight: .black, design: .monospaced),
+                                foregroundColor: isAutoplayEnabled ? accentPositive : textMuted,
+                                tracking: 0.3,
+                                stagger: 0.018,
+                                rollDistance: 9,
+                                trigger: isAutoplayEnabled
+                            )
                         }
                         .padding(.horizontal, 4)
                         .frame(height: 18)
@@ -1327,8 +1344,13 @@ extension ContentView {
                     HStack(spacing: 3) {
                         Image(systemName: showNotesDrawer ? "text.bubble.fill" : "text.bubble")
                             .font(.system(size: 9, weight: .semibold))
-                        Text(hasNotes ? "\(notesCount)" : "NOTES")
-                            .font(.system(size: 9, weight: .bold, design: .monospaced))
+                        SlotText(
+                            hasNotes ? "\(notesCount)" : "NOTES",
+                            mode: hasNotes ? .character : .word,
+                            direction: .up,
+                            font: .system(size: 9, weight: .bold, design: .monospaced),
+                            foregroundColor: showNotesDrawer ? accentBlue : (hasNotes ? textMain : textMuted)
+                        )
                     }
                     .frame(height: 24)
                     .padding(.horizontal, 4)

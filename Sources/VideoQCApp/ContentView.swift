@@ -657,10 +657,14 @@ struct ContentView: View {
                 Circle()
                     .fill(isScanning || isInspectingDeliverables ? textMain : accentPositive)
                     .frame(width: 7, height: 7)
-                Text(isScanning || isInspectingDeliverables ? "BUSY" : "READY")
-                    .font(.system(size: 10, weight: .bold, design: .monospaced))
-                    .foregroundColor(isScanning || isInspectingDeliverables ? textSubtle : accentPositive)
-                    .tracking(1.0)
+                SlotText(
+                    isScanning || isInspectingDeliverables ? "BUSY" : "READY",
+                    mode: .character,
+                    direction: isScanning || isInspectingDeliverables ? .down : .up,
+                    font: .system(size: 10, weight: .bold, design: .monospaced),
+                    foregroundColor: isScanning || isInspectingDeliverables ? textSubtle : accentPositive,
+                    tracking: 1.0
+                )
             }
             .frame(width: 76, height: 28)
             .studioBox(background: bgSubtle, border: borderLine)
@@ -2111,7 +2115,9 @@ struct ContentView: View {
         var currentNotes = playerEngine.activeNotes
         currentNotes.append(note)
         currentNotes.sort { $0.frameIndex < $1.frameIndex }
-        playerEngine.activeNotes = currentNotes
+        withAnimation(.spring(response: 0.32, dampingFraction: 0.78)) {
+            playerEngine.activeNotes = currentNotes
+        }
         saveNotes(currentNotes, for: url)
         showToast("Note logged at \(note.timecode)")
     }
@@ -2125,7 +2131,9 @@ struct ContentView: View {
     
     func deleteNote(id: UUID) {
         guard let url = playerEngine.activeURL else { return }
-        playerEngine.activeNotes.removeAll(where: { $0.id == id })
+        withAnimation(.easeInOut(duration: 0.2)) {
+            playerEngine.activeNotes.removeAll(where: { $0.id == id })
+        }
         saveNotes(playerEngine.activeNotes, for: url)
         showToast("Note deleted")
     }

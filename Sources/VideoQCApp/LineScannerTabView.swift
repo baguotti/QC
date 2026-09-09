@@ -195,32 +195,100 @@ extension ContentView {
             
             if isScanning {
                 Button(action: cancelScan) {
-                    Text("[ CANCEL AUDIT ]")
-                        .font(.system(size: 12, weight: .black, design: .monospaced))
-                        .tracking(1.0)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 12)
-                        .foregroundColor(.white)
-                        .studioBox(background: alertRed, border: alertRed)
+                    HStack(spacing: 7) {
+                        Image(systemName: "stop.fill")
+                            .font(.system(size: 10, weight: .bold))
+                        SlotText(
+                            "CANCEL AUDIT",
+                            mode: .character,
+                            direction: .down,
+                            font: .system(size: 11, weight: .heavy, design: .monospaced),
+                            foregroundColor: .white,
+                            tracking: 0.5,
+                            stagger: 0.015,
+                            rollDistance: 13
+                        )
+                    }
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 38)
+                    .foregroundColor(.white)
+                    .background(
+                        RoundedRectangle(cornerRadius: 5)
+                            .fill(alertRed)
+                            .shadow(color: alertRed.opacity(0.35), radius: 8, x: 0, y: 0)
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 5)
+                            .stroke(Color.white.opacity(0.35), lineWidth: 1)
+                    )
                 }
                 .buttonStyle(.plain)
                 .explain("Aborts the active video scan in progress.", binding: $hoverExplanation)
             } else {
                 let isReady = !videoFiles.isEmpty && RGBColor(hex: hexCode) != nil
                 Button(action: startScan) {
-                    Text("START LINE QC AUDIT")
-                        .font(.system(size: 11, weight: .bold, design: .monospaced))
-                        .tracking((isAuditBtnHovered && isReady) ? 0.8 : 0.5)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 10)
-                        .foregroundColor(videoFiles.isEmpty ? textMuted : primaryBtnFg)
-                        .studioBox(
-                            background: videoFiles.isEmpty ? bgSubtle : (
-                                (isAuditBtnHovered && isReady) ? (isLightMode ? Color(white: 0.18) : Color(white: 0.88)) : primaryBtnBg
-                            ),
-                            border: borderLine
+                    HStack(spacing: 7) {
+                        Image(systemName: "viewfinder")
+                            .font(.system(size: 11, weight: .bold))
+                            .scaleEffect(isAuditBtnHovered && isReady ? 1.08 : 1.0)
+                        
+                        SlotText(
+                            "START LINE QC AUDIT",
+                            mode: .character,
+                            direction: .up,
+                            font: .system(size: 11, weight: .heavy, design: .monospaced),
+                            foregroundColor: !isReady ? textMuted : (isLightMode ? Color.white : Color(white: 0.08)),
+                            tracking: 0.5,
+                            stagger: 0.015,
+                            rollDistance: 13,
+                            trigger: isAuditBtnHovered
                         )
-                        .animation(.easeInOut(duration: 0.25), value: isAuditBtnHovered)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 38)
+                    .foregroundColor(!isReady ? textMuted : (isLightMode ? Color.white : Color(white: 0.08)))
+                    .background(
+                        Group {
+                            if !isReady {
+                                RoundedRectangle(cornerRadius: 5)
+                                    .fill(bgSubtle.opacity(0.6))
+                            } else if isLightMode {
+                                RoundedRectangle(cornerRadius: 5)
+                                    .fill(
+                                        LinearGradient(
+                                            colors: isAuditBtnHovered
+                                                ? [Color(white: 0.20), Color(white: 0.12)]
+                                                : [Color(white: 0.14), Color(white: 0.08)],
+                                            startPoint: .top,
+                                            endPoint: .bottom
+                                        )
+                                    )
+                                    .shadow(color: Color.black.opacity(isAuditBtnHovered ? 0.25 : 0.10), radius: isAuditBtnHovered ? 6 : 3, x: 0, y: 1)
+                            } else {
+                                RoundedRectangle(cornerRadius: 5)
+                                    .fill(
+                                        LinearGradient(
+                                            colors: isAuditBtnHovered
+                                                ? [Color.white, Color(white: 0.92)]
+                                                : [Color(white: 0.95), Color(white: 0.88)],
+                                            startPoint: .top,
+                                            endPoint: .bottom
+                                        )
+                                    )
+                                    .shadow(color: isAuditBtnHovered ? Color.white.opacity(0.18) : Color.clear, radius: 8, x: 0, y: 0)
+                            }
+                        }
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 5)
+                            .stroke(
+                                !isReady
+                                    ? borderLine.opacity(0.5)
+                                    : (isLightMode ? borderStrong.opacity(0.6) : Color.white.opacity(isAuditBtnHovered ? 0.9 : 0.5)),
+                                lineWidth: 1
+                            )
+                    )
+                    .animation(.spring(response: 0.24, dampingFraction: 0.8), value: isAuditBtnHovered)
                 }
                 .buttonStyle(.plain)
                 .disabled(!isReady)

@@ -260,8 +260,13 @@ struct PlayerTransportDeckView: View {
                                 HStack(spacing: 3) {
                                     Image(systemName: isNotesDrawerOpen ? "text.bubble.fill" : "text.bubble")
                                         .font(.system(size: 9, weight: .semibold))
-                                    Text(hasNotes ? "\(notesCount)" : "NOTES")
-                                        .font(.system(size: 9, weight: .bold, design: .monospaced))
+                                    SlotText(
+                                        hasNotes ? "\(notesCount)" : "NOTES",
+                                        mode: hasNotes ? .character : .word,
+                                        direction: .up,
+                                        font: .system(size: 9, weight: .bold, design: .monospaced),
+                                        foregroundColor: isNotesDrawerOpen ? accentBlue : (hasNotes ? textMain : textMuted)
+                                    )
                                 }
                                 .frame(height: 28)
                                 .padding(.horizontal, 4)
@@ -272,10 +277,14 @@ struct PlayerTransportDeckView: View {
                             .disabled(engine.activeURL == nil)
                             .explain(hasNotes ? "Toggle Review Notes drawer (\(notesCount) notes)." : "Toggle Review Notes drawer.", binding: hoverExplanation)
                         } else {
-                            Text(hasNotes ? "\(notesCount)" : "NOTE")
-                                .font(.system(size: 9, weight: .bold, design: .monospaced))
-                                .foregroundColor(hasNotes ? textMain : textMuted)
-                                .padding(.horizontal, 3)
+                            SlotText(
+                                hasNotes ? "\(notesCount)" : "NOTE",
+                                mode: hasNotes ? .character : .word,
+                                direction: .up,
+                                font: .system(size: 9, weight: .bold, design: .monospaced),
+                                foregroundColor: hasNotes ? textMain : textMuted
+                            )
+                            .padding(.horizontal, 3)
                         }
                         
                         Button(action: { onJumpNextNote?() }) {
