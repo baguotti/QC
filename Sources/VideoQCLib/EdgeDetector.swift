@@ -24,7 +24,8 @@ public struct EdgeDetector: Sendable {
         let bufferPtr = baseAddress.assumingMemoryBound(to: UInt8.self)
         
         // Verify if the entire frame is dark/black OR dominated by the target color (e.g. green screen, white card, slate)
-        if config.ignoreFullBlackFrames {
+        let shouldCheckFrameWideSuppression = config.isWhiteDetection ? config.ignoreFullWhiteFrames : config.ignoreFullBlackFrames
+        if shouldCheckFrameWideSuppression {
             if isEntireFrameTargetColorOrDarkBGRA(ptr: bufferPtr, width: width, height: height, bytesPerRow: bytesPerRow, targetRGB: targetRGB, config: config) {
                 return []
             }
@@ -60,6 +61,7 @@ public struct EdgeDetector: Sendable {
         let stepY = max(1, (maxY - minY) / (gridDim - 1))
         
         let isBlack = config.isBlackDetection
+        let isWhite = config.isWhiteDetection
         let tr = Int(targetRGB.r)
         let tg = Int(targetRGB.g)
         let tb = Int(targetRGB.b)
@@ -92,15 +94,17 @@ public struct EdgeDetector: Sendable {
                     perimeterTotalSamples += 1
                 }
                 
-                if isBlack {
+                if isBlack || isWhite {
                     // Rec.709 perceived luminance
                     let lum = (r * 299 + g * 587 + b * 114) / 1000
                     totalLum += UInt64(lum)
-                    if lum <= 20 {
+                    if isBlack && lum <= 20 {
                         darkSamples += 1
                         if isPerimeter { perimeterDarkSamples += 1 }
                     }
-                } else {
+                }
+                
+                if !isBlack {
                     let dr = r - tr
                     let dg = g - tg
                     let db = b - tb
@@ -125,11 +129,22 @@ public struct EdgeDetector: Sendable {
             if darkRatio >= 0.75 && perimeterDarkRatio >= 0.90 { return true }
             if darkRatio >= 0.90 { return true }
             return false
+        } else if isWhite {
+            guard config.ignoreFullWhiteFrames else { return false }
+            let avgLum = Double(totalLum) / Double(totalSamples)
+            let targetRatio = Double(targetColorSamples) / Double(totalSamples)
+            let perimeterTargetRatio = perimeterTotalSamples > 0 ? Double(perimeterTargetSamples) / Double(perimeterTotalSamples) : 0.0
+            
+            // Full-frame white slate, logo card, or pure white flash transition
+            if avgLum >= 250.0 { return true }
+            if targetRatio >= 0.94 && perimeterTargetRatio >= 0.94 { return true }
+            if targetRatio >= 0.98 { return true }
+            return false
         } else {
             let targetRatio = Double(targetColorSamples) / Double(totalSamples)
             let perimeterTargetRatio = perimeterTotalSamples > 0 ? Double(perimeterTargetSamples) / Double(perimeterTotalSamples) : 0.0
             
-            // Chroma key green screen backdrop, full white flash frame, or colored slate
+            // Chroma key green screen backdrop or colored slate
             if targetRatio >= 0.80 && perimeterTargetRatio >= 0.85 { return true }
             if targetRatio >= 0.88 { return true }
             return false
@@ -181,6 +196,8 @@ public struct EdgeDetector: Sendable {
         }
         
         // Helper to verify that an edge line candidate has a clear contrast step against the adjacent picture content.
+        let minStepDist = config.isWhiteDetection ? 14.0 : 22.0
+        
         func hasBoundaryContrastHorizontal(lineColor: RGBColor, adjacentY: Int) -> Bool {
             guard adjacentY >= 0 && adjacentY < height else { return true }
             let rowStart = ptr + (adjacentY * bytesPerRow)
@@ -206,7 +223,7 @@ public struct EdgeDetector: Sendable {
             let dg = Double(lineColor.g) - adjG
             let db = Double(lineColor.b) - adjB
             let stepDist = sqrt(dr * dr + dg * dg + db * db)
-            return stepDist >= 22.0
+            return stepDist >= minStepDist
         }
         
         func hasBoundaryContrastVertical(lineColor: RGBColor, adjacentX: Int) -> Bool {
@@ -233,7 +250,7 @@ public struct EdgeDetector: Sendable {
             let dg = Double(lineColor.g) - adjG
             let db = Double(lineColor.b) - adjB
             let stepDist = sqrt(dr * dr + dg * dg + db * db)
-            return stepDist >= 22.0
+            return stepDist >= minStepDist
         }
         
         // 1. Bottom Edge (rows: height - 1 down to height - edgeDepth)
@@ -393,8 +410,10 @@ public struct EdgeDetector: Sendable {
         var missCount = 0
         
         let isBlack = config.isBlackDetection
+        let isWhite = config.isWhiteDetection
         let useBoost = isBlack && config.enableExposureBoost
-        let multiplier = useBoost ? config.exposureMultiplier : 1.0
+        let useHighlightExpansion = isWhite && config.enableHighlightExpansion
+        let multiplier = useBoost ? config.exposureMultiplier : (useHighlightExpansion ? config.highlightMultiplier : 1.0)
         
         let tr = Int(targetRGB.r)
         let tg = Int(targetRGB.g)
@@ -419,6 +438,10 @@ public struct EdgeDetector: Sendable {
         var blackMean = 0.0
         var blackM2 = 0.0
         
+        var whiteCount = 0
+        var whiteMean = 0.0
+        var whiteM2 = 0.0
+        
         var colorCount = 0
         var colorMean = 0.0
         var colorM2 = 0.0
@@ -437,6 +460,13 @@ public struct EdgeDetector: Sendable {
                 r = min(255, Int(Double(r) * multiplier))
                 g = min(255, Int(Double(g) * multiplier))
                 b = min(255, Int(Double(b) * multiplier))
+            } else if useHighlightExpansion {
+                let dr = 255 - r
+                let dg = 255 - g
+                let db = 255 - b
+                r = max(0, 255 - Int(Double(dr) * multiplier))
+                g = max(0, 255 - Int(Double(dg) * multiplier))
+                b = max(0, 255 - Int(Double(db) * multiplier))
             }
             
             let dr = r - tr
@@ -522,6 +552,13 @@ public struct EdgeDetector: Sendable {
                     blackMean += delta / Double(blackCount)
                     let delta2 = intensity - blackMean
                     blackM2 += delta * delta2
+                } else if isWhite {
+                    let intensity = Double(originalR + originalG + originalB) / 3.0
+                    whiteCount += 1
+                    let delta = intensity - whiteMean
+                    whiteMean += delta / Double(whiteCount)
+                    let delta2 = intensity - whiteMean
+                    whiteM2 += delta * delta2
                 } else if isSaturatedTarget {
                     let intensity = Double(originalR + originalG + originalB) / 3.0
                     colorCount += 1
@@ -546,6 +583,12 @@ public struct EdgeDetector: Sendable {
             let variance = blackM2 / Double(blackCount)
             let stdDev = sqrt(max(0.0, variance))
             if stdDev > config.maxBlackVariance {
+                return nil
+            }
+        } else if isWhite && whiteCount > 10 {
+            let variance = whiteM2 / Double(whiteCount)
+            let stdDev = sqrt(max(0.0, variance))
+            if stdDev > config.maxWhiteVariance {
                 return nil
             }
         } else if isSaturatedTarget && colorCount > 10 {
@@ -583,8 +626,10 @@ public struct EdgeDetector: Sendable {
         var missCount = 0
         
         let isBlack = config.isBlackDetection
+        let isWhite = config.isWhiteDetection
         let useBoost = isBlack && config.enableExposureBoost
-        let multiplier = useBoost ? config.exposureMultiplier : 1.0
+        let useHighlightExpansion = isWhite && config.enableHighlightExpansion
+        let multiplier = useBoost ? config.exposureMultiplier : (useHighlightExpansion ? config.highlightMultiplier : 1.0)
         
         let tr = Int(targetRGB.r)
         let tg = Int(targetRGB.g)
@@ -609,6 +654,10 @@ public struct EdgeDetector: Sendable {
         var blackMean = 0.0
         var blackM2 = 0.0
         
+        var whiteCount = 0
+        var whiteMean = 0.0
+        var whiteM2 = 0.0
+        
         var colorCount = 0
         var colorMean = 0.0
         var colorM2 = 0.0
@@ -627,6 +676,13 @@ public struct EdgeDetector: Sendable {
                 r = min(255, Int(Double(r) * multiplier))
                 g = min(255, Int(Double(g) * multiplier))
                 b = min(255, Int(Double(b) * multiplier))
+            } else if useHighlightExpansion {
+                let dr = 255 - r
+                let dg = 255 - g
+                let db = 255 - b
+                r = max(0, 255 - Int(Double(dr) * multiplier))
+                g = max(0, 255 - Int(Double(dg) * multiplier))
+                b = max(0, 255 - Int(Double(db) * multiplier))
             }
             
             let dr = r - tr
@@ -711,6 +767,13 @@ public struct EdgeDetector: Sendable {
                     blackMean += delta / Double(blackCount)
                     let delta2 = intensity - blackMean
                     blackM2 += delta * delta2
+                } else if isWhite {
+                    let intensity = Double(originalR + originalG + originalB) / 3.0
+                    whiteCount += 1
+                    let delta = intensity - whiteMean
+                    whiteMean += delta / Double(whiteCount)
+                    let delta2 = intensity - whiteMean
+                    whiteM2 += delta * delta2
                 } else if isSaturatedTarget {
                     let intensity = Double(originalR + originalG + originalB) / 3.0
                     colorCount += 1
@@ -734,6 +797,12 @@ public struct EdgeDetector: Sendable {
             let variance = blackM2 / Double(blackCount)
             let stdDev = sqrt(max(0.0, variance))
             if stdDev > config.maxBlackVariance {
+                return nil
+            }
+        } else if isWhite && whiteCount > 10 {
+            let variance = whiteM2 / Double(whiteCount)
+            let stdDev = sqrt(max(0.0, variance))
+            if stdDev > config.maxWhiteVariance {
                 return nil
             }
         } else if isSaturatedTarget && colorCount > 10 {

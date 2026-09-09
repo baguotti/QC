@@ -705,7 +705,7 @@ public struct PlayerQueuePanelView: View, Equatable {
                                    border: isAutoplayEnabled ? accentPositive : borderLine)
                     }
                     .buttonStyle(.plain)
-                    .explain(isAutoplayEnabled ? "Autoplay: ON (Videos play from start when clicked or navigating with ↑/↓)" : "Autoplay: OFF (Videos load paused at frame 0)", binding: hoverExplanation)
+                    .explain(isAutoplayEnabled ? "Autoplay: ON (Videos play from start when clicked or navigating with ↑/↓) [A]" : "Autoplay: OFF (Videos load paused at frame 0) [A]", binding: hoverExplanation)
                 }
                 
                 if videoFiles.isEmpty {

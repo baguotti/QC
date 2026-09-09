@@ -13,6 +13,8 @@ extension ContentView {
                 colorSettingsSection
                 if isTargetBlack {
                     blackLineModeSection
+                } else if isTargetWhite {
+                    whiteLineModeSection
                 }
                 edgeSettingsSection
                 actionSection
@@ -41,12 +43,12 @@ extension ContentView {
         VStack(alignment: .leading, spacing: 10) {
             sectionHeader(num: "02", title: "TARGET ERROR COLOR")
             
-            HStack(spacing: 10) {
+            HStack(spacing: 8) {
                 // Interactive Color Swatch
                 Button(action: openColorPanel) {
                     RoundedRectangle(cornerRadius: StudioTheme.cornerRadius)
                         .fill(colorFromHex(hexCode))
-                        .frame(width: 32, height: 32)
+                        .frame(width: 28, height: 28)
                         .overlay(RoundedRectangle(cornerRadius: StudioTheme.cornerRadius).stroke(borderStrong, lineWidth: 1))
                 }
                 .buttonStyle(.plain)
@@ -57,12 +59,29 @@ extension ContentView {
                     .textFieldStyle(.plain)
                     .font(.system(size: 13, weight: .bold, design: .monospaced))
                     .foregroundColor(textMain)
-                    .padding(7)
+                    .padding(6)
                     .foregroundColor(textMain)
                     .studioBox(background: bgSubtle, border: borderLine)
-                    .frame(width: 110)
+                    .frame(width: 95)
                     .disabled(isScanning)
                     .explain("Hex color value to search for on frame boundaries. Can be edited at all times.", binding: $hoverExplanation)
+                
+                // Custom Color Button
+                Button(action: openColorPanel) {
+                    HStack(spacing: 4) {
+                        Image(systemName: "paintpalette.fill")
+                            .font(.system(size: 9))
+                        Text("CUSTOM")
+                    }
+                    .font(.system(size: 9, weight: .bold, design: .monospaced))
+                    .padding(.horizontal, 7)
+                    .frame(height: 28)
+                    .foregroundColor(isCustomColor ? primaryBtnFg : textMain)
+                    .studioBox(background: isCustomColor ? primaryBtnBg : bgSubtle, border: borderLine)
+                }
+                .buttonStyle(.plain)
+                .disabled(isScanning)
+                .explain("Opens macOS color wheel / palette to choose any custom color.", binding: $hoverExplanation)
                 
                 Spacer()
                 
@@ -77,7 +96,7 @@ extension ContentView {
                         hexCode = code
                         tolerancePercentage = defaultTol
                     }) {
-                        HStack(spacing: 5) {
+                        HStack(spacing: 4) {
                             RoundedRectangle(cornerRadius: 1)
                                 .fill(colorFromHex(code))
                                 .frame(width: 8, height: 8)
@@ -85,8 +104,8 @@ extension ContentView {
                             Text(name)
                         }
                         .font(.system(size: 9, weight: .bold, design: .monospaced))
-                        .padding(.horizontal, 7)
-                        .padding(.vertical, 4)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 5)
                         .foregroundColor(hexCode.uppercased() == code ? primaryBtnFg : textMain)
                         .studioBox(background: hexCode.uppercased() == code ? primaryBtnBg : bgSubtle, border: borderLine)
                     }
@@ -94,25 +113,6 @@ extension ContentView {
                     .disabled(isScanning)
                     .explain("Sets target color to \(name) (\(code)) with \(Int(defaultTol))% tolerance.", binding: $hoverExplanation)
                 }
-                
-                // Custom Color Button
-                Button(action: openColorPanel) {
-                    HStack(spacing: 5) {
-                        RoundedRectangle(cornerRadius: 1)
-                            .fill(isCustomColor ? colorFromHex(hexCode) : Color(white: 0.5))
-                            .frame(width: 8, height: 8)
-                            .overlay(RoundedRectangle(cornerRadius: 1).stroke(borderLine, lineWidth: 0.5))
-                        Text("CUSTOM")
-                    }
-                    .font(.system(size: 9, weight: .bold, design: .monospaced))
-                    .padding(.horizontal, 7)
-                    .padding(.vertical, 4)
-                    .foregroundColor(isCustomColor ? primaryBtnFg : textMain)
-                    .studioBox(background: isCustomColor ? primaryBtnBg : bgSubtle, border: borderLine)
-                }
-                .buttonStyle(.plain)
-                .disabled(isScanning)
-                .explain("Opens macOS color wheel / palette to choose any custom color.", binding: $hoverExplanation)
             }
             
             VStack(alignment: .leading, spacing: 4) {
@@ -125,7 +125,7 @@ extension ContentView {
                         .font(.system(size: 10, weight: .bold, design: .monospaced))
                         .foregroundColor(textMain)
                 }
-                Slider(value: $tolerancePercentage, in: isTargetBlack ? 1...15 : 5...50, step: 1)
+                Slider(value: $tolerancePercentage, in: (isTargetBlack || isTargetWhite) ? 1...15 : 5...50, step: 1)
                     .tint(primaryBtnBg)
                     .disabled(isScanning)
                     .explain("Color match sensitivity. Lower values match strictly; higher values match broader shades.", binding: $hoverExplanation)
@@ -157,6 +157,35 @@ extension ContentView {
                 .toggleStyle(StudioToggleStyle(isLight: isLightMode))
                 .disabled(isScanning)
                 .explain("Skips solid black frames such as slates, head countdowns, and scene fades.", binding: $hoverExplanation)
+        }
+        .padding(10)
+        .studioBox(background: bgCardSubtle, border: borderStrong)
+    }
+    
+    var whiteLineModeSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Text("HIGH-KEY / WHITE COVE OPTIMIZATION")
+                    .font(.system(size: 10, weight: .heavy, design: .monospaced))
+                    .foregroundColor(textMain)
+                    .tracking(0.5)
+                Spacer()
+                Text("[ACTIVE]")
+                    .font(.system(size: 9, weight: .bold, design: .monospaced))
+                    .foregroundColor(textMain)
+            }
+            
+            Toggle("HIGHLIGHT EXPANSION FILTER", isOn: $enableHighlightExpansion)
+                .font(.system(size: 10, weight: .bold, design: .monospaced))
+                .toggleStyle(StudioToggleStyle(isLight: isLightMode))
+                .disabled(isScanning)
+                .explain("Amplifies highlight separation so natural white cove backdrops and studio lighting are not flagged.", binding: $hoverExplanation)
+            
+            Toggle("IGNORE FULL-FRAME WHITE SLATES", isOn: $ignoreFullWhiteFrames)
+                .font(.system(size: 10, weight: .bold, design: .monospaced))
+                .toggleStyle(StudioToggleStyle(isLight: isLightMode))
+                .disabled(isScanning)
+                .explain("Skips solid white logo cards, slates, and white flash transitions.", binding: $hoverExplanation)
         }
         .padding(10)
         .studioBox(background: bgCardSubtle, border: borderStrong)

@@ -61,6 +61,11 @@ struct ContentView: View {
     @State var enableExposureBoost: Bool = true
     @State var exposureMultiplier: Double = 10.0
     @State var ignoreFullBlackFrames: Bool = true
+    @State var maxBlackVariance: Double = 2.0
+    @State var enableHighlightExpansion: Bool = true
+    @State var highlightMultiplier: Double = 8.0
+    @State var ignoreFullWhiteFrames: Bool = true
+    @State var maxWhiteVariance: Double = 2.0
     
     @State var isScanning: Bool = false
     @State var isAuditBtnHovered: Bool = false
@@ -113,10 +118,16 @@ struct ContentView: View {
         return rgb.r <= 15 && rgb.g <= 15 && rgb.b <= 15
     }
     
+    var isTargetWhite: Bool {
+        guard let rgb = RGBColor(hex: hexCode) else { return false }
+        return rgb.r >= 240 && rgb.g >= 240 && rgb.b >= 240
+    }
+    
     let colorPresets = [
         ("GREEN", "#00FF00", 25.0),
         ("MAGENTA", "#FF00B4", 25.0),
-        ("BLACK", "#000000", 3.0)
+        ("BLACK", "#000000", 3.0),
+        ("WHITE", "#FFFFFF", 3.0)
     ]
     
     var isCustomColor: Bool {
@@ -1267,7 +1278,12 @@ struct ContentView: View {
             scanFullScreen: scanFullScreen,
             enableExposureBoost: enableExposureBoost,
             exposureMultiplier: exposureMultiplier,
-            ignoreFullBlackFrames: ignoreFullBlackFrames
+            ignoreFullBlackFrames: ignoreFullBlackFrames,
+            maxBlackVariance: maxBlackVariance,
+            enableHighlightExpansion: enableHighlightExpansion,
+            highlightMultiplier: highlightMultiplier,
+            ignoreFullWhiteFrames: ignoreFullWhiteFrames,
+            maxWhiteVariance: maxWhiteVariance
         )
         
         isScanning = true
@@ -1762,6 +1778,9 @@ struct ContentView: View {
                 } else if chars == "l" && isCommand {
                     self.playerEngine.isLooping.toggle()
                     return nil
+                } else if chars == "a" && !isCommand && !isControl && !isShift && !isOption { // A: Toggle Autoplay ON/OFF
+                    self.playerEngine.isAutoplayEnabled.toggle()
+                    return nil
                 } else if chars == " " { // Spacebar
                     self.playerEngine.togglePlayPause()
                     return nil
@@ -1817,6 +1836,11 @@ struct ContentView: View {
             }
             
             switch event.keyCode {
+            case 0: // A key: Toggle Autoplay fallback
+                if !isCommand && !isControl && !isShift && !isOption {
+                    self.playerEngine.isAutoplayEnabled.toggle()
+                    return nil
+                }
             case 34: // I key: Shift + I fallback
                 if isShift && !isCommand && !isControl && !isOption {
                     if self.playerEngine.slotB.url != nil {

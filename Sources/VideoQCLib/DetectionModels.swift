@@ -218,6 +218,12 @@ public struct QCConfig: Sendable {
     public var ignoreFullBlackFrames: Bool = true
     public var maxBlackVariance: Double = 2.0 // Strict row uniformity check for digital black
     
+    // Enhanced White Line Detection options (High-Key / White Cove)
+    public var enableHighlightExpansion: Bool = true
+    public var highlightMultiplier: Double = 8.0
+    public var ignoreFullWhiteFrames: Bool = true
+    public var maxWhiteVariance: Double = 2.0 // Strict row uniformity check for digital white
+    
     public init(
         targetHex: String = "#00FF00",
         tolerance: Double = 0.25,
@@ -227,7 +233,11 @@ public struct QCConfig: Sendable {
         enableExposureBoost: Bool = true,
         exposureMultiplier: Double = 10.0,
         ignoreFullBlackFrames: Bool = true,
-        maxBlackVariance: Double = 2.0
+        maxBlackVariance: Double = 2.0,
+        enableHighlightExpansion: Bool = true,
+        highlightMultiplier: Double = 8.0,
+        ignoreFullWhiteFrames: Bool = true,
+        maxWhiteVariance: Double = 2.0
     ) {
         self.targetHex = targetHex
         self.tolerance = tolerance
@@ -238,6 +248,10 @@ public struct QCConfig: Sendable {
         self.exposureMultiplier = exposureMultiplier
         self.ignoreFullBlackFrames = ignoreFullBlackFrames
         self.maxBlackVariance = maxBlackVariance
+        self.enableHighlightExpansion = enableHighlightExpansion
+        self.highlightMultiplier = highlightMultiplier
+        self.ignoreFullWhiteFrames = ignoreFullWhiteFrames
+        self.maxWhiteVariance = maxWhiteVariance
     }
     
     public var targetRGB: RGBColor? {
@@ -250,11 +264,21 @@ public struct QCConfig: Sendable {
         return rgb.r <= 15 && rgb.g <= 15 && rgb.b <= 15
     }
     
+    /// True if searching for pure white or near-white (high-key / cove blanking)
+    public var isWhiteDetection: Bool {
+        guard let rgb = targetRGB else { return false }
+        return rgb.r >= 240 && rgb.g >= 240 && rgb.b >= 240
+    }
+    
     public var maxDistance: Double {
         // Max theoretical distance in RGB space is sqrt(255^2 * 3) ~ 441.67
         // For black detection with exposure boost, use tighter distance threshold
         if isBlackDetection && enableExposureBoost {
             // Very tight tolerance for boosted black (e.g. max dist 8.0-15.0)
+            return min(441.67 * tolerance, 441.67 * 0.05)
+        }
+        // For white detection with highlight expansion, use tighter distance threshold
+        if isWhiteDetection && enableHighlightExpansion {
             return min(441.67 * tolerance, 441.67 * 0.05)
         }
         return 441.67 * tolerance
