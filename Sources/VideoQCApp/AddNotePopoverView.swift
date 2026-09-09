@@ -81,10 +81,10 @@ struct AddNotePopoverView: View {
                                 .font(.system(size: 10))
                                 .foregroundColor(palette.textMuted)
                             
-                            TextField("Enter your name...", text: $author, prompt: Text("Enter your name...").foregroundColor(palette.textMuted))
+                            TextField("Enter your name...", text: $author, prompt: Text("Enter your name...").foregroundColor(isLightMode ? Color(white: 0.35) : Color(white: 0.65)))
                                 .font(.system(size: 11, weight: .semibold, design: .monospaced))
                                 .textFieldStyle(.plain)
-                                .foregroundColor(palette.textMain)
+                                .foregroundColor(isLightMode ? Color.black : Color.white)
                                 .onChange(of: author) { _, newName in
                                     storedReviewerName = newName.trimmingCharacters(in: .whitespacesAndNewlines)
                                 }
@@ -112,7 +112,7 @@ struct AddNotePopoverView: View {
                                     }
                                     .padding(.horizontal, 8)
                                     .padding(.vertical, 5)
-                                    .foregroundColor(selectedColor == item.id ? palette.textMain : palette.textMuted)
+                                    .foregroundColor(selectedColor == item.id ? (isLightMode ? Color.black : Color.white) : palette.textMuted)
                                     .studioBox(
                                         background: selectedColor == item.id ? item.color.opacity(0.18) : palette.bgSubtle,
                                         border: selectedColor == item.id ? item.color : palette.borderLine
@@ -129,10 +129,10 @@ struct AddNotePopoverView: View {
                             .font(.system(size: 9, weight: .bold, design: .monospaced))
                             .foregroundColor(palette.textMuted)
                         
-                        TextField("Type your review note here...", text: $noteText, prompt: Text("Type your review note here...").foregroundColor(palette.textMuted), axis: .vertical)
+                        TextField("Type your review note here...", text: $noteText, prompt: Text("Type your review note here...").foregroundColor(isLightMode ? Color(white: 0.35) : Color(white: 0.65)), axis: .vertical)
                             .font(.system(size: 11, design: .monospaced))
                             .textFieldStyle(.plain)
-                            .foregroundColor(palette.textMain)
+                            .foregroundColor(isLightMode ? Color.black : Color.white)
                             .lineLimit(3...5)
                             .focused($isNoteFocused)
                             .padding(8)
@@ -193,6 +193,7 @@ struct AddNotePopoverView: View {
             .shadow(color: Color.black.opacity(0.45), radius: 24, x: 0, y: 12)
         }
         .allowsHitTesting(isPresented)
+        .preferredColorScheme(isLightMode ? .light : .dark)
         .onAppear {
             if storedReviewerName.isEmpty {
                 let systemName = NSFullUserName()

@@ -1144,42 +1144,9 @@ extension ContentView {
                             .background(bgMain)
                         }
                         
-                        // Dual A/B Mode: Clip Names at top-left of canvas (Togglable)
-                        if playerEngine.slotB.url != nil && playerEngine.showClipNamesOverlay {
-                            VStack(alignment: .leading, spacing: 3) {
-                                HStack(spacing: 5) {
-                                    Text("A:")
-                                        .font(.system(size: 9, weight: .black, design: .monospaced))
-                                        .foregroundColor(accentPositive)
-                                    Text(playerEngine.slotA.fileName.isEmpty ? "--" : playerEngine.slotA.fileName.uppercased())
-                                        .font(.system(size: 10, weight: .bold, design: .monospaced))
-                                        .foregroundColor(.white)
-                                        .lineLimit(1)
-                                        .truncationMode(.middle)
-                                }
-                                HStack(spacing: 5) {
-                                    Text("B:")
-                                        .font(.system(size: 9, weight: .black, design: .monospaced))
-                                        .foregroundColor(accentSlotB)
-                                    Text(playerEngine.slotB.fileName.isEmpty ? "--" : playerEngine.slotB.fileName.uppercased())
-                                        .font(.system(size: 10, weight: .bold, design: .monospaced))
-                                        .foregroundColor(.white)
-                                        .lineLimit(1)
-                                        .truncationMode(.middle)
-                                }
-                            }
-                            .padding(.horizontal, 9)
-                            .padding(.vertical, 6)
-                            .background(Color.black.opacity(0.70))
-                            .cornerRadius(4)
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 4)
-                                    .stroke(Color.white.opacity(0.12), lineWidth: 1)
-                            )
+                        // Dual A/B Mode: Clip Names & Info at top-left of canvas (Togglable)
+                        ClipInfoOverlayView(engine: playerEngine, accentPositive: accentPositive, accentSlotB: accentSlotB)
                             .padding(10)
-                            .allowsHitTesting(false)
-                            .transition(.opacity)
-                        }
                     }
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .onDrop(of: [UTType.fileURL.identifier], isTargeted: nil) { providers, location in
@@ -1335,7 +1302,7 @@ extension ContentView {
             }
             .buttonStyle(TransportIconButtonStyle())
             .disabled(playerEngine.activeURL == nil)
-            .explain("Add review note at playhead (M).", binding: $hoverExplanation)
+            .explain("Add review note at playhead (N).", binding: $hoverExplanation)
             
             let notesCount = playerEngine.activeNotes.count
             let hasNotes = notesCount > 0
@@ -1350,7 +1317,7 @@ extension ContentView {
                 }
                 .buttonStyle(TransportIconButtonStyle())
                 .disabled(!hasNotes)
-                .explain(hasNotes ? "Jump to previous note" : "No notes logged", binding: $hoverExplanation)
+                .explain(hasNotes ? "Jump to previous note ([)." : "No notes logged", binding: $hoverExplanation)
                 
                 Button(action: {
                     withAnimation(.easeInOut(duration: 0.15)) {
@@ -1381,7 +1348,7 @@ extension ContentView {
                 }
                 .buttonStyle(TransportIconButtonStyle())
                 .disabled(!hasNotes)
-                .explain(hasNotes ? "Jump to next note" : "No notes logged", binding: $hoverExplanation)
+                .explain(hasNotes ? "Jump to next note (])." : "No notes logged", binding: $hoverExplanation)
             }
         }
     }
@@ -1438,7 +1405,7 @@ extension ContentView {
             .buttonStyle(TransportIconButtonStyle())
             .disabled(!hasGlitches)
             .explain(
-                hasGlitches ? "Jump to previous line glitch (⇧N / cycles backwards through findings of Tab 3)." : "No line glitches found in Tab 3 to cycle through.",
+                hasGlitches ? "Jump to previous line glitch (⇧M / cycles backwards through findings of Tab 3)." : "No line glitches found in Tab 3 to cycle through.",
                 binding: $hoverExplanation
             )
             
@@ -1457,7 +1424,7 @@ extension ContentView {
             .buttonStyle(TransportIconButtonStyle())
             .disabled(!hasGlitches)
             .explain(
-                hasGlitches ? "Jump to next line glitch (N / cycles forwards through findings of Tab 3)." : "No line glitches found in Tab 3 to cycle through.",
+                hasGlitches ? "Jump to next line glitch (M / cycles forwards through findings of Tab 3)." : "No line glitches found in Tab 3 to cycle through.",
                 binding: $hoverExplanation
             )
         }
@@ -1489,7 +1456,7 @@ extension ContentView {
         }
         .buttonStyle(TransportIconButtonStyle())
         .disabled(activeURL == nil)
-        .explain(activeURL != nil ? "Tag current file with native macOS Finder color tags." : "Load a file to apply Finder tags.", binding: $hoverExplanation)
+        .explain(activeURL != nil ? "Tag current file with native macOS Finder color tags (1-7: Red, Green, Blue, Yellow, Orange, Purple, Gray; 0: Clear)." : "Load a file to apply Finder tags.", binding: $hoverExplanation)
         .popover(isPresented: $showTagPickerPopover, arrowEdge: .top) {
             tagPickerPopoverView(for: activeURL)
         }
@@ -1946,21 +1913,21 @@ struct PlayerComparisonBar: View {
                 .buttonStyle(TransportIconButtonStyle())
                 .explain("Swap Slots (X): Swap Slot A (Master) and Slot B (Compare).", binding: hoverExplanation)
                 
-                // Show/Hide Deliverable Clip Names on Canvas (Next to SWAP, before CLEAR B)
+                // Show/Hide / More Info Deliverable Clip Names on Canvas (Next to SWAP, before CLEAR B)
                 Button(action: {
                     withAnimation(.easeInOut(duration: 0.15)) {
-                        engine.showClipNamesOverlay.toggle()
+                        engine.cycleClipInfoOverlayMode()
                     }
                     onInteraction?()
                 }) {
-                    Image(systemName: "character.textbox")
+                    Image(systemName: engine.clipInfoOverlayMode == .detailed ? "info.circle.fill" : "character.textbox")
                         .font(.system(size: 11, weight: .bold))
                         .frame(width: 26, height: 26)
-                        .foregroundColor(engine.showClipNamesOverlay ? textMain : textMuted)
+                        .foregroundColor(engine.clipInfoOverlayMode != .hide ? textMain : textMuted)
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(TransportIconButtonStyle())
-                .explain(engine.showClipNamesOverlay ? "Hide Clip Names: Hide deliverable names overlay on canvas." : "Show Clip Names: Display deliverable names overlay on canvas.", binding: hoverExplanation)
+                .explain("Clip Info Overlay (\(engine.clipInfoOverlayMode.rawValue)) (⇧I): Cycle between Hide, Names, and More Info.", binding: hoverExplanation)
                 
                 // Clear B Button
                 Button(action: {
@@ -2014,8 +1981,10 @@ struct PlayerComparisonBar: View {
             explanationText = "Locked: Split wipe and overlay modes require matching aspect ratios. Slot A is \(descA), Slot B is \(descB). Use Side-by-Side (H) or (V) to compare."
         } else if mode == .single && engine.slotB.url != nil {
             explanationText = engine.isBlinkCompareB
-                ? "Single Mode: Viewing Slot B (Press Tab to toggle to Slot A Master)."
-                : "Single Mode: Viewing Slot A Master (Press Tab to toggle to Slot B)."
+                ? "Single Mode: Viewing Slot B (Press Tab or click to toggle to Slot A Master)."
+                : "Single Mode: Viewing Slot A Master (Press Tab or click to toggle to Slot B)."
+        } else if isActive && engine.slotB.url != nil {
+            explanationText = "\(helpText) (Active - Click to swap Slot A and Slot B)."
         } else {
             explanationText = helpText
         }
@@ -2024,6 +1993,8 @@ struct PlayerComparisonBar: View {
             if isLocked { return }
             if mode == .single && engine.compareMode == .single && engine.slotB.url != nil {
                 engine.isBlinkCompareB.toggle()
+            } else if engine.compareMode == mode && engine.slotB.url != nil {
+                engine.swapSlots()
             } else {
                 engine.isBlinkCompareB = false
                 engine.compareMode = mode
@@ -2113,28 +2084,32 @@ struct PlayerComparisonBar: View {
             .frame(width: 16, height: 12)
             
         case .sideBySide:
-            HStack(spacing: 2.5) {
+            HStack(spacing: 2) {
                 RoundedRectangle(cornerRadius: 1.5)
-                    .strokeBorder(isActive ? accentPositive : textMuted, lineWidth: 1.3)
-                    .frame(width: 7.5, height: 10.5)
+                    .strokeBorder(isActive ? accentPositive : textMuted, lineWidth: 1.35)
+                    .background(RoundedRectangle(cornerRadius: 1.5).fill(isActive ? accentPositive.opacity(0.12) : Color.clear))
+                    .frame(width: 10, height: 8.5)
                 
                 RoundedRectangle(cornerRadius: 1.5)
-                    .strokeBorder(isActive ? accentSlotB : textMuted, lineWidth: 1.3)
-                    .frame(width: 7.5, height: 10.5)
+                    .strokeBorder(isActive ? accentSlotB : textMuted, lineWidth: 1.35)
+                    .background(RoundedRectangle(cornerRadius: 1.5).fill(isActive ? accentSlotB.opacity(0.12) : Color.clear))
+                    .frame(width: 10, height: 8.5)
             }
-            .frame(width: 18, height: 12)
+            .frame(width: 22, height: 14)
             
         case .sideBySideVertical:
-            VStack(spacing: 2.5) {
+            VStack(spacing: 2) {
                 RoundedRectangle(cornerRadius: 1.5)
-                    .strokeBorder(isActive ? accentPositive : textMuted, lineWidth: 1.3)
-                    .frame(width: 14, height: 5.5)
+                    .strokeBorder(isActive ? accentPositive : textMuted, lineWidth: 1.35)
+                    .background(RoundedRectangle(cornerRadius: 1.5).fill(isActive ? accentPositive.opacity(0.12) : Color.clear))
+                    .frame(width: 10, height: 8.5)
                 
                 RoundedRectangle(cornerRadius: 1.5)
-                    .strokeBorder(isActive ? accentSlotB : textMuted, lineWidth: 1.3)
-                    .frame(width: 14, height: 5.5)
+                    .strokeBorder(isActive ? accentSlotB : textMuted, lineWidth: 1.35)
+                    .background(RoundedRectangle(cornerRadius: 1.5).fill(isActive ? accentSlotB.opacity(0.12) : Color.clear))
+                    .frame(width: 10, height: 8.5)
             }
-            .frame(width: 16, height: 14)
+            .frame(width: 16, height: 19)
             
         case .difference:
             if !isActive {
@@ -2232,41 +2207,11 @@ struct FullscreenPlayerView: View {
                     topBar
                         .transition(.move(edge: .top).combined(with: .opacity))
                     
-                    if engine.slotB.url != nil && engine.showClipNamesOverlay {
+                    if engine.slotB.url != nil && engine.clipInfoOverlayMode != .hide {
                         HStack {
-                            VStack(alignment: .leading, spacing: 3) {
-                                HStack(spacing: 5) {
-                                    Text("A:")
-                                        .font(.system(size: 9, weight: .black, design: .monospaced))
-                                        .foregroundColor(accentPositive)
-                                    Text(engine.slotA.fileName.isEmpty ? "--" : engine.slotA.fileName.uppercased())
-                                        .font(.system(size: 10, weight: .bold, design: .monospaced))
-                                        .foregroundColor(.white)
-                                        .lineLimit(1)
-                                        .truncationMode(.middle)
-                                }
-                                HStack(spacing: 5) {
-                                    Text("B:")
-                                        .font(.system(size: 9, weight: .black, design: .monospaced))
-                                        .foregroundColor(accentSlotB)
-                                    Text(engine.slotB.fileName.isEmpty ? "--" : engine.slotB.fileName.uppercased())
-                                        .font(.system(size: 10, weight: .bold, design: .monospaced))
-                                        .foregroundColor(.white)
-                                        .lineLimit(1)
-                                        .truncationMode(.middle)
-                                }
-                            }
-                            .padding(.horizontal, 9)
-                            .padding(.vertical, 6)
-                            .background(Color.black.opacity(0.70))
-                            .cornerRadius(4)
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 4)
-                                    .stroke(Color.white.opacity(0.12), lineWidth: 1)
-                            )
-                            .padding(.leading, 16)
-                            .padding(.top, 8)
-                            .allowsHitTesting(false)
+                            ClipInfoOverlayView(engine: engine, accentPositive: accentPositive, accentSlotB: accentSlotB)
+                                .padding(.leading, 16)
+                                .padding(.top, 8)
                             
                             Spacer()
                         }
@@ -2793,4 +2738,91 @@ struct PlayerZoomMenuView: View {
         .frame(width: 62)
     }
 }
+
+// MARK: - Dual A/B Mode Clip Names & Metadata Overlay
+
+struct ClipInfoOverlayView: View {
+    @ObservedObject var engine: PlayerEngine
+    var accentPositive: Color
+    var accentSlotB: Color
+    
+    var body: some View {
+        if engine.slotB.url != nil && engine.clipInfoOverlayMode != .hide {
+            VStack(alignment: .leading, spacing: engine.clipInfoOverlayMode == .detailed ? 6 : 3) {
+                // Slot A (Master)
+                VStack(alignment: .leading, spacing: 2) {
+                    HStack(spacing: 5) {
+                        Text("A:")
+                            .font(.system(size: 9, weight: .black, design: .monospaced))
+                            .foregroundColor(accentPositive)
+                        Text(engine.slotA.fileName.isEmpty ? "--" : engine.slotA.fileName.uppercased())
+                            .font(.system(size: 10, weight: .bold, design: .monospaced))
+                            .foregroundColor(.white)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                    }
+                    if engine.clipInfoOverlayMode == .detailed {
+                        HStack(spacing: 6) {
+                            Text(engine.slotA.displayResolution)
+                            Text("•")
+                                .foregroundColor(Color.white.opacity(0.4))
+                            Text(engine.slotA.displayCodec)
+                            Text("•")
+                                .foregroundColor(Color.white.opacity(0.4))
+                            Text(engine.slotA.formattedFileSize)
+                        }
+                        .font(.system(size: 8.5, weight: .medium, design: .monospaced))
+                        .foregroundColor(Color.white.opacity(0.75))
+                        .padding(.leading, 14)
+                    }
+                }
+                
+                if engine.clipInfoOverlayMode == .detailed {
+                    Rectangle()
+                        .fill(Color.white.opacity(0.12))
+                        .frame(height: 1)
+                }
+                
+                // Slot B (Reference / Compare)
+                VStack(alignment: .leading, spacing: 2) {
+                    HStack(spacing: 5) {
+                        Text("B:")
+                            .font(.system(size: 9, weight: .black, design: .monospaced))
+                            .foregroundColor(accentSlotB)
+                        Text(engine.slotB.fileName.isEmpty ? "--" : engine.slotB.fileName.uppercased())
+                            .font(.system(size: 10, weight: .bold, design: .monospaced))
+                            .foregroundColor(.white)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                    }
+                    if engine.clipInfoOverlayMode == .detailed {
+                        HStack(spacing: 6) {
+                            Text(engine.slotB.displayResolution)
+                            Text("•")
+                                .foregroundColor(Color.white.opacity(0.4))
+                            Text(engine.slotB.displayCodec)
+                            Text("•")
+                                .foregroundColor(Color.white.opacity(0.4))
+                            Text(engine.slotB.formattedFileSize)
+                        }
+                        .font(.system(size: 8.5, weight: .medium, design: .monospaced))
+                        .foregroundColor(Color.white.opacity(0.75))
+                        .padding(.leading, 14)
+                    }
+                }
+            }
+            .padding(.horizontal, 9)
+            .padding(.vertical, 6)
+            .background(Color.black.opacity(0.75))
+            .cornerRadius(4)
+            .overlay(
+                RoundedRectangle(cornerRadius: 4)
+                    .stroke(Color.white.opacity(0.14), lineWidth: 1)
+            )
+            .allowsHitTesting(false)
+            .transition(.opacity)
+        }
+    }
+}
+
 

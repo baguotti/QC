@@ -336,15 +336,18 @@ extension ContentView {
                         HStack(spacing: 5) {
                             Text("EXPORT")
                                 .font(.system(size: 11, weight: .bold, design: .monospaced))
+                                .foregroundColor(isLightMode ? Color.black : Color.white)
                             Image(systemName: "chevron.down")
                                 .font(.system(size: 8, weight: .bold))
+                                .foregroundColor(isLightMode ? Color.black : Color.white)
                         }
                         .padding(.horizontal, 10)
                         .padding(.vertical, 8)
-                        .foregroundColor(textMain)
+                        .foregroundColor(isLightMode ? Color.black : Color.white)
                         .studioBox(background: bgSubtle, border: borderLine)
                     }
                     .menuStyle(.borderlessButton)
+                    .foregroundColor(isLightMode ? Color.black : Color.white)
                     .fixedSize()
                     .explain("Export options: Save interactive HTML glitch report or CSV spreadsheet.", binding: $hoverExplanation)
                 }

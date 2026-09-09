@@ -187,9 +187,55 @@ public final class PlayerSlot: ObservableObject {
         return String(format: "%.2f:1 (%dx%d)", aspect, w, h)
     }
     
+    public var formattedFileSize: String {
+        guard let url = url else { return "--" }
+        do {
+            let values = try url.resourceValues(forKeys: [.fileSizeKey])
+            if let bytes = values.fileSize {
+                return ByteCountFormatter.string(fromByteCount: Int64(bytes), countStyle: .file)
+            }
+        } catch {}
+        return "--"
+    }
+    
+    public var displayResolution: String {
+        if !resolution.isEmpty && resolution != "--" {
+            return resolution
+        }
+        let w = Int(round(videoSize.width))
+        let h = Int(round(videoSize.height))
+        if w > 0 && h > 0 {
+            return "\(w)x\(h)"
+        }
+        return "--"
+    }
+    
+    public var displayCodec: String {
+        if !codec.isEmpty && codec != "--" {
+            return codec
+        }
+        return "--"
+    }
+    
     public init(id: SlotTarget) {
         self.id = id
         player.automaticallyWaitsToMinimizeStalling = false
+    }
+}
+
+// MARK: - Clip Info Overlay Mode
+
+public enum ClipInfoOverlayMode: String, CaseIterable, Codable, Sendable {
+    case hide = "Hide"
+    case namesOnly = "Names"
+    case detailed = "More Info"
+    
+    public var next: ClipInfoOverlayMode {
+        switch self {
+        case .hide: return .namesOnly
+        case .namesOnly: return .detailed
+        case .detailed: return .hide
+        }
     }
 }
 
@@ -298,7 +344,16 @@ public final class PlayerEngine: ObservableObject {
             }
         }
     }
-    @Published public var showClipNamesOverlay: Bool = false
+    @Published public var clipInfoOverlayMode: ClipInfoOverlayMode = .hide
+    
+    public var showClipNamesOverlay: Bool {
+        get { clipInfoOverlayMode != .hide }
+        set { clipInfoOverlayMode = newValue ? .namesOnly : .hide }
+    }
+    
+    public func cycleClipInfoOverlayMode() {
+        self.clipInfoOverlayMode = self.clipInfoOverlayMode.next
+    }
     
     // MARK: - Backwards Compatible Single-Player Properties (Reflects Slot A / Master)
     

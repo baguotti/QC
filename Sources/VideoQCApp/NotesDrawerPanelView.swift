@@ -35,7 +35,7 @@ struct NotesDrawerPanelView: View {
                     HStack(spacing: 4) {
                         Image(systemName: "plus")
                             .font(.system(size: 8, weight: .bold))
-                        Text("ADD (M)")
+                        Text("ADD (N)")
                             .font(.system(size: 9, weight: .bold, design: .monospaced))
                     }
                     .padding(.horizontal, 7)
@@ -69,7 +69,7 @@ struct NotesDrawerPanelView: View {
                     Text("NO REVIEW NOTES")
                         .font(.system(size: 11, weight: .bold, design: .monospaced))
                         .foregroundColor(palette.textMain)
-                    Text("Pause on any frame and press M to log a timecoded note for your team.")
+                    Text("Pause on any frame and press N to log a timecoded note for your team.")
                         .font(.system(size: 10, design: .monospaced))
                         .foregroundColor(palette.textSubtle)
                         .multilineTextAlignment(.center)
@@ -128,10 +128,13 @@ struct NotesDrawerPanelView: View {
                     HStack(spacing: 4) {
                         Image(systemName: "square.and.arrow.up")
                             .font(.system(size: 9, weight: .bold))
+                            .foregroundColor(palette.textMain)
                         Text("EXPORT")
                             .font(.system(size: 9, weight: .bold, design: .monospaced))
+                            .foregroundColor(palette.textMain)
                         Image(systemName: "chevron.down")
                             .font(.system(size: 7, weight: .bold))
+                            .foregroundColor(palette.textMain)
                     }
                     .padding(.horizontal, 8)
                     .padding(.vertical, 5)
@@ -139,6 +142,7 @@ struct NotesDrawerPanelView: View {
                     .studioBox(background: palette.bgSubtle, border: palette.borderLine)
                 }
                 .menuStyle(.borderlessButton)
+                .foregroundColor(palette.textMain)
                 .fixedSize()
                 .disabled(notes.isEmpty)
                 

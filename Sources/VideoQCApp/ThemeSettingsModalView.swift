@@ -310,19 +310,19 @@ struct ThemeSettingsModalView: View {
                 // Mock Navigation Bar / Active Tab Line
                 HStack(spacing: 16) {
                     VStack(alignment: .leading, spacing: 4) {
-                        Text("01 // PLAYER")
+                        Text("PLAYER")
                             .font(.system(size: 10, weight: .black, design: .monospaced))
                             .foregroundColor(palette.textMain)
                         Rectangle()
                             .fill(themeManager.currentTheme.blueColor)
-                            .frame(width: 84, height: 2)
+                            .frame(width: 52, height: 2)
                     }
                     
-                    Text("02 // SPECS")
+                    Text("SPECS")
                         .font(.system(size: 10, weight: .bold, design: .monospaced))
                         .foregroundColor(palette.textSubtle)
                     
-                    Text("03 // LINE FINDER")
+                    Text("LINE FINDER")
                         .font(.system(size: 10, weight: .bold, design: .monospaced))
                         .foregroundColor(palette.textSubtle)
                     

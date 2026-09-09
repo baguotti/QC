@@ -246,15 +246,18 @@ extension ContentView {
                         HStack(spacing: 5) {
                             Text("EXPORT")
                                 .font(.system(size: 11, weight: .bold, design: .monospaced))
+                                .foregroundColor(isLightMode ? Color.black : Color.white)
                             Image(systemName: "chevron.down")
                                 .font(.system(size: 8, weight: .bold))
+                                .foregroundColor(isLightMode ? Color.black : Color.white)
                         }
                         .padding(.horizontal, 10)
                         .padding(.vertical, 8)
-                        .foregroundColor(textMain)
+                        .foregroundColor(isLightMode ? Color.black : Color.white)
                         .studioBox(background: bgSubtle, border: borderLine)
                     }
                     .menuStyle(.borderlessButton)
+                    .foregroundColor(isLightMode ? Color.black : Color.white)
                     .fixedSize()
                     .explain("Export options: Save CSV manifest, open HTML specs report, or reveal in Finder.", binding: $hoverExplanation)
                     
@@ -276,17 +279,21 @@ extension ContentView {
                             HStack(spacing: 5) {
                                 Image(systemName: "folder")
                                     .font(.system(size: 9, weight: .bold))
+                                    .foregroundColor(isLightMode ? Color.black : Color.white)
                                 Text("FOLDERS")
                                     .font(.system(size: 11, weight: .bold, design: .monospaced))
+                                    .foregroundColor(isLightMode ? Color.black : Color.white)
                                 Image(systemName: "chevron.down")
                                     .font(.system(size: 8, weight: .bold))
+                                    .foregroundColor(isLightMode ? Color.black : Color.white)
                             }
                             .padding(.horizontal, 10)
                             .padding(.vertical, 8)
-                            .foregroundColor(textMain)
+                            .foregroundColor(isLightMode ? Color.black : Color.white)
                             .studioBox(background: bgSubtle, border: borderLine)
                         }
                         .menuStyle(.borderlessButton)
+                        .foregroundColor(isLightMode ? Color.black : Color.white)
                         .fixedSize()
                         .explain("Folder view options: Toggle folder groups vs flat list, collapse or expand all.", binding: $hoverExplanation)
                     }

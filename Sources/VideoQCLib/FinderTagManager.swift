@@ -5,15 +5,42 @@ import Foundation
 
 public enum FinderTagColor: String, CaseIterable, Identifiable, Sendable {
     case red = "Red"
-    case orange = "Orange"
-    case yellow = "Yellow"
     case green = "Green"
     case blue = "Blue"
+    case yellow = "Yellow"
+    case orange = "Orange"
     case purple = "Purple"
     case gray = "Gray"
     
     public var id: String { rawValue }
     
+    /// Shortcut key number (1: Red, 2: Green, 3: Blue, 4: Yellow, 5: Orange, 6: Purple, 7: Gray)
+    public var shortcutNumber: Int {
+        switch self {
+        case .red: return 1
+        case .green: return 2
+        case .blue: return 3
+        case .yellow: return 4
+        case .orange: return 5
+        case .purple: return 6
+        case .gray: return 7
+        }
+    }
+    
+    public static func fromShortcutNumber(_ num: Int) -> FinderTagColor? {
+        switch num {
+        case 1: return .red
+        case 2: return .green
+        case 3: return .blue
+        case 4: return .yellow
+        case 5: return .orange
+        case 6: return .purple
+        case 7: return .gray
+        default: return nil
+        }
+    }
+    
+    /// Apple macOS legacy labelNumber stored in .labelNumberKey
     public var labelNumber: Int {
         switch self {
         case .gray: return 1

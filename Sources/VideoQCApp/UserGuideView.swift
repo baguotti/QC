@@ -60,9 +60,9 @@ struct UserGuideView: View {
                 
                 // Tabs
                 HStack(spacing: 0) {
-                    guideTabButton(title: "01 // PLAYER", index: 0)
-                    guideTabButton(title: "02 // SPECS", index: 1)
-                    guideTabButton(title: "03 // LINE FINDER", index: 2)
+                    guideTabButton(title: "PLAYER", index: 0)
+                    guideTabButton(title: "SPECS", index: 1)
+                    guideTabButton(title: "LINE FINDER", index: 2)
                     Spacer()
                 }
                 .padding(.horizontal, 14)

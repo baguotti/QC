@@ -156,6 +156,17 @@ public final class ThemeManager: ObservableObject {
         self.currentTheme = theme
     }
     
+    public func cycleAccentTheme() {
+        let presets = StudioThemeConfig.presets
+        guard !presets.isEmpty else { return }
+        if let idx = presets.firstIndex(where: { $0.id == currentTheme.id }) {
+            let nextIdx = (idx + 1) % presets.count
+            applyTheme(presets[nextIdx])
+        } else {
+            applyTheme(presets[0])
+        }
+    }
+    
     public func resetToDefault() {
         self.currentTheme = StudioThemeConfig.muted
     }

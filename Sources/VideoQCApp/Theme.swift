@@ -15,9 +15,17 @@ enum AppTab: Int, CaseIterable, Identifiable {
     var id: Int { rawValue }
     var title: String {
         switch self {
-        case .player: return "01 // PLAYER"
-        case .specs: return "02 // SPECS"
-        case .lineFinder: return "03 // LINE FINDER"
+        case .player: return "PLAYER"
+        case .specs: return "SPECS"
+        case .lineFinder: return "LINE FINDER"
+        }
+    }
+    
+    var iconName: String {
+        switch self {
+        case .player: return "film"
+        case .specs: return "doc.text"
+        case .lineFinder: return "viewfinder"
         }
     }
 }
@@ -297,7 +305,6 @@ public struct QCNoteTheme {
         ("cyan", "Cyan", color(for: "cyan")),
         ("yellow", "Yellow", color(for: "yellow")),
         ("green", "Green", color(for: "green")),
-        ("red", "Red", color(for: "red")),
         ("purple", "Purple", color(for: "purple"))
     ]
 }

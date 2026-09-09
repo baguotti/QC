@@ -164,6 +164,7 @@ struct ContentView: View {
             mainWorkspaceContent
             overlayModals
         }
+        .preferredColorScheme(isLightMode ? .light : .dark)
         .animation(.easeInOut(duration: 0.15), value: showUserGuide)
         .animation(.easeInOut(duration: 0.15), value: showFeedbackModal)
         .animation(.easeInOut(duration: 0.15), value: showShortcutsModal)
@@ -294,13 +295,7 @@ struct ContentView: View {
     private var mainWorkspaceContent: some View {
         VStack(spacing: 0) {
             // 1. Dedicated Prominent Tab Navigation Bar with Right-Hand Controls
-            ZStack(alignment: .bottom) {
-                tabBarStrip
-                
-                Rectangle()
-                    .fill(borderLine)
-                    .frame(height: 1)
-            }
+            tabBarStrip
             
             // 2. Main Tab Content
             switch selectedTab {
@@ -482,7 +477,7 @@ struct ContentView: View {
                     .studioBox(background: bgSubtle, border: borderLine)
             }
             .buttonStyle(.plain)
-            .explain("Switch to \(isLightMode ? "Dark" : "Light") mode theme.", binding: $hoverExplanation)
+            .explain("Switch to \(isLightMode ? "Dark" : "Light") mode (T). ⇧T cycles accent theme.", binding: $hoverExplanation)
             
             // Settings Menu Button (Clean square gear button with zero chevron)
             Button(action: { showSettingsPopover.toggle() }) {
@@ -673,92 +668,156 @@ struct ContentView: View {
         }
     }
     
-    private let tabLength: CGFloat = 148
+    // MARK: - Custom Tab Shapes for Seamless Body Blending
+    struct OpenBottomTabBorderShape: Shape {
+        var cornerRadius: CGFloat = 5
+        
+        func path(in rect: CGRect) -> Path {
+            var path = Path()
+            path.move(to: CGPoint(x: rect.minX, y: rect.maxY))
+            path.addLine(to: CGPoint(x: rect.minX, y: rect.minY + cornerRadius))
+            path.addArc(
+                center: CGPoint(x: rect.minX + cornerRadius, y: rect.minY + cornerRadius),
+                radius: cornerRadius,
+                startAngle: .degrees(180),
+                endAngle: .degrees(270),
+                clockwise: false
+            )
+            path.addLine(to: CGPoint(x: rect.maxX - cornerRadius, y: rect.minY))
+            path.addArc(
+                center: CGPoint(x: rect.maxX - cornerRadius, y: rect.minY + cornerRadius),
+                radius: cornerRadius,
+                startAngle: .degrees(270),
+                endAngle: .degrees(0),
+                clockwise: false
+            )
+            path.addLine(to: CGPoint(x: rect.maxX, y: rect.maxY))
+            return path
+        }
+    }
+
+    struct OpenBottomTabFillShape: Shape {
+        var cornerRadius: CGFloat = 5
+        var bleedBottom: CGFloat = 1.0
+        
+        func path(in rect: CGRect) -> Path {
+            var path = Path()
+            path.move(to: CGPoint(x: rect.minX, y: rect.maxY + bleedBottom))
+            path.addLine(to: CGPoint(x: rect.minX, y: rect.minY + cornerRadius))
+            path.addArc(
+                center: CGPoint(x: rect.minX + cornerRadius, y: rect.minY + cornerRadius),
+                radius: cornerRadius,
+                startAngle: .degrees(180),
+                endAngle: .degrees(270),
+                clockwise: false
+            )
+            path.addLine(to: CGPoint(x: rect.maxX - cornerRadius, y: rect.minY))
+            path.addArc(
+                center: CGPoint(x: rect.maxX - cornerRadius, y: rect.minY + cornerRadius),
+                radius: cornerRadius,
+                startAngle: .degrees(270),
+                endAngle: .degrees(0),
+                clockwise: false
+            )
+            path.addLine(to: CGPoint(x: rect.maxX, y: rect.maxY + bleedBottom))
+            path.closeSubpath()
+            return path
+        }
+    }
+
+    private let tabLength: CGFloat = 132
     
     private var tabBarStrip: some View {
-        HStack(spacing: 6) {
-            HStack(alignment: .bottom, spacing: 6) {
-                ForEach(AppTab.allCases) { tab in
-                    let isActive = (selectedTab == tab)
-                    let isHovered = (hoveredTab == tab)
-                    
-                    Button(action: {
-                        withAnimation(.spring(response: 0.22, dampingFraction: 0.85)) {
+        ZStack(alignment: .bottom) {
+            // Baseline 1px divider spanning full width
+            Rectangle()
+                .fill(borderLine)
+                .frame(height: 1)
+            
+            HStack(spacing: 6) {
+                HStack(alignment: .bottom, spacing: 6) {
+                    ForEach(AppTab.allCases) { tab in
+                        let isActive = (selectedTab == tab)
+                        let isHovered = (hoveredTab == tab)
+                        
+                        Button(action: {
                             selectedTab = tab
+                            if tab == .specs && deliverableAssets.isEmpty && !videoFiles.isEmpty {
+                                inspectDeliverablesBatch(urls: videoFiles)
+                            } else if tab == .player && playerEngine.activeURL == nil, let first = videoFiles.first {
+                                playerEngine.loadVideo(url: first)
+                            }
+                        }) {
+                            HStack(spacing: 6) {
+                                Image(systemName: tab.iconName)
+                                    .font(.system(size: 11, weight: isActive ? .bold : .medium))
+                                
+                                Text(tab.title)
+                                    .font(.system(size: 11, weight: isActive ? .bold : .medium, design: .monospaced))
+                                    .tracking(0.5)
+                                    .lineLimit(1)
+                            }
+                            .frame(width: tabLength, height: 29)
+                            .foregroundColor(
+                                isActive
+                                    ? (isLightMode ? Color.black : Color.white)
+                                    : (isHovered ? textMain : textMuted.opacity(0.72))
+                            )
+                            .background(
+                                Group {
+                                    if isActive {
+                                        OpenBottomTabFillShape(cornerRadius: 5, bleedBottom: 1.0)
+                                            .fill(bgPanel)
+                                    } else {
+                                        UnevenRoundedRectangle(topLeadingRadius: 5, bottomLeadingRadius: 0, bottomTrailingRadius: 0, topTrailingRadius: 5)
+                                            .fill(isHovered ? bgSubtle.opacity(isLightMode ? 0.85 : 0.55) : bgSubtle.opacity(isLightMode ? 0.4 : 0.22))
+                                    }
+                                }
+                            )
+                            .overlay(
+                                Group {
+                                    if isActive {
+                                        OpenBottomTabBorderShape(cornerRadius: 5)
+                                            .stroke(isLightMode ? borderStrong : Color(white: 0.32), lineWidth: 1)
+                                    } else {
+                                        UnevenRoundedRectangle(topLeadingRadius: 5, bottomLeadingRadius: 0, bottomTrailingRadius: 0, topTrailingRadius: 5)
+                                            .stroke(
+                                                isHovered ? borderLine : borderLine.opacity(isLightMode ? 0.45 : 0.25),
+                                                lineWidth: 1
+                                            )
+                                    }
+                                }
+                            )
+                            .contentShape(Rectangle())
                         }
-                        if tab == .specs && deliverableAssets.isEmpty && !videoFiles.isEmpty {
-                            inspectDeliverablesBatch(urls: videoFiles)
-                        } else if tab == .player && playerEngine.activeURL == nil, let first = videoFiles.first {
-                            playerEngine.loadVideo(url: first)
-                        }
-                    }) {
-                        HStack(spacing: 7) {
-                            Capsule()
-                                .fill(accentBlue)
-                                .frame(width: isActive ? 3 : 2, height: 11)
-                                .opacity(isActive ? 1.0 : (isHovered ? 0.45 : 0.0))
-                                .scaleEffect(isActive ? 1.0 : (isHovered ? 0.85 : 0.4), anchor: .center)
-                            
-                            Text(tab.title)
-                                .font(.system(size: 11, weight: isActive ? .bold : .medium, design: .monospaced))
-                                .tracking(0.5)
-                                .lineLimit(1)
-                                .fixedSize(horizontal: true, vertical: false)
-                        }
-                        .frame(width: tabLength, height: 28)
-                        .padding(.bottom, 3)
-                        .foregroundColor(
-                            isActive
-                                ? (isLightMode ? Color.black : Color.white)
-                                : (isHovered ? textMain : textMuted.opacity(0.72))
-                        )
-                        .background(
-                            UnevenRoundedRectangle(topLeadingRadius: 5, bottomLeadingRadius: 0, bottomTrailingRadius: 0, topTrailingRadius: 5)
-                                .fill(
-                                    isActive
-                                        ? (isLightMode ? Color.white : Color(white: 0.22))
-                                        : (isHovered ? bgSubtle.opacity(isLightMode ? 0.85 : 0.55) : bgSubtle.opacity(isLightMode ? 0.4 : 0.22))
-                                )
-                        )
-                        .overlay(
-                            UnevenRoundedRectangle(topLeadingRadius: 5, bottomLeadingRadius: 0, bottomTrailingRadius: 0, topTrailingRadius: 5)
-                                .stroke(
-                                    isActive
-                                        ? (isLightMode ? borderStrong : Color(white: 0.38))
-                                        : (isHovered ? borderLine : borderLine.opacity(isLightMode ? 0.45 : 0.25)),
-                                    lineWidth: 1
-                                )
-                        )
-                        .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                    .onHover { hovering in
-                        withAnimation(.easeInOut(duration: 0.12)) {
-                            if hovering {
-                                hoveredTab = tab
-                            } else if hoveredTab == tab {
-                                hoveredTab = nil
+                        .buttonStyle(.plain)
+                        .onHover { hovering in
+                            withAnimation(.easeInOut(duration: 0.12)) {
+                                if hovering {
+                                    hoveredTab = tab
+                                } else if hoveredTab == tab {
+                                    hoveredTab = nil
+                                }
                             }
                         }
+                        .explain(
+                            tab == .player ? "PLAYER: High-performance delivery playback with J-K-L shuttle, timeline scrubbing, and zoom." :
+                            (tab == .specs ? "SPECS: Reads container resolution, timecode, audio, and codecs." :
+                             "LINE FINDER: Scans video frames for edge line glitches and blanking errors."),
+                            binding: $hoverExplanation
+                        )
                     }
-                    .explain(
-                        tab == .player ? "01 // PLAYER: High-performance delivery playback with J-K-L shuttle, timeline scrubbing, and zoom." :
-                        (tab == .specs ? "02 // SPECS: Reads container resolution, timecode, audio, and codecs." :
-                         "03 // LINE FINDER: Scans video frames for edge line glitches and blanking errors."),
-                        binding: $hoverExplanation
-                    )
                 }
+                .frame(maxHeight: .infinity, alignment: .bottom)
+                
+                Spacer()
+                
+                topControls
+                    .frame(maxHeight: .infinity, alignment: .center)
             }
-            .frame(maxHeight: .infinity, alignment: .bottom)
-            
-            Spacer()
-            
-            topControls
-                .frame(maxHeight: .infinity, alignment: .center)
+            .padding(.horizontal, 20)
         }
-        .padding(.horizontal, 20)
         .frame(height: 42)
-        .background(bgPanel)
     }
     
     // MARK: - Reusable Unified Asset Selection Section
@@ -1514,9 +1573,6 @@ struct ContentView: View {
         }
         
         eventMonitors.keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
-            // Only capture if on the player tab
-            guard self.selectedTab == .player else { return event }
-            
             // Check if user is typing in a text field
             if let window = NSApp.keyWindow,
                let firstResponder = window.firstResponder,
@@ -1596,20 +1652,102 @@ struct ContentView: View {
             let isShift = event.modifierFlags.contains(.shift)
             let isCommand = event.modifierFlags.contains(.command)
             let isControl = event.modifierFlags.contains(.control)
+            let isOption = event.modifierFlags.contains(.option)
+            let rawChars = event.charactersIgnoringModifiers?.lowercased()
             
-            // J K L Shuttle
-            if let chars = event.charactersIgnoringModifiers?.lowercased() {
-                if chars == "j" {
+            // 1. Global Tab Switching Shortcuts: Shift + 1, Shift + 2, Shift + 3
+            if isShift && !isCommand && !isControl && !isOption {
+                if event.keyCode == 18 || rawChars == "1" || event.characters == "!" {
+                    withAnimation(.spring(response: 0.22, dampingFraction: 0.85)) {
+                        self.selectedTab = .player
+                    }
+                    return nil
+                } else if event.keyCode == 19 || rawChars == "2" || event.characters == "@" {
+                    withAnimation(.spring(response: 0.22, dampingFraction: 0.85)) {
+                        self.selectedTab = .specs
+                    }
+                    if self.deliverableAssets.isEmpty && !self.videoFiles.isEmpty {
+                        self.inspectDeliverablesBatch(urls: self.videoFiles)
+                    }
+                    return nil
+                } else if event.keyCode == 20 || rawChars == "3" || event.characters == "#" {
+                    withAnimation(.spring(response: 0.22, dampingFraction: 0.85)) {
+                        self.selectedTab = .lineFinder
+                    }
+                    return nil
+                }
+            }
+            
+            // 2. Global Theme Shortcuts:
+            // T: Switch light / dark mode
+            // Shift + T: Cycle accent palette
+            if !isCommand && !isControl && !isOption && (event.keyCode == 17 || rawChars == "t") {
+                if isShift {
+                    withAnimation(.easeInOut(duration: 0.15)) {
+                        ThemeManager.shared.cycleAccentTheme()
+                    }
+                    return nil
+                } else {
+                    withAnimation(.easeInOut(duration: 0.15)) {
+                        self.isLightMode.toggle()
+                    }
+                    return nil
+                }
+            }
+            
+            // Player-specific shortcuts below this point
+            guard self.selectedTab == .player else { return event }
+            
+            // 2. Finder Color Tags: 1 = Red, 2 = Green, 3 = Blue, 4 = Yellow, 5 = Orange, 6 = Purple, 7 = Gray (0 = Clear)
+            if !isShift && !isCommand && !isControl && !isOption {
+                let tagForNum: FinderTagColor?
+                switch event.keyCode {
+                case 18: tagForNum = .red      // 1: Red
+                case 19: tagForNum = .green    // 2: Green
+                case 20: tagForNum = .blue     // 3: Blue
+                case 21: tagForNum = .yellow   // 4: Yellow
+                case 23: tagForNum = .orange   // 5: Orange
+                case 22: tagForNum = .purple   // 6: Purple
+                case 26: tagForNum = .gray     // 7: Gray
+                default:
+                    if rawChars == "1" { tagForNum = .red }
+                    else if rawChars == "2" { tagForNum = .green }
+                    else if rawChars == "3" { tagForNum = .blue }
+                    else if rawChars == "4" { tagForNum = .yellow }
+                    else if rawChars == "5" { tagForNum = .orange }
+                    else if rawChars == "6" { tagForNum = .purple }
+                    else if rawChars == "7" { tagForNum = .gray }
+                    else { tagForNum = nil }
+                }
+                
+                if event.keyCode == 29 || rawChars == "0" { // 0: Remove Tag
+                    let currentTarget = self.playerEngine.activeTarget
+                    if let targetURL = (currentTarget == .slotB && self.playerEngine.slotB.url != nil) ? self.playerEngine.slotB.url : self.playerEngine.activeURL {
+                        self.setFinderTag(nil, for: targetURL)
+                        return nil
+                    }
+                } else if let tag = tagForNum {
+                    let currentTarget = self.playerEngine.activeTarget
+                    if let targetURL = (currentTarget == .slotB && self.playerEngine.slotB.url != nil) ? self.playerEngine.slotB.url : self.playerEngine.activeURL {
+                        self.toggleFinderTag(tag, for: targetURL)
+                        return nil
+                    }
+                }
+            }
+            
+            // J K L Shuttle & Core Player Keys
+            if let chars = rawChars {
+                if chars == "j" && !isCommand && !isControl {
                     if isShift {
                         self.playerEngine.pressSlowJ()
                     } else {
                         self.playerEngine.pressJ()
                     }
                     return nil
-                } else if chars == "k" {
+                } else if chars == "k" && !isCommand && !isControl {
                     self.playerEngine.pressK()
                     return nil
-                } else if chars == "l" && !isCommand {
+                } else if chars == "l" && !isCommand && !isControl {
                     if isShift {
                         self.playerEngine.pressSlowL()
                     } else {
@@ -1622,38 +1760,51 @@ struct ContentView: View {
                 } else if chars == " " { // Spacebar
                     self.playerEngine.togglePlayPause()
                     return nil
-                } else if chars == "f" && !isCommand { // F: Toggle Video Fullscreen (Clean) / Shift+F: Review Fullscreen
+                } else if chars == "f" && !isCommand && !isControl { // F: Toggle Video Fullscreen (Clean) / Shift+F: Review Fullscreen
                     if self.fullscreenMode != .none {
                         self.exitFullscreen()
                     } else if self.playerEngine.activeURL != nil {
                         self.enterFullscreen(mode: isShift ? .review : .videoOnly)
                     }
                     return nil
-                } else if chars == "n" { // N: Jump to Next Line Finding / Shift+N: Previous Line Finding
+                } else if chars == "n" && !isCommand && !isControl && !isShift && !isOption { // N: Add Review Note at current frame
+                    if self.playerEngine.activeURL != nil {
+                        self.openAddNoteModal()
+                        return nil
+                    }
+                } else if (chars == "]" || event.keyCode == 30) || (chars == "n" && isOption && !isShift) { // ]: Jump to Next Review Note
+                    self.playerEngine.jumpToNextNote()
+                    return nil
+                } else if (chars == "[" || event.keyCode == 33) || (chars == "n" && isOption && isShift) { // [: Jump to Previous Review Note
+                    self.playerEngine.jumpToPreviousNote()
+                    return nil
+                } else if chars == "m" && !isCommand && !isControl && !isOption { // M: Next Line Finding / Shift+M: Previous Line Finding
                     if isShift {
                         self.jumpToPreviousGlitchFinding()
                     } else {
                         self.jumpToNextGlitchFinding()
                     }
                     return nil
-                } else if chars == "x" && !isCommand { // X: Swap Slot A and Slot B
-                    if self.selectedTab == .player && self.playerEngine.slotB.url != nil {
+                } else if (chars == "s" || chars == "x") && !isCommand && !isControl && !isShift && !isOption { // S / X: Swap Slot A and Slot B
+                    if self.playerEngine.slotB.url != nil {
                         self.playerEngine.swapSlots()
                         return nil
                     }
-                } else if chars == "c" && !isCommand { // C: Cycle compare modes
-                    if self.selectedTab == .player && self.playerEngine.slotB.url != nil {
+                } else if chars == "c" && !isCommand && !isControl { // C: Cycle compare modes
+                    if self.playerEngine.slotB.url != nil {
                         self.playerEngine.cycleCompareMode()
-                        return nil
-                    }
-                } else if chars == "m" && !isCommand { // M: Add Review Note at current frame
-                    if self.selectedTab == .player && self.playerEngine.activeURL != nil {
-                        self.openAddNoteModal()
                         return nil
                     }
                 } else if chars == "?" || (isCommand && chars == "/") {
                     self.showShortcutsModal.toggle()
                     return nil
+                } else if chars == "i" && isShift && !isCommand && !isControl && !isOption { // Shift + I: Cycle clip info overlay (Hide -> Names -> More Info)
+                    if self.playerEngine.slotB.url != nil {
+                        withAnimation(.easeInOut(duration: 0.15)) {
+                            self.playerEngine.cycleClipInfoOverlayMode()
+                        }
+                        return nil
+                    }
                 } else if (chars == "i" && (isControl || isCommand)) || (chars == "p" && isCommand) {
                     self.togglePropertiesModalForActiveOrSelected()
                     return nil
@@ -1661,8 +1812,27 @@ struct ContentView: View {
             }
             
             switch event.keyCode {
+            case 34: // I key: Shift + I fallback
+                if isShift && !isCommand && !isControl && !isOption {
+                    if self.playerEngine.slotB.url != nil {
+                        withAnimation(.easeInOut(duration: 0.15)) {
+                            self.playerEngine.cycleClipInfoOverlayMode()
+                        }
+                        return nil
+                    }
+                }
+            case 30: // ]: Next Note (fallback for international layouts)
+                if !isCommand && !isControl {
+                    self.playerEngine.jumpToNextNote()
+                    return nil
+                }
+            case 33: // [: Previous Note (fallback for international layouts)
+                if !isCommand && !isControl {
+                    self.playerEngine.jumpToPreviousNote()
+                    return nil
+                }
             case 48: // Tab key: Rapid Blink / Flicker compare between Slot A and Slot B (Single mode only)
-                if self.selectedTab == .player && self.playerEngine.slotB.url != nil && self.playerEngine.compareMode == .single {
+                if self.playerEngine.slotB.url != nil && self.playerEngine.compareMode == .single {
                     self.playerEngine.isBlinkCompareB.toggle()
                     return nil
                 }
