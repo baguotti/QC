@@ -89,8 +89,8 @@ public struct RulerTicksCanvasView: View, Equatable {
 // MARK: - Downward-Pointing Playhead Chevron Shape (CTI)
 
 struct PlayheadChevronShape: Shape {
-    var tipProportion: CGFloat = 0.40 // 40% of height tapers into a crisp downward chevron
-    var cornerRadius: CGFloat = 1.5
+    var tipProportion: CGFloat = 0.38 // 38% of height tapers into a crisp downward chevron
+    var cornerRadius: CGFloat = 1.0
     
     func path(in rect: CGRect) -> Path {
         var path = Path()
@@ -126,7 +126,7 @@ public struct TimelineScrubberView: View {
     @State private var dragInitialProgress: Double = 0.0
     @State private var isGrabbingPlayhead: Bool = false
     
-    // Inset from outer container edges to float the pill track and protect playhead
+    // Inset from outer container edges to float the track and protect playhead
     private let trackInset: CGFloat = 6.0
     
     // Theme colors
@@ -138,20 +138,6 @@ public struct TimelineScrubberView: View {
     private var trackGrooveBorder: Color { isLightMode ? Color(white: 0.78) : Color(white: 0.10) }
     
     private var playheadAccent: Color { StudioTheme.accentBlue(isLightMode) }
-    
-    private var progressGradient: LinearGradient {
-        LinearGradient(
-            colors: isLightMode ? [
-                StudioTheme.accentBlue(true).opacity(0.85),
-                StudioTheme.accentBlue(true)
-            ] : [
-                StudioTheme.accentBlue(false).opacity(0.80),
-                StudioTheme.accentBlue(false)
-            ],
-            startPoint: .leading,
-            endPoint: .trailing
-        )
-    }
     
     public init(engine: PlayerEngine, isLightMode: Bool) {
         self.engine = engine
@@ -167,11 +153,11 @@ public struct TimelineScrubberView: View {
             let durSecs = CMTimeGetSeconds(engine.duration)
             
             ZStack(alignment: .topLeading) {
-                // Unified Modern Rounded Bezel Container
-                RoundedRectangle(cornerRadius: 8)
+                // Unified Studio Bezel Container (4px radius matching app design system)
+                RoundedRectangle(cornerRadius: StudioTheme.cornerRadius)
                     .fill(containerBg)
                     .overlay(
-                        RoundedRectangle(cornerRadius: 8)
+                        RoundedRectangle(cornerRadius: StudioTheme.cornerRadius)
                             .stroke(containerBorder, lineWidth: 1)
                     )
                 
@@ -222,60 +208,51 @@ public struct TimelineScrubberView: View {
                 }
                 .frame(height: 22)
                 
-                // MARK: - Modern Floating Scrubber Track (Bottom, Height: 12px, centered in 26px area)
+                // MARK: - Precision Scrubber Track (Height: 10px, centered in lower 24px area at y=29)
                 ZStack(alignment: .leading) {
-                    // Recessed Pill Track Bed
-                    Capsule()
+                    // Recessed Precision Track Bed
+                    RoundedRectangle(cornerRadius: 2.0)
                         .fill(trackGrooveBg)
                         .overlay(
-                            Capsule()
-                                .stroke(trackGrooveBorder, lineWidth: 0.75)
+                            RoundedRectangle(cornerRadius: 2.0)
+                                .stroke(trackGrooveBorder, lineWidth: 1.0)
                         )
-                        .frame(width: trackWidth, height: 12)
+                        .frame(width: trackWidth, height: 10)
                     
-                    // Played Progress Fill with Smooth Capsule Mask
-                    ZStack(alignment: .leading) {
-                        Rectangle()
-                            .fill(progressGradient)
-                            .frame(width: max(0, playheadX - trackInset), height: 12)
-                        
-                        // Subtle Glass Specular Top Highlight
-                        Rectangle()
-                            .fill(Color.white.opacity(0.25))
-                            .frame(width: max(0, playheadX - trackInset), height: 1)
-                            .offset(y: -5.5)
-                    }
-                    .frame(width: trackWidth, height: 12, alignment: .leading)
-                    .clipShape(Capsule())
+                    // Played Progress Fill (Solid theme accent, flat pro studio aesthetic)
+                    Rectangle()
+                        .fill(playheadAccent)
+                        .frame(width: max(0, playheadX - trackInset), height: 10)
+                        .clipShape(RoundedRectangle(cornerRadius: 2.0))
                     
-                    // Glitch Markers Inside Track (Muted Coral Bars)
+                    // Glitch Markers Inside Track (Crisp 1.5px vertical bars)
                     ForEach(engine.activeMarkers) { marker in
                         if durSecs > 0 {
                             let fps = max(1.0, engine.activeFps)
                             let markerSecs = (Double(marker.frameIndex) + 0.5) / fps
                             let markerX = trackWidth * CGFloat(min(1.0, max(0.0, markerSecs / durSecs)))
-                            Capsule()
+                            Rectangle()
                                 .fill(Color(red: 0.85, green: 0.38, blue: 0.38))
-                                .frame(width: 2, height: 10)
-                                .position(x: markerX, y: 6)
+                                .frame(width: 1.5, height: 10)
+                                .position(x: markerX, y: 5)
                         }
                     }
                     
-                    // Review Note Markers Inside Track (Muted colored vertical bars)
+                    // Review Note Markers Inside Track (Crisp 1.5px vertical bars)
                     ForEach(engine.activeNotes) { note in
                         if durSecs > 0 {
                             let fps = max(1.0, engine.activeFps)
                             let noteSecs = (Double(note.frameIndex) + 0.5) / fps
                             let noteX = trackWidth * CGFloat(min(1.0, max(0.0, noteSecs / durSecs)))
-                            Capsule()
+                            Rectangle()
                                 .fill(QCNoteTheme.color(for: note.colorTag))
-                                .frame(width: 2.0, height: 10)
-                                .position(x: noteX, y: 6)
+                                .frame(width: 1.5, height: 10)
+                                .position(x: noteX, y: 5)
                         }
                     }
                 }
-                .frame(width: trackWidth, height: 12)
-                .offset(x: trackInset, y: 30)
+                .frame(width: trackWidth, height: 10)
+                .offset(x: trackInset, y: 29)
                 
                 // MARK: - Hover Ghost Needle
                 if let hX = hoverX, isHovering && !isDragging && durSecs > 0 {
@@ -283,49 +260,40 @@ public struct TimelineScrubberView: View {
                     
                     // Subtle Ghost Needle (hairline guide)
                     Rectangle()
-                        .fill(Color.white.opacity(0.18))
+                        .fill(isLightMode ? Color.black.opacity(0.18) : Color.white.opacity(0.18))
                         .frame(width: 1, height: 42)
-                        .offset(x: clampedHX - 0.5, y: 5)
+                        .offset(x: clampedHX - 0.5, y: 2)
                         .allowsHitTesting(false)
                 }
                 
                 // MARK: - Modern Tactile Playhead (CTI)
-                // 1. Full-Height Precision Needle (Clean, no glow)
-                Capsule()
+                // 1. Full-Height Precision Needle (Crisp hairline)
+                Rectangle()
                     .fill(playheadAccent)
-                    .frame(width: isDragging ? 2.0 : 1.5, height: 44)
-                    .offset(x: playheadX - (isDragging ? 1.0 : 0.75), y: 4)
+                    .frame(width: isDragging ? 1.75 : 1.0, height: 43)
+                    .offset(x: playheadX - (isDragging ? 0.875 : 0.5), y: 2)
                     .allowsHitTesting(false)
                 
-                // 2. Chevron-Style Tactile Head Badge (Clean, no glow)
+                // 2. Chevron-Style Tactile Head Badge (Clean, flat studio aesthetic)
                 ZStack {
-                    PlayheadChevronShape()
-                        .fill(
-                            LinearGradient(
-                                colors: [
-                                    Color(red: 0.25, green: 0.62, blue: 1.0),
-                                    Color(red: 0.12, green: 0.46, blue: 0.95)
-                                ],
-                                startPoint: .top,
-                                endPoint: .bottom
-                            )
-                        )
+                    PlayheadChevronShape(tipProportion: 0.38, cornerRadius: 1.0)
+                        .fill(playheadAccent)
                         .frame(width: 11, height: 13)
-                        .shadow(color: Color.black.opacity(0.4), radius: 1.5, x: 0, y: 1)
+                        .shadow(color: Color.black.opacity(0.35), radius: 1.5, x: 0, y: 1)
                     
-                    PlayheadChevronShape()
-                        .stroke(Color.white.opacity(0.65), lineWidth: 0.75)
+                    PlayheadChevronShape(tipProportion: 0.38, cornerRadius: 1.0)
+                        .stroke(isLightMode ? Color.black.opacity(0.20) : Color.white.opacity(0.65), lineWidth: 0.75)
                         .frame(width: 11, height: 13)
                     
                     // Micro-notch center line
-                    RoundedRectangle(cornerRadius: 0.5)
-                        .fill(Color.white.opacity(0.95))
-                        .frame(width: 1.2, height: 5.0)
+                    Rectangle()
+                        .fill(Color.white.opacity(0.90))
+                        .frame(width: 1.0, height: 4.5)
                         .offset(y: -1.5)
                 }
                 .scaleEffect(isDragging ? 1.15 : 1.0)
                 .animation(.spring(response: 0.2, dampingFraction: 0.7), value: isDragging)
-                .offset(x: playheadX - 5.5, y: 2)
+                .offset(x: playheadX - 5.5, y: 1)
                 .allowsHitTesting(false)
                 
                 // Native AppKit Scroll Wheel & Trackpad Interceptor
@@ -362,7 +330,7 @@ public struct TimelineScrubberView: View {
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
-            .clipShape(RoundedRectangle(cornerRadius: 8))
+            .clipShape(RoundedRectangle(cornerRadius: StudioTheme.cornerRadius))
             .contentShape(Rectangle())
             // Smooth Hover Tracking
             .onContinuousHover { phase in

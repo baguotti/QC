@@ -22,7 +22,7 @@ struct ContentView: View {
     @State var propertiesURL: URL? = nil
     @State var isInspectingProperties: Bool = false
     @ObservedObject private var updateManager = UpdateManager.shared
-    @ObservedObject private var themeManager = ThemeManager.shared
+    @ObservedObject var themeManager = ThemeManager.shared
     @State var hoverExplanation: String = ""
     @State private var hoveredTab: AppTab? = nil
     
@@ -1295,6 +1295,7 @@ struct ContentView: View {
                 for res in results where res.isFlagged {
                     self.fileTagsMap[res.fileURL] = .red
                 }
+                self.syncScanResultsToNotes(results: results)
                 self.isScanning = false
                 self.scannerActor = nil
             }
@@ -2089,13 +2090,73 @@ struct ContentView: View {
     
     // MARK: - Timecoded Notes Management (Frame.io Style)
     
+    func syncScanResultsToNotes(results: [VideoQCResult]) {
+        Task {
+            for result in results {
+                var notes = await QCNotesManager.shared.loadNotes(for: result.fileURL)
+                notes.removeAll { $0.author == "Line QC" }
+                
+                if result.isFlagged && !result.glitchSegments.isEmpty {
+                    for seg in result.glitchSegments {
+                        let edgePos = seg.edge.rawValue.contains("Screen") ? seg.edge.rawValue : "\(seg.edge.rawValue) Edge"
+                        let durationInfo = seg.frameCount > 1 ? " (\(seg.frameCount) frames, \(String(format: "%.2fs", seg.durationSeconds)))" : ""
+                        let noteText = "\(edgePos) (\(seg.avgThickness)px) — Line glitch detected [\(seg.detectedColor.hexString.uppercased())]\(durationInfo)"
+                        
+                        let note = QCFileNote(
+                            frameIndex: seg.startFrame,
+                            timecode: seg.startTimecode,
+                            author: "Line QC",
+                            text: noteText,
+                            colorTag: "red",
+                            createdAt: Date(),
+                            isResolved: false
+                        )
+                        notes.append(note)
+                    }
+                    notes.sort { $0.frameIndex < $1.frameIndex }
+                }
+                
+                await QCNotesManager.shared.saveNotes(notes, for: result.fileURL, fps: result.fps)
+                
+                if let activeURL = self.playerEngine.activeURL, activeURL == result.fileURL {
+                    let updatedNotes = notes
+                    await MainActor.run {
+                        withAnimation(.spring(response: 0.32, dampingFraction: 0.78)) {
+                            self.playerEngine.activeNotes = updatedNotes
+                        }
+                    }
+                }
+            }
+        }
+    }
+    
     func loadNotesForActiveURL(_ url: URL?) {
         guard let url = url else {
             playerEngine.activeNotes = []
             return
         }
         Task { @MainActor in
-            let notes = await QCNotesManager.shared.loadNotes(for: url)
+            var notes = await QCNotesManager.shared.loadNotes(for: url)
+            if let result = self.scanResults.first(where: { $0.fileURL == url && $0.isFlagged && !$0.glitchSegments.isEmpty }) {
+                let hasQCNotes = notes.contains { $0.author == "Line QC" }
+                if !hasQCNotes {
+                    for seg in result.glitchSegments {
+                        let edgePos = seg.edge.rawValue.contains("Screen") ? seg.edge.rawValue : "\(seg.edge.rawValue) Edge"
+                        let durationInfo = seg.frameCount > 1 ? " (\(seg.frameCount) frames, \(String(format: "%.2fs", seg.durationSeconds)))" : ""
+                        let noteText = "\(edgePos) (\(seg.avgThickness)px) — Line glitch detected [\(seg.detectedColor.hexString.uppercased())]\(durationInfo)"
+                        notes.append(QCFileNote(
+                            frameIndex: seg.startFrame,
+                            timecode: seg.startTimecode,
+                            author: "Line QC",
+                            text: noteText,
+                            colorTag: "red",
+                            createdAt: Date(),
+                            isResolved: false
+                        ))
+                    }
+                    notes.sort { $0.frameIndex < $1.frameIndex }
+                }
+            }
             if self.playerEngine.activeURL == url {
                 self.playerEngine.activeNotes = notes
             }

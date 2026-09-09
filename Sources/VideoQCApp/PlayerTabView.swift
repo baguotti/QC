@@ -123,6 +123,7 @@ public struct PlayerQueueFileRowView: View, Equatable {
     public let slotBCodec: String
     public let isLightMode: Bool
     public let displayMode: String
+    public let themeId: String
     public var hoverExplanation: Binding<String>?
     
     // Callbacks
@@ -148,7 +149,8 @@ public struct PlayerQueueFileRowView: View, Equatable {
             lhs.slotBFps == rhs.slotBFps &&
             lhs.slotBCodec == rhs.slotBCodec &&
             lhs.isLightMode == rhs.isLightMode &&
-            lhs.displayMode == rhs.displayMode
+            lhs.displayMode == rhs.displayMode &&
+            lhs.themeId == rhs.themeId
         }
     }
     
@@ -478,6 +480,7 @@ public struct PlayerQueueFileRowView: View, Equatable {
 
 public struct PlayerQueuePanelView: View, Equatable {
     public var isLightMode: Bool
+    public var themeId: String
     public var folderURL: URL?
     public var videoFiles: [URL]
     public var playerTreeNodes: [FileSystemTreeNode]
@@ -524,6 +527,7 @@ public struct PlayerQueuePanelView: View, Equatable {
     public nonisolated static func == (lhs: PlayerQueuePanelView, rhs: PlayerQueuePanelView) -> Bool {
         MainActor.assumeIsolated {
             lhs.isLightMode == rhs.isLightMode &&
+            lhs.themeId == rhs.themeId &&
             lhs.folderURL == rhs.folderURL &&
             lhs.videoFiles == rhs.videoFiles &&
             lhs.playerFilterText == rhs.playerFilterText &&
@@ -730,12 +734,12 @@ public struct PlayerQueuePanelView: View, Equatable {
                                     ForEach(flattenedNodes) { node in
                                         if node.isDirectory {
                                             folderRow(node: node)
-                                                .id(node.id)
+                                                .id("\(node.id)_\(themeId)")
                                         } else {
                                             let isSelA = isSameURL(slotAURL, node.url)
                                             let isSelB = isSameURL(slotBURL, node.url)
                                             makeFileRow(url: node.url, depth: node.depth, isSlotA: isSelA, isSlotB: isSelB)
-                                                .id("\(node.url.path)_\(isSelA ? "A" : "_")_\(isSelB ? "B" : "_")_\(queueDisplayMode)")
+                                                .id("\(node.url.path)_\(isSelA ? "A" : "_")_\(isSelB ? "B" : "_")_\(queueDisplayMode)_\(themeId)")
                                         }
                                     }
                                 } else {
@@ -743,7 +747,7 @@ public struct PlayerQueuePanelView: View, Equatable {
                                         let isSelA = isSameURL(slotAURL, url)
                                         let isSelB = isSameURL(slotBURL, url)
                                         makeFileRow(url: url, depth: 0, isSlotA: isSelA, isSlotB: isSelB)
-                                            .id("\(url.path)_\(isSelA ? "A" : "_")_\(isSelB ? "B" : "_")_\(queueDisplayMode)")
+                                            .id("\(url.path)_\(isSelA ? "A" : "_")_\(isSelB ? "B" : "_")_\(queueDisplayMode)_\(themeId)")
                                     }
                                 }
                             }
@@ -989,6 +993,7 @@ public struct PlayerQueuePanelView: View, Equatable {
             slotBCodec: slotBCodec,
             isLightMode: isLightMode,
             displayMode: queueDisplayMode,
+            themeId: themeId,
             hoverExplanation: hoverExplanation,
             onLoadVideo: onLoadVideo,
             onClearSlotB: onClearSlotB,
@@ -1059,6 +1064,7 @@ extension ContentView {
     private var playerQueuePanel: some View {
         PlayerQueuePanelView(
             isLightMode: isLightMode,
+            themeId: themeManager.currentTheme.id,
             folderURL: folderURL,
             videoFiles: videoFiles,
             playerTreeNodes: playerTreeNodes,
@@ -1204,6 +1210,8 @@ extension ContentView {
                 isPresented: $showNotesDrawer,
                 notes: playerEngine.activeNotes,
                 mediaName: playerEngine.activeURL?.lastPathComponent ?? "Deliverable",
+                currentTimecode: playerEngine.currentTimecode,
+                currentFrame: playerEngine.currentFrame,
                 isLightMode: isLightMode,
                 onSeekToFrame: { frame in
                     playerEngine.seek(toFrame: frame)
@@ -1211,6 +1219,9 @@ extension ContentView {
                 },
                 onAddNote: {
                     openAddNoteModal()
+                },
+                onSaveNote: { note in
+                    addNote(note)
                 },
                 onToggleResolved: { id in
                     toggleNoteResolved(id: id)

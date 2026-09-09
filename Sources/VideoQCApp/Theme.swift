@@ -301,6 +301,7 @@ public struct QCNoteTheme {
         }
     }
     
+    /// User-selectable note colors. Red is intentionally excluded as it is reserved exclusively for automated Line QC findings.
     public static let availableColors: [(id: String, name: String, color: Color)] = [
         ("cyan", "Cyan", color(for: "cyan")),
         ("yellow", "Yellow", color(for: "yellow")),

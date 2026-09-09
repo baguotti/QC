@@ -213,12 +213,15 @@ struct AddNotePopoverView: View {
         let finalAuthor = author.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "Reviewer" : author.trimmingCharacters(in: .whitespacesAndNewlines)
         storedReviewerName = finalAuthor
         
+        // Red is reserved exclusively for automated Line QC findings
+        let safeColorTag = selectedColor.lowercased() == "red" ? "cyan" : selectedColor
+        
         let newNote = QCFileNote(
             frameIndex: frameIndex,
             timecode: timecode,
             author: finalAuthor,
             text: cleanText,
-            colorTag: selectedColor,
+            colorTag: safeColorTag,
             createdAt: Date(),
             isResolved: false
         )
