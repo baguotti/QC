@@ -171,7 +171,9 @@ struct UserGuideView: View {
     private var deliverablesGuide: some View {
         VStack(alignment: .leading, spacing: 10) {
             guideRow(name: "LOAD ASSETS", desc: "Loads files or folders to read metadata without decoding video frames.")
-            guideRow(name: "FILE NAME", desc: "Name of the file.")
+            guideRow(name: "VIEW MODES", desc: "Segmented switcher for List (compact), Thumbnails (standard), or Large previews.")
+            guideRow(name: "FOLDERS MENU", desc: "Toggle between folder hierarchy and flat list, collapse or expand all subfolders.")
+            guideRow(name: "FILE NAME COLUMN", desc: "Displays filenames without clipping. Drag divider to resize, double-click to auto-fit, or click [FIT NAME].")
             guideRow(name: "RESOLUTION & ASPECT RATIO", desc: "Pixel dimensions (e.g. 1920x1080) and ratio (16:9, 9:16, 1:1, 4:5).")
             guideRow(name: "DURATION & TIMECODE", desc: "Total seconds and exact SMPTE timecode (HH:MM:SS:FF).")
             guideRow(name: "FPS", desc: "Video track frame rate.")
@@ -179,9 +181,10 @@ struct UserGuideView: View {
             guideRow(name: "AUDIO CONFIGURATION", desc: "Channel layout (Stereo, 5.1, Mono), sample rate, and bit depth.")
             guideRow(name: "FILE SIZE", desc: "File size in MB or GB.")
             guideRow(name: "MISMATCH WARNINGS", desc: "Highlights files where filename tags (e.g. 16x9, 1080p, 15s) conflict with actual stream metadata.")
-            guideRow(name: "[ EXPORT CSV ]", desc: "Exports the metadata table to a CSV file.")
-            guideRow(name: "[ OPEN IN GOOGLE SHEETS ]", desc: "Copies data to clipboard and opens Google Sheets in your browser.")
-            guideRow(name: "[ EXPORT HTML SPECS SHEET ]", desc: "Exports a styled HTML specs sheet.")
+            guideRow(name: "MEDIA INFO (⌘I)", desc: "Click any file or press ⌘I to inspect extended media properties, audio channels, bitrates, and video tracks.")
+            guideRow(name: "[ RESCAN FOLDER / ASSETS ]", desc: "Re-inspects all video files and refreshes stream metadata.")
+            guideRow(name: "[ SHEETS ] | [ SAVE CSV ] | [ OPEN HTML ]", desc: "One-click export strip: Open in Google Sheets (ready to ⌘V), save CSV manifest, or open HTML specs report.")
+            guideRow(name: "[ REVEAL IN FINDER ]", desc: "Highlights selected or first asset in macOS Finder.")
         }
     }
     

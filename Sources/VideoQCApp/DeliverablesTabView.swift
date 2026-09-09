@@ -12,113 +12,8 @@ extension ContentView {
                 // Unified Asset Picker
                 deliveryAssetsSection(forTab: .specs)
                 
-                // Actions
-                VStack(alignment: .leading, spacing: 10) {
-                    sectionHeader(num: "02", title: "SPECS ACTIONS")
-                    
-                    Button(action: rescanDeliverables) {
-                        HStack {
-                            Text("RESCAN FOLDER / ASSETS")
-                                .font(.system(size: 11, weight: .bold, design: .monospaced))
-                            Spacer()
-                            Image(systemName: "arrow.clockwise")
-                                .font(.system(size: 10, weight: .bold))
-                        }
-                        .frame(maxWidth: .infinity)
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 8)
-                        .foregroundColor((videoFiles.isEmpty && folderURL == nil) ? textMuted : textMain)
-                        .studioBox(background: bgSubtle, border: borderLine)
-                    }
-                    .buttonStyle(.plain)
-                    .disabled((videoFiles.isEmpty && folderURL == nil) || isInspectingDeliverables)
-                    .explain("Re-inspects all video files and refreshes stream metadata.", binding: $hoverExplanation)
-                    
-                    Button(action: {
-                        if !deliverableAssets.isEmpty {
-                            openDeliverablesInGoogleSheets()
-                        }
-                    }) {
-                        HStack {
-                            Text("OPEN IN GOOGLE SHEETS")
-                                .font(.system(size: 11, weight: .bold, design: .monospaced))
-                            Spacer()
-                            Image(systemName: "arrow.up.right.square")
-                                .font(.system(size: 11, weight: .bold))
-                        }
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 9)
-                        .padding(.horizontal, 12)
-                        .foregroundColor(deliverableAssets.isEmpty ? textMuted : primaryBtnFg)
-                        .studioBox(background: deliverableAssets.isEmpty ? bgSubtle : primaryBtnBg, border: borderLine)
-                    }
-                    .buttonStyle(.plain)
-                    .disabled(deliverableAssets.isEmpty)
-                    .explain("Copies specs as spreadsheet data and opens Google Sheets ready to paste (⌘V).", binding: $hoverExplanation)
-                    
-                    HStack(spacing: 8) {
-                        Button(action: {
-                            if !deliverableAssets.isEmpty {
-                                exportDeliverablesManifest()
-                            }
-                        }) {
-                            Text("SAVE CSV")
-                                .font(.system(size: 10, weight: .bold, design: .monospaced))
-                                .frame(maxWidth: .infinity)
-                                .padding(.vertical, 7)
-                                .foregroundColor(deliverableAssets.isEmpty ? textMuted : textMain)
-                                .studioBox(background: bgSubtle, border: borderLine)
-                        }
-                        .buttonStyle(.plain)
-                        .disabled(deliverableAssets.isEmpty)
-                        .explain("Saves the deliverables metadata table to a local CSV file.", binding: $hoverExplanation)
-                        
-                        Button(action: {
-                            if !deliverableAssets.isEmpty {
-                                openManifestHTML()
-                            }
-                        }) {
-                            Text("OPEN HTML")
-                                .font(.system(size: 10, weight: .bold, design: .monospaced))
-                                .frame(maxWidth: .infinity)
-                                .padding(.vertical, 7)
-                                .foregroundColor(deliverableAssets.isEmpty ? textMuted : textMain)
-                                .studioBox(background: bgSubtle, border: borderLine)
-                        }
-                        .buttonStyle(.plain)
-                        .disabled(deliverableAssets.isEmpty)
-                        .explain("Generates and opens a formatted HTML delivery specs sheet in browser.", binding: $hoverExplanation)
-                    }
-                    
-                    if let firstURL = deliverableAssets.first?.fileURL {
-                        Button(action: {
-                            NSWorkspace.shared.activateFileViewerSelecting([firstURL])
-                        }) {
-                            Text("REVEAL IN FINDER")
-                                .font(.system(size: 11, weight: .bold, design: .monospaced))
-                                .frame(maxWidth: .infinity)
-                                .padding(.vertical, 8)
-                                .foregroundColor(textMain)
-                                .studioBox(background: bgSubtle, border: borderLine)
-                        }
-                        .buttonStyle(.plain)
-                        .explain("Locates and highlights the first asset in macOS Finder.", binding: $hoverExplanation)
-                    }
-                    
-                    if !deliverableAssets.isEmpty {
-                        Button(action: {
-                            deliverableAssets = []
-                        }) {
-                            Text("CLEAR LIST")
-                                .font(.system(size: 10, weight: .bold, design: .monospaced))
-                                .foregroundColor(textMuted)
-                                .frame(maxWidth: .infinity, alignment: .center)
-                                .padding(.top, 6)
-                        }
-                        .buttonStyle(.plain)
-                        .explain("Removes all video assets from the inspection table.", binding: $hoverExplanation)
-                    }
-                }
+                // 02 SPECS ACTIONS: View controls, Audit & Exports
+                specsActionsSection
                 
                 Spacer(minLength: 0)
             }
@@ -147,6 +42,231 @@ extension ContentView {
             }
             .frame(minWidth: 540)
             .background(bgMain)
+        }
+    }
+    
+    // MARK: - Left Panel: 02 SPECS ACTIONS
+    
+    private var specsActionsSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            sectionHeader(num: "02", title: "SPECS ACTIONS")
+            
+            // View & Display Controls
+            VStack(alignment: .leading, spacing: 6) {
+                // 1. View Mode Segmented Switcher [ LIST | THUMBS | LARGE ]
+                HStack(spacing: 0) {
+                    ForEach([("inline", "LIST", "list.bullet"),
+                             ("thumbnail", "THUMBS", "photo"),
+                             ("large", "LARGE", "photo.fill")], id: \.0) { modeId, label, icon in
+                        let isActive = specsDisplayMode == modeId
+                        Button(action: { specsDisplayMode = modeId }) {
+                            HStack(spacing: 4) {
+                                Image(systemName: icon)
+                                    .font(.system(size: 8, weight: .bold))
+                                Text(label)
+                                    .font(.system(size: 9, weight: .bold, design: .monospaced))
+                            }
+                            .frame(maxWidth: .infinity, alignment: .center)
+                            .frame(height: 26)
+                            .background(isActive ? (isLightMode ? Color.white : bgCardHeader) : Color.clear)
+                            .foregroundColor(isActive ? textMain : textMuted)
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+                .padding(1)
+                .studioBox(background: bgSubtle, border: borderLine, radius: StudioTheme.cornerRadius)
+                .explain("Table view mode: Compact List, Thumbnails, or Large Previews.", binding: $hoverExplanation)
+                
+                // 2. Table Layout Options: Fit Name & Folders
+                HStack(spacing: 6) {
+                    Button(action: { autoFitFileNameColumnWidth() }) {
+                        HStack(spacing: 4) {
+                            Image(systemName: isFileNameExpanded ? "arrow.right.and.line.vertical.and.arrow.left" : "arrow.left.and.line.vertical.and.arrow.right")
+                                .font(.system(size: 8, weight: .bold))
+                            Text(isFileNameExpanded ? "RESET NAME" : "FIT NAME")
+                                .font(.system(size: 10, weight: .bold, design: .monospaced))
+                        }
+                        .frame(maxWidth: .infinity, alignment: .center)
+                        .frame(height: 28)
+                        .foregroundColor(isFileNameExpanded ? textMain : (deliverableAssets.isEmpty ? textMuted : textSubtle))
+                        .studioBox(background: isFileNameExpanded ? bgCardHeader : bgSubtle, border: isFileNameExpanded ? borderStrong : borderLine)
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(deliverableAssets.isEmpty)
+                    .explain(isFileNameExpanded ? "Reset File Name column width back to default (220px)." : "Auto-fit File Name column to fit longest filename without truncation.", binding: $hoverExplanation)
+                    
+                    if hasDeliverablesSubfolders {
+                        Menu {
+                            Button(action: toggleHideFolders) {
+                                Label(hideAllFolders || !hiddenFolderIDs.isEmpty ? "Show Folder Groups" : "Hide Folder Groups (Flat List)",
+                                      systemImage: hideAllFolders || !hiddenFolderIDs.isEmpty ? "folder.badge.plus" : "list.bullet")
+                            }
+                            if !hideAllFolders {
+                                Divider()
+                                Button(action: toggleAllDeliverablesFolders) {
+                                    Label(deliverablesCollapsedFolderIDs.isEmpty ? "Collapse All Folders" : "Expand All Folders",
+                                          systemImage: deliverablesCollapsedFolderIDs.isEmpty ? "chevron.down.square" : "chevron.right.square")
+                                }
+                            }
+                        } label: {
+                            HStack(spacing: 4) {
+                                Image(systemName: "folder")
+                                    .font(.system(size: 9, weight: .bold))
+                                Text("FOLDERS")
+                                    .font(.system(size: 10, weight: .bold, design: .monospaced))
+                                Image(systemName: "chevron.down")
+                                    .font(.system(size: 7, weight: .bold))
+                            }
+                            .frame(maxWidth: .infinity, alignment: .center)
+                            .frame(height: 28)
+                            .foregroundColor(textMain)
+                            .studioBox(background: bgSubtle, border: borderLine)
+                        }
+                        .menuStyle(.borderlessButton)
+                        .menuIndicator(.hidden)
+                        .explain("Folder hierarchy: Toggle grouping vs flat list, collapse or expand all subfolders.", binding: $hoverExplanation)
+                    }
+                }
+            }
+            
+            Rectangle()
+                .fill(borderLine.opacity(0.6))
+                .frame(height: 1)
+                .padding(.vertical, 2)
+            
+            // Actions & Export Controls
+            VStack(spacing: 6) {
+                // Rescan Button
+                Button(action: rescanDeliverables) {
+                    HStack(spacing: 5) {
+                        Image(systemName: "arrow.clockwise")
+                            .font(.system(size: 9, weight: .bold))
+                        Text("RESCAN FOLDER / ASSETS")
+                            .font(.system(size: 10, weight: .bold, design: .monospaced))
+                    }
+                    .frame(maxWidth: .infinity, alignment: .center)
+                    .frame(height: 28)
+                    .foregroundColor((videoFiles.isEmpty && folderURL == nil) ? textMuted : textMain)
+                    .studioBox(background: bgSubtle, border: borderLine)
+                }
+                .buttonStyle(.plain)
+                .disabled((videoFiles.isEmpty && folderURL == nil) || isInspectingDeliverables)
+                .explain("Re-inspects all video files and refreshes stream metadata.", binding: $hoverExplanation)
+                
+                // Export Row: SHEETS | SAVE CSV | OPEN HTML (All on one line)
+                HStack(spacing: 6) {
+                    // Google Sheets
+                    Button(action: {
+                        if !deliverableAssets.isEmpty {
+                            openDeliverablesInGoogleSheets()
+                        }
+                    }) {
+                        HStack(spacing: 4) {
+                            Image(systemName: "arrow.up.right.square")
+                                .font(.system(size: 8.5, weight: .bold))
+                            Text("SHEETS")
+                                .font(.system(size: 9.5, weight: .bold, design: .monospaced))
+                                .lineLimit(1)
+                                .minimumScaleFactor(0.8)
+                        }
+                        .frame(maxWidth: .infinity, alignment: .center)
+                        .frame(height: 28)
+                        .foregroundColor(deliverableAssets.isEmpty ? textMuted : textMain)
+                        .studioBox(background: bgSubtle, border: borderLine)
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(deliverableAssets.isEmpty)
+                    .explain("Copies specs as spreadsheet data and opens Google Sheets ready to paste (⌘V).", binding: $hoverExplanation)
+                    
+                    // Save CSV
+                    Button(action: {
+                        if !deliverableAssets.isEmpty {
+                            exportDeliverablesManifest()
+                        }
+                    }) {
+                        HStack(spacing: 4) {
+                            Image(systemName: "doc.text")
+                                .font(.system(size: 8.5, weight: .bold))
+                            Text("SAVE CSV")
+                                .font(.system(size: 9.5, weight: .bold, design: .monospaced))
+                                .lineLimit(1)
+                                .minimumScaleFactor(0.8)
+                        }
+                        .frame(maxWidth: .infinity, alignment: .center)
+                        .frame(height: 28)
+                        .foregroundColor(deliverableAssets.isEmpty ? textMuted : textMain)
+                        .studioBox(background: bgSubtle, border: borderLine)
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(deliverableAssets.isEmpty)
+                    .explain("Saves the deliverables metadata table to a local CSV file.", binding: $hoverExplanation)
+                    
+                    // Open HTML
+                    Button(action: {
+                        if !deliverableAssets.isEmpty {
+                            openManifestHTML()
+                        }
+                    }) {
+                        HStack(spacing: 4) {
+                            Image(systemName: "safari")
+                                .font(.system(size: 8.5, weight: .bold))
+                            Text("OPEN HTML")
+                                .font(.system(size: 9.5, weight: .bold, design: .monospaced))
+                                .lineLimit(1)
+                                .minimumScaleFactor(0.8)
+                        }
+                        .frame(maxWidth: .infinity, alignment: .center)
+                        .frame(height: 28)
+                        .foregroundColor(deliverableAssets.isEmpty ? textMuted : textMain)
+                        .studioBox(background: bgSubtle, border: borderLine)
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(deliverableAssets.isEmpty)
+                    .explain("Generates and opens a formatted HTML delivery specs sheet in browser.", binding: $hoverExplanation)
+                }
+                
+                // Reveal in Finder
+                if let firstURL = deliverableAssets.first?.fileURL {
+                    Button(action: {
+                        NSWorkspace.shared.activateFileViewerSelecting([selectedDeliverableURL ?? firstURL])
+                    }) {
+                        HStack(spacing: 5) {
+                            Image(systemName: "folder")
+                                .font(.system(size: 9, weight: .bold))
+                            Text("REVEAL IN FINDER")
+                                .font(.system(size: 10, weight: .bold, design: .monospaced))
+                        }
+                        .frame(maxWidth: .infinity, alignment: .center)
+                        .frame(height: 28)
+                        .foregroundColor(textMain)
+                        .studioBox(background: bgSubtle, border: borderLine)
+                    }
+                    .buttonStyle(.plain)
+                    .explain("Locates and highlights the selected or first asset in macOS Finder.", binding: $hoverExplanation)
+                }
+            }
+            
+            // Clear Button
+            if !deliverableAssets.isEmpty {
+                Button(action: {
+                    deliverableAssets = []
+                    selectedDeliverableURL = nil
+                }) {
+                    HStack(spacing: 4) {
+                        Image(systemName: "xmark")
+                            .font(.system(size: 8, weight: .bold))
+                        Text("CLEAR LIST")
+                            .font(.system(size: 9, weight: .bold, design: .monospaced))
+                    }
+                    .foregroundColor(textMuted)
+                    .frame(maxWidth: .infinity, alignment: .center)
+                    .padding(.top, 4)
+                }
+                .buttonStyle(.plain)
+                .explain("Removes all video assets from the inspection table.", binding: $hoverExplanation)
+            }
         }
     }
     
@@ -186,6 +306,7 @@ extension ContentView {
         let mismatchCount = deliverableAssets.filter { $0.validation.hasAnyMismatch }.count
         
         return VStack(alignment: .leading, spacing: 20) {
+            // Header: Clean audit status
             HStack(alignment: .center) {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("AUDIT COMPLETE")
@@ -197,131 +318,6 @@ extension ContentView {
                         .foregroundColor(textMuted)
                 }
                 Spacer()
-                
-                HStack(spacing: 8) {
-                    // Rescan Icon Button
-                    Button(action: rescanDeliverables) {
-                        Image(systemName: "arrow.clockwise")
-                            .font(.system(size: 10, weight: .bold))
-                            .padding(.horizontal, 10)
-                            .padding(.vertical, 8)
-                            .foregroundColor(textMain)
-                            .studioBox(background: bgSubtle, border: borderLine)
-                    }
-                    .buttonStyle(.plain)
-                    .disabled(isInspectingDeliverables)
-                    .explain("Re-inspects all video files and refreshes stream metadata.", binding: $hoverExplanation)
-                    
-                    // Primary Action: Google Sheets
-                    Button(action: openDeliverablesInGoogleSheets) {
-                        HStack(spacing: 5) {
-                            Text("GOOGLE SHEETS")
-                                .font(.system(size: 11, weight: .bold, design: .monospaced))
-                            Image(systemName: "arrow.up.right.square")
-                                .font(.system(size: 10, weight: .bold))
-                        }
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 8)
-                        .foregroundColor(primaryBtnFg)
-                        .studioBox(background: primaryBtnBg, border: primaryBtnBg)
-                    }
-                    .buttonStyle(.plain)
-                    .explain("Copies specs as spreadsheet data and opens Google Sheets ready to paste (⌘V).", binding: $hoverExplanation)
-                    
-                    // Consolidated Export Dropdown
-                    Menu {
-                        Button(action: exportDeliverablesManifest) {
-                            Label("Save CSV Manifest...", systemImage: "doc.text")
-                        }
-                        Button(action: openManifestHTML) {
-                            Label("Open HTML Specs Report", systemImage: "safari")
-                        }
-                        if let firstURL = deliverableAssets.first?.fileURL {
-                            Divider()
-                            Button(action: { NSWorkspace.shared.activateFileViewerSelecting([firstURL]) }) {
-                                Label("Reveal in Finder", systemImage: "folder")
-                            }
-                        }
-                    } label: {
-                        HStack(spacing: 5) {
-                            Text("EXPORT")
-                                .font(.system(size: 11, weight: .bold, design: .monospaced))
-                                .foregroundColor(isLightMode ? Color.black : Color.white)
-                            Image(systemName: "chevron.down")
-                                .font(.system(size: 8, weight: .bold))
-                                .foregroundColor(isLightMode ? Color.black : Color.white)
-                        }
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 8)
-                        .foregroundColor(isLightMode ? Color.black : Color.white)
-                        .studioBox(background: bgSubtle, border: borderLine)
-                    }
-                    .menuStyle(.borderlessButton)
-                    .foregroundColor(isLightMode ? Color.black : Color.white)
-                    .fixedSize()
-                    .explain("Export options: Save CSV manifest, open HTML specs report, or reveal in Finder.", binding: $hoverExplanation)
-                    
-                    // Consolidated Folder View Controls
-                    if hasDeliverablesSubfolders {
-                        Menu {
-                            Button(action: toggleHideFolders) {
-                                Label(hideAllFolders || !hiddenFolderIDs.isEmpty ? "Show Folder Groups" : "Hide Folder Groups (Flat List)",
-                                      systemImage: hideAllFolders || !hiddenFolderIDs.isEmpty ? "folder.badge.plus" : "list.bullet")
-                            }
-                            if !hideAllFolders {
-                                Divider()
-                                Button(action: toggleAllDeliverablesFolders) {
-                                    Label(deliverablesCollapsedFolderIDs.isEmpty ? "Collapse All Folders" : "Expand All Folders",
-                                          systemImage: deliverablesCollapsedFolderIDs.isEmpty ? "chevron.down.square" : "chevron.right.square")
-                                }
-                            }
-                        } label: {
-                            HStack(spacing: 5) {
-                                Image(systemName: "folder")
-                                    .font(.system(size: 9, weight: .bold))
-                                    .foregroundColor(isLightMode ? Color.black : Color.white)
-                                Text("FOLDERS")
-                                    .font(.system(size: 11, weight: .bold, design: .monospaced))
-                                    .foregroundColor(isLightMode ? Color.black : Color.white)
-                                Image(systemName: "chevron.down")
-                                    .font(.system(size: 8, weight: .bold))
-                                    .foregroundColor(isLightMode ? Color.black : Color.white)
-                            }
-                            .padding(.horizontal, 10)
-                            .padding(.vertical, 8)
-                            .foregroundColor(isLightMode ? Color.black : Color.white)
-                            .studioBox(background: bgSubtle, border: borderLine)
-                        }
-                        .menuStyle(.borderlessButton)
-                        .foregroundColor(isLightMode ? Color.black : Color.white)
-                        .fixedSize()
-                        .explain("Folder view options: Toggle folder groups vs flat list, collapse or expand all.", binding: $hoverExplanation)
-                    }
-                    
-                    // View Mode Toggle (3 Modes: Inline -> Thumbs -> Large)
-                    Button(action: {
-                        if specsDisplayMode == "inline" {
-                            specsDisplayMode = "thumbnail"
-                        } else if specsDisplayMode == "thumbnail" {
-                            specsDisplayMode = "large"
-                        } else {
-                            specsDisplayMode = "inline"
-                        }
-                    }) {
-                        HStack(spacing: 4) {
-                            Image(systemName: specsDisplayMode == "large" ? "photo.fill" : (specsDisplayMode == "thumbnail" ? "photo" : "list.bullet"))
-                                .font(.system(size: 8, weight: .bold))
-                            Text(specsDisplayMode == "large" ? "LARGE" : (specsDisplayMode == "thumbnail" ? "THUMBS" : "INLINE"))
-                                .font(.system(size: 10, weight: .bold, design: .monospaced))
-                        }
-                        .padding(.horizontal, 9)
-                        .padding(.vertical, 8)
-                        .foregroundColor(textMain)
-                        .studioBox(background: bgSubtle, border: borderLine)
-                    }
-                    .buttonStyle(.plain)
-                    .explain(specsDisplayMode == "large" ? "Specs table mode: Large Thumbs (click for compact inline list)" : (specsDisplayMode == "thumbnail" ? "Specs table mode: Compact Thumbs (click for large thumbnails)" : "Specs table mode: Inline (click for thumbnails)"), binding: $hoverExplanation)
-                }
             }
             
             // Quick Stats Strip
@@ -333,69 +329,163 @@ extension ContentView {
             }
             
             // Table
-            VStack(alignment: .leading, spacing: 0) {
-                // Table Header
-                HStack(spacing: 8) {
-                    Text("#").frame(width: 25, alignment: .center)
-                    if specsDisplayMode == "large" {
-                        Text("PREVIEW").frame(width: 86, alignment: .center)
-                    } else if specsDisplayMode == "thumbnail" {
-                        Text("PREVIEW").frame(width: 54, alignment: .center)
-                    }
-                    Text("FILE NAME").frame(minWidth: 140, maxWidth: 220, alignment: .leading)
-                    Text("TIMECODE (TC)").frame(width: 130, alignment: .center)
-                    Text("RATIO & SIZE").frame(width: 135, alignment: .center)
-                    Text("FPS").frame(width: 60, alignment: .center)
-                    Text("FILE SIZE").frame(width: 75, alignment: .center)
-                    Text("CREATED").frame(width: 110, alignment: .center)
-                    Text("VIDEO").frame(width: 85, alignment: .center)
-                    Text("AUDIO SPEC").frame(width: 145, alignment: .center)
-                    Text("PATH").frame(minWidth: 160, maxWidth: .infinity, alignment: .leading)
-                }
-                .font(.system(size: 9, weight: .bold, design: .monospaced))
-                .foregroundColor(textMuted)
-                .padding(.horizontal, 14)
-                .padding(.vertical, specsDisplayMode == "large" ? 10 : (specsDisplayMode == "thumbnail" ? 8 : 6))
-                .background(bgCardHeader)
-                
-                Rectangle().fill(borderLine).frame(height: 1)
-                
-                // Table Rows
-                ScrollView {
-                    VStack(spacing: 0) {
-                        let assetMap = deliverableAssetsMap
+            ScrollView(.horizontal, showsIndicators: true) {
+                VStack(alignment: .leading, spacing: 0) {
+                    // Table Header
+                    HStack(spacing: 8) {
+                        Text("#").frame(width: 25, alignment: .center)
+                        if specsDisplayMode == "large" {
+                            Text("PREVIEW").frame(width: 86, alignment: .center)
+                        } else if specsDisplayMode == "thumbnail" {
+                            Text("PREVIEW").frame(width: 54, alignment: .center)
+                        }
                         
-                        if hasDeliverablesSubfolders {
-                            let nodes = flattenedDeliverableNodes
-                            let nodeCount = nodes.count
-                            ForEach(Array(nodes.enumerated()), id: \.element.id) { idx, node in
-                                if node.isDirectory {
-                                    deliverablesFolderBannerRow(node: node, assetMap: assetMap)
-                                } else if let asset = assetMap[node.url] {
-                                    deliverablesAssetRow(idx: idx, asset: asset, depth: node.depth)
+                        // Resizable File Name Column Header
+                        HStack(spacing: 0) {
+                            Text("FILE NAME")
+                                .lineLimit(1)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .contentShape(Rectangle())
+                                .onTapGesture(count: 2) {
+                                    autoFitFileNameColumnWidth()
                                 }
+                            
+                            // Drag Resize Handle Divider (16px hit target zone)
+                            ZStack {
+                                Rectangle()
+                                    .fill(Color.clear)
+                                    .frame(width: 16, height: 24)
+                                    .contentShape(Rectangle())
                                 
-                                if idx < nodeCount - 1 {
-                                    Rectangle().fill(borderLine.opacity(0.4)).frame(height: 1)
+                                Rectangle()
+                                    .fill(isDraggingFileNameColumn ? accentBlue : borderLine.opacity(0.85))
+                                    .frame(width: isDraggingFileNameColumn ? 2 : 1, height: 12)
+                            }
+                            .frame(width: 16)
+                            .onHover { isHovered in
+                                if isHovered {
+                                    NSCursor.resizeLeftRight.push()
+                                } else {
+                                    NSCursor.pop()
                                 }
                             }
-                        } else {
-                            let assets = deliverableAssets
-                            let assetCount = assets.count
-                            ForEach(Array(assets.enumerated()), id: \.element.id) { idx, asset in
-                                deliverablesAssetRow(idx: idx, asset: asset, depth: 0)
+                            .gesture(
+                                DragGesture(minimumDistance: 1, coordinateSpace: .global)
+                                    .onChanged { value in
+                                        if dragStartFileNameWidth == nil {
+                                            dragStartFileNameWidth = specsFileNameColumnWidth
+                                            isDraggingFileNameColumn = true
+                                        }
+                                        let start = dragStartFileNameWidth ?? specsFileNameColumnWidth
+                                        let newWidth = max(140.0, min(1200.0, start + Double(value.translation.width)))
+                                        liveFileNameColumnWidth = newWidth
+                                    }
+                                    .onEnded { value in
+                                        if let start = dragStartFileNameWidth {
+                                            let finalWidth = max(140.0, min(1200.0, start + Double(value.translation.width)))
+                                            specsFileNameColumnWidth = finalWidth
+                                            liveFileNameColumnWidth = finalWidth
+                                        }
+                                        dragStartFileNameWidth = nil
+                                        isDraggingFileNameColumn = false
+                                    }
+                            )
+                        }
+                        .frame(width: CGFloat(effectiveFileNameColumnWidth), alignment: .leading)
+                        .explain("Drag divider to resize File Name column. Double-click text to auto-fit full names.", binding: $hoverExplanation)
+                        
+                        Text("TIMECODE (TC)").frame(width: 130, alignment: .center)
+                        Text("RATIO & SIZE").frame(width: 135, alignment: .center)
+                        Text("FPS").frame(width: 60, alignment: .center)
+                        Text("FILE SIZE").frame(width: 75, alignment: .center)
+                        Text("CREATED").frame(width: 110, alignment: .center)
+                        Text("VIDEO").frame(width: 85, alignment: .center)
+                        Text("AUDIO SPEC").frame(width: 145, alignment: .center)
+                        Text("PATH").frame(minWidth: 160, maxWidth: .infinity, alignment: .leading)
+                    }
+                    .font(.system(size: 9, weight: .bold, design: .monospaced))
+                    .foregroundColor(textMuted)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, specsDisplayMode == "large" ? 10 : (specsDisplayMode == "thumbnail" ? 8 : 6))
+                    .background(bgCardHeader)
+                    
+                    Rectangle().fill(borderLine).frame(height: 1)
+                    
+                    // Table Rows
+                    ScrollView(.vertical) {
+                        VStack(spacing: 0) {
+                            let assetMap = deliverableAssetsMap
+                            
+                            if hasDeliverablesSubfolders {
+                                let nodes = flattenedDeliverableNodes
+                                let nodeCount = nodes.count
+                                let nonDirNodes = nodes.filter { !$0.isDirectory }
+                                let assetIndexMap: [URL: Int] = Dictionary(uniqueKeysWithValues: nonDirNodes.enumerated().map { ($0.element.url, $0.offset) })
                                 
-                                if idx < assetCount - 1 {
-                                    Rectangle().fill(borderLine.opacity(0.4)).frame(height: 1)
+                                ForEach(Array(nodes.enumerated()), id: \.element.id) { idx, node in
+                                    if node.isDirectory {
+                                        deliverablesFolderBannerRow(node: node, assetMap: assetMap)
+                                    } else if let asset = assetMap[node.url] {
+                                        let assetIdx = assetIndexMap[node.url] ?? idx
+                                        deliverablesAssetRow(idx: assetIdx, asset: asset, depth: node.depth)
+                                    }
+                                    
+                                    if idx < nodeCount - 1 {
+                                        Rectangle().fill(borderLine.opacity(0.4)).frame(height: 1)
+                                    }
+                                }
+                            } else {
+                                let assets = deliverableAssets
+                                let assetCount = assets.count
+                                ForEach(Array(assets.enumerated()), id: \.element.id) { idx, asset in
+                                    deliverablesAssetRow(idx: idx, asset: asset, depth: 0)
+                                    
+                                    if idx < assetCount - 1 {
+                                        Rectangle().fill(borderLine.opacity(0.4)).frame(height: 1)
+                                    }
                                 }
                             }
                         }
                     }
                 }
+                .frame(minWidth: specsTableMinWidth, maxWidth: .infinity, alignment: .leading)
             }
             .studioBox(background: bgPanel, border: borderLine)
         }
         .padding(28)
+    }
+    
+    // MARK: - Column Resizing & Width Helpers
+    
+    var effectiveFileNameColumnWidth: Double {
+        isDraggingFileNameColumn ? liveFileNameColumnWidth : specsFileNameColumnWidth
+    }
+    
+    var isFileNameExpanded: Bool {
+        effectiveFileNameColumnWidth > 240.0
+    }
+    
+    func autoFitFileNameColumnWidth() {
+        if isFileNameExpanded {
+            withAnimation(.easeInOut(duration: 0.15)) {
+                specsFileNameColumnWidth = 220.0
+                liveFileNameColumnWidth = 220.0
+            }
+        } else {
+            let longestName = deliverableAssets.map { $0.fileName }.max(by: { $0.count < $1.count }) ?? ""
+            let estWidth = Double(longestName.count) * 7.5 + 40.0
+            let targetWidth = max(260.0, min(1000.0, estWidth))
+            withAnimation(.easeInOut(duration: 0.15)) {
+                specsFileNameColumnWidth = targetWidth
+                liveFileNameColumnWidth = targetWidth
+            }
+        }
+    }
+    
+    var specsTableMinWidth: CGFloat {
+        let previewWidth: CGFloat = (specsDisplayMode == "large" ? 86 : (specsDisplayMode == "thumbnail" ? 54 : 0))
+        let otherColumnsWidth: CGFloat = 25 + previewWidth + 130 + 135 + 60 + 75 + 110 + 85 + 145 + 160 + (8 * 11) + 28
+        return CGFloat(effectiveFileNameColumnWidth) + otherColumnsWidth
     }
     
     // MARK: - Deliverables Hierarchy Helpers
@@ -524,11 +614,13 @@ extension ContentView {
     
     private func deliverablesAssetRow(idx: Int, asset: DeliverableAsset, depth: Int = 0) -> some View {
         let hasMismatch = asset.validation.hasAnyMismatch
+        let isSelected = selectedDeliverableURL?.standardizedFileURL == asset.fileURL.standardizedFileURL
         
         return HStack(spacing: 8) {
             Text(String(format: "%02d", idx + 1))
                 .frame(width: 25, alignment: .center)
-                .foregroundColor(textMuted)
+                .foregroundColor(isSelected ? accentBlue : textMuted)
+                .fontWeight(isSelected ? .bold : .regular)
             
             if specsDisplayMode == "large" {
                 AssetThumbnailView(fileURL: asset.fileURL, width: 80, height: 46, cornerRadius: 3.5)
@@ -545,13 +637,26 @@ extension ContentView {
                         .font(.system(size: 8, weight: .bold))
                         .foregroundColor(textMuted.opacity(0.55))
                 }
+                
                 Text(asset.fileName.uppercased())
                     .fontWeight(.bold)
                     .lineLimit(1)
                     .truncationMode(.middle)
+                    .foregroundColor(isSelected ? textMain : (hasMismatch ? alertRed : textMain))
                     .help(asset.fileName)
+                
+                Button(action: {
+                    selectedDeliverableURL = asset.fileURL
+                    openProperties(for: asset.fileURL)
+                }) {
+                    Image(systemName: "info.circle")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundColor(isSelected ? accentBlue : textMuted.opacity(0.65))
+                }
+                .buttonStyle(.plain)
+                .help("Media Info (⌘I)")
             }
-            .frame(minWidth: 140, maxWidth: 220, alignment: .leading)
+            .frame(width: CGFloat(effectiveFileNameColumnWidth), alignment: .leading)
             
             // Timecode Cell with Warning
             VStack(alignment: .center, spacing: 2) {
@@ -652,14 +757,33 @@ extension ContentView {
         .font(.system(size: 11, design: .monospaced))
         .padding(.horizontal, 14)
         .padding(.vertical, specsDisplayMode == "large" ? 10 : (specsDisplayMode == "thumbnail" ? 7 : 4))
-        .background(hasMismatch ? alertRed.opacity(0.12) : (idx % 2 == 0 ? bgPanel : bgCardSubtle))
+        .background(
+            isSelected ? accentBlue.opacity(0.14) : (hasMismatch ? alertRed.opacity(0.12) : (idx % 2 == 0 ? bgPanel : bgCardSubtle))
+        )
         .overlay(
-            hasMismatch ? Rectangle().fill(alertRed).frame(width: 3) : nil,
+            isSelected ? Rectangle().fill(accentBlue).frame(width: 3) : (hasMismatch ? Rectangle().fill(alertRed).frame(width: 3) : nil),
             alignment: .leading
         )
         .contentShape(Rectangle())
+        .onTapGesture {
+            selectedDeliverableURL = asset.fileURL
+        }
+        .simultaneousGesture(
+            TapGesture(count: 2).onEnded {
+                selectedDeliverableURL = asset.fileURL
+                openProperties(for: asset.fileURL)
+            }
+        )
         .explain(asset.fileURL.path, binding: $hoverExplanation)
         .contextMenu {
+            Button(action: {
+                selectedDeliverableURL = asset.fileURL
+                openProperties(for: asset.fileURL)
+            }) {
+                Label("Media Info (⌘I)", systemImage: "info.circle")
+            }
+            .keyboardShortcut("i", modifiers: .command)
+            Divider()
             Button("Copy Path") {
                 NSPasteboard.general.clearContents()
                 NSPasteboard.general.setString(asset.fileURL.path, forType: .string)

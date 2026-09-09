@@ -47,10 +47,15 @@ struct ContentView: View {
     
     // MARK: - Tab 2: Specs State
     @State var deliverableAssets: [DeliverableAsset] = []
+    @State var selectedDeliverableURL: URL? = nil
     @State var isInspectingDeliverables: Bool = false
     @State var manifestCSVURL: URL? = nil
     @State var manifestHTMLURL: URL? = nil
     @State var deliverablesCollapsedFolderIDs: Set<String> = []
+    @AppStorage("specsFileNameColumnWidth") var specsFileNameColumnWidth: Double = 220.0
+    @State var liveFileNameColumnWidth: Double = 220.0
+    @State var isDraggingFileNameColumn: Bool = false
+    @State var dragStartFileNameWidth: Double? = nil
     
     // MARK: - Tab 3: Line Finder State
     @State var hexCode: String = "#00FF00"
@@ -2102,6 +2107,14 @@ struct ContentView: View {
         if showPropertiesModal {
             withAnimation(.easeInOut(duration: 0.15)) {
                 showPropertiesModal = false
+            }
+            return
+        }
+        
+        if selectedTab == .specs {
+            let targetURL = selectedDeliverableURL ?? deliverableAssets.first?.fileURL
+            if let url = targetURL {
+                openProperties(for: url)
             }
             return
         }
