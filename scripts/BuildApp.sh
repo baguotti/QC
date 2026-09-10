@@ -16,7 +16,7 @@ MACOS="${CONTENTS}/MacOS"
 RESOURCES="${CONTENTS}/Resources"
 
 # Version & Metadata
-APP_VERSION="0.6.2"
+APP_VERSION="0.6.3"
 GIT_COMMIT_COUNT=$(git rev-list --count HEAD 2>/dev/null || echo "1")
 
 echo "📌 Version: v${APP_VERSION} (Build: ${GIT_COMMIT_COUNT})"
@@ -32,8 +32,13 @@ public struct AppVersionInfo {
 EOF
 
 # 2. Compile release binary
-swift build -c release
-BIN_DIR=$(swift build -c release --show-bin-path)
+SWIFT_BUILD_FLAGS=()
+if [ -d "/Library/Developer/CommandLineTools/SDKs/MacOSX26.5.sdk" ] && ! [ -f "/Library/Developer/CommandLineTools/usr/lib/swift/host/plugins/libSwiftUIMacros.dylib" ]; then
+    SWIFT_BUILD_FLAGS+=(--sdk /Library/Developer/CommandLineTools/SDKs/MacOSX26.5.sdk)
+fi
+
+swift build -c release "${SWIFT_BUILD_FLAGS[@]}"
+BIN_DIR=$(swift build -c release "${SWIFT_BUILD_FLAGS[@]}" --show-bin-path)
 
 # 3. Setup bundle structure
 rm -rf "${APP_BUNDLE}"

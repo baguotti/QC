@@ -123,6 +123,7 @@ public struct PlayerQueueFileRowView: View, Equatable {
     public let slotBCodec: String
     public let isLightMode: Bool
     public let displayMode: String
+    public let thumbnailSize: Double
     public let themeId: String
     public var hoverExplanation: Binding<String>?
     
@@ -150,6 +151,7 @@ public struct PlayerQueueFileRowView: View, Equatable {
             lhs.slotBCodec == rhs.slotBCodec &&
             lhs.isLightMode == rhs.isLightMode &&
             lhs.displayMode == rhs.displayMode &&
+            lhs.thumbnailSize == rhs.thumbnailSize &&
             lhs.themeId == rhs.themeId
         }
     }
@@ -183,6 +185,9 @@ public struct PlayerQueueFileRowView: View, Equatable {
             }
         }()
         
+        let thumbHeight = round(CGFloat(thumbnailSize) * 9.0 / 16.0)
+        let rowHeight: CGFloat = (displayMode == "inline" ? 28 : (displayMode == "large" ? 64 : max(32, thumbHeight + 14)))
+        
         HStack(spacing: 6) {
             Button(action: {
                 if NSEvent.modifierFlags.contains(.option) {
@@ -205,7 +210,7 @@ public struct PlayerQueueFileRowView: View, Equatable {
             queueActionButtons
         }
         .frame(maxWidth: .infinity)
-        .frame(height: displayMode == "large" ? 64 : (displayMode == "thumbnail" ? 46 : 28))
+        .frame(height: rowHeight)
         .studioBox(background: rowBg, border: rowBorder)
         .contentShape(Rectangle())
         .explain(url.path, binding: hoverExplanation)
@@ -308,6 +313,9 @@ public struct PlayerQueueFileRowView: View, Equatable {
     
     @ViewBuilder
     private func thumbnailRowContent(isSelected: Bool) -> some View {
+        let thumbWidth = CGFloat(thumbnailSize)
+        let thumbHeight = round(CGFloat(thumbnailSize) * 9.0 / 16.0)
+        let isLarge = thumbnailSize >= 64
         HStack(spacing: 8) {
             Rectangle()
                 .fill(isSlotA ? accentPositive : (isSlotB ? accentSlotB : Color.clear))
@@ -319,12 +327,12 @@ public struct PlayerQueueFileRowView: View, Equatable {
             
             AssetThumbnailView(
                 fileURL: url,
-                width: 48,
-                height: 28,
-                cornerRadius: 2.5
+                width: thumbWidth,
+                height: thumbHeight,
+                cornerRadius: isLarge ? 3.5 : 2.5
             )
             
-            VStack(alignment: .leading, spacing: 2) {
+            VStack(alignment: .leading, spacing: isLarge ? 3 : 2) {
                 HStack(spacing: 5) {
                     if let tag = currentTag {
                         Circle()
@@ -332,19 +340,19 @@ public struct PlayerQueueFileRowView: View, Equatable {
                             .frame(width: 6, height: 6)
                     }
                     Text(url.lastPathComponent)
-                        .font(.system(size: 10.5, weight: isSelected ? .bold : .medium, design: .monospaced))
+                        .font(.system(size: isLarge ? 11 : 10.5, weight: isSelected ? .bold : .medium, design: .monospaced))
                         .foregroundColor(isSelected ? textMain : textSubtle)
                         .lineLimit(1)
                 }
                 
                 if isSlotA && !slotAResolution.isEmpty {
                     Text("\(slotAResolution) • \(String(format: "%.1f", slotAFps))fps • \(slotACodec)")
-                        .font(.system(size: 8, weight: .bold, design: .monospaced))
+                        .font(.system(size: isLarge ? 8.5 : 8, weight: .bold, design: .monospaced))
                         .foregroundColor(accentPositive)
                         .lineLimit(1)
                 } else if isSlotB && !slotBResolution.isEmpty {
                     Text("\(slotBResolution) • \(String(format: "%.1f", slotBFps))fps • \(slotBCodec)")
-                        .font(.system(size: 8, weight: .bold, design: .monospaced))
+                        .font(.system(size: isLarge ? 8.5 : 8, weight: .bold, design: .monospaced))
                         .foregroundColor(accentSlotB)
                         .lineLimit(1)
                 } else {
@@ -510,6 +518,7 @@ public struct PlayerQueuePanelView: View, Equatable {
     
     // Action Callbacks:
     public var onSelectAssets: (_ append: Bool) -> Void
+    public var onRefreshAssets: () -> Void
     public var onToggleHideFolders: () -> Void
     public var onToggleAutoplay: () -> Void
     public var onToggleAllPlayerFolders: () -> Void
@@ -564,6 +573,8 @@ public struct PlayerQueuePanelView: View, Equatable {
     private var accentSlotB: Color { StudioTheme.slotBAccent }
     private var accentBlue: Color { StudioTheme.accentBlue(isLightMode) }
     @AppStorage("queueDisplayMode") private var queueDisplayMode: String = "inline"
+    @AppStorage("playerThumbnailSize") private var playerThumbnailSize: Double = 52.0
+    @State private var showViewOptionsPopover: Bool = false
     
     private var hasSubfolders: Bool {
         FileSystemTreeBuilder.hasSubfolders(in: playerTreeNodes)
@@ -649,37 +660,58 @@ public struct PlayerQueuePanelView: View, Equatable {
                     
                     Spacer()
                     
-                    // View Mode Toggle (3 Modes: Inline -> Thumbs -> Large)
-                    Button(action: {
-                        if queueDisplayMode == "inline" {
-                            queueDisplayMode = "thumbnail"
-                        } else if queueDisplayMode == "thumbnail" {
-                            queueDisplayMode = "large"
-                        } else {
-                            queueDisplayMode = "inline"
-                        }
-                    }) {
+                    // View Mode Options Popover (Thumbnail View / List View / Thumbnail Size Slider)
+                    Button(action: { showViewOptionsPopover.toggle() }) {
                         HStack(spacing: 3) {
-                            Image(systemName: queueDisplayMode == "large" ? "photo.fill" : (queueDisplayMode == "thumbnail" ? "photo" : "list.bullet"))
+                            Image(systemName: queueDisplayMode == "thumbnail" ? "square.grid.2x2" : "list.bullet")
+                                .font(.system(size: 8, weight: .bold))
+                            Image(systemName: "chevron.down")
+                                .font(.system(size: 6, weight: .bold))
+                        }
+                        .padding(.horizontal, 5)
+                        .frame(height: 18)
+                        .foregroundColor(textMain)
+                        .studioBox(
+                            background: showViewOptionsPopover ? (isLightMode ? Color.white : bgCardHeader) : bgSubtle,
+                            border: showViewOptionsPopover ? borderStrong : borderLine
+                        )
+                    }
+                    .buttonStyle(.plain)
+                    .explain("Queue display options: Switch between List and Thumbnail view, and adjust thumbnail size.", binding: hoverExplanation)
+                    .popover(isPresented: $showViewOptionsPopover, arrowEdge: .bottom) {
+                        viewOptionsPopoverContent
+                    }
+                    
+                    // Hide / Show Folders Toggle (Moved before Autoplay)
+                    let isHidden = hideAllFolders || !hiddenFolderIDs.isEmpty
+                    let canToggle = hasSubfolders || !videoFiles.isEmpty
+                    Button(action: onToggleHideFolders) {
+                        HStack(spacing: 3) {
+                            Image(systemName: isHidden ? "folder" : "folder.badge.minus")
                                 .font(.system(size: 7.5, weight: .bold))
                             SlotText(
-                                queueDisplayMode == "large" ? "LARGE" : (queueDisplayMode == "thumbnail" ? "THUMBS" : "INLINE"),
+                                isHidden ? "SHOW" : "HIDE",
                                 mode: .character,
                                 direction: .up,
                                 font: .system(size: 8, weight: .black, design: .monospaced),
-                                foregroundColor: textMain,
+                                foregroundColor: canToggle ? (isHidden ? accentBlue : textMain) : textSubtle,
                                 tracking: 0.3,
                                 stagger: 0.018,
-                                rollDistance: 9
+                                rollDistance: 9,
+                                trigger: isHidden
                             )
                         }
                         .padding(.horizontal, 4)
                         .frame(height: 18)
-                        .foregroundColor(textMain)
-                        .studioBox(background: bgSubtle, border: borderLine)
+                        .foregroundColor(canToggle ? (isHidden ? accentBlue : textMain) : textSubtle)
+                        .studioBox(
+                            background: isHidden ? accentBlue.opacity(0.18) : bgSubtle,
+                            border: isHidden ? accentBlue : borderLine
+                        )
                     }
                     .buttonStyle(.plain)
-                    .explain(queueDisplayMode == "large" ? "Queue display mode: Large Thumbs (click to switch to compact inline list)" : (queueDisplayMode == "thumbnail" ? "Queue display mode: Compact Thumbs (click for large thumbnails)" : "Queue display mode: Inline (click for thumbnails)"), binding: hoverExplanation)
+                    .disabled(isScanning || !canToggle)
+                    .explain(isHidden ? "Show all folder headers in asset lists." : "Hide folder headers and display assets in a flat list.", binding: hoverExplanation)
                     
                     // Autoplay Toggle Button
                     Button(action: onToggleAutoplay) {
@@ -739,7 +771,7 @@ public struct PlayerQueuePanelView: View, Equatable {
                                             let isSelA = isSameURL(slotAURL, node.url)
                                             let isSelB = isSameURL(slotBURL, node.url)
                                             makeFileRow(url: node.url, depth: node.depth, isSlotA: isSelA, isSlotB: isSelB)
-                                                .id("\(node.url.path)_\(isSelA ? "A" : "_")_\(isSelB ? "B" : "_")_\(queueDisplayMode)_\(themeId)")
+                                                .id("\(node.url.path)_\(isSelA ? "A" : "_")_\(isSelB ? "B" : "_")_\(queueDisplayMode)_\(Int(playerThumbnailSize))_\(themeId)")
                                         }
                                     }
                                 } else {
@@ -747,7 +779,7 @@ public struct PlayerQueuePanelView: View, Equatable {
                                         let isSelA = isSameURL(slotAURL, url)
                                         let isSelB = isSameURL(slotBURL, url)
                                         makeFileRow(url: url, depth: 0, isSlotA: isSelA, isSlotB: isSelB)
-                                            .id("\(url.path)_\(isSelA ? "A" : "_")_\(isSelB ? "B" : "_")_\(queueDisplayMode)_\(themeId)")
+                                            .id("\(url.path)_\(isSelA ? "A" : "_")_\(isSelB ? "B" : "_")_\(queueDisplayMode)_\(Int(playerThumbnailSize))_\(themeId)")
                                     }
                                 }
                             }
@@ -840,27 +872,23 @@ public struct PlayerQueuePanelView: View, Equatable {
                     .disabled(isScanning)
                     .explain("Opens file picker to add more video files or folders to current list without losing existing assets.", binding: hoverExplanation)
                     
-                    let isHidden = hideAllFolders || !hiddenFolderIDs.isEmpty
-                    let canToggle = hasSubfolders || !videoFiles.isEmpty
-                    Button(action: onToggleHideFolders) {
+                    let canRefresh = (folderURL != nil || !videoFiles.isEmpty)
+                    Button(action: onRefreshAssets) {
                         HStack(spacing: 4) {
-                            Image(systemName: isHidden ? "folder" : "folder.badge.minus")
+                            Image(systemName: "arrow.clockwise")
                                 .font(.system(size: 9, weight: .bold))
-                            Text(isHidden ? "SHOW" : "HIDE")
+                            Text("REFRESH")
                                 .font(.system(size: 9, weight: .bold, design: .monospaced))
                                 .lineLimit(1)
                         }
                         .padding(.horizontal, 8)
                         .frame(height: 24)
-                        .foregroundColor(canToggle ? (isHidden ? accentBlue : textMain) : textSubtle)
-                        .studioBox(
-                            background: isHidden ? accentBlue.opacity(0.12) : bgSubtle,
-                            border: isHidden ? accentBlue.opacity(0.35) : borderLine
-                        )
+                        .foregroundColor(canRefresh ? textMain : textSubtle)
+                        .studioBox(background: bgSubtle, border: borderLine)
                     }
                     .buttonStyle(.plain)
-                    .disabled(isScanning || !canToggle)
-                    .explain(isHidden ? "Show all folder headers in asset lists." : "Hide folder headers and display assets in a flat list.", binding: hoverExplanation)
+                    .disabled(isScanning || !canRefresh)
+                    .explain("Rescans loaded folders and files to detect added, removed, or modified videos.", binding: hoverExplanation)
                     
                     Spacer(minLength: 4)
                     
@@ -993,6 +1021,7 @@ public struct PlayerQueuePanelView: View, Equatable {
             slotBCodec: slotBCodec,
             isLightMode: isLightMode,
             displayMode: queueDisplayMode,
+            thumbnailSize: playerThumbnailSize,
             themeId: themeId,
             hoverExplanation: hoverExplanation,
             onLoadVideo: onLoadVideo,
@@ -1002,6 +1031,93 @@ public struct PlayerQueuePanelView: View, Equatable {
             onToggleTag: onToggleTag,
             onClearTag: onClearTag
         )
+    }
+    
+    // MARK: - Queue View Options Popover (Thumbnail View / List View / Size Slider)
+    private var viewOptionsPopoverContent: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            // Thumbnail View
+            Button(action: {
+                queueDisplayMode = "thumbnail"
+            }) {
+                HStack(spacing: 7) {
+                    if queueDisplayMode == "thumbnail" {
+                        Image(systemName: "checkmark")
+                            .font(.system(size: 9.5, weight: .bold))
+                            .foregroundColor(textMain)
+                            .frame(width: 14, alignment: .center)
+                    } else {
+                        Spacer().frame(width: 14)
+                    }
+                    Image(systemName: "square.grid.2x2")
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundColor(textMain)
+                        .frame(width: 16, alignment: .center)
+                    Text("Thumbnail View")
+                        .font(.system(size: 11.5, weight: .medium))
+                        .foregroundColor(textMain)
+                    Spacer()
+                }
+                .padding(.horizontal, 6)
+                .padding(.vertical, 5)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            
+            // List View
+            Button(action: {
+                queueDisplayMode = "inline"
+            }) {
+                HStack(spacing: 7) {
+                    if queueDisplayMode == "inline" {
+                        Image(systemName: "checkmark")
+                            .font(.system(size: 9.5, weight: .bold))
+                            .foregroundColor(textMain)
+                            .frame(width: 14, alignment: .center)
+                    } else {
+                        Spacer().frame(width: 14)
+                    }
+                    Image(systemName: "list.bullet")
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundColor(textMain)
+                        .frame(width: 16, alignment: .center)
+                    Text("List View")
+                        .font(.system(size: 11.5, weight: .medium))
+                        .foregroundColor(textMain)
+                    Spacer()
+                }
+                .padding(.horizontal, 6)
+                .padding(.vertical, 5)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            
+            Rectangle()
+                .fill(borderLine.opacity(0.8))
+                .frame(height: 1)
+                .padding(.vertical, 4)
+                .padding(.horizontal, 4)
+            
+            // Thumbnail Size Slider
+            Slider(
+                value: Binding(
+                    get: { playerThumbnailSize },
+                    set: { newValue in
+                        playerThumbnailSize = newValue
+                        if queueDisplayMode != "thumbnail" {
+                            queueDisplayMode = "thumbnail"
+                        }
+                    }
+                ),
+                in: 36...110
+            )
+            .controlSize(.small)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 3)
+        }
+        .padding(6)
+        .frame(width: 185)
+        .background(bgPanel)
     }
     
     private func revealFolderContaining(url: URL) {
@@ -1088,6 +1204,9 @@ extension ContentView {
             hoverExplanation: $hoverExplanation,
             onSelectAssets: { append in
                 selectAssets(forTab: .player, append: append)
+            },
+            onRefreshAssets: {
+                refreshPlayerAssets()
             },
             onToggleHideFolders: {
                 toggleHideFolders()

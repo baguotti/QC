@@ -18,6 +18,8 @@ struct ContentView: View {
     @State var showNotesDrawer: Bool = false
     @AppStorage("reviewerName") var reviewerName: String = ""
     @AppStorage("specsDisplayMode") var specsDisplayMode: String = "inline"
+    @AppStorage("specsThumbnailSize") var specsThumbnailSize: Double = 50.0
+    @State var showSpecsViewOptionsPopover: Bool = false
     @State var propertiesAsset: DeliverableAsset? = nil
     @State var propertiesURL: URL? = nil
     @State var isInspectingProperties: Bool = false
@@ -47,6 +49,7 @@ struct ContentView: View {
     
     // MARK: - Tab 2: Specs State
     @State var deliverableAssets: [DeliverableAsset] = []
+    @State var specsFilterText: String = ""
     @State var selectedDeliverableURL: URL? = nil
     @State var isInspectingDeliverables: Bool = false
     @State var manifestCSVURL: URL? = nil
@@ -887,27 +890,23 @@ struct ContentView: View {
                     .disabled(isScanning)
                     .explain("Opens file picker to add more video files or folders to current list without losing existing assets.", binding: $hoverExplanation)
                     
-                    let isHidden = hideAllFolders || !hiddenFolderIDs.isEmpty
-                    let canToggle = hasPlayerSubfolders || !videoFiles.isEmpty
-                    Button(action: toggleHideFolders) {
+                    let canRefresh = (folderURL != nil || !videoFiles.isEmpty)
+                    Button(action: { refreshPlayerAssets() }) {
                         HStack(spacing: 4) {
-                            Image(systemName: isHidden ? "folder" : "folder.badge.minus")
+                            Image(systemName: "arrow.clockwise")
                                 .font(.system(size: 9, weight: .bold))
-                            Text(isHidden ? "SHOW" : "HIDE")
+                            Text("REFRESH")
                                 .font(.system(size: 9, weight: .bold, design: .monospaced))
                                 .lineLimit(1)
                         }
                         .padding(.horizontal, 8)
                         .frame(height: 24)
-                        .foregroundColor(canToggle ? (isHidden ? accentBlue : textMain) : textSubtle)
-                        .studioBox(
-                            background: isHidden ? accentBlue.opacity(0.12) : bgSubtle,
-                            border: isHidden ? accentBlue.opacity(0.35) : borderLine
-                        )
+                        .foregroundColor(canRefresh ? textMain : textSubtle)
+                        .studioBox(background: bgSubtle, border: borderLine)
                     }
                     .buttonStyle(.plain)
-                    .disabled(isScanning || !canToggle)
-                    .explain(isHidden ? "Show all folder headers in asset lists." : "Hide folder headers and display assets in a flat list.", binding: $hoverExplanation)
+                    .disabled(isScanning || !canRefresh)
+                    .explain("Rescans loaded folders and files to detect added, removed, or modified videos.", binding: $hoverExplanation)
                     
                     Spacer(minLength: 4)
                     
@@ -1381,6 +1380,77 @@ struct ContentView: View {
         showToast("Scan report copied! Press ⌘V in Google Sheets.")
     }
     
+    // MARK: - Player Queue Refresh
+    
+    func refreshPlayerAssets() {
+        guard !videoFiles.isEmpty || folderURL != nil else { return }
+        
+        var refreshedVideos: [URL] = []
+        var seen = Set<String>()
+        
+        // 1. If we have a root folderURL, re-scan it
+        if let folder = folderURL, FileManager.default.fileExists(atPath: folder.path) {
+            let found = VideoScanner.findVideoFiles(in: folder)
+            for v in found {
+                let std = v.standardizedFileURL.path
+                if !seen.contains(std) {
+                    seen.insert(std)
+                    refreshedVideos.append(v)
+                }
+            }
+        }
+        
+        // 2. Also check any root folders in playerTreeNodes (handles multiple dropped/added folders)
+        for node in playerTreeNodes where node.isDirectory {
+            if FileManager.default.fileExists(atPath: node.url.path) {
+                let found = VideoScanner.findVideoFiles(in: node.url)
+                for v in found {
+                    let std = v.standardizedFileURL.path
+                    if !seen.contains(std) {
+                        seen.insert(std)
+                        refreshedVideos.append(v)
+                    }
+                }
+            }
+        }
+        
+        // 3. Keep any standalone files that still exist on disk
+        for v in videoFiles {
+            let std = v.standardizedFileURL.path
+            if !seen.contains(std) && FileManager.default.fileExists(atPath: v.path) {
+                seen.insert(std)
+                refreshedVideos.append(v)
+            }
+        }
+        
+        self.videoFiles = refreshedVideos
+        self.folderURL = determineFolderURL(for: refreshedVideos, detectedFolder: self.folderURL)
+        self.updatePlayerTreeNodes()
+        self.loadFinderTagsForQueue()
+        
+        // Sync with Deliverables inspector if deliverables are loaded
+        if !deliverableAssets.isEmpty {
+            inspectDeliverablesBatch(urls: refreshedVideos, append: false)
+        }
+        
+        // Validate active slot videos
+        if let active = playerEngine.activeURL, !FileManager.default.fileExists(atPath: active.path) {
+            if let first = refreshedVideos.first {
+                playerEngine.loadVideo(url: first)
+            } else {
+                playerEngine.unload()
+            }
+        } else if playerEngine.activeURL == nil, let first = refreshedVideos.first {
+            playerEngine.loadVideo(url: first)
+        }
+        
+        if let slotB = playerEngine.slotB.url, !FileManager.default.fileExists(atPath: slotB.path) {
+            playerEngine.clearSlotB()
+        }
+        
+        showToast("Queue refreshed (\(refreshedVideos.count) \(refreshedVideos.count == 1 ? "file" : "files"))")
+    }
+    
     // MARK: - Deliverables Specs Execution
     
     func rescanDeliverables() {
@@ -1427,6 +1497,13 @@ struct ContentView: View {
                 self.isInspectingDeliverables = false
             }
         }
+    }
+    
+    func playDeliverableInPlayer(url: URL) {
+        withAnimation(.spring(response: 0.22, dampingFraction: 0.85)) {
+            selectedTab = .player
+        }
+        playerEngine.loadVideo(url: url, into: .slotA, autoplay: true)
     }
     
     func exportDeliverablesManifest() {
@@ -1721,11 +1798,8 @@ struct ContentView: View {
                 }
             }
             
-            // Player-specific shortcuts below this point
-            guard self.selectedTab == .player else { return event }
-            
-            // 2. Finder Color Tags: 1 = Red, 2 = Green, 3 = Blue, 4 = Yellow, 5 = Orange, 6 = Purple, 7 = Gray (0 = Clear)
-            if !isShift && !isCommand && !isControl && !isOption {
+            // Finder Color Tags (Player tab & Specs tab): 1 = Red, 2 = Green, 3 = Blue, 4 = Yellow, 5 = Orange, 6 = Purple, 7 = Gray (0 = Clear)
+            if (self.selectedTab == .player || self.selectedTab == .specs) && !isShift && !isCommand && !isControl && !isOption {
                 let tagForNum: FinderTagColor?
                 switch event.keyCode {
                 case 18: tagForNum = .red      // 1: Red
@@ -1746,20 +1820,29 @@ struct ContentView: View {
                     else { tagForNum = nil }
                 }
                 
-                if event.keyCode == 29 || rawChars == "0" { // 0: Remove Tag
+                let targetURL: URL?
+                if self.selectedTab == .player {
                     let currentTarget = self.playerEngine.activeTarget
-                    if let targetURL = (currentTarget == .slotB && self.playerEngine.slotB.url != nil) ? self.playerEngine.slotB.url : self.playerEngine.activeURL {
+                    targetURL = (currentTarget == .slotB && self.playerEngine.slotB.url != nil) ? self.playerEngine.slotB.url : self.playerEngine.activeURL
+                } else {
+                    targetURL = self.selectedDeliverableURL ?? self.deliverableAssets.first?.fileURL
+                }
+                
+                if event.keyCode == 29 || rawChars == "0" { // 0: Remove Tag
+                    if let targetURL = targetURL {
                         self.setFinderTag(nil, for: targetURL)
                         return nil
                     }
                 } else if let tag = tagForNum {
-                    let currentTarget = self.playerEngine.activeTarget
-                    if let targetURL = (currentTarget == .slotB && self.playerEngine.slotB.url != nil) ? self.playerEngine.slotB.url : self.playerEngine.activeURL {
+                    if let targetURL = targetURL {
                         self.toggleFinderTag(tag, for: targetURL)
                         return nil
                     }
                 }
             }
+            
+            // Player-specific shortcuts below this point
+            guard self.selectedTab == .player else { return event }
             
             // J K L Shuttle & Core Player Keys
             if let chars = rawChars {
