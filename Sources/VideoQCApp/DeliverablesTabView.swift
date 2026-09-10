@@ -288,8 +288,9 @@ extension ContentView {
                             Text(isFileNameExpanded ? "RESET NAME" : "FIT NAME")
                                 .font(.system(size: 9.5, weight: .bold, design: .monospaced))
                         }
-                        .padding(.horizontal, 7)
+                        .padding(.horizontal, 8)
                         .frame(height: 24)
+                        .contentShape(Rectangle())
                         .foregroundColor(isFileNameExpanded ? textMain : (deliverableAssets.isEmpty ? textMuted : textSubtle))
                     }
                     .buttonStyle(.plain)
@@ -320,8 +321,9 @@ extension ContentView {
                                 trigger: isFoldersHidden
                             )
                         }
-                        .padding(.horizontal, 7)
+                        .padding(.horizontal, 8)
                         .frame(height: 24)
+                        .contentShape(Rectangle())
                         .foregroundColor(canToggleFolders ? (isFoldersHidden ? accentBlue : textMain) : textSubtle)
                     }
                     .buttonStyle(.plain)
@@ -359,8 +361,9 @@ extension ContentView {
                                 Text(specsDisplayMode == "thumbnail" ? "THUMBS" : "LIST")
                                     .font(.system(size: 9.5, weight: .bold, design: .monospaced))
                             }
-                            .padding(.horizontal, 7)
+                            .padding(.horizontal, 9)
                             .frame(height: 24)
+                            .contentShape(Rectangle())
                             .foregroundColor(textMain)
                         }
                         .buttonStyle(.plain)
@@ -372,8 +375,9 @@ extension ContentView {
                         
                         Button(action: { showSpecsViewOptionsPopover.toggle() }) {
                             Image(systemName: "chevron.down")
-                                .font(.system(size: 7, weight: .bold))
-                                .frame(width: 18, height: 24)
+                                .font(.system(size: 7.5, weight: .bold))
+                                .frame(width: 22, height: 24)
+                                .contentShape(Rectangle())
                                 .foregroundColor(textMuted)
                         }
                         .buttonStyle(.plain)
@@ -401,15 +405,24 @@ extension ContentView {
                             Text("PREVIEW").frame(width: CGFloat(specsThumbnailWidth), alignment: .center)
                         }
                         
-                        // Resizable File Name Column Header
+                        // Resizable & Sortable File Name Column Header
                         HStack(spacing: 0) {
-                            Text("FILE NAME")
-                                .lineLimit(1)
+                            Button(action: { toggleSpecsSort(.name) }) {
+                                HStack(spacing: 3) {
+                                    Text("FILE NAME")
+                                        .lineLimit(1)
+                                        .foregroundColor(specsSortColumn == .name ? textMain : textMuted)
+                                    
+                                    if specsSortColumn == .name {
+                                        Image(systemName: specsSortAscending ? "chevron.up" : "chevron.down")
+                                            .font(.system(size: 7, weight: .black))
+                                            .foregroundColor(accentBlue)
+                                    }
+                                }
                                 .frame(maxWidth: .infinity, alignment: .leading)
                                 .contentShape(Rectangle())
-                                .onTapGesture(count: 2) {
-                                    autoFitFileNameColumnWidth()
-                                }
+                            }
+                            .buttonStyle(.plain)
                             
                             // Drag Resize Handle Divider (16px hit target zone)
                             ZStack {
@@ -423,6 +436,9 @@ extension ContentView {
                                     .frame(width: isDraggingFileNameColumn ? 2 : 1, height: 12)
                             }
                             .frame(width: 16)
+                            .onTapGesture(count: 2) {
+                                autoFitFileNameColumnWidth()
+                            }
                             .onHover { isHovered in
                                 if isHovered {
                                     NSCursor.resizeLeftRight.push()
@@ -453,22 +469,42 @@ extension ContentView {
                             )
                         }
                         .frame(width: CGFloat(effectiveFileNameColumnWidth), alignment: .leading)
-                        .explain("Drag divider to resize File Name column. Double-click text to auto-fit full names.", binding: $hoverExplanation)
+                        .explain("Click to sort by filename (\(specsSortColumn == .name ? (specsSortAscending ? "A-Z" : "Z-A") : "click to sort")). Drag divider to resize.", binding: $hoverExplanation)
                         
-                        Text("TIMECODE (TC)").frame(width: 130, alignment: .center)
-                        Text("RATIO & SIZE").frame(width: 135, alignment: .center)
-                        Text("FPS").frame(width: 60, alignment: .center)
-                        Text("FILE SIZE").frame(width: 75, alignment: .center)
-                        Text("CREATED").frame(width: 110, alignment: .center)
-                        Text("VIDEO").frame(width: 85, alignment: .center)
-                        Text("AUDIO SPEC").frame(width: 145, alignment: .center)
-                        Text("PATH").frame(minWidth: 160, maxWidth: .infinity, alignment: .leading)
+                        sortableHeaderCell("TIMECODE (TC)", column: .timecode, width: 142)
+                        sortableHeaderCell("RATIO & SIZE", column: .ratio, width: 152)
+                        sortableHeaderCell("FPS", column: .fps, width: 60)
+                        sortableHeaderCell("FILE SIZE", column: .size, width: 75)
+                        sortableHeaderCell("CREATED", column: .date, width: 110)
+                        sortableHeaderCell("VIDEO", column: .videoCodec, width: 85)
+                        sortableHeaderCell("AUDIO SPEC", column: .audioCodec, width: 145)
+                        sortableHeaderCell("PATH", column: .path, minWidth: 160, maxWidth: .infinity, alignment: .leading)
                     }
                     .font(.system(size: 9, weight: .bold, design: .monospaced))
                     .foregroundColor(textMuted)
                     .padding(.horizontal, 14)
                     .padding(.vertical, specsDisplayMode == "large" ? 10 : (specsDisplayMode == "thumbnail" ? 8 : 6))
                     .background(bgCardHeader)
+                    .contextMenu {
+                        Menu("Sort By") {
+                            ForEach(SpecsSortColumn.allCases, id: \.self) { col in
+                                Button(action: {
+                                    toggleSpecsSort(col)
+                                }) {
+                                    HStack {
+                                        Text(col.displayName)
+                                        if specsSortColumn == col {
+                                            Image(systemName: specsSortAscending ? "chevron.up" : "chevron.down")
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        Divider()
+                        Button(action: { specsSortAscending.toggle() }) {
+                            Label(specsSortAscending ? "Ascending" : "Descending", systemImage: specsSortAscending ? "arrow.up" : "arrow.down")
+                        }
+                    }
                     
                     Rectangle().fill(borderLine).frame(height: 1)
                     
@@ -569,23 +605,144 @@ extension ContentView {
     
     var specsTableMinWidth: CGFloat {
         let previewWidth: CGFloat = CGFloat(specsThumbnailWidth)
-        let otherColumnsWidth: CGFloat = 25 + previewWidth + 130 + 135 + 60 + 75 + 110 + 85 + 145 + 160 + (8 * 11) + 28
+        let otherColumnsWidth: CGFloat = 25 + previewWidth + 142 + 152 + 60 + 75 + 110 + 85 + 145 + 160 + (8 * 11) + 28
         return CGFloat(effectiveFileNameColumnWidth) + otherColumnsWidth
+    }
+    
+    // MARK: - Finder-Style Column Sorting Helpers
+    
+    func toggleSpecsSort(_ column: SpecsSortColumn) {
+        withAnimation(.easeInOut(duration: 0.15)) {
+            if specsSortColumn == column {
+                specsSortAscending.toggle()
+            } else {
+                specsSortColumn = column
+                if column == .date || column == .size {
+                    specsSortAscending = false
+                } else {
+                    specsSortAscending = true
+                }
+            }
+        }
+    }
+    
+    private func sortableHeaderCell(
+        _ title: String,
+        column: SpecsSortColumn,
+        width: CGFloat? = nil,
+        minWidth: CGFloat? = nil,
+        maxWidth: CGFloat? = nil,
+        alignment: Alignment = .center
+    ) -> some View {
+        let isCurrent = specsSortColumn == column
+        return Button(action: { toggleSpecsSort(column) }) {
+            HStack(spacing: 3) {
+                Text(title)
+                    .lineLimit(1)
+                    .foregroundColor(isCurrent ? textMain : textMuted)
+                
+                if isCurrent {
+                    Image(systemName: specsSortAscending ? "chevron.up" : "chevron.down")
+                        .font(.system(size: 7, weight: .black))
+                        .foregroundColor(accentBlue)
+                }
+            }
+            .frame(
+                minWidth: minWidth,
+                idealWidth: width,
+                maxWidth: maxWidth ?? width,
+                alignment: alignment
+            )
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .explain("Sort by \(title.lowercased()) (\(isCurrent ? (specsSortAscending ? "ascending" : "descending") : "click to sort")).", binding: $hoverExplanation)
+    }
+    
+    func sortDeliverableAssets(_ assets: [DeliverableAsset]) -> [DeliverableAsset] {
+        assets.sorted { a, b in
+            let order: ComparisonResult
+            switch specsSortColumn {
+            case .name:
+                order = a.fileName.localizedStandardCompare(b.fileName)
+            case .timecode:
+                if a.durationSeconds == b.durationSeconds {
+                    order = a.fileName.localizedStandardCompare(b.fileName)
+                } else {
+                    order = a.durationSeconds < b.durationSeconds ? .orderedAscending : .orderedDescending
+                }
+            case .ratio:
+                let aPixels = a.width * a.height
+                let bPixels = b.width * b.height
+                if aPixels == bPixels {
+                    order = a.aspectRatioString.compare(b.aspectRatioString)
+                } else {
+                    order = aPixels < bPixels ? .orderedAscending : .orderedDescending
+                }
+            case .fps:
+                if a.fps == b.fps {
+                    order = a.fileName.localizedStandardCompare(b.fileName)
+                } else {
+                    order = a.fps < b.fps ? .orderedAscending : .orderedDescending
+                }
+            case .size:
+                if a.fileSizeBytes == b.fileSizeBytes {
+                    order = a.fileName.localizedStandardCompare(b.fileName)
+                } else {
+                    order = a.fileSizeBytes < b.fileSizeBytes ? .orderedAscending : .orderedDescending
+                }
+            case .date:
+                let aDate = a.creationDate ?? .distantPast
+                let bDate = b.creationDate ?? .distantPast
+                if aDate == bDate {
+                    order = a.fileName.localizedStandardCompare(b.fileName)
+                } else {
+                    order = aDate < bDate ? .orderedAscending : .orderedDescending
+                }
+            case .videoCodec:
+                if a.videoCodec == b.videoCodec {
+                    order = a.fileName.localizedStandardCompare(b.fileName)
+                } else {
+                    order = a.videoCodec.localizedStandardCompare(b.videoCodec)
+                }
+            case .audioCodec:
+                let aAudio = "\(a.audioCodec) \(a.audioBitrate)"
+                let bAudio = "\(b.audioCodec) \(b.audioBitrate)"
+                if aAudio == bAudio {
+                    order = a.fileName.localizedStandardCompare(b.fileName)
+                } else {
+                    order = aAudio.localizedStandardCompare(bAudio)
+                }
+            case .path:
+                order = a.fileURL.path.localizedStandardCompare(b.fileURL.path)
+            }
+            
+            return specsSortAscending ? (order == .orderedAscending) : (order == .orderedDescending)
+        }
     }
     
     // MARK: - Deliverables Filtering & Hierarchy Helpers
     
     var filteredDeliverableAssets: [DeliverableAsset] {
         let q = specsFilterText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !q.isEmpty else { return deliverableAssets }
-        return deliverableAssets.filter {
-            $0.fileName.localizedCaseInsensitiveContains(q) ||
-            $0.fileURL.path.localizedCaseInsensitiveContains(q)
+        let base: [DeliverableAsset]
+        if q.isEmpty {
+            base = deliverableAssets
+        } else {
+            base = deliverableAssets.filter {
+                $0.fileName.localizedCaseInsensitiveContains(q) ||
+                $0.fileURL.path.localizedCaseInsensitiveContains(q)
+            }
         }
+        return sortDeliverableAssets(base)
     }
     
     var deliverablesTree: [FileSystemTreeNode] {
-        FileSystemTreeBuilder.buildTree(rootURL: folderURL, files: filteredDeliverableAssets.map { $0.fileURL })
+        FileSystemTreeBuilder.buildTree(
+            rootURL: folderURL,
+            files: filteredDeliverableAssets.map { $0.fileURL },
+            preserveFileOrder: true
+        )
     }
     
     var hasDeliverablesSubfolders: Bool {
@@ -762,22 +919,36 @@ extension ContentView {
             .frame(width: CGFloat(effectiveFileNameColumnWidth), alignment: .leading)
             
             // Timecode Cell with Warning
-            VStack(alignment: .center, spacing: 2) {
+            VStack(alignment: .center, spacing: 3) {
                 Text(asset.timecode)
                     .foregroundColor(asset.validation.isDurationMismatch ? alertRed : textSubtle)
                     .fontWeight(asset.validation.isDurationMismatch ? .bold : .regular)
                 
                 if let detail = asset.validation.durationMismatchDetail {
-                    Text(detail)
-                        .font(.system(size: 8, weight: .heavy, design: .monospaced))
-                        .foregroundColor(alertRed)
-                        .lineLimit(1)
+                    HStack(spacing: 3) {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .font(.system(size: 7, weight: .bold))
+                        Text(detail)
+                            .font(.system(size: 8, weight: .black, design: .monospaced))
+                    }
+                    .padding(.horizontal, 5)
+                    .padding(.vertical, 1.5)
+                    .foregroundColor(alertRed)
+                    .background(alertRed.opacity(0.12))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 3)
+                            .stroke(alertRed.opacity(0.35), lineWidth: 0.8)
+                    )
+                    .cornerRadius(3)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
+                    .help("Duration Mismatch: \(detail) (Actual Timecode: \(asset.timecode))")
                 }
             }
-            .frame(width: 130, alignment: .center)
+            .frame(width: 142, alignment: .center)
             
             // Ratio Cell with Warning
-            VStack(alignment: .center, spacing: 2) {
+            VStack(alignment: .center, spacing: 3) {
                 HStack(spacing: 4) {
                     Text(asset.aspectRatioString)
                         .font(.system(size: 9, weight: .bold, design: .monospaced))
@@ -791,13 +962,27 @@ extension ContentView {
                 }
                 
                 if let detail = asset.validation.ratioMismatchDetail {
-                    Text(detail)
-                        .font(.system(size: 8, weight: .heavy, design: .monospaced))
-                        .foregroundColor(alertRed)
-                        .lineLimit(1)
+                    HStack(spacing: 3) {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .font(.system(size: 7, weight: .bold))
+                        Text(detail)
+                            .font(.system(size: 8, weight: .black, design: .monospaced))
+                    }
+                    .padding(.horizontal, 5)
+                    .padding(.vertical, 1.5)
+                    .foregroundColor(alertRed)
+                    .background(alertRed.opacity(0.12))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 3)
+                            .stroke(alertRed.opacity(0.35), lineWidth: 0.8)
+                    )
+                    .cornerRadius(3)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
+                    .help("Aspect Ratio Mismatch: \(detail) (Actual Resolution: \(asset.resolutionString))")
                 }
             }
-            .frame(width: 135, alignment: .center)
+            .frame(width: 152, alignment: .center)
             
             Text(String(format: "%.2f", asset.fps))
                 .frame(width: 60, alignment: .center)
@@ -825,7 +1010,7 @@ extension ContentView {
                     .foregroundColor(textMuted)
                     .frame(width: 145, alignment: .center)
             } else {
-                VStack(alignment: .center, spacing: 2) {
+                VStack(alignment: .center, spacing: 3) {
                     HStack(spacing: 4) {
                         Text(asset.audioCodec)
                             .font(.system(size: 10, weight: .bold, design: .monospaced))
@@ -839,15 +1024,44 @@ extension ContentView {
                                 .studioBox(background: bgSubtle, border: borderLine)
                         }
                     }
-                    if !asset.audioFormatDetail.isEmpty {
-                        Text(asset.audioFormatDetail)
-                            .font(.system(size: 8, weight: .medium, design: .monospaced))
-                            .foregroundColor(textMuted)
-                            .lineLimit(1)
+                    
+                    if asset.validation.isAudioMute {
+                        HStack(spacing: 3) {
+                            Image(systemName: "speaker.slash.fill")
+                                .font(.system(size: 7, weight: .bold))
+                            Text(asset.validation.audioMuteDetail ?? "MUTE")
+                                .font(.system(size: 8, weight: .bold, design: .monospaced))
+                        }
+                        .padding(.horizontal, 5)
+                        .padding(.vertical, 1.5)
+                        .foregroundColor(accentPositive)
+                        .background(accentPositive.opacity(0.12))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 3)
+                                .stroke(accentPositive.opacity(0.35), lineWidth: 0.8)
+                        )
+                        .cornerRadius(3)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.8)
+                        .help("Audio Track is Mute: \(asset.audioLevelString) (Codec: \(asset.audioCodec))")
+                    } else {
+                        HStack(spacing: 4) {
+                            if !asset.audioLevelString.isEmpty && asset.audioLevelString != "--" {
+                                Text(asset.audioLevelString)
+                                    .font(.system(size: 8, weight: .bold, design: .monospaced))
+                                    .foregroundColor(accentPositive)
+                            }
+                            if !asset.audioFormatDetail.isEmpty {
+                                Text(asset.audioFormatDetail)
+                                    .font(.system(size: 8, weight: .medium, design: .monospaced))
+                                    .foregroundColor(textMuted)
+                                    .lineLimit(1)
+                            }
+                        }
                     }
                 }
                 .frame(width: 145, alignment: .center)
-                .help(asset.audioConfig)
+                .help(asset.audioConfig + (asset.audioLevelString.isEmpty ? "" : "\nPeak Level: \(asset.audioLevelString)"))
             }
             
             Text(asset.fileURL.path)

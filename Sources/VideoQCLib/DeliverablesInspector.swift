@@ -49,6 +49,7 @@ public struct DeliverablesInspector: Sendable {
             // 5. Audio Info (Codec, Bitrate, Sub-Details, Full Config or NONE)
             let audioTracks = (try? await asset.loadTracks(withMediaType: .audio)) ?? []
             let audioInfo = await extractAudioInfo(tracks: audioTracks)
+            let audioLevels = await extractAudioLevels(asset: asset, tracks: audioTracks)
             
             // 6. Subtitles & Closed Captions
             let subInfo = await extractSubtitlesInfo(asset: asset)
@@ -65,7 +66,10 @@ public struct DeliverablesInspector: Sendable {
                 durationSeconds: durationSeconds,
                 aspectRatio: aspectRatioString,
                 width: width,
-                height: height
+                height: height,
+                hasAudioTrack: !audioTracks.isEmpty,
+                isAudioMute: audioLevels.isMute,
+                audioLevelString: audioLevels.levelString
             )
             
             return DeliverableAsset(
@@ -87,6 +91,9 @@ public struct DeliverablesInspector: Sendable {
                 audioBitrate: audioInfo.bitrate,
                 audioFormatDetail: audioInfo.subDetail,
                 audioConfig: audioInfo.fullDesc,
+                audioPeakDB: audioLevels.peakDB,
+                audioLevelString: audioLevels.levelString,
+                isAudioMute: audioLevels.isMute,
                 container: container,
                 creationDate: creationDate,
                 formattedCreationDate: formattedCreationDate,
@@ -162,7 +169,10 @@ public struct DeliverablesInspector: Sendable {
         durationSeconds: Double,
         aspectRatio: String,
         width: Int,
-        height: Int
+        height: Int,
+        hasAudioTrack: Bool = false,
+        isAudioMute: Bool = false,
+        audioLevelString: String = ""
     ) -> DeliverableValidation {
         var isDurationMismatch = false
         var expectedDurationSeconds: Double? = nil
@@ -171,6 +181,9 @@ public struct DeliverablesInspector: Sendable {
         var isRatioMismatch = false
         var expectedRatioString: String? = nil
         var ratioMismatchDetail: String? = nil
+        
+        var isAudioMuteFlagged = false
+        var audioMuteDetail: String? = nil
         
         let lowerName = fileName.lowercased()
         
@@ -185,8 +198,8 @@ public struct DeliverablesInspector: Sendable {
                     // Allow up to 1.5s tolerance for commercial frame rounding (e.g. 15.04s is 15s)
                     if abs(durationSeconds - secVal) > 1.5 {
                         isDurationMismatch = true
-                        let formattedActual = String(format: "%.1fs", durationSeconds)
-                        durationMismatchDetail = "NAME SAYS \(Int(secVal))S (ACTUAL: \(formattedActual))"
+                        let formattedActual = durationSeconds.truncatingRemainder(dividingBy: 1) == 0 ? "\(Int(durationSeconds))s" : String(format: "%.1fs", durationSeconds)
+                        durationMismatchDetail = "NAME: \(Int(secVal))s ≠ \(formattedActual)"
                     }
                 }
             }
@@ -214,8 +227,19 @@ public struct DeliverablesInspector: Sendable {
                 expectedRatioString = normalizedExpected
                 if aspectRatio != normalizedExpected {
                     isRatioMismatch = true
-                    ratioMismatchDetail = "NAME SAYS \(normalizedExpected) (ACTUAL: \(aspectRatio))"
+                    ratioMismatchDetail = "NAME: \(normalizedExpected) ≠ \(aspectRatio)"
                 }
+            }
+        }
+        
+        // 3. Audio Mute validation: flags files that have an audio track, but are completely mute/silent
+        if hasAudioTrack && isAudioMute {
+            isAudioMuteFlagged = true
+            let levelClean = audioLevelString.trimmingCharacters(in: .whitespaces)
+            if levelClean.isEmpty || levelClean == "-∞ dB" {
+                audioMuteDetail = "MUTE (-∞ dB)"
+            } else {
+                audioMuteDetail = "MUTE (\(levelClean))"
             }
         }
         
@@ -225,7 +249,9 @@ public struct DeliverablesInspector: Sendable {
             durationMismatchDetail: durationMismatchDetail,
             isRatioMismatch: isRatioMismatch,
             expectedRatioString: expectedRatioString,
-            ratioMismatchDetail: ratioMismatchDetail
+            ratioMismatchDetail: ratioMismatchDetail,
+            isAudioMute: isAudioMuteFlagged,
+            audioMuteDetail: audioMuteDetail
         )
     }
     
@@ -393,6 +419,92 @@ public struct DeliverablesInspector: Sendable {
         let fullDesc = fullParts.joined(separator: " • ")
         
         return (codec: codecName, bitrate: bitrateStr, subDetail: subDetail, fullDesc: fullDesc)
+    }
+    
+    /// Reads audio track samples using AVAssetReader to measure peak level (dBFS) and detect mute/silent tracks.
+    public static func extractAudioLevels(asset: AVAsset, tracks: [AVAssetTrack]) async -> (peakDB: Double?, isMute: Bool, levelString: String) {
+        guard let audioTrack = tracks.first else {
+            return (peakDB: nil, isMute: false, levelString: "--")
+        }
+        
+        guard let reader = try? AVAssetReader(asset: asset) else {
+            return (peakDB: nil, isMute: false, levelString: "--")
+        }
+        
+        let outputSettings: [String: Any] = [
+            AVFormatIDKey: kAudioFormatLinearPCM,
+            AVLinearPCMBitDepthKey: 16,
+            AVLinearPCMIsFloatKey: false,
+            AVLinearPCMIsBigEndianKey: false,
+            AVLinearPCMIsNonInterleaved: false
+        ]
+        
+        let trackOutput = AVAssetReaderTrackOutput(track: audioTrack, outputSettings: outputSettings)
+        trackOutput.alwaysCopiesSampleData = false
+        guard reader.canAdd(trackOutput) else {
+            return (peakDB: nil, isMute: false, levelString: "--")
+        }
+        reader.add(trackOutput)
+        
+        guard reader.startReading() else {
+            return (peakDB: nil, isMute: false, levelString: "--")
+        }
+        
+        var maxPeak: Int32 = 0
+        var totalSamplesAnalyzed: Int64 = 0
+        
+        while reader.status == .reading {
+            if Task.isCancelled {
+                reader.cancelReading()
+                break
+            }
+            guard let sampleBuffer = trackOutput.copyNextSampleBuffer() else { break }
+            guard let blockBuffer = CMSampleBufferGetDataBuffer(sampleBuffer) else { continue }
+            
+            var length = 0
+            var total = 0
+            var dataPointer: UnsafeMutablePointer<CChar>?
+            let status = CMBlockBufferGetDataPointer(
+                blockBuffer,
+                atOffset: 0,
+                lengthAtOffsetOut: &length,
+                totalLengthOut: &total,
+                dataPointerOut: &dataPointer
+            )
+            
+            if status == noErr, let ptr = dataPointer, total >= 2 {
+                let sampleCount = total / MemoryLayout<Int16>.size
+                let rawInt16 = ptr.withMemoryRebound(to: Int16.self, capacity: sampleCount) { $0 }
+                for i in 0..<sampleCount {
+                    let sampleVal = abs(Int32(rawInt16[i]))
+                    if sampleVal > maxPeak {
+                        maxPeak = sampleVal
+                    }
+                }
+                totalSamplesAnalyzed += Int64(sampleCount)
+            }
+        }
+        
+        if reader.status == .reading {
+            reader.cancelReading()
+        }
+        
+        guard totalSamplesAnalyzed > 0 else {
+            return (peakDB: nil, isMute: true, levelString: "MUTE")
+        }
+        
+        if maxPeak == 0 {
+            return (peakDB: -Double.infinity, isMute: true, levelString: "-∞ dB")
+        }
+        
+        let peakRatio = Double(maxPeak) / 32768.0
+        let peakDB = 20.0 * log10(peakRatio)
+        
+        // Professional silence / mute threshold:
+        // Digital audio noise floor for dither/room tone is below -60 dBFS.
+        let isMute = peakDB < -60.0
+        let levelString = String(format: "%.1f dB", peakDB)
+        return (peakDB: peakDB, isMute: isMute, levelString: levelString)
     }
     
     // MARK: - Subtitles & Closed Captions Extraction
@@ -874,12 +986,21 @@ public struct DeliverablesInspector: Sendable {
             let audioDisplay: String
             if !a.hasAudio {
                 audioDisplay = "<span style='color:var(--text-muted); font-family:var(--font-mono)'>NONE</span>"
+            } else if a.validation.isAudioMute {
+                let muteText = a.validation.audioMuteDetail ?? "MUTE"
+                audioDisplay = """
+                <div style="display:flex; align-items:center;">
+                    <span class="mono-cell">\(a.audioCodec)</span>
+                    <span class="tag tag-ok" style="margin-left:5px">\(muteText)</span>
+                </div>
+                """
             } else {
                 let bitrateTag = a.audioBitrate != "--" ? "<span class='tag' style='margin-left:4px'>\(a.audioBitrate)</span>" : ""
+                let levelTag = (!a.audioLevelString.isEmpty && a.audioLevelString != "--") ? "<span class='tag tag-ok' style='margin-left:4px'>\(a.audioLevelString)</span>" : ""
                 let subLine = !a.audioFormatDetail.isEmpty ? "<div class='audio-detail-sub'>\(a.audioFormatDetail)</div>" : ""
                 audioDisplay = """
                 <div style="display:flex; align-items:center;">
-                    <span class="mono-cell">\(a.audioCodec)</span>\(bitrateTag)
+                    <span class="mono-cell">\(a.audioCodec)</span>\(bitrateTag)\(levelTag)
                 </div>\(subLine)
                 """
             }

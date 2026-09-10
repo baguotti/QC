@@ -59,6 +59,13 @@ struct ContentView: View {
     @State var liveFileNameColumnWidth: Double = 220.0
     @State var isDraggingFileNameColumn: Bool = false
     @State var dragStartFileNameWidth: Double? = nil
+    @AppStorage("specsSortColumn") var specsSortColumnRaw: String = SpecsSortColumn.name.rawValue
+    @AppStorage("specsSortAscending") var specsSortAscending: Bool = true
+    
+    var specsSortColumn: SpecsSortColumn {
+        get { SpecsSortColumn(rawValue: specsSortColumnRaw) ?? .name }
+        nonmutating set { specsSortColumnRaw = newValue.rawValue }
+    }
     
     // MARK: - Tab 3: Line Finder State
     @State var hexCode: String = "#00FF00"
@@ -578,42 +585,6 @@ struct ContentView: View {
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .contentShape(Rectangle())
                     }
-                    .buttonStyle(.plain)
-                    
-                    Rectangle().fill(borderLine).frame(height: 1)
-                    
-                    Button(action: {
-                        showSettingsPopover = false
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) {
-                            withAnimation(.easeInOut(duration: 0.15)) {
-                                showShortcutsModal = true
-                            }
-                        }
-                    }) {
-                        HStack(spacing: 8) {
-                            Image(systemName: "command")
-                                .font(.system(size: 11, weight: .bold))
-                                .foregroundColor(textMain)
-                                .frame(width: 16)
-                            Text("Keyboard Shortcuts")
-                                .font(.system(size: 11, weight: .bold, design: .monospaced))
-                                .foregroundColor(textMain)
-                            Spacer()
-                            Text("?")
-                                .font(.system(size: 9, weight: .bold, design: .monospaced))
-                                .foregroundColor(textMuted)
-                                .padding(.horizontal, 5)
-                                .padding(.vertical, 1)
-                                .background(borderLine.opacity(0.4))
-                                .cornerRadius(3)
-                        }
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 7)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                    
                     Rectangle().fill(borderLine).frame(height: 1)
                     
                     Button(action: {
@@ -1057,6 +1028,9 @@ struct ContentView: View {
             } else {
                 folderURL = determineFolderURL(for: videoFiles, detectedFolder: folderURL)
             }
+            
+            FileSystemTreeBuilder.clearCache()
+            updatePlayerTreeNodes()
             
             if let active = playerEngine.activeURL, urlsToRemove.contains(active.standardizedFileURL.path) {
                 if let next = videoFiles.first {
@@ -1908,7 +1882,7 @@ struct ContentView: View {
                         return nil
                     }
                 } else if chars == "?" || (isCommand && chars == "/") {
-                    self.showShortcutsModal.toggle()
+                    self.showUserGuide.toggle()
                     return nil
                 } else if chars == "i" && isShift && !isCommand && !isControl && !isOption { // Shift + I: Cycle clip info overlay (Hide -> Names -> More Info)
                     if self.playerEngine.slotB.url != nil {

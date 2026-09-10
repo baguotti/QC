@@ -52,18 +52,25 @@ public struct FileSystemTreeBuilder {
     private struct TreeCacheEntry {
         let rootURL: URL?
         let files: [URL]
+        let preserveFileOrder: Bool
         let tree: [FileSystemTreeNode]
         let orderedURLs: [URL]
     }
     private static var treeCache: [TreeCacheEntry] = []
     
+    public static func clearCache() {
+        treeCache.removeAll()
+        hasSubfoldersCache.removeAll()
+        flattenCache.removeAll()
+    }
+    
     /// Builds a hierarchical tree of nodes representing the folder and file structure.
     /// If rootURL is provided, hierarchy is relative to rootURL.
     /// Otherwise, common parent directory is used if available.
-    public static func buildTree(rootURL: URL?, files: [URL]) -> [FileSystemTreeNode] {
+    public static func buildTree(rootURL: URL?, files: [URL], preserveFileOrder: Bool = false) -> [FileSystemTreeNode] {
         guard !files.isEmpty else { return [] }
         
-        if let match = treeCache.first(where: { $0.rootURL == rootURL && $0.files == files }) {
+        if let match = treeCache.first(where: { $0.rootURL == rootURL && $0.files == files && $0.preserveFileOrder == preserveFileOrder }) {
             return match.tree
         }
         
@@ -164,9 +171,14 @@ public struct FileSystemTreeBuilder {
                 items.append(node)
             }
             
-            // 2. Sort files alphabetically
-            let sortedFiles = dir.fileURLs.sorted {
-                $0.lastPathComponent.localizedStandardCompare($1.lastPathComponent) == .orderedAscending
+            // 2. Sort files (preserve order if requested, otherwise alphabetically)
+            let sortedFiles: [URL]
+            if preserveFileOrder {
+                sortedFiles = dir.fileURLs
+            } else {
+                sortedFiles = dir.fileURLs.sorted {
+                    $0.lastPathComponent.localizedStandardCompare($1.lastPathComponent) == .orderedAscending
+                }
             }
             
             for file in sortedFiles {
@@ -191,7 +203,7 @@ public struct FileSystemTreeBuilder {
         if treeCache.count >= maxCacheEntries {
             treeCache.removeFirst()
         }
-        treeCache.append(TreeCacheEntry(rootURL: rootURL, files: files, tree: result, orderedURLs: ordered))
+        treeCache.append(TreeCacheEntry(rootURL: rootURL, files: files, preserveFileOrder: preserveFileOrder, tree: result, orderedURLs: ordered))
         return result
     }
     

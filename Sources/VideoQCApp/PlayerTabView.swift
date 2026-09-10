@@ -539,6 +539,7 @@ public struct PlayerQueuePanelView: View, Equatable {
             lhs.themeId == rhs.themeId &&
             lhs.folderURL == rhs.folderURL &&
             lhs.videoFiles == rhs.videoFiles &&
+            lhs.playerTreeNodes == rhs.playerTreeNodes &&
             lhs.playerFilterText == rhs.playerFilterText &&
             lhs.playerCollapsedFolderIDs == rhs.playerCollapsedFolderIDs &&
             lhs.hiddenFolderIDs == rhs.hiddenFolderIDs &&
