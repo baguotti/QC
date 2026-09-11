@@ -58,7 +58,10 @@ struct ThemeSettingsModalView: View {
                     // Section 2: Accent Palettes (Muted & Vivid)
                     paletteSection
                     
-                    // Section 3: Live UI Element Preview
+                    // Section 3: Button & UI Size (Zoom)
+                    buttonZoomSection
+                    
+                    // Section 4: Live UI Element Preview
                     previewSection
                 }
                 .padding(20)
@@ -297,11 +300,92 @@ struct ThemeSettingsModalView: View {
         .buttonStyle(.plain)
     }
     
-    // MARK: - Section 3: Live UI Element Preview
+    // MARK: - Section 3: Button & UI Size (Zoom)
+    
+    private var buttonZoomSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Text("03 // BUTTON & UI SIZE")
+                    .font(.system(size: 10, weight: .black, design: .monospaced))
+                    .foregroundColor(palette.textMuted)
+                    .tracking(0.5)
+                
+                Spacer()
+                
+                Text("SHORTCUTS: ⌘- / ⌘+")
+                    .font(.system(size: 9, weight: .bold, design: .monospaced))
+                    .foregroundColor(palette.textSubtle)
+            }
+            
+            HStack(spacing: 10) {
+                ForEach(UIButtonZoomLevel.allCases) { level in
+                    buttonZoomCard(level: level)
+                }
+            }
+        }
+    }
+    
+    private func buttonZoomCard(level: UIButtonZoomLevel) -> some View {
+        let isSelected = themeManager.buttonZoom == level
+        
+        return Button(action: {
+            withAnimation(.easeInOut(duration: 0.15)) {
+                themeManager.buttonZoom = level
+            }
+        }) {
+            HStack(spacing: 8) {
+                // Size Icon Indicator
+                ZStack {
+                    RoundedRectangle(cornerRadius: 3)
+                        .stroke(isSelected ? themeManager.currentTheme.blueColor : palette.borderLine, lineWidth: 1.2)
+                        .frame(
+                            width: 14 * (level.scaleFactor == 1.0 ? 0.8 : (level.scaleFactor == 1.2 ? 1.0 : 1.25)),
+                            height: 14 * (level.scaleFactor == 1.0 ? 0.8 : (level.scaleFactor == 1.2 ? 1.0 : 1.25))
+                        )
+                }
+                .frame(width: 18)
+                
+                VStack(alignment: .leading, spacing: 2) {
+                    HStack(spacing: 4) {
+                        Text(level.title)
+                            .font(.system(size: 10, weight: isSelected ? .black : .bold, design: .monospaced))
+                            .foregroundColor(isSelected ? palette.textMain : palette.textMuted)
+                        Text("(\(String(format: "%.1fx", level.scaleFactor)))")
+                            .font(.system(size: 8, weight: .bold, design: .monospaced))
+                            .foregroundColor(isSelected ? themeManager.currentTheme.blueColor : palette.textSubtle)
+                    }
+                    
+                    Text(level.subtitle)
+                        .font(.system(size: 8, weight: .medium))
+                        .foregroundColor(palette.textSubtle)
+                        .lineLimit(1)
+                }
+                
+                Spacer()
+                
+                if isSelected {
+                    Image(systemName: "checkmark")
+                        .font(.system(size: 9, weight: .black))
+                        .foregroundColor(themeManager.currentTheme.blueColor)
+                }
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 9)
+            .background(isSelected ? palette.bgSubtle : palette.bgPanel)
+            .overlay(
+                RoundedRectangle(cornerRadius: StudioTheme.cornerRadius)
+                    .stroke(isSelected ? themeManager.currentTheme.blueColor : palette.borderLine, lineWidth: isSelected ? 1.5 : 1)
+            )
+            .cornerRadius(StudioTheme.cornerRadius)
+        }
+        .buttonStyle(.plain)
+    }
+    
+    // MARK: - Section 4: Live UI Element Preview
     
     private var previewSection: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("03 // LIVE ACCENT HARMONY PREVIEW")
+            Text("04 // LIVE ACCENT HARMONY PREVIEW")
                 .font(.system(size: 10, weight: .black, design: .monospaced))
                 .foregroundColor(palette.textMuted)
                 .tracking(0.5)
@@ -326,20 +410,6 @@ struct ThemeSettingsModalView: View {
                         .font(.system(size: 10, weight: .bold, design: .monospaced))
                         .foregroundColor(palette.textSubtle)
                     
-                    Spacer()
-                    
-                    // Engine Ready Status Pill
-                    HStack(spacing: 5) {
-                        Circle()
-                            .fill(themeManager.currentTheme.greenColor)
-                            .frame(width: 6, height: 6)
-                        Text("READY")
-                            .font(.system(size: 9, weight: .black, design: .monospaced))
-                            .foregroundColor(themeManager.currentTheme.greenColor)
-                    }
-                    .padding(.horizontal, 7)
-                    .padding(.vertical, 3)
-                    .studioBox(background: palette.bgSubtle, border: palette.borderLine)
                 }
                 .padding(.horizontal, 12)
                 .padding(.top, 10)

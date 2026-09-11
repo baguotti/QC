@@ -53,6 +53,12 @@ struct PlayerTransportDeckView: View {
         self.showNotesAndGlitches = showNotesAndGlitches
     }
     
+    @ObservedObject private var themeManager = ThemeManager.shared
+    
+    private var btnHeight: CGFloat { themeManager.scale(28) }
+    private func btnWidth(_ base: CGFloat) -> CGFloat { themeManager.scale(base) }
+    private func iconSize(_ base: CGFloat) -> CGFloat { themeManager.scaleFont(base) }
+    
     private var palette: StudioPalette { StudioPalette(isLightMode) }
     private var textMain: Color { palette.textMain }
     private var textMuted: Color { palette.textMuted }
@@ -63,9 +69,9 @@ struct PlayerTransportDeckView: View {
     }
     
     var body: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: themeManager.scale(8)) {
             // 1. Unified Transport Deck (Tight & Proportional)
-            HStack(spacing: 5) {
+            HStack(spacing: themeManager.scale(5)) {
                 // Slow Rev (Shift + J)
                 transportBtn(icon: "backward", tooltip: "Slow Reverse (⇧J / Tap to accelerate)", size: 13, width: 26) {
                     engine.pressSlowJ()
@@ -79,8 +85,8 @@ struct PlayerTransportDeckView: View {
                 // Shuttle Reverse (J)
                 Button(action: { engine.pressJ() }) {
                     Image(systemName: "backward.fill")
-                        .font(.system(size: 14, weight: .bold))
-                        .frame(width: 28, height: 28)
+                        .font(.system(size: iconSize(14), weight: .bold))
+                        .frame(width: btnWidth(28), height: btnHeight)
                         .foregroundColor(engine.rate < 0 ? accentBlue : textMain)
                         .contentShape(Rectangle())
                 }
@@ -92,9 +98,9 @@ struct PlayerTransportDeckView: View {
                     AnimatedPlayPauseIconView(
                         isPlaying: engine.isPlaying,
                         color: textMain,
-                        size: 20
+                        size: iconSize(20)
                     )
-                    .frame(width: 30, height: 28)
+                    .frame(width: btnWidth(30), height: btnHeight)
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(TransportIconButtonStyle())
@@ -103,8 +109,8 @@ struct PlayerTransportDeckView: View {
                 // Shuttle Forward (L)
                 Button(action: { engine.pressL() }) {
                     Image(systemName: "forward.fill")
-                        .font(.system(size: 14, weight: .bold))
-                        .frame(width: 28, height: 28)
+                        .font(.system(size: iconSize(14), weight: .bold))
+                        .frame(width: btnWidth(28), height: btnHeight)
                         .foregroundColor(engine.rate > 1.0 ? accentBlue : textMain)
                         .contentShape(Rectangle())
                 }
@@ -125,7 +131,7 @@ struct PlayerTransportDeckView: View {
             // Group Divider
             Rectangle()
                 .fill(dividerColor)
-                .frame(width: 1, height: 14)
+                .frame(width: 1, height: themeManager.scale(14))
                 .padding(.horizontal, 2)
             
             // 2. Playback Utilities: Loop, Title Safe, Crosshair & Exposure
@@ -228,7 +234,7 @@ struct PlayerTransportDeckView: View {
             if showNotesAndGlitches && (onAddNote != nil || onToggleNotesDrawer != nil || onJumpPrevNote != nil || onJumpNextNote != nil) {
                 Rectangle()
                     .fill(dividerColor)
-                    .frame(width: 1, height: 14)
+                    .frame(width: 1, height: themeManager.scale(14))
                     .padding(.horizontal, 2)
                 
                 HStack(spacing: 2) {
@@ -236,11 +242,11 @@ struct PlayerTransportDeckView: View {
                         Button(action: onAdd) {
                             HStack(spacing: 3) {
                                 Image(systemName: "plus")
-                                    .font(.system(size: 9, weight: .bold))
+                                    .font(.system(size: iconSize(9), weight: .bold))
                                 Text("NOTE")
-                                    .font(.system(size: 9, weight: .bold, design: .monospaced))
+                                    .font(.system(size: iconSize(9), weight: .bold, design: .monospaced))
                             }
-                            .frame(height: 28)
+                            .frame(height: btnHeight)
                             .padding(.horizontal, 5)
                             .foregroundColor(engine.activeURL == nil ? textMuted : textMain)
                             .contentShape(Rectangle())
@@ -257,8 +263,8 @@ struct PlayerTransportDeckView: View {
                     HStack(spacing: 1) {
                         Button(action: { onJumpPrevNote?() }) {
                             Image(systemName: "chevron.left.to.line")
-                                .font(.system(size: 9, weight: .bold))
-                                .frame(width: 18, height: 28)
+                                .font(.system(size: iconSize(9), weight: .bold))
+                                .frame(width: btnWidth(18), height: btnHeight)
                                 .foregroundColor(hasNotes ? textMain : textMuted)
                                 .contentShape(Rectangle())
                         }
@@ -270,16 +276,16 @@ struct PlayerTransportDeckView: View {
                             Button(action: onToggle) {
                                 HStack(spacing: 3) {
                                     Image(systemName: isNotesDrawerOpen ? "text.bubble.fill" : "text.bubble")
-                                        .font(.system(size: 9, weight: .semibold))
+                                        .font(.system(size: iconSize(9), weight: .semibold))
                                     SlotText(
                                         hasNotes ? "\(notesCount)" : "NOTES",
                                         mode: hasNotes ? .character : .word,
                                         direction: .up,
-                                        font: .system(size: 9, weight: .bold, design: .monospaced),
+                                        font: .system(size: iconSize(9), weight: .bold, design: .monospaced),
                                         foregroundColor: isNotesDrawerOpen ? accentBlue : (hasNotes ? textMain : textMuted)
                                     )
                                 }
-                                .frame(height: 28)
+                                .frame(height: btnHeight)
                                 .padding(.horizontal, 4)
                                 .foregroundColor(isNotesDrawerOpen ? accentBlue : (hasNotes ? textMain : textMuted))
                                 .contentShape(Rectangle())
@@ -292,16 +298,16 @@ struct PlayerTransportDeckView: View {
                                 hasNotes ? "\(notesCount)" : "NOTE",
                                 mode: hasNotes ? .character : .word,
                                 direction: .up,
-                                font: .system(size: 9, weight: .bold, design: .monospaced),
-                                foregroundColor: hasNotes ? textMain : textMuted
+                                font: .system(size: iconSize(9), weight: .bold, design: .monospaced),
+                               foregroundColor: hasNotes ? textMain : textMuted
                             )
                             .padding(.horizontal, 3)
                         }
                         
                         Button(action: { onJumpNextNote?() }) {
                             Image(systemName: "chevron.right.to.line")
-                                .font(.system(size: 9, weight: .bold))
-                                .frame(width: 18, height: 28)
+                                .font(.system(size: iconSize(9), weight: .bold))
+                                .frame(width: btnWidth(18), height: btnHeight)
                                 .foregroundColor(hasNotes ? textMain : textMuted)
                                 .contentShape(Rectangle())
                         }
@@ -318,14 +324,14 @@ struct PlayerTransportDeckView: View {
                 if !hideGlitchNavWhenEmpty || hasGlitches {
                     Rectangle()
                         .fill(dividerColor)
-                        .frame(width: 1, height: 14)
+                        .frame(width: 1, height: themeManager.scale(14))
                         .padding(.horizontal, 2)
                     
                     HStack(spacing: 1) {
                         Button(action: onJumpPrevGlitch) {
                             Image(systemName: "chevron.left.to.line")
-                                .font(.system(size: 9, weight: .bold))
-                                .frame(width: 18, height: 28)
+                                .font(.system(size: iconSize(9), weight: .bold))
+                                .frame(width: btnWidth(18), height: btnHeight)
                                 .foregroundColor(hasGlitches ? alertRed : textMuted)
                                 .contentShape(Rectangle())
                         }
@@ -337,14 +343,14 @@ struct PlayerTransportDeckView: View {
                         )
                         
                         Text("LINE")
-                            .font(.system(size: 9, weight: .bold, design: .monospaced))
+                            .font(.system(size: iconSize(9), weight: .bold, design: .monospaced))
                             .foregroundColor(hasGlitches ? alertRed : textMuted)
                             .padding(.horizontal, 3)
                         
                         Button(action: onJumpNextGlitch) {
                             Image(systemName: "chevron.right.to.line")
-                                .font(.system(size: 9, weight: .bold))
-                                .frame(width: 18, height: 28)
+                                .font(.system(size: iconSize(9), weight: .bold))
+                                .frame(width: btnWidth(18), height: btnHeight)
                                 .foregroundColor(hasGlitches ? alertRed : textMuted)
                                 .contentShape(Rectangle())
                         }
@@ -372,8 +378,8 @@ struct PlayerTransportDeckView: View {
     ) -> some View {
         Button(action: action) {
             Image(systemName: icon)
-                .font(.system(size: size, weight: weight))
-                .frame(width: width, height: 28)
+                .font(.system(size: iconSize(size), weight: weight))
+                .frame(width: btnWidth(width), height: btnHeight)
                 .foregroundColor(isActive ? (activeColor ?? accentBlue) : textMain)
                 .contentShape(Rectangle())
         }
@@ -391,7 +397,8 @@ struct PlayerTransportDeckView: View {
     ) -> some View {
         Button(action: action) {
             content()
-                .frame(width: width, height: 28)
+                .scaleEffect(themeManager.buttonScaleFactor)
+                .frame(width: btnWidth(width), height: btnHeight)
                 .foregroundColor(isActive ? (activeColor ?? accentBlue) : textMain)
                 .contentShape(Rectangle())
         }

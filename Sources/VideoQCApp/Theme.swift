@@ -38,6 +38,11 @@ struct StudioTheme {
     /// Tweak this single value to adjust corner rounding across the entire app.
     nonisolated static let cornerRadius: CGFloat = 4.0
     
+    static var buttonZoom: UIButtonZoomLevel { ThemeManager.shared.buttonZoom }
+    static var buttonScale: CGFloat { ThemeManager.shared.buttonScaleFactor }
+    static func scale(_ val: CGFloat) -> CGFloat { ThemeManager.shared.scale(val) }
+    static func scaleFont(_ size: CGFloat) -> CGFloat { ThemeManager.shared.scaleFont(size) }
+    
     static func bgMain(_ isLight: Bool) -> Color {
         isLight ? Color(white: 0.96) : Color(red: 0.04, green: 0.04, blue: 0.04)
     }

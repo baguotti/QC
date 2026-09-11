@@ -112,6 +112,40 @@ public struct StudioThemeConfig: Identifiable, Codable, Equatable, Sendable {
     ]
 }
 
+// MARK: - UI Button Zoom Level
+
+public enum UIButtonZoomLevel: Int, CaseIterable, Identifiable, Codable, Sendable {
+    case small = 0
+    case medium = 1
+    case large = 2
+    
+    public var id: Int { rawValue }
+    
+    public var title: String {
+        switch self {
+        case .small: return "SMALL"
+        case .medium: return "MEDIUM"
+        case .large: return "LARGE"
+        }
+    }
+    
+    public var subtitle: String {
+        switch self {
+        case .small: return "Compact studio layout (Default)"
+        case .medium: return "Balanced & comfortable"
+        case .large: return "Prominent high-visibility"
+        }
+    }
+    
+    public var scaleFactor: CGFloat {
+        switch self {
+        case .small: return 1.0
+        case .medium: return 1.2
+        case .large: return 1.4
+        }
+    }
+}
+
 // MARK: - Central Theme Manager
 
 @MainActor
@@ -120,6 +154,7 @@ public final class ThemeManager: ObservableObject {
     
     private let activeThemeKey = "QCpie_ActiveThemeID"
     private let currentThemeDataKey = "QCpie_CurrentThemeData"
+    private let buttonZoomKey = "QCpie_UIButtonZoomLevel"
     
     @Published public var currentTheme: StudioThemeConfig {
         didSet {
@@ -127,11 +162,32 @@ public final class ThemeManager: ObservableObject {
         }
     }
     
+    @Published public var buttonZoom: UIButtonZoomLevel {
+        didSet {
+            UserDefaults.standard.set(buttonZoom.rawValue, forKey: buttonZoomKey)
+        }
+    }
+    
+    public var buttonScaleFactor: CGFloat {
+        buttonZoom.scaleFactor
+    }
+    
+    public func scale(_ val: CGFloat) -> CGFloat {
+        round(val * buttonScaleFactor)
+    }
+    
+    public func scaleFont(_ size: CGFloat) -> CGFloat {
+        round(size * buttonScaleFactor)
+    }
+    
     public var allThemes: [StudioThemeConfig] {
         StudioThemeConfig.presets
     }
     
     public init() {
+        let savedZoom = UserDefaults.standard.integer(forKey: buttonZoomKey)
+        self.buttonZoom = UIButtonZoomLevel(rawValue: savedZoom) ?? .small
+        
         if let activeID = UserDefaults.standard.string(forKey: activeThemeKey) {
             if activeID == "preset-vivid" || activeID == "preset-broadcast-vivid" {
                 self.currentTheme = StudioThemeConfig.vivid
@@ -167,8 +223,23 @@ public final class ThemeManager: ObservableObject {
         }
     }
     
+    @discardableResult
+    public func increaseButtonZoom() -> Bool {
+        guard let next = UIButtonZoomLevel(rawValue: buttonZoom.rawValue + 1) else { return false }
+        buttonZoom = next
+        return true
+    }
+    
+    @discardableResult
+    public func decreaseButtonZoom() -> Bool {
+        guard let prev = UIButtonZoomLevel(rawValue: buttonZoom.rawValue - 1) else { return false }
+        buttonZoom = prev
+        return true
+    }
+    
     public func resetToDefault() {
         self.currentTheme = StudioThemeConfig.muted
+        self.buttonZoom = .small
     }
     
     // MARK: - Persistence

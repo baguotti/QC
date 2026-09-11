@@ -177,8 +177,8 @@ public final class PlayerContainerNSView: NSView {
 
         configureResolutionLabel(resolutionLabelLayerA)
         configureResolutionLabel(resolutionLabelLayerB)
-        layer?.addSublayer(resolutionLabelLayerA)
-        layer?.addSublayer(resolutionLabelLayerB)
+        canvasLayer.addSublayer(resolutionLabelLayerA)
+        canvasLayer.addSublayer(resolutionLabelLayerB)
         
         // Slot B: Player Video Layer (active during comparison playback)
         playerLayerB.anchorPoint = CGPoint(x: 0.5, y: 0.5)
@@ -1279,8 +1279,7 @@ public final class PlayerContainerNSView: NSView {
     private func updateResolutionLabels() {
         guard let engine = engine,
               engine.showResolutionLabels,
-              engine.slotA.url != nil || engine.slotB.url != nil,
-              let hostLayer = layer else {
+              engine.slotA.url != nil || engine.slotB.url != nil else {
             resolutionLabelLayerA.isHidden = true
             resolutionLabelLayerB.isHidden = true
             return
@@ -1296,8 +1295,6 @@ public final class PlayerContainerNSView: NSView {
         resolutionLabelLayerB.foregroundColor = theme.purpleNSColor.cgColor
 
         let scale = currentBackingScale()
-        let frameA = canvasLayer.convert(playerLayerA.frame, to: hostLayer)
-        let frameB = canvasLayer.convert(playerLayerB.frame, to: hostLayer)
         let labelYGap = Self.resolutionLabelGap
         let labelHeight = Self.resolutionLabelHeight
         let mode = engine.slotB.url == nil ? CompareMode.single : engine.compareMode
@@ -1305,6 +1302,11 @@ public final class PlayerContainerNSView: NSView {
         let usesSeparateCanvases = mode == .sideBySide || mode == .sideBySideVertical
         let showA = engine.slotA.url != nil && !isBlink
         let showB = engine.slotB.url != nil && (isBlink || mode != .single)
+
+        let frameA = playerLayerA.frame
+        let frameB = playerLayerB.frame
+
+        let isSideBySideV = mode == .sideBySideVertical
 
         if showA {
             resolutionLabelLayerA.frame = CGRect(
@@ -1318,9 +1320,13 @@ public final class PlayerContainerNSView: NSView {
         if showB {
             let labelFrame = (usesSeparateCanvases || isBlink) ? frameB : frameA
             let sharedCanvasOffset = (!usesSeparateCanvases && !isBlink && showA) ? resolutionLabelWidthA + 12 : 0
+            let labelY = isSideBySideV
+                ? snapToPixel(frameB.maxY + labelYGap, scale: scale)
+                : snapToPixel(labelFrame.maxY + labelYGap, scale: scale)
+
             resolutionLabelLayerB.frame = CGRect(
                 x: snapToPixel(labelFrame.minX + sharedCanvasOffset, scale: scale),
-                y: snapToPixel(labelFrame.maxY + labelYGap, scale: scale),
+                y: labelY,
                 width: resolutionLabelWidthB,
                 height: labelHeight
             )

@@ -25,6 +25,7 @@ struct ContentView: View {
     @State var isInspectingProperties: Bool = false
     @ObservedObject private var updateManager = UpdateManager.shared
     @ObservedObject var themeManager = ThemeManager.shared
+    @ObservedObject private var fileOpenManager = FileOpenManager.shared
     @State var hoverExplanation: String = ""
     @State private var hoveredTab: AppTab? = nil
     
@@ -305,11 +306,21 @@ struct ContentView: View {
         .onChange(of: folderURL) { _, _ in
             updatePlayerTreeNodes()
         }
+        .onReceive(fileOpenManager.$pendingURLs) { urls in
+            guard !urls.isEmpty else { return }
+            handleIncomingOpenFiles(urls)
+            fileOpenManager.pendingURLs = []
+        }
         .onAppear {
             updatePlayerTreeNodes()
             setupKeyboardMonitor()
             loadFinderTagsForQueue()
             updateManager.checkForUpdates(userInitiated: false)
+            if !fileOpenManager.pendingURLs.isEmpty {
+                let urls = fileOpenManager.pendingURLs
+                fileOpenManager.pendingURLs = []
+                handleIncomingOpenFiles(urls)
+            }
         }
         .onDisappear {
             eventMonitors.cleanup()
@@ -494,11 +505,11 @@ struct ContentView: View {
                 .explain("New update v\(updateManager.latestVersion) available! Click to update.", binding: $hoverExplanation)
             }
             
-            // Theme Toggle (Square 28x28 with Sun / Moon icon)
+            // Theme Toggle (Square button with Sun / Moon icon)
             Button(action: { isLightMode.toggle() }) {
                 Image(systemName: isLightMode ? "sun.max.fill" : "moon.stars.fill")
-                    .font(.system(size: 12, weight: .bold))
-                    .frame(width: 28, height: 28)
+                    .font(.system(size: StudioTheme.scaleFont(12), weight: .bold))
+                    .frame(width: StudioTheme.scale(28), height: StudioTheme.scale(28))
                     .foregroundColor(textMain)
                     .studioBox(background: bgSubtle, border: borderLine)
             }
@@ -509,15 +520,15 @@ struct ContentView: View {
             Button(action: { showSettingsPopover.toggle() }) {
                 ZStack(alignment: .topTrailing) {
                     Image(systemName: "gearshape.fill")
-                        .font(.system(size: 12, weight: .bold))
-                        .frame(width: 28, height: 28)
+                        .font(.system(size: StudioTheme.scaleFont(12), weight: .bold))
+                        .frame(width: StudioTheme.scale(28), height: StudioTheme.scale(28))
                         .foregroundColor(textMain)
                         .studioBox(background: bgSubtle, border: borderLine)
                     
                     if updateManager.hasUpdate {
                         Circle()
                             .fill(accentPositive)
-                            .frame(width: 6, height: 6)
+                            .frame(width: StudioTheme.scale(6), height: StudioTheme.scale(6))
                             .offset(x: -2, y: 2)
                     }
                 }
@@ -635,32 +646,14 @@ struct ContentView: View {
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .contentShape(Rectangle())
                     }
-                    .buttonStyle(.plain)
                 }
                 .padding(6)
                 .frame(width: 250)
                 .background(bgPanel)
             }
-            
-            // Engine Status Indicator (Fixed 76px width)
-            HStack(spacing: 6) {
-                Circle()
-                    .fill(isScanning || isInspectingDeliverables ? textMain : accentPositive)
-                    .frame(width: 7, height: 7)
-                SlotText(
-                    isScanning || isInspectingDeliverables ? "BUSY" : "READY",
-                    mode: .character,
-                    direction: isScanning || isInspectingDeliverables ? .down : .up,
-                    font: .system(size: 10, weight: .bold, design: .monospaced),
-                    foregroundColor: isScanning || isInspectingDeliverables ? textSubtle : accentPositive,
-                    tracking: 1.0
-                )
-            }
-            .frame(width: 76, height: 28)
-            .studioBox(background: bgSubtle, border: borderLine)
-            .explain(isScanning || isInspectingDeliverables ? "Engine is currently processing video files." : "Engine is idle and ready for new jobs.", binding: $hoverExplanation)
         }
     }
+
     
     // MARK: - Custom Tab Shapes for Seamless Body Blending
     struct OpenBottomTabBorderShape: Shape {
@@ -744,14 +737,14 @@ struct ContentView: View {
                         }) {
                             HStack(spacing: 6) {
                                 Image(systemName: tab.iconName)
-                                    .font(.system(size: 11, weight: isActive ? .bold : .medium))
+                                    .font(.system(size: StudioTheme.scaleFont(11), weight: isActive ? .bold : .medium))
                                 
                                 Text(tab.title)
-                                    .font(.system(size: 11, weight: isActive ? .bold : .medium, design: .monospaced))
+                                    .font(.system(size: StudioTheme.scaleFont(11), weight: isActive ? .bold : .medium, design: .monospaced))
                                     .tracking(0.5)
                                     .lineLimit(1)
                             }
-                            .frame(width: tabLength, height: 29)
+                            .frame(width: tabLength * StudioTheme.buttonScale, height: StudioTheme.scale(29))
                             .foregroundColor(
                                 isActive
                                     ? (isLightMode ? Color.black : Color.white)
@@ -811,7 +804,7 @@ struct ContentView: View {
             }
             .padding(.horizontal, 20)
         }
-        .frame(height: 42)
+        .frame(height: StudioTheme.scale(42))
     }
     
     // MARK: - Reusable Unified Asset Selection Section
@@ -827,13 +820,13 @@ struct ContentView: View {
                     Button(action: { selectAssets(forTab: forTab, append: false) }) {
                         HStack(spacing: 4) {
                             Image(systemName: isSelectEmpty ? "folder.badge.plus" : "arrow.triangle.2.circlepath")
-                                .font(.system(size: 9, weight: .bold))
+                                .font(.system(size: StudioTheme.scaleFont(9), weight: .bold))
                             Text(isSelectEmpty ? "SELECT" : "CHANGE")
-                                .font(.system(size: 9, weight: .bold, design: .monospaced))
+                                .font(.system(size: StudioTheme.scaleFont(9), weight: .bold, design: .monospaced))
                                 .lineLimit(1)
                         }
                         .padding(.horizontal, 9)
-                        .frame(height: 24)
+                        .frame(height: StudioTheme.scale(24))
                         .foregroundColor(isSelectEmpty ? accentBlue : textMain)
                         .studioBox(
                             background: isSelectEmpty ? accentBlue.opacity(0.12) : bgSubtle,
@@ -847,13 +840,13 @@ struct ContentView: View {
                     Button(action: { selectAssets(forTab: forTab, append: true) }) {
                         HStack(spacing: 4) {
                             Image(systemName: "plus")
-                                .font(.system(size: 9, weight: .bold))
+                                .font(.system(size: StudioTheme.scaleFont(9), weight: .bold))
                             Text("ADD")
-                                .font(.system(size: 9, weight: .bold, design: .monospaced))
+                                .font(.system(size: StudioTheme.scaleFont(9), weight: .bold, design: .monospaced))
                                 .lineLimit(1)
                         }
                         .padding(.horizontal, 8)
-                        .frame(height: 24)
+                        .frame(height: StudioTheme.scale(24))
                         .foregroundColor(textMain)
                         .studioBox(background: bgSubtle, border: borderLine)
                     }
@@ -865,13 +858,13 @@ struct ContentView: View {
                     Button(action: { refreshPlayerAssets() }) {
                         HStack(spacing: 4) {
                             Image(systemName: "arrow.clockwise")
-                                .font(.system(size: 9, weight: .bold))
+                                .font(.system(size: StudioTheme.scaleFont(9), weight: .bold))
                             Text("REFRESH")
-                                .font(.system(size: 9, weight: .bold, design: .monospaced))
+                                .font(.system(size: StudioTheme.scaleFont(9), weight: .bold, design: .monospaced))
                                 .lineLimit(1)
                         }
                         .padding(.horizontal, 8)
-                        .frame(height: 24)
+                        .frame(height: StudioTheme.scale(24))
                         .foregroundColor(canRefresh ? textMain : textSubtle)
                         .studioBox(background: bgSubtle, border: borderLine)
                     }
@@ -885,13 +878,13 @@ struct ContentView: View {
                         HStack(spacing: 4) {
                             Circle()
                                 .fill(accentPositive)
-                                .frame(width: 5, height: 5)
+                                .frame(width: StudioTheme.scale(5), height: StudioTheme.scale(5))
                             Text("\(videoFiles.count) \(videoFiles.count == 1 ? "FILE" : "FILES")")
-                                .font(.system(size: 9, weight: .bold, design: .monospaced))
+                                .font(.system(size: StudioTheme.scaleFont(9), weight: .bold, design: .monospaced))
                                 .foregroundColor(textMuted)
                         }
                         .padding(.horizontal, 7)
-                        .frame(height: 24)
+                        .frame(height: StudioTheme.scale(24))
                         .studioBox(background: bgSubtle.opacity(0.4), border: borderLine.opacity(0.6))
                     }
                 }
@@ -1182,65 +1175,76 @@ struct ContentView: View {
         }
         
         group.notify(queue: .main) {
-            let loadedURLs = collector.urls
-            var collectedVideos: [URL] = []
-            var detectedFolder: URL? = nil
-            
-            for url in loadedURLs {
-                var isDir: ObjCBool = false
-                if FileManager.default.fileExists(atPath: url.path, isDirectory: &isDir) {
-                    if isDir.boolValue {
+            self.addAssets(urls: collector.urls, targetSlot: targetSlot)
+        }
+        return true
+    }
+    
+    func handleIncomingOpenFiles(_ urls: [URL]) {
+        self.selectedTab = .player
+        self.addAssets(urls: urls, forceLoad: true)
+    }
+    
+    func addAssets(urls: [URL], targetSlot: SlotTarget? = nil, forceLoad: Bool = false) {
+        guard !urls.isEmpty else { return }
+        var collectedVideos: [URL] = []
+        var detectedFolder: URL? = nil
+        
+        for url in urls {
+            var isDir: ObjCBool = false
+            if FileManager.default.fileExists(atPath: url.path, isDirectory: &isDir) {
+                if isDir.boolValue {
+                    if detectedFolder == nil {
                         detectedFolder = url
-                        let inFolder = VideoScanner.findVideoFiles(in: url)
-                        collectedVideos.append(contentsOf: inFolder)
-                    } else {
-                        if detectedFolder == nil {
-                            detectedFolder = url.deletingLastPathComponent()
-                        }
-                        if QCUtilities.isSupportedVideo(url: url) {
-                            collectedVideos.append(url)
-                        }
+                    }
+                    let inFolder = VideoScanner.findVideoFiles(in: url)
+                    collectedVideos.append(contentsOf: inFolder)
+                } else {
+                    if detectedFolder == nil {
+                        detectedFolder = url.deletingLastPathComponent()
+                    }
+                    if QCUtilities.isSupportedVideo(url: url) {
+                        collectedVideos.append(url)
                     }
                 }
             }
-            
-            var mergedVideos = self.videoFiles
-            var seen = Set(self.videoFiles.map { $0.standardizedFileURL.path })
-            var newlyAdded: [URL] = []
-            
-            for v in collectedVideos {
-                let stdPath = v.standardizedFileURL.path
-                if !seen.contains(stdPath) {
-                    seen.insert(stdPath)
-                    mergedVideos.append(v)
-                    newlyAdded.append(v)
-                }
-            }
-            
-            if newlyAdded.isEmpty {
-                // If dropping into a specific slot and the file was already in queue, still load it into target slot
-                if let targetSlot = targetSlot, let existing = collectedVideos.first {
-                    self.playerEngine.loadVideo(url: existing, into: targetSlot)
-                }
-                return
-            }
-            
-            self.videoFiles = mergedVideos
-            self.folderURL = self.determineFolderURL(for: mergedVideos, detectedFolder: self.folderURL ?? detectedFolder)
-            
-            // Inspect only newly added deliverables and append to existing deliverables
-            self.inspectDeliverablesBatch(urls: newlyAdded, append: true)
-            self.loadFinderTagsForQueue()
-            
-            if let targetSlot = targetSlot {
-                if let first = newlyAdded.first {
-                    self.playerEngine.loadVideo(url: first, into: targetSlot)
-                }
-            } else if self.playerEngine.activeURL == nil, let first = newlyAdded.first {
-                self.playerEngine.loadVideo(url: first)
+        }
+        
+        guard !collectedVideos.isEmpty else { return }
+        
+        var mergedVideos = self.videoFiles
+        var seen = Set(self.videoFiles.map { $0.standardizedFileURL.path })
+        var newlyAdded: [URL] = []
+        
+        for v in collectedVideos {
+            let stdPath = v.standardizedFileURL.path
+            if !seen.contains(stdPath) {
+                seen.insert(stdPath)
+                mergedVideos.append(v)
+                newlyAdded.append(v)
             }
         }
-        return true
+        
+        if !newlyAdded.isEmpty {
+            self.videoFiles = mergedVideos
+            self.folderURL = self.determineFolderURL(for: mergedVideos, detectedFolder: self.folderURL ?? detectedFolder)
+            self.inspectDeliverablesBatch(urls: newlyAdded, append: true)
+            self.loadFinderTagsForQueue()
+        }
+        
+        if let targetSlot = targetSlot {
+            if let targetURL = newlyAdded.first ?? collectedVideos.first {
+                self.playerEngine.loadVideo(url: targetURL, into: targetSlot)
+            }
+        } else if forceLoad {
+            if let first = newlyAdded.first ?? collectedVideos.first {
+                self.playerEngine.loadVideo(url: first, into: .slotA, autoplay: self.playerEngine.isAutoplayEnabled)
+                self.queueScrollTarget = first
+            }
+        } else if self.playerEngine.activeURL == nil, let first = newlyAdded.first ?? collectedVideos.first {
+            self.playerEngine.loadVideo(url: first)
+            self.queueScrollTarget = first
+        }
     }
     
     // MARK: - Line Scanner Execution
@@ -1721,16 +1725,36 @@ struct ContentView: View {
                 }
             }
             
-            // If any modal is active, block background player controls
-            if self.showShortcutsModal || self.showThemeModal || self.showUserGuide || self.showFeedbackModal || self.updateManager.showModal || self.showPropertiesModal || self.showAddNoteModal {
-                return event
-            }
-            
             let isShift = event.modifierFlags.contains(.shift)
             let isCommand = event.modifierFlags.contains(.command)
             let isControl = event.modifierFlags.contains(.control)
             let isOption = event.modifierFlags.contains(.option)
             let rawChars = event.charactersIgnoringModifiers?.lowercased()
+            
+            // Global UI Button Zoom Shortcuts: Cmd + / Cmd = (Zoom In), Cmd - (Zoom Out)
+            if isCommand && !isControl && !isOption {
+                let isPlus = (event.keyCode == 24 || event.keyCode == 69 || rawChars == "=" || rawChars == "+" || event.characters == "+")
+                let isMinus = (event.keyCode == 27 || event.keyCode == 78 || rawChars == "-" || rawChars == "_" || event.characters == "-")
+                
+                if isPlus {
+                    withAnimation(.easeInOut(duration: 0.15)) {
+                        _ = self.themeManager.increaseButtonZoom()
+                    }
+                    self.showToast("BUTTON SIZE: \(self.themeManager.buttonZoom.title) (\(String(format: "%.1fx", self.themeManager.buttonZoom.scaleFactor)))")
+                    return nil
+                } else if isMinus {
+                    withAnimation(.easeInOut(duration: 0.15)) {
+                        _ = self.themeManager.decreaseButtonZoom()
+                    }
+                    self.showToast("BUTTON SIZE: \(self.themeManager.buttonZoom.title) (\(String(format: "%.1fx", self.themeManager.buttonZoom.scaleFactor)))")
+                    return nil
+                }
+            }
+            
+            // If any modal is active, block background player controls
+            if self.showShortcutsModal || self.showThemeModal || self.showUserGuide || self.showFeedbackModal || self.updateManager.showModal || self.showPropertiesModal || self.showAddNoteModal {
+                return event
+            }
             
             // 1. Global Tab Switching Shortcuts: Shift + 1, Shift + 2, Shift + 3
             if isShift && !isCommand && !isControl && !isOption {

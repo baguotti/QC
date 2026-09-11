@@ -47,9 +47,9 @@ struct ExposureScrubberView: View {
                 }
             }) {
                 Image(systemName: "camera.aperture")
-                    .font(.system(size: 12, weight: .semibold))
+                    .font(.system(size: StudioTheme.scaleFont(12), weight: .semibold))
                     .foregroundColor(iconColor)
-                    .frame(width: 22, height: 26)
+                    .frame(width: StudioTheme.scale(22), height: StudioTheme.scale(26))
                     .contentShape(Rectangle())
             }
             .buttonStyle(TransportIconButtonStyle())
@@ -57,9 +57,9 @@ struct ExposureScrubberView: View {
             
             // Drag-Scrub Number
             Text(formattedEV)
-                .font(.system(size: 11, weight: .bold, design: .monospaced))
+                .font(.system(size: StudioTheme.scaleFont(11), weight: .bold, design: .monospaced))
                 .foregroundColor(scrubberBlue)
-                .frame(height: 26)
+                .frame(height: StudioTheme.scale(26))
                 .contentShape(Rectangle())
                 .gesture(
                     DragGesture(minimumDistance: 1)
@@ -125,6 +125,7 @@ public struct PlayerQueueFileRowView: View, Equatable {
     public let displayMode: String
     public let thumbnailSize: Double
     public let themeId: String
+    public var buttonZoom: UIButtonZoomLevel = ThemeManager.shared.buttonZoom
     public var hoverExplanation: Binding<String>?
     
     // Callbacks
@@ -137,6 +138,7 @@ public struct PlayerQueueFileRowView: View, Equatable {
     
     public nonisolated static func == (lhs: PlayerQueueFileRowView, rhs: PlayerQueueFileRowView) -> Bool {
         MainActor.assumeIsolated {
+            lhs.buttonZoom == rhs.buttonZoom &&
             lhs.url == rhs.url &&
             lhs.depth == rhs.depth &&
             lhs.isSlotA == rhs.isSlotA &&
@@ -155,6 +157,8 @@ public struct PlayerQueueFileRowView: View, Equatable {
             lhs.themeId == rhs.themeId
         }
     }
+    
+    @ObservedObject private var themeManager = ThemeManager.shared
     
     private var bgSubtle: Color { StudioTheme.bgSubtle(isLightMode) }
     private var borderLine: Color { StudioTheme.borderLine(isLightMode) }
@@ -186,7 +190,7 @@ public struct PlayerQueueFileRowView: View, Equatable {
         }()
         
         let thumbHeight = round(CGFloat(thumbnailSize) * 9.0 / 16.0)
-        let rowHeight: CGFloat = (displayMode == "inline" ? 28 : (displayMode == "large" ? 64 : max(32, thumbHeight + 14)))
+        let rowHeight: CGFloat = (displayMode == "inline" ? StudioTheme.scale(28) : (displayMode == "large" ? StudioTheme.scale(64) : max(StudioTheme.scale(32), thumbHeight + StudioTheme.scale(14))))
         
         HStack(spacing: 6) {
             Button(action: {
@@ -428,20 +432,20 @@ public struct PlayerQueueFileRowView: View, Equatable {
     
     @ViewBuilder
     private var queueActionButtons: some View {
-        HStack(spacing: 4) {
+        HStack(spacing: StudioTheme.scale(4)) {
             if isSlotA {
                 Text("A: MASTER")
-                    .font(.system(size: 8, weight: .black, design: .monospaced))
-                    .padding(.horizontal, 5)
-                    .padding(.vertical, displayMode == "inline" ? 2 : 3)
+                    .font(.system(size: StudioTheme.scaleFont(8), weight: .black, design: .monospaced))
+                    .padding(.horizontal, StudioTheme.scale(5))
+                    .padding(.vertical, displayMode == "inline" ? StudioTheme.scale(2) : StudioTheme.scale(3))
                     .foregroundColor(accentPositive)
                     .studioBox(background: accentPositive.opacity(0.18), border: accentPositive.opacity(0.8))
             } else {
                 Button(action: { onLoadVideo(url, .slotA) }) {
                     Text("+A")
-                        .font(.system(size: 8, weight: .bold, design: .monospaced))
-                        .padding(.horizontal, 4)
-                        .padding(.vertical, displayMode == "inline" ? 1 : 2)
+                        .font(.system(size: StudioTheme.scaleFont(8), weight: .bold, design: .monospaced))
+                        .padding(.horizontal, StudioTheme.scale(4))
+                        .padding(.vertical, displayMode == "inline" ? StudioTheme.scale(1) : StudioTheme.scale(2))
                         .foregroundColor(textMuted)
                         .studioBox(background: bgSubtle, border: borderLine)
                 }
@@ -450,18 +454,18 @@ public struct PlayerQueueFileRowView: View, Equatable {
             }
             
             if isSlotB {
-                HStack(spacing: 2) {
+                HStack(spacing: StudioTheme.scale(2)) {
                     Text("B: COMPARE")
-                        .font(.system(size: 8, weight: .black, design: .monospaced))
-                        .padding(.horizontal, 5)
-                        .padding(.vertical, displayMode == "inline" ? 2 : 3)
+                        .font(.system(size: StudioTheme.scaleFont(8), weight: .black, design: .monospaced))
+                        .padding(.horizontal, StudioTheme.scale(5))
+                        .padding(.vertical, displayMode == "inline" ? StudioTheme.scale(2) : StudioTheme.scale(3))
                         .foregroundColor(accentSlotB)
                         .studioBox(background: accentSlotB.opacity(0.18), border: accentSlotB.opacity(0.8))
                     
                     Button(action: { onClearSlotB() }) {
                         Image(systemName: "xmark")
-                            .font(.system(size: 7, weight: .bold))
-                            .frame(width: 14, height: 14)
+                            .font(.system(size: StudioTheme.scaleFont(7), weight: .bold))
+                            .frame(width: StudioTheme.scale(14), height: StudioTheme.scale(14))
                             .foregroundColor(textMuted)
                     }
                     .buttonStyle(.plain)
@@ -470,9 +474,9 @@ public struct PlayerQueueFileRowView: View, Equatable {
             } else {
                 Button(action: { onLoadVideo(url, .slotB) }) {
                     Text("+B")
-                        .font(.system(size: 8, weight: .bold, design: .monospaced))
-                        .padding(.horizontal, 4)
-                        .padding(.vertical, displayMode == "inline" ? 1 : 2)
+                        .font(.system(size: StudioTheme.scaleFont(8), weight: .bold, design: .monospaced))
+                        .padding(.horizontal, StudioTheme.scale(4))
+                        .padding(.vertical, displayMode == "inline" ? StudioTheme.scale(1) : StudioTheme.scale(2))
                         .foregroundColor(textMuted)
                         .studioBox(background: bgSubtle, border: borderLine)
                 }
@@ -480,7 +484,7 @@ public struct PlayerQueueFileRowView: View, Equatable {
                 .explain("Load as Slot B (Compare / ⌥+Click)", binding: hoverExplanation)
             }
         }
-        .padding(.trailing, 6)
+        .padding(.trailing, StudioTheme.scale(6))
     }
 }
 
@@ -489,6 +493,7 @@ public struct PlayerQueueFileRowView: View, Equatable {
 public struct PlayerQueuePanelView: View, Equatable {
     public var isLightMode: Bool
     public var themeId: String
+    public var buttonZoom: UIButtonZoomLevel = ThemeManager.shared.buttonZoom
     public var folderURL: URL?
     public var videoFiles: [URL]
     public var playerTreeNodes: [FileSystemTreeNode]
@@ -535,6 +540,7 @@ public struct PlayerQueuePanelView: View, Equatable {
     
     public nonisolated static func == (lhs: PlayerQueuePanelView, rhs: PlayerQueuePanelView) -> Bool {
         MainActor.assumeIsolated {
+            lhs.buttonZoom == rhs.buttonZoom &&
             lhs.isLightMode == rhs.isLightMode &&
             lhs.themeId == rhs.themeId &&
             lhs.folderURL == rhs.folderURL &&
@@ -559,6 +565,8 @@ public struct PlayerQueuePanelView: View, Equatable {
             lhs.queueScrollTarget == rhs.queueScrollTarget
         }
     }
+    
+    @ObservedObject private var themeManager = ThemeManager.shared
     
     private var bgMain: Color { StudioTheme.bgMain(isLightMode) }
     private var bgPanel: Color { StudioTheme.bgPanel(isLightMode) }
@@ -644,15 +652,15 @@ public struct PlayerQueuePanelView: View, Equatable {
             
             // Asset List
             VStack(alignment: .leading, spacing: 6) {
-                HStack(spacing: 5) {
+                HStack(spacing: StudioTheme.scale(5)) {
                     Text("QUEUE (\(filteredFiles.count))")
-                        .font(.system(size: 10, weight: .black, design: .monospaced))
+                        .font(.system(size: StudioTheme.scaleFont(10), weight: .black, design: .monospaced))
                         .foregroundColor(textMuted)
                     
                     if hasSubfolders && !hideAllFolders {
                         Button(action: onToggleAllPlayerFolders) {
                             Image(systemName: playerCollapsedFolderIDs.isEmpty ? "chevron.down.circle" : "chevron.right.circle")
-                                .font(.system(size: 10, weight: .bold))
+                                .font(.system(size: StudioTheme.scaleFont(10), weight: .bold))
                                 .foregroundColor(textMuted)
                         }
                         .buttonStyle(.plain)
@@ -663,14 +671,14 @@ public struct PlayerQueuePanelView: View, Equatable {
                     
                     // View Mode Options Popover (Thumbnail View / List View / Thumbnail Size Slider)
                     Button(action: { showViewOptionsPopover.toggle() }) {
-                        HStack(spacing: 3) {
+                        HStack(spacing: StudioTheme.scale(3)) {
                             Image(systemName: queueDisplayMode == "thumbnail" ? "square.grid.2x2" : "list.bullet")
-                                .font(.system(size: 8, weight: .bold))
+                                .font(.system(size: StudioTheme.scaleFont(8), weight: .bold))
                             Image(systemName: "chevron.down")
-                                .font(.system(size: 6, weight: .bold))
+                                .font(.system(size: StudioTheme.scaleFont(6), weight: .bold))
                         }
-                        .padding(.horizontal, 5)
-                        .frame(height: 18)
+                        .padding(.horizontal, StudioTheme.scale(5))
+                        .frame(height: StudioTheme.scale(18))
                         .foregroundColor(textMain)
                         .studioBox(
                             background: showViewOptionsPopover ? (isLightMode ? Color.white : bgCardHeader) : bgSubtle,
@@ -687,14 +695,14 @@ public struct PlayerQueuePanelView: View, Equatable {
                     let isHidden = hideAllFolders || !hiddenFolderIDs.isEmpty
                     let canToggle = hasSubfolders || !videoFiles.isEmpty
                     Button(action: onToggleHideFolders) {
-                        HStack(spacing: 3) {
+                        HStack(spacing: StudioTheme.scale(3)) {
                             Image(systemName: isHidden ? "folder" : "folder.badge.minus")
-                                .font(.system(size: 7.5, weight: .bold))
+                                .font(.system(size: StudioTheme.scaleFont(7.5), weight: .bold))
                             SlotText(
                                 isHidden ? "SHOW" : "HIDE",
                                 mode: .character,
                                 direction: .up,
-                                font: .system(size: 8, weight: .black, design: .monospaced),
+                                font: .system(size: StudioTheme.scaleFont(8), weight: .black, design: .monospaced),
                                 foregroundColor: canToggle ? (isHidden ? accentBlue : textMain) : textSubtle,
                                 tracking: 0.3,
                                 stagger: 0.018,
@@ -702,8 +710,8 @@ public struct PlayerQueuePanelView: View, Equatable {
                                 trigger: isHidden
                             )
                         }
-                        .padding(.horizontal, 4)
-                        .frame(height: 18)
+                        .padding(.horizontal, StudioTheme.scale(4))
+                        .frame(height: StudioTheme.scale(18))
                         .foregroundColor(canToggle ? (isHidden ? accentBlue : textMain) : textSubtle)
                         .studioBox(
                             background: isHidden ? accentBlue.opacity(0.18) : bgSubtle,
@@ -716,14 +724,14 @@ public struct PlayerQueuePanelView: View, Equatable {
                     
                     // Autoplay Toggle Button
                     Button(action: onToggleAutoplay) {
-                        HStack(spacing: 3) {
+                        HStack(spacing: StudioTheme.scale(3)) {
                             Image(systemName: isAutoplayEnabled ? "play.fill" : "play.slash.fill")
-                                .font(.system(size: 7, weight: .bold))
+                                .font(.system(size: StudioTheme.scaleFont(7), weight: .bold))
                             SlotText(
                                 "AUTO",
                                 mode: .character,
                                 direction: .up,
-                                font: .system(size: 8, weight: .black, design: .monospaced),
+                                font: .system(size: StudioTheme.scaleFont(8), weight: .black, design: .monospaced),
                                 foregroundColor: isAutoplayEnabled ? accentPositive : textMuted,
                                 tracking: 0.3,
                                 stagger: 0.018,
@@ -731,8 +739,8 @@ public struct PlayerQueuePanelView: View, Equatable {
                                 trigger: isAutoplayEnabled
                             )
                         }
-                        .padding(.horizontal, 4)
-                        .frame(height: 18)
+                        .padding(.horizontal, StudioTheme.scale(4))
+                        .frame(height: StudioTheme.scale(18))
                         .foregroundColor(isAutoplayEnabled ? accentPositive : textMuted)
                         .studioBox(background: isAutoplayEnabled ? accentPositive.opacity(0.18) : bgSubtle,
                                    border: isAutoplayEnabled ? accentPositive : borderLine)
@@ -832,20 +840,20 @@ public struct PlayerQueuePanelView: View, Equatable {
                     .tracking(1.0)
             }
             
-            VStack(alignment: .leading, spacing: 8) {
+            VStack(alignment: .leading, spacing: StudioTheme.scale(8)) {
                 // Action Toolbar: SELECT/CHANGE, ADD, HIDE/SHOW, plus trailing Asset Count
-                HStack(spacing: 5) {
+                HStack(spacing: StudioTheme.scale(5)) {
                     let isSelectEmpty = (folderURL == nil && videoFiles.isEmpty)
                     Button(action: { onSelectAssets(false) }) {
-                        HStack(spacing: 4) {
+                        HStack(spacing: StudioTheme.scale(4)) {
                             Image(systemName: isSelectEmpty ? "folder.badge.plus" : "arrow.triangle.2.circlepath")
-                                .font(.system(size: 9, weight: .bold))
+                                .font(.system(size: StudioTheme.scaleFont(9), weight: .bold))
                             Text(isSelectEmpty ? "SELECT" : "CHANGE")
-                                .font(.system(size: 9, weight: .bold, design: .monospaced))
+                                .font(.system(size: StudioTheme.scaleFont(9), weight: .bold, design: .monospaced))
                                 .lineLimit(1)
                         }
-                        .padding(.horizontal, 9)
-                        .frame(height: 24)
+                        .padding(.horizontal, StudioTheme.scale(9))
+                        .frame(height: StudioTheme.scale(24))
                         .foregroundColor(isSelectEmpty ? accentBlue : textMain)
                         .studioBox(
                             background: isSelectEmpty ? accentBlue.opacity(0.12) : bgSubtle,
@@ -857,15 +865,15 @@ public struct PlayerQueuePanelView: View, Equatable {
                     .explain(isSelectEmpty ? "Opens file picker to select video files or a folder to inspect." : "Replaces currently loaded assets with a new folder or file selection.", binding: hoverExplanation)
                     
                     Button(action: { onSelectAssets(true) }) {
-                        HStack(spacing: 4) {
+                        HStack(spacing: StudioTheme.scale(4)) {
                             Image(systemName: "plus")
-                                .font(.system(size: 9, weight: .bold))
+                                .font(.system(size: StudioTheme.scaleFont(9), weight: .bold))
                             Text("ADD")
-                                .font(.system(size: 9, weight: .bold, design: .monospaced))
+                                .font(.system(size: StudioTheme.scaleFont(9), weight: .bold, design: .monospaced))
                                 .lineLimit(1)
                         }
-                        .padding(.horizontal, 8)
-                        .frame(height: 24)
+                        .padding(.horizontal, StudioTheme.scale(8))
+                        .frame(height: StudioTheme.scale(24))
                         .foregroundColor(textMain)
                         .studioBox(background: bgSubtle, border: borderLine)
                     }
@@ -875,15 +883,15 @@ public struct PlayerQueuePanelView: View, Equatable {
                     
                     let canRefresh = (folderURL != nil || !videoFiles.isEmpty)
                     Button(action: onRefreshAssets) {
-                        HStack(spacing: 4) {
+                        HStack(spacing: StudioTheme.scale(4)) {
                             Image(systemName: "arrow.clockwise")
-                                .font(.system(size: 9, weight: .bold))
+                                .font(.system(size: StudioTheme.scaleFont(9), weight: .bold))
                             Text("REFRESH")
-                                .font(.system(size: 9, weight: .bold, design: .monospaced))
+                                .font(.system(size: StudioTheme.scaleFont(9), weight: .bold, design: .monospaced))
                                 .lineLimit(1)
                         }
-                        .padding(.horizontal, 8)
-                        .frame(height: 24)
+                        .padding(.horizontal, StudioTheme.scale(8))
+                        .frame(height: StudioTheme.scale(24))
                         .foregroundColor(canRefresh ? textMain : textSubtle)
                         .studioBox(background: bgSubtle, border: borderLine)
                     }
@@ -894,16 +902,16 @@ public struct PlayerQueuePanelView: View, Equatable {
                     Spacer(minLength: 4)
                     
                     if !videoFiles.isEmpty {
-                        HStack(spacing: 4) {
+                        HStack(spacing: StudioTheme.scale(4)) {
                             Circle()
                                 .fill(accentPositive)
-                                .frame(width: 5, height: 5)
+                                .frame(width: StudioTheme.scale(5), height: StudioTheme.scale(5))
                             Text("\(videoFiles.count) \(videoFiles.count == 1 ? "FILE" : "FILES")")
-                                .font(.system(size: 9, weight: .bold, design: .monospaced))
+                                .font(.system(size: StudioTheme.scaleFont(9), weight: .bold, design: .monospaced))
                                 .foregroundColor(textMuted)
                         }
-                        .padding(.horizontal, 7)
-                        .frame(height: 24)
+                        .padding(.horizontal, StudioTheme.scale(7))
+                        .frame(height: StudioTheme.scale(24))
                         .studioBox(background: bgSubtle.opacity(0.4), border: borderLine.opacity(0.6))
                     }
                 }
@@ -1024,6 +1032,7 @@ public struct PlayerQueuePanelView: View, Equatable {
             displayMode: queueDisplayMode,
             thumbnailSize: playerThumbnailSize,
             themeId: themeId,
+            buttonZoom: buttonZoom,
             hoverExplanation: hoverExplanation,
             onLoadVideo: onLoadVideo,
             onClearSlotB: onClearSlotB,
@@ -1182,6 +1191,7 @@ extension ContentView {
         PlayerQueuePanelView(
             isLightMode: isLightMode,
             themeId: themeManager.currentTheme.id,
+            buttonZoom: themeManager.buttonZoom,
             folderURL: folderURL,
             videoFiles: videoFiles,
             playerTreeNodes: playerTreeNodes,
@@ -1303,7 +1313,7 @@ extension ContentView {
                 VStack(spacing: 8) {
                     // Timecode, Play Info & Zoom (centered above timeline)
                     playerTimecodeBar
-                        .frame(height: 24)
+                        .frame(height: StudioTheme.scale(24))
                     
                     // Timeline Scrubber
                     TimelineScrubberView(engine: playerEngine, isLightMode: isLightMode)
@@ -1312,7 +1322,7 @@ extension ContentView {
                     
                     // Transport Strip
                     playerTransportBar
-                        .frame(height: 28)
+                        .frame(height: StudioTheme.scale(28))
                 }
                 .padding(.horizontal, 16)
                 .padding(.vertical, 12)
@@ -1362,7 +1372,7 @@ extension ContentView {
         HStack(spacing: 12) {
             if playerEngine.slotB.url != nil {
                 Color.clear
-                    .frame(width: 60, height: 26)
+                    .frame(width: StudioTheme.scale(60), height: StudioTheme.scale(26))
                 
                 Spacer()
                 
@@ -1397,8 +1407,8 @@ extension ContentView {
                 // Review Fullscreen Button
                 Button(action: { enterFullscreen(mode: .review) }) {
                     Image(systemName: "rectangle.inset.filled.and.cursorarrow")
-                        .font(.system(size: 12, weight: .bold))
-                        .frame(width: 28, height: 26)
+                        .font(.system(size: StudioTheme.scaleFont(12), weight: .bold))
+                        .frame(width: StudioTheme.scale(28), height: StudioTheme.scale(26))
                         .foregroundColor(playerEngine.activeURL == nil ? textMuted : textMain)
                         .contentShape(Rectangle())
                 }
@@ -1409,8 +1419,8 @@ extension ContentView {
                 // Clean Video Fullscreen Button
                 Button(action: { enterFullscreen(mode: .videoOnly) }) {
                     Image(systemName: "arrow.up.left.and.arrow.down.right")
-                        .font(.system(size: 12, weight: .bold))
-                        .frame(width: 28, height: 26)
+                        .font(.system(size: StudioTheme.scaleFont(12), weight: .bold))
+                        .frame(width: StudioTheme.scale(28), height: StudioTheme.scale(26))
                         .foregroundColor(playerEngine.activeURL == nil ? textMuted : textMain)
                         .contentShape(Rectangle())
                 }
@@ -1418,7 +1428,7 @@ extension ContentView {
                 .disabled(playerEngine.activeURL == nil)
                 .explain("Clean Video Fullscreen with zero UI (F). Press ESC to exit.", binding: $hoverExplanation)
             }
-            .frame(width: 60, alignment: .trailing)
+            .frame(width: StudioTheme.scale(60), alignment: .trailing)
         }
     }
     
@@ -1435,16 +1445,16 @@ extension ContentView {
     
     // 1. Compact Review Notes Controls: [+ NOTE] and < 💬 count >
     private var playerNotesGroup: some View {
-        HStack(spacing: 2) {
+        HStack(spacing: StudioTheme.scale(2)) {
             Button(action: { openAddNoteModal() }) {
-                HStack(spacing: 3) {
+                HStack(spacing: StudioTheme.scale(3)) {
                     Image(systemName: "plus")
-                        .font(.system(size: 9, weight: .bold))
+                        .font(.system(size: StudioTheme.scaleFont(9), weight: .bold))
                     Text("NOTE")
-                        .font(.system(size: 9, weight: .bold, design: .monospaced))
+                        .font(.system(size: StudioTheme.scaleFont(9), weight: .bold, design: .monospaced))
                 }
-                .frame(height: 24)
-                .padding(.horizontal, 5)
+                .frame(height: StudioTheme.scale(24))
+                .padding(.horizontal, StudioTheme.scale(5))
                 .foregroundColor(playerEngine.activeURL == nil ? textMuted : textMain)
                 .contentShape(Rectangle())
             }
@@ -1458,8 +1468,8 @@ extension ContentView {
             HStack(spacing: 1) {
                 Button(action: { playerEngine.jumpToPreviousNote() }) {
                     Image(systemName: "chevron.left.to.line")
-                        .font(.system(size: 9, weight: .bold))
-                        .frame(width: 18, height: 24)
+                        .font(.system(size: StudioTheme.scaleFont(9), weight: .bold))
+                        .frame(width: StudioTheme.scale(18), height: StudioTheme.scale(24))
                         .foregroundColor(hasNotes ? textMain : textMuted)
                         .contentShape(Rectangle())
                 }
@@ -1474,16 +1484,16 @@ extension ContentView {
                 }) {
                     HStack(spacing: 3) {
                         Image(systemName: showNotesDrawer ? "text.bubble.fill" : "text.bubble")
-                            .font(.system(size: 9, weight: .semibold))
+                            .font(.system(size: StudioTheme.scaleFont(9), weight: .semibold))
                         SlotText(
                             hasNotes ? "\(notesCount)" : "NOTES",
                             mode: hasNotes ? .character : .word,
                             direction: .up,
-                            font: .system(size: 9, weight: .bold, design: .monospaced),
+                            font: .system(size: StudioTheme.scaleFont(9), weight: .bold, design: .monospaced),
                             foregroundColor: showNotesDrawer ? accentBlue : (hasNotes ? textMain : textMuted)
                         )
                     }
-                    .frame(height: 24)
+                    .frame(height: StudioTheme.scale(24))
                     .padding(.horizontal, 4)
                     .foregroundColor(showNotesDrawer ? accentBlue : (hasNotes ? textMain : textMuted))
                     .contentShape(Rectangle())
@@ -1494,8 +1504,8 @@ extension ContentView {
                 
                 Button(action: { playerEngine.jumpToNextNote() }) {
                     Image(systemName: "chevron.right.to.line")
-                        .font(.system(size: 9, weight: .bold))
-                        .frame(width: 18, height: 24)
+                        .font(.system(size: StudioTheme.scaleFont(9), weight: .bold))
+                        .frame(width: StudioTheme.scale(18), height: StudioTheme.scale(24))
                         .foregroundColor(hasNotes ? textMain : textMuted)
                         .contentShape(Rectangle())
                 }
@@ -1550,8 +1560,8 @@ extension ContentView {
         return HStack(spacing: 1) {
             Button(action: { jumpToPreviousGlitchFinding() }) {
                 Image(systemName: "chevron.left.to.line")
-                    .font(.system(size: 9, weight: .bold))
-                    .frame(width: 18, height: 24)
+                    .font(.system(size: StudioTheme.scaleFont(9), weight: .bold))
+                    .frame(width: StudioTheme.scale(18), height: StudioTheme.scale(24))
                     .foregroundColor(hasGlitches ? alertRed : textMuted)
                     .contentShape(Rectangle())
             }
@@ -1563,14 +1573,14 @@ extension ContentView {
             )
             
             Text("LINE")
-                .font(.system(size: 9, weight: .bold, design: .monospaced))
+                .font(.system(size: StudioTheme.scaleFont(9), weight: .bold, design: .monospaced))
                 .foregroundColor(hasGlitches ? alertRed : textMuted)
                 .padding(.horizontal, 3)
             
             Button(action: { jumpToNextGlitchFinding() }) {
                 Image(systemName: "chevron.right.to.line")
-                    .font(.system(size: 9, weight: .bold))
-                    .frame(width: 18, height: 24)
+                    .font(.system(size: StudioTheme.scaleFont(9), weight: .bold))
+                    .frame(width: StudioTheme.scale(18), height: StudioTheme.scale(24))
                     .foregroundColor(hasGlitches ? alertRed : textMuted)
                     .contentShape(Rectangle())
             }
@@ -1594,15 +1604,15 @@ extension ContentView {
                 if let tag = activeTag {
                     Circle()
                         .fill(tag.color)
-                        .frame(width: 7, height: 7)
+                        .frame(width: StudioTheme.scale(7), height: StudioTheme.scale(7))
                 } else {
                     Image(systemName: "tag.fill")
-                        .font(.system(size: 9, weight: .bold))
+                        .font(.system(size: StudioTheme.scaleFont(9), weight: .bold))
                 }
                 Text("TAGS")
-                    .font(.system(size: 9, weight: .bold, design: .monospaced))
+                    .font(.system(size: StudioTheme.scaleFont(9), weight: .bold, design: .monospaced))
             }
-            .frame(height: 24)
+            .frame(height: StudioTheme.scale(24))
             .padding(.horizontal, 5)
             .foregroundColor(activeTag?.color ?? (activeURL == nil ? textMuted : textMain.opacity(0.85)))
             .contentShape(Rectangle())
@@ -1691,7 +1701,7 @@ extension ContentView {
     
     private var playerTransportBar: some View {
         HStack(spacing: 0) {
-            // Left: Audio Volume & Mute (Fixed 210px width - matches 210px on right)
+            // Left: Audio Volume & Mute (Fixed proportional width - matches right)
             HStack(spacing: 8) {
                 let speakerIcon: String = {
                     if playerEngine.isMuted || playerEngine.volume <= 0.001 {
@@ -1707,23 +1717,23 @@ extension ContentView {
                 
                 Button(action: { playerEngine.isMuted.toggle() }) {
                     Image(systemName: speakerIcon)
-                        .font(.system(size: 11))
+                        .font(.system(size: StudioTheme.scaleFont(11)))
                         .foregroundColor(playerEngine.isMuted ? alertRed : textMain)
-                        .frame(width: 18, height: 18, alignment: .center)
+                        .frame(width: StudioTheme.scale(18), height: StudioTheme.scale(18), alignment: .center)
                 }
                 .buttonStyle(TransportIconButtonStyle())
-                .frame(width: 18, height: 18)
+                .frame(width: StudioTheme.scale(18), height: StudioTheme.scale(18))
                 .explain(playerEngine.isMuted ? "Unmute audio" : "Mute audio", binding: $hoverExplanation)
                 
                 Slider(value: Binding(
                     get: { Double(playerEngine.volume) },
                     set: { playerEngine.volume = Float($0) }
                 ), in: 0...1)
-                .frame(width: 70)
+                .frame(width: StudioTheme.scale(70))
                 .tint(accentBlue)
                 .disabled(playerEngine.isMuted)
             }
-            .frame(width: 210, alignment: .leading)
+            .frame(width: StudioTheme.scale(210), alignment: .leading)
             
             Spacer()
             
@@ -1741,9 +1751,9 @@ extension ContentView {
             
             // Right: Balanced spacer to keep center transport deck dead-centered
             Spacer()
-                .frame(width: 210)
+                .frame(width: StudioTheme.scale(210))
         }
-        .frame(height: 28)
+        .frame(height: StudioTheme.scale(28))
     }
     
     var hasPlayerSubfolders: Bool {
@@ -1979,6 +1989,7 @@ extension ContentView {
 
 struct PlayerComparisonBar: View {
     @ObservedObject var engine: PlayerEngine
+    @ObservedObject private var themeManager = ThemeManager.shared
     var isLightMode: Bool = false
     var hoverExplanation: Binding<String>? = nil
     var onInteraction: (() -> Void)? = nil
@@ -1992,9 +2003,9 @@ struct PlayerComparisonBar: View {
     private var alertRed: Color { StudioTheme.negative }
     
     var body: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: StudioTheme.scale(8)) {
             // Group 1: Comparison View Modes (Icons, no boxes)
-            HStack(spacing: 4) {
+            HStack(spacing: StudioTheme.scale(4)) {
                 modeBtn(mode: .single, icon: "rectangle", helpText: "Single Mode: Display Slot A Master video in full viewport.")
                 modeBtn(mode: .splitVertical, icon: "rectangle.split.2x1", helpText: "Split Wipe (Vertical): Interactive vertical split divider comparing Slot A and Slot B.")
                 modeBtn(mode: .splitHorizontal, icon: "rectangle.split.1x2", helpText: "Split Wipe (Horizontal): Interactive horizontal split divider comparing Slot A and Slot B.")
@@ -2006,19 +2017,19 @@ struct PlayerComparisonBar: View {
             
             Rectangle()
                 .fill(borderLine.opacity(0.6))
-                .frame(width: 1, height: 14)
-                .padding(.horizontal, 2)
+                .frame(width: 1, height: StudioTheme.scale(14))
+                .padding(.horizontal, StudioTheme.scale(2))
             
             // Group 2: Playback Sync & Audio Solo (Icons, no boxes)
-            HStack(spacing: 4) {
+            HStack(spacing: StudioTheme.scale(4)) {
                 // Gang Link Toggle
                 Button(action: {
                     engine.isLinked.toggle()
                     onInteraction?()
                 }) {
                     Image(systemName: "link")
-                        .font(.system(size: 12, weight: .bold))
-                        .frame(width: 26, height: 26)
+                        .font(.system(size: StudioTheme.scaleFont(12), weight: .bold))
+                        .frame(width: StudioTheme.scale(26), height: StudioTheme.scale(26))
                         .foregroundColor(engine.isLinked ? textMain : textMuted)
                         .contentShape(Rectangle())
                 }
@@ -2030,14 +2041,14 @@ struct PlayerComparisonBar: View {
                     engine.audioSlot = (engine.audioSlot == .slotA ? .slotB : .slotA)
                     onInteraction?()
                 }) {
-                    HStack(spacing: 3) {
+                    HStack(spacing: StudioTheme.scale(3)) {
                         Image(systemName: "speaker.wave.2.fill")
-                            .font(.system(size: 11, weight: .bold))
+                            .font(.system(size: StudioTheme.scaleFont(11), weight: .bold))
                         Text(engine.audioSlot == .slotA ? "A" : "B")
-                            .font(.system(size: 9, weight: .black, design: .monospaced))
+                            .font(.system(size: StudioTheme.scaleFont(9), weight: .black, design: .monospaced))
                     }
-                    .frame(height: 26)
-                    .padding(.horizontal, 4)
+                    .frame(height: StudioTheme.scale(26))
+                    .padding(.horizontal, StudioTheme.scale(4))
                     .foregroundColor(engine.audioSlot == .slotA ? accentPositive : accentSlotB)
                     .contentShape(Rectangle())
                 }
@@ -2047,19 +2058,19 @@ struct PlayerComparisonBar: View {
             
             Rectangle()
                 .fill(borderLine.opacity(0.6))
-                .frame(width: 1, height: 14)
-                .padding(.horizontal, 2)
+                .frame(width: 1, height: StudioTheme.scale(14))
+                .padding(.horizontal, StudioTheme.scale(2))
             
             // Group 4: Slot Operations (Swap / Toggle Clip Names / Clear, Border-free)
-            HStack(spacing: 4) {
+            HStack(spacing: StudioTheme.scale(4)) {
                 // Swap Button (Grey icon)
                 Button(action: {
                     engine.swapSlots()
                     onInteraction?()
                 }) {
                     Image(systemName: "arrow.left.arrow.right")
-                        .font(.system(size: 11, weight: .bold))
-                        .frame(width: 26, height: 26)
+                        .font(.system(size: StudioTheme.scaleFont(11), weight: .bold))
+                        .frame(width: StudioTheme.scale(26), height: StudioTheme.scale(26))
                         .foregroundColor(textMuted)
                         .contentShape(Rectangle())
                 }
@@ -2074,8 +2085,8 @@ struct PlayerComparisonBar: View {
                     onInteraction?()
                 }) {
                     Image(systemName: engine.clipInfoOverlayMode == .detailed ? "info.circle.fill" : "character.textbox")
-                        .font(.system(size: 11, weight: .bold))
-                        .frame(width: 26, height: 26)
+                        .font(.system(size: StudioTheme.scaleFont(11), weight: .bold))
+                        .frame(width: StudioTheme.scale(26), height: StudioTheme.scale(26))
                         .foregroundColor(engine.clipInfoOverlayMode != .hide ? textMain : textMuted)
                         .contentShape(Rectangle())
                 }
@@ -2087,14 +2098,14 @@ struct PlayerComparisonBar: View {
                     engine.clearSlotB()
                     onInteraction?()
                 }) {
-                    HStack(spacing: 4) {
+                    HStack(spacing: StudioTheme.scale(4)) {
                         Image(systemName: "xmark")
-                            .font(.system(size: 9, weight: .bold))
+                            .font(.system(size: StudioTheme.scaleFont(9), weight: .bold))
                         Text("CLEAR B")
-                            .font(.system(size: 9, weight: .bold, design: .monospaced))
+                            .font(.system(size: StudioTheme.scaleFont(9), weight: .bold, design: .monospaced))
                     }
-                    .frame(height: 26)
-                    .padding(.horizontal, 4)
+                    .frame(height: StudioTheme.scale(26))
+                    .padding(.horizontal, StudioTheme.scale(4))
                     .foregroundColor(alertRed)
                     .contentShape(Rectangle())
                 }
@@ -2156,13 +2167,13 @@ struct PlayerComparisonBar: View {
         }) {
             ZStack(alignment: .topTrailing) {
                 modeIconView(mode: mode, icon: icon, isActive: isActive)
-                    .frame(width: 26, height: 26)
+                    .frame(width: StudioTheme.scale(26), height: StudioTheme.scale(26))
                     .contentShape(Rectangle())
                     .opacity(isLocked ? 0.35 : 1.0)
                 
                 if isLocked {
                     Image(systemName: "lock.fill")
-                        .font(.system(size: 7, weight: .bold))
+                        .font(.system(size: StudioTheme.scaleFont(7), weight: .bold))
                         .foregroundColor(textMuted.opacity(0.85))
                         .offset(x: -1, y: 1)
                 }
@@ -2177,12 +2188,12 @@ struct PlayerComparisonBar: View {
         switch mode {
         case .single:
             Image(systemName: icon)
-                .font(.system(size: 13, weight: isActive ? .black : .bold))
+                .font(.system(size: StudioTheme.scaleFont(13), weight: isActive ? .black : .bold))
                 .foregroundColor(!isActive ? textMuted : (engine.isBlinkCompareB ? accentSlotB : accentPositive))
             
         case .splitVertical:
             ZStack {
-                RoundedRectangle(cornerRadius: 2)
+                RoundedRectangle(cornerRadius: StudioTheme.scale(2))
                     .strokeBorder(
                         isActive ? AnyShapeStyle(
                             LinearGradient(
@@ -2196,21 +2207,21 @@ struct PlayerComparisonBar: View {
                                 endPoint: .trailing
                             )
                         ) : AnyShapeStyle(textMuted),
-                        lineWidth: 1.3
+                        lineWidth: StudioTheme.scale(1.3)
                     )
                 
                 DottedVerticalLine()
                     .stroke(
                         isActive ? accentSlotB : textMuted,
-                        style: StrokeStyle(lineWidth: 1.25, dash: [2, 1.5])
+                        style: StrokeStyle(lineWidth: StudioTheme.scale(1.25), dash: [StudioTheme.scale(2), StudioTheme.scale(1.5)])
                     )
-                    .padding(.vertical, 1.5)
+                    .padding(.vertical, StudioTheme.scale(1.5))
             }
-            .frame(width: 16, height: 12)
+            .frame(width: StudioTheme.scale(16), height: StudioTheme.scale(12))
             
         case .splitHorizontal:
             ZStack {
-                RoundedRectangle(cornerRadius: 2)
+                RoundedRectangle(cornerRadius: StudioTheme.scale(2))
                     .strokeBorder(
                         isActive ? AnyShapeStyle(
                             LinearGradient(
@@ -2224,54 +2235,54 @@ struct PlayerComparisonBar: View {
                                 endPoint: .bottom
                             )
                         ) : AnyShapeStyle(textMuted),
-                        lineWidth: 1.3
+                        lineWidth: StudioTheme.scale(1.3)
                     )
                 
                 DottedHorizontalLine()
                     .stroke(
                         isActive ? accentSlotB : textMuted,
-                        style: StrokeStyle(lineWidth: 1.25, dash: [2, 1.5])
+                        style: StrokeStyle(lineWidth: StudioTheme.scale(1.25), dash: [StudioTheme.scale(2), StudioTheme.scale(1.5)])
                     )
-                    .padding(.horizontal, 1.5)
+                    .padding(.horizontal, StudioTheme.scale(1.5))
             }
-            .frame(width: 16, height: 12)
+            .frame(width: StudioTheme.scale(16), height: StudioTheme.scale(12))
             
         case .sideBySide:
-            HStack(spacing: 2) {
-                RoundedRectangle(cornerRadius: 1.5)
-                    .strokeBorder(isActive ? accentPositive : textMuted, lineWidth: 1.35)
-                    .background(RoundedRectangle(cornerRadius: 1.5).fill(isActive ? accentPositive.opacity(0.12) : Color.clear))
-                    .frame(width: 10, height: 8.5)
+            HStack(spacing: StudioTheme.scale(2)) {
+                RoundedRectangle(cornerRadius: StudioTheme.scale(1.5))
+                    .strokeBorder(isActive ? accentPositive : textMuted, lineWidth: StudioTheme.scale(1.35))
+                    .background(RoundedRectangle(cornerRadius: StudioTheme.scale(1.5)).fill(isActive ? accentPositive.opacity(0.12) : Color.clear))
+                    .frame(width: StudioTheme.scale(10), height: StudioTheme.scale(8.5))
                 
-                RoundedRectangle(cornerRadius: 1.5)
-                    .strokeBorder(isActive ? accentSlotB : textMuted, lineWidth: 1.35)
-                    .background(RoundedRectangle(cornerRadius: 1.5).fill(isActive ? accentSlotB.opacity(0.12) : Color.clear))
-                    .frame(width: 10, height: 8.5)
+                RoundedRectangle(cornerRadius: StudioTheme.scale(1.5))
+                    .strokeBorder(isActive ? accentSlotB : textMuted, lineWidth: StudioTheme.scale(1.35))
+                    .background(RoundedRectangle(cornerRadius: StudioTheme.scale(1.5)).fill(isActive ? accentSlotB.opacity(0.12) : Color.clear))
+                    .frame(width: StudioTheme.scale(10), height: StudioTheme.scale(8.5))
             }
-            .frame(width: 22, height: 14)
+            .frame(width: StudioTheme.scale(22), height: StudioTheme.scale(14))
             
         case .sideBySideVertical:
-            VStack(spacing: 2) {
-                RoundedRectangle(cornerRadius: 1.5)
-                    .strokeBorder(isActive ? accentPositive : textMuted, lineWidth: 1.35)
-                    .background(RoundedRectangle(cornerRadius: 1.5).fill(isActive ? accentPositive.opacity(0.12) : Color.clear))
-                    .frame(width: 10, height: 8.5)
+            VStack(spacing: StudioTheme.scale(2)) {
+                RoundedRectangle(cornerRadius: StudioTheme.scale(1.5))
+                    .strokeBorder(isActive ? accentPositive : textMuted, lineWidth: StudioTheme.scale(1.35))
+                    .background(RoundedRectangle(cornerRadius: StudioTheme.scale(1.5)).fill(isActive ? accentPositive.opacity(0.12) : Color.clear))
+                    .frame(width: StudioTheme.scale(10), height: StudioTheme.scale(8.5))
                 
-                RoundedRectangle(cornerRadius: 1.5)
-                    .strokeBorder(isActive ? accentSlotB : textMuted, lineWidth: 1.35)
-                    .background(RoundedRectangle(cornerRadius: 1.5).fill(isActive ? accentSlotB.opacity(0.12) : Color.clear))
-                    .frame(width: 10, height: 8.5)
+                RoundedRectangle(cornerRadius: StudioTheme.scale(1.5))
+                    .strokeBorder(isActive ? accentSlotB : textMuted, lineWidth: StudioTheme.scale(1.35))
+                    .background(RoundedRectangle(cornerRadius: StudioTheme.scale(1.5)).fill(isActive ? accentSlotB.opacity(0.12) : Color.clear))
+                    .frame(width: StudioTheme.scale(10), height: StudioTheme.scale(8.5))
             }
-            .frame(width: 16, height: 19)
+            .frame(width: StudioTheme.scale(16), height: StudioTheme.scale(19))
             
         case .difference:
             if !isActive {
                 Image(systemName: icon)
-                    .font(.system(size: 13, weight: .bold))
+                    .font(.system(size: StudioTheme.scaleFont(13), weight: .bold))
                     .foregroundColor(textMuted)
             } else {
                 Image(systemName: icon)
-                    .font(.system(size: 13, weight: .black))
+                    .font(.system(size: StudioTheme.scaleFont(13), weight: .black))
                     .foregroundStyle(
                         LinearGradient(
                             stops: [
@@ -2289,11 +2300,11 @@ struct PlayerComparisonBar: View {
         case .overlay:
             if !isActive {
                 Image(systemName: icon)
-                    .font(.system(size: 13, weight: .bold))
+                    .font(.system(size: StudioTheme.scaleFont(13), weight: .bold))
                     .foregroundColor(textMuted)
             } else {
                 Image(systemName: icon)
-                    .font(.system(size: 13, weight: .black))
+                    .font(.system(size: StudioTheme.scaleFont(13), weight: .black))
                     .foregroundStyle(
                         LinearGradient(
                             stops: [
@@ -2464,14 +2475,14 @@ struct FullscreenPlayerView: View {
                         openCompareFileInFullscreen()
                     }
                 } label: {
-                    HStack(spacing: 5) {
+                    HStack(spacing: StudioTheme.scale(5)) {
                         Image(systemName: "square.split.2x1")
-                            .font(.system(size: 10, weight: .bold))
+                            .font(.system(size: StudioTheme.scaleFont(10), weight: .bold))
                         Text("[ + COMPARE (B) ]")
-                            .font(.system(size: 11, weight: .bold, design: .monospaced))
+                            .font(.system(size: StudioTheme.scaleFont(11), weight: .bold, design: .monospaced))
                     }
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 6)
+                    .padding(.horizontal, StudioTheme.scale(10))
+                    .padding(.vertical, StudioTheme.scale(6))
                     .background(Color(white: 0.15).opacity(0.85))
                     .foregroundColor(accentSlotB)
                     .border(accentSlotB.opacity(0.6), width: 1)
@@ -2483,14 +2494,14 @@ struct FullscreenPlayerView: View {
             }
             
             Button(action: onExit) {
-                HStack(spacing: 6) {
+                HStack(spacing: StudioTheme.scale(6)) {
                     Image(systemName: "arrow.down.right.and.arrow.up.left")
-                        .font(.system(size: 10, weight: .bold))
+                        .font(.system(size: StudioTheme.scaleFont(10), weight: .bold))
                     Text("[ EXIT FULLSCREEN (ESC) ]")
-                        .font(.system(size: 11, weight: .bold, design: .monospaced))
+                        .font(.system(size: StudioTheme.scaleFont(11), weight: .bold, design: .monospaced))
                 }
-                .padding(.horizontal, 14)
-                .padding(.vertical, 8)
+                .padding(.horizontal, StudioTheme.scale(14))
+                .padding(.vertical, StudioTheme.scale(8))
                 .background(Color(white: 0.15).opacity(0.85))
                 .foregroundColor(.white)
                 .border(Color(white: 0.35), width: 1)
@@ -2632,8 +2643,8 @@ struct FullscreenPlayerView: View {
                     
                     Button(action: onExit) {
                         Image(systemName: "arrow.down.right.and.arrow.up.left")
-                            .font(.system(size: 11, weight: .bold))
-                            .frame(width: 32, height: 30)
+                            .font(.system(size: StudioTheme.scaleFont(11), weight: .bold))
+                            .frame(width: StudioTheme.scale(32), height: StudioTheme.scale(30))
                             .foregroundColor(.white)
                             .studioBox(background: Color(white: 0.15), border: Color(white: 0.35))
                     }
@@ -2642,7 +2653,7 @@ struct FullscreenPlayerView: View {
                 }
                 .frame(width: 280, alignment: .trailing)
             }
-            .frame(height: 32)
+            .frame(height: StudioTheme.scale(32))
         }
         .padding(.horizontal, 24)
         .padding(.top, 12)
