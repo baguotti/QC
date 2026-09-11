@@ -81,6 +81,12 @@ public final class PlayerContainerNSView: NSView {
     private let titleSafeLayerB = CAShapeLayer()
     private let tikTokOverlayLayerA = CALayer()
     private let tikTokOverlayLayerB = CALayer()
+    private let resolutionLabelLayerA = CATextLayer()
+    private let resolutionLabelLayerB = CATextLayer()
+    private static let resolutionLabelHeight: CGFloat = 16
+    private static let resolutionLabelGap: CGFloat = 3
+    private static let resolutionLabelHeadroom: CGFloat = 22
+    private static let defaultSideBySideGap: CGFloat = 4
     
     private var displayLink: CADisplayLink?
     private weak var engine: PlayerEngine?
@@ -100,6 +106,7 @@ public final class PlayerContainerNSView: NSView {
     private var lastShowTitleSafe: Bool = false
     private var lastSafeAreaMode: SafeAreaMode = .off
     private var lastIsNineBySixteen: Bool = false
+    private var lastShowResolutionLabels: Bool = false
     private var lastSlotAURL: URL? = nil
     private var lastSlotBURL: URL? = nil
     private var lastExposureEV: Double = 0.0
@@ -108,6 +115,10 @@ public final class PlayerContainerNSView: NSView {
     private var lastAspectB: CGFloat = -1
     private var lastFrameASize: CGSize = CGSize(width: -1, height: -1)
     private var lastFrameBSize: CGSize = CGSize(width: -1, height: -1)
+    private var lastResolutionTextA: String = ""
+    private var lastResolutionTextB: String = ""
+    private var resolutionLabelWidthA: CGFloat = 0
+    private var resolutionLabelWidthB: CGFloat = 0
     
     // Still frame inspection caching to eliminate AVPlayerLayer motion-downsampling
     private var lastCapturedTimeA: CMTime? = nil
@@ -163,6 +174,11 @@ public final class PlayerContainerNSView: NSView {
         canvasLayer.magnificationFilter = .linear
         canvasLayer.minificationFilter = .linear
         layer?.addSublayer(canvasLayer)
+
+        configureResolutionLabel(resolutionLabelLayerA)
+        configureResolutionLabel(resolutionLabelLayerB)
+        layer?.addSublayer(resolutionLabelLayerA)
+        layer?.addSublayer(resolutionLabelLayerB)
         
         // Slot B: Player Video Layer (active during comparison playback)
         playerLayerB.anchorPoint = CGPoint(x: 0.5, y: 0.5)
@@ -548,6 +564,8 @@ public final class PlayerContainerNSView: NSView {
     public override func viewDidChangeBackingProperties() {
         super.viewDidChangeBackingProperties()
         updateScale(for: window?.backingScaleFactor ?? 2.0)
+        layoutPlayerLayer()
+        updateCompareLayers()
     }
     
     private func updateScale(for scale: CGFloat) {
@@ -566,6 +584,8 @@ public final class PlayerContainerNSView: NSView {
         tikTokOverlayLayerA.contentsScale = scale
         tikTokOverlayLayerB.contentsScale = scale
         splitHandleGripLayer.contentsScale = scale
+        resolutionLabelLayerA.contentsScale = scale
+        resolutionLabelLayerB.contentsScale = scale
     }
     
     public override func layout() {
@@ -664,6 +684,8 @@ public final class PlayerContainerNSView: NSView {
         let scale = currentBackingScale()
         let isSideBySideH = (engine.compareMode == .sideBySide && engine.slotB.url != nil)
         let isSideBySideV = (engine.compareMode == .sideBySideVertical && engine.slotB.url != nil)
+        let hasCanvas = engine.slotA.url != nil || engine.slotB.url != nil
+        let labelHeadroom = (engine.showResolutionLabels && hasCanvas) ? Self.resolutionLabelHeadroom : 0
         
         if isSideBySideH {
             let pSizeA = getVideoPresentationSizeA()
@@ -671,8 +693,8 @@ public final class PlayerContainerNSView: NSView {
             let pSizeB = getVideoPresentationSizeB()
             let (numB, denB) = getRationalAspect(width: Int(round(pSizeB.width)), height: Int(round(pSizeB.height)))
             let availW = max(1.0, bounds.width)
-            let availH = max(1.0, bounds.height)
-            let slotAvailW = max(1.0, (availW - 4.0) / 2.0)
+            let availH = max(1.0, bounds.height - labelHeadroom)
+            let slotAvailW = max(1.0, (availW - Self.defaultSideBySideGap) / 2.0)
             
             let maxPixelW = floor(slotAvailW * scale)
             let maxPixelH = floor(availH * scale)
@@ -686,7 +708,7 @@ public final class PlayerContainerNSView: NSView {
             let fitHeightB = (stepsB * CGFloat(denB)) / scale
             
             let canvasH = max(fitHeightA, fitHeightB)
-            let canvasW = (max(fitWidthA, fitWidthB) * 2.0) + 4.0
+            let canvasW = (max(fitWidthA, fitWidthB) * 2.0) + Self.defaultSideBySideGap
             return CGSize(width: canvasW, height: canvasH)
         } else if isSideBySideV {
             let pSizeA = getVideoPresentationSizeA()
@@ -694,8 +716,9 @@ public final class PlayerContainerNSView: NSView {
             let pSizeB = getVideoPresentationSizeB()
             let (numB, denB) = getRationalAspect(width: Int(round(pSizeB.width)), height: Int(round(pSizeB.height)))
             let availW = max(1.0, bounds.width)
-            let availH = max(1.0, bounds.height)
-            let slotAvailH = max(1.0, (availH - 4.0) / 2.0)
+            let availH = max(1.0, bounds.height - labelHeadroom)
+            let canvasGap = engine.showResolutionLabels ? Self.resolutionLabelHeadroom : Self.defaultSideBySideGap
+            let slotAvailH = max(1.0, (availH - canvasGap) / 2.0)
             
             let maxPixelW = floor(availW * scale)
             let maxPixelH = floor(slotAvailH * scale)
@@ -709,7 +732,7 @@ public final class PlayerContainerNSView: NSView {
             let fitHeightB = (stepsB * CGFloat(denB)) / scale
             
             let canvasW = max(fitWidthA, fitWidthB)
-            let canvasH = (max(fitHeightA, fitHeightB) * 2.0) + 4.0
+            let canvasH = (max(fitHeightA, fitHeightB) * 2.0) + canvasGap
             return CGSize(width: canvasW, height: canvasH)
         } else {
             let pSize = getVideoPresentationSizeA()
@@ -718,7 +741,7 @@ public final class PlayerContainerNSView: NSView {
             }
             let (num, den) = getRationalAspect(width: Int(round(pSize.width)), height: Int(round(pSize.height)))
             let maxPixelW = floor(bounds.width * scale)
-            let maxPixelH = floor(bounds.height * scale)
+            let maxPixelH = floor(max(1.0, bounds.height - labelHeadroom) * scale)
             let stepW = maxPixelW / CGFloat(num)
             let stepH = maxPixelH / CGFloat(den)
             let rawSteps = min(stepW, stepH)
@@ -727,6 +750,66 @@ public final class PlayerContainerNSView: NSView {
             let pixelH = evenSteps * CGFloat(den)
             return CGSize(width: pixelW / scale, height: pixelH / scale)
         }
+    }
+
+    /// Returns the primary video's fitted size inside the untransformed canvas.
+    /// This is used to convert UI zoom percentages into source-pixel scale.
+    private func getPrimaryFittedSize(in canvasSize: CGSize) -> CGSize {
+        guard let engine = engine else { return canvasSize }
+
+        let scale = currentBackingScale()
+        let isBlink = engine.isBlinkCompareB && engine.compareMode == .single && engine.slotB.url != nil
+        let presentationSize = isBlink ? getVideoPresentationSizeB() : getVideoPresentationSizeA()
+        let (num, den) = getRationalAspect(
+            width: Int(round(presentationSize.width)),
+            height: Int(round(presentationSize.height))
+        )
+
+        let availableSize: CGSize
+        if engine.compareMode == .sideBySide && engine.slotB.url != nil {
+            availableSize = CGSize(
+                width: max(1.0, (canvasSize.width - Self.defaultSideBySideGap) / 2.0),
+                height: canvasSize.height
+            )
+        } else if engine.compareMode == .sideBySideVertical && engine.slotB.url != nil {
+            let canvasGap = engine.showResolutionLabels ? Self.resolutionLabelHeadroom : Self.defaultSideBySideGap
+            availableSize = CGSize(
+                width: canvasSize.width,
+                height: max(1.0, (canvasSize.height - canvasGap) / 2.0)
+            )
+        } else {
+            availableSize = canvasSize
+        }
+
+        let maxPixelW = floor(availableSize.width * scale)
+        let maxPixelH = floor(availableSize.height * scale)
+        let steps = max(1.0, min(
+            floor(maxPixelW / CGFloat(num)),
+            floor(maxPixelH / CGFloat(den))
+        ))
+        return CGSize(
+            width: (steps * CGFloat(num)) / scale,
+            height: (steps * CGFloat(den)) / scale
+        )
+    }
+
+    /// Scale applied to the fitted canvas so 100% maps one source pixel to one
+    /// physical backing-store pixel on both Retina and non-Retina displays.
+    private func pixelAccurateCanvasScale(for baseSize: CGSize) -> CGFloat {
+        guard let engine = engine,
+              engine.slotA.url != nil || engine.slotB.url != nil else { return 1.0 }
+
+        let isBlink = engine.isBlinkCompareB && engine.compareMode == .single && engine.slotB.url != nil
+        let presentationSize = isBlink ? getVideoPresentationSizeB() : getVideoPresentationSizeA()
+        let fittedSize = getPrimaryFittedSize(in: baseSize)
+        guard presentationSize.width > 0, fittedSize.width > 0 else { return 1.0 }
+
+        return (presentationSize.width / currentBackingScale()) / fittedSize.width
+    }
+
+    private func fitEquivalentZoomLevel() -> CGFloat {
+        let baseSize = getBaseFittedSize(in: bounds)
+        return 1.0 / max(0.0001, pixelAccurateCanvasScale(for: baseSize))
     }
     
     private func layoutPlayerLayer() {
@@ -737,14 +820,16 @@ public final class PlayerContainerNSView: NSView {
         let scale = currentBackingScale()
         updateScale(for: scale)
         updateMagnificationFilters()
-        
-        let zoomScale: CGFloat = engine.isFitZoom ? 1.0 : engine.zoomScale
+
+        let baseSize = getBaseFittedSize(in: viewBounds)
+        let pixelAccurateScale = pixelAccurateCanvasScale(for: baseSize)
+        let zoomScale: CGFloat = engine.isFitZoom ? 1.0 : engine.zoomScale * pixelAccurateScale
         let panOffset = engine.isFitZoom ? .zero : engine.panOffset
         let isFitZoom = engine.isFitZoom
         let showCrosshair = engine.showCenterCrosshair
         let safeAreaMode = engine.safeAreaMode
         let isNineBySixteen = engine.isNineBySixteen
-        let baseSize = getBaseFittedSize(in: viewBounds)
+        let showResolutionLabels = engine.showResolutionLabels
         
         // Fast path: skip expensive layer transforms & path reallocations if unchanged
         if viewBounds.size == lastBoundsSize &&
@@ -754,7 +839,9 @@ public final class PlayerContainerNSView: NSView {
            showCrosshair == lastShowCrosshair &&
            safeAreaMode == lastSafeAreaMode &&
            isNineBySixteen == lastIsNineBySixteen &&
+           showResolutionLabels == lastShowResolutionLabels &&
            canvasLayer.bounds.size == baseSize {
+            updateResolutionLabels()
             return
         }
         
@@ -765,6 +852,7 @@ public final class PlayerContainerNSView: NSView {
         lastShowCrosshair = showCrosshair
         lastSafeAreaMode = safeAreaMode
         lastIsNineBySixteen = isNineBySixteen
+        lastShowResolutionLabels = showResolutionLabels
         
         CATransaction.begin()
         CATransaction.setDisableActions(true)
@@ -782,14 +870,17 @@ public final class PlayerContainerNSView: NSView {
         
         // Pixel-aligned positioning:
         // Snap the center of canvasLayer to physical display pixels to eliminate fractional-pixel blurring.
+        let hasCanvas = engine.slotA.url != nil || engine.slotB.url != nil
+        let labelCenterOffset = (showResolutionLabels && hasCanvas) ? Self.resolutionLabelHeadroom / 2.0 : 0
         let centerX = snapToPixel(viewBounds.midX + panOffset.width, scale: scale)
-        let centerY = snapToPixel(viewBounds.midY + panOffset.height, scale: scale)
+        let centerY = snapToPixel(viewBounds.midY - labelCenterOffset + panOffset.height, scale: scale)
         
         canvasLayer.anchorPoint = CGPoint(x: 0.5, y: 0.5)
         canvasLayer.position = CGPoint(x: centerX, y: centerY)
         canvasLayer.setAffineTransform(CGAffineTransform(scaleX: zoomScale, y: zoomScale))
         
         updateGuideOverlays()
+        updateResolutionLabels()
         
         CATransaction.commit()
     }
@@ -816,6 +907,7 @@ public final class PlayerContainerNSView: NSView {
            abs(aspectA - lastAspectA) < 0.001 &&
            abs(aspectB - lastAspectB) < 0.001 {
             updateLayerVisibility()
+            updateResolutionLabels()
             return
         }
         
@@ -871,6 +963,7 @@ public final class PlayerContainerNSView: NSView {
             splitHandleLayer.isHidden = true
             updateGuideOverlays()
             updateLayerVisibility()
+            updateResolutionLabels()
             CATransaction.commit()
             return
         }
@@ -1027,7 +1120,7 @@ public final class PlayerContainerNSView: NSView {
             let (numA, denA) = getRationalAspect(width: Int(round(pSizeA.width)), height: Int(round(pSizeA.height)))
             let pSizeB = getVideoPresentationSizeB()
             let (numB, denB) = getRationalAspect(width: Int(round(pSizeB.width)), height: Int(round(pSizeB.height)))
-            let halfW = snapToPixel((w - 4) / 2, scale: scale)
+            let halfW = snapToPixel((w - Self.defaultSideBySideGap) / 2, scale: scale)
             let maxPixelHalfW = floor(halfW * scale)
             let maxPixelH = floor(h * scale)
             
@@ -1042,7 +1135,7 @@ public final class PlayerContainerNSView: NSView {
             let fitWidthB = (stepsB * CGFloat(numB)) / scale
             let fitHeightB = (stepsB * CGFloat(denB)) / scale
             let yPosB = snapToPixel((h - fitHeightB) / 2, scale: scale)
-            let xPosB = snapToPixel(w / 2 + 2 + (halfW - fitWidthB) / 2, scale: scale)
+            let xPosB = snapToPixel(w / 2 + (Self.defaultSideBySideGap / 2) + (halfW - fitWidthB) / 2, scale: scale)
             let frameB = CGRect(x: xPosB, y: yPosB, width: fitWidthB, height: fitHeightB)
             
             playerLayerA.frame = frameA
@@ -1068,7 +1161,8 @@ public final class PlayerContainerNSView: NSView {
             let (numA, denA) = getRationalAspect(width: Int(round(pSizeA.width)), height: Int(round(pSizeA.height)))
             let pSizeB = getVideoPresentationSizeB()
             let (numB, denB) = getRationalAspect(width: Int(round(pSizeB.width)), height: Int(round(pSizeB.height)))
-            let halfH = snapToPixel((h - 4) / 2, scale: scale)
+            let canvasGap = engine.showResolutionLabels ? Self.resolutionLabelHeadroom : Self.defaultSideBySideGap
+            let halfH = snapToPixel((h - canvasGap) / 2, scale: scale)
             let maxPixelW = floor(w * scale)
             let maxPixelHalfH = floor(halfH * scale)
             
@@ -1076,7 +1170,7 @@ public final class PlayerContainerNSView: NSView {
             let fitWidthA = (stepsA * CGFloat(numA)) / scale
             let fitHeightA = (stepsA * CGFloat(denA)) / scale
             let xPosA = snapToPixel((w - fitWidthA) / 2, scale: scale)
-            let yPosA = snapToPixel(h / 2 + 2 + (halfH - fitHeightA) / 2, scale: scale)
+            let yPosA = snapToPixel(h / 2 + (canvasGap / 2) + (halfH - fitHeightA) / 2, scale: scale)
             let frameA = CGRect(x: xPosA, y: yPosA, width: fitWidthA, height: fitHeightA)
             
             let stepsB = max(1.0, min(floor(maxPixelW / CGFloat(numB)), floor(maxPixelHalfH / CGFloat(denB))))
@@ -1151,7 +1245,89 @@ public final class PlayerContainerNSView: NSView {
         
         updateGuideOverlays()
         updateLayerVisibility()
+        updateResolutionLabels()
         CATransaction.commit()
+    }
+
+    // MARK: - Canvas Resolution Labels
+
+    private func configureResolutionLabel(_ label: CATextLayer) {
+        label.font = NSFont.monospacedSystemFont(ofSize: 9, weight: .bold)
+        label.fontSize = 9
+        label.alignmentMode = .left
+        label.truncationMode = .none
+        label.backgroundColor = NSColor.clear.cgColor
+        label.borderWidth = 0
+        label.zPosition = 1_000
+        label.isHidden = true
+        label.actions = ["hidden": NSNull(), "position": NSNull(), "bounds": NSNull(), "frame": NSNull(), "string": NSNull(), "foregroundColor": NSNull()]
+    }
+
+    private func resolutionLabelText(for slot: PlayerSlot, prefix: String) -> String {
+        let resolution = slot.displayResolution.uppercased().replacingOccurrences(of: "X", with: " × ")
+        return "\(prefix)  \(resolution)"
+    }
+
+    private func updateResolutionLabelText(_ text: String, layer: CATextLayer, cachedText: inout String, cachedWidth: inout CGFloat) {
+        guard text != cachedText else { return }
+        let font = NSFont.monospacedSystemFont(ofSize: 9, weight: .bold)
+        cachedText = text
+        cachedWidth = ceil((text as NSString).size(withAttributes: [.font: font]).width)
+        layer.string = text
+    }
+
+    private func updateResolutionLabels() {
+        guard let engine = engine,
+              engine.showResolutionLabels,
+              engine.slotA.url != nil || engine.slotB.url != nil,
+              let hostLayer = layer else {
+            resolutionLabelLayerA.isHidden = true
+            resolutionLabelLayerB.isHidden = true
+            return
+        }
+
+        let textA = resolutionLabelText(for: engine.slotA, prefix: "A")
+        let textB = resolutionLabelText(for: engine.slotB, prefix: "B")
+        updateResolutionLabelText(textA, layer: resolutionLabelLayerA, cachedText: &lastResolutionTextA, cachedWidth: &resolutionLabelWidthA)
+        updateResolutionLabelText(textB, layer: resolutionLabelLayerB, cachedText: &lastResolutionTextB, cachedWidth: &resolutionLabelWidthB)
+
+        let theme = ThemeManager.shared.currentTheme
+        resolutionLabelLayerA.foregroundColor = theme.greenNSColor.cgColor
+        resolutionLabelLayerB.foregroundColor = theme.purpleNSColor.cgColor
+
+        let scale = currentBackingScale()
+        let frameA = canvasLayer.convert(playerLayerA.frame, to: hostLayer)
+        let frameB = canvasLayer.convert(playerLayerB.frame, to: hostLayer)
+        let labelYGap = Self.resolutionLabelGap
+        let labelHeight = Self.resolutionLabelHeight
+        let mode = engine.slotB.url == nil ? CompareMode.single : engine.compareMode
+        let isBlink = engine.isBlinkCompareB && mode == .single && engine.slotB.url != nil
+        let usesSeparateCanvases = mode == .sideBySide || mode == .sideBySideVertical
+        let showA = engine.slotA.url != nil && !isBlink
+        let showB = engine.slotB.url != nil && (isBlink || mode != .single)
+
+        if showA {
+            resolutionLabelLayerA.frame = CGRect(
+                x: snapToPixel(frameA.minX, scale: scale),
+                y: snapToPixel(frameA.maxY + labelYGap, scale: scale),
+                width: resolutionLabelWidthA,
+                height: labelHeight
+            )
+        }
+
+        if showB {
+            let labelFrame = (usesSeparateCanvases || isBlink) ? frameB : frameA
+            let sharedCanvasOffset = (!usesSeparateCanvases && !isBlink && showA) ? resolutionLabelWidthA + 12 : 0
+            resolutionLabelLayerB.frame = CGRect(
+                x: snapToPixel(labelFrame.minX + sharedCanvasOffset, scale: scale),
+                y: snapToPixel(labelFrame.maxY + labelYGap, scale: scale),
+                width: resolutionLabelWidthB,
+                height: labelHeight
+            )
+        }
+
+        resolutionLabelLayerA.isHidden = !showA
+        resolutionLabelLayerB.isHidden = !showB
     }
     
     // MARK: - Dynamic Texture Filtering
@@ -1497,7 +1673,7 @@ public final class PlayerContainerNSView: NSView {
         
         let showCrosshair = engine.showCenterCrosshair
         let safeAreaMode = engine.safeAreaMode
-        let zoomScale = engine.isFitZoom ? 1.0 : engine.zoomScale
+        let zoomScale = max(0.01, abs(canvasLayer.affineTransform().a))
         let lineWidth = 1.0 / max(0.01, zoomScale)
         let isBlink = engine.isBlinkCompareB && engine.compareMode == .single && engine.slotB.url != nil
         let isSideBySide = (engine.compareMode == .sideBySide || engine.compareMode == .sideBySideVertical) && engine.slotB.url != nil
@@ -1789,7 +1965,8 @@ public final class PlayerContainerNSView: NSView {
         guard allowScrollZoom, let engine = engine else { return }
         if gesture.state == .changed {
             let factor = 1.0 + (gesture.magnification * 0.5)
-            let newScale = min(10.0, max(0.05, engine.zoomScale * factor))
+            let currentScale = engine.isFitZoom ? fitEquivalentZoomLevel() : engine.zoomScale
+            let newScale = min(10.0, max(0.05, currentScale * factor))
             engine.isFitZoom = false
             engine.zoomScale = newScale
             gesture.magnification = 0
@@ -1808,7 +1985,8 @@ public final class PlayerContainerNSView: NSView {
             let rate: CGFloat = event.hasPreciseScrollingDeltas ? 0.003 : 0.007
             let step = min(0.08, max(-0.08, delta * rate))
             let factor: CGFloat = 1.0 + step
-            let newScale = min(10.0, max(0.05, engine.zoomScale * factor))
+            let currentScale = engine.isFitZoom ? fitEquivalentZoomLevel() : engine.zoomScale
+            let newScale = min(10.0, max(0.05, currentScale * factor))
             
             engine.isFitZoom = false
             engine.zoomScale = newScale

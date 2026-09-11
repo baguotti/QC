@@ -4,6 +4,9 @@ import AppKit
 @main
 struct QCpieApp: App {
     init() {
+        NSApplication.shared.setActivationPolicy(.regular)
+        NSApplication.shared.activate()
+
         NSColorPanel.setPickerMask(.wheelModeMask)
         NSColorPanel.setPickerMode(.wheel)
     }

@@ -345,6 +345,7 @@ public final class PlayerEngine: ObservableObject {
         }
     }
     @Published public var clipInfoOverlayMode: ClipInfoOverlayMode = .hide
+    @Published public var showResolutionLabels: Bool = true
     
     public var showClipNamesOverlay: Bool {
         get { clipInfoOverlayMode != .hide }
@@ -1946,4 +1947,3 @@ public final class QCScrubDiagnostic {
     }
 }
 #endif
-

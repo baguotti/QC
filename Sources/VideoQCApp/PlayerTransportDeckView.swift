@@ -191,6 +191,17 @@ struct PlayerTransportDeckView: View {
                 ) {
                     engine.showCenterCrosshair.toggle()
                 }
+
+                transportBtn(
+                    icon: "aspectratio",
+                    tooltip: engine.showResolutionLabels ? "Canvas Resolution Labels: ON" : "Canvas Resolution Labels: OFF",
+                    isActive: engine.showResolutionLabels,
+                    size: 12,
+                    weight: .semibold,
+                    width: 26
+                ) {
+                    engine.showResolutionLabels.toggle()
+                }
                 
                 ExposureScrubberView(
                     engine: engine,
