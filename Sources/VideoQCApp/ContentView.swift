@@ -596,6 +596,8 @@ struct ContentView: View {
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .contentShape(Rectangle())
                     }
+                    .buttonStyle(.plain)
+                    
                     Rectangle().fill(borderLine).frame(height: 1)
                     
                     Button(action: {
@@ -646,6 +648,7 @@ struct ContentView: View {
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .contentShape(Rectangle())
                     }
+                    .buttonStyle(.plain)
                 }
                 .padding(6)
                 .frame(width: 250)

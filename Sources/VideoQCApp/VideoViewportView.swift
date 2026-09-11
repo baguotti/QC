@@ -679,6 +679,144 @@ public final class PlayerContainerNSView: NSView {
         return CGFloat(evenPixels) / scale
     }
     
+    private struct SideBySideLayout {
+        let canvasSize: CGSize
+        let frameA: CGRect
+        let frameB: CGRect
+    }
+    
+    private func calculateSideBySideLayout(in bounds: CGRect, isVertical: Bool) -> SideBySideLayout {
+        guard let engine = engine else {
+            return SideBySideLayout(canvasSize: bounds.size, frameA: bounds, frameB: bounds)
+        }
+        
+        let scale = currentBackingScale()
+        let pSizeA = getVideoPresentationSizeA()
+        let pSizeB = getVideoPresentationSizeB()
+        
+        let rawWA = CGFloat(round(pSizeA.width))
+        let rawHA = CGFloat(round(pSizeA.height))
+        let rawWB = CGFloat(round(pSizeB.width))
+        let rawHB = CGFloat(round(pSizeB.height))
+        
+        if rawWA <= 0 || rawHA <= 0 {
+            let pSize = rawWB > 0 ? pSizeB : bounds.size
+            return SideBySideLayout(canvasSize: pSize, frameA: CGRect(origin: .zero, size: pSize), frameB: CGRect(origin: .zero, size: pSize))
+        }
+        if rawWB <= 0 || rawHB <= 0 {
+            return SideBySideLayout(canvasSize: pSizeA, frameA: CGRect(origin: .zero, size: pSizeA), frameB: CGRect(origin: .zero, size: pSizeA))
+        }
+        
+        let (numA, denA) = getRationalAspect(width: Int(rawWA), height: Int(rawHA))
+        let hasCanvas = engine.slotA.url != nil || engine.slotB.url != nil
+        let labelHeadroom = (engine.showResolutionLabels && hasCanvas) ? Self.resolutionLabelHeadroom : 0
+        let availW = max(1.0, bounds.width)
+        let availH = max(1.0, bounds.height - labelHeadroom)
+        
+        if !isVertical {
+            // Horizontal Side-by-Side: [ Video A ] [gap] [ Video B ]
+            // Native combined bounding box ensures 1:1 pixel pitch relative scaling:
+            let nativeTotalW = rawWA + rawWB
+            let nativeMaxH = max(rawHA, rawHB)
+            
+            let slotAvailW = max(1.0, availW - Self.defaultSideBySideGap)
+            let maxPixelW = floor(slotAvailW * scale)
+            let maxPixelH = floor(availH * scale)
+            
+            let s = min(maxPixelW / nativeTotalW, maxPixelH / nativeMaxH)
+            
+            let targetPixelH_A = rawHA * s
+            let stepsA = max(2.0, floor((targetPixelH_A / CGFloat(denA)) / 2.0) * 2.0)
+            let pixelW_A = stepsA * CGFloat(numA)
+            let pixelH_A = stepsA * CGFloat(denA)
+            
+            let fitWidthA = pixelW_A / scale
+            let fitHeightA = pixelH_A / scale
+            
+            let sA = pixelH_A / rawHA
+            let pixelH_B: CGFloat
+            let pixelW_B: CGFloat
+            if rawHB == rawHA {
+                pixelH_B = pixelH_A
+                pixelW_B = max(2.0, floor((rawWB * (pixelW_A / rawWA)) / 2.0) * 2.0)
+            } else {
+                pixelH_B = max(2.0, floor((rawHB * sA) / 2.0) * 2.0)
+                pixelW_B = max(2.0, floor((rawWB * sA) / 2.0) * 2.0)
+            }
+            
+            let fitWidthB = pixelW_B / scale
+            let fitHeightB = pixelH_B / scale
+            
+            let canvasH = max(fitHeightA, fitHeightB)
+            let canvasW = fitWidthA + Self.defaultSideBySideGap + fitWidthB
+            
+            let yPosA = snapToPixel((canvasH - fitHeightA) / 2.0, scale: scale)
+            let xPosA: CGFloat = 0
+            let frameA = CGRect(x: xPosA, y: yPosA, width: fitWidthA, height: fitHeightA)
+            
+            let yPosB = snapToPixel((canvasH - fitHeightB) / 2.0, scale: scale)
+            let xPosB = snapToPixel(fitWidthA + Self.defaultSideBySideGap, scale: scale)
+            let frameB = CGRect(x: xPosB, y: yPosB, width: fitWidthB, height: fitHeightB)
+            
+            return SideBySideLayout(
+                canvasSize: CGSize(width: canvasW, height: canvasH),
+                frameA: frameA,
+                frameB: frameB
+            )
+        } else {
+            // Vertical Side-by-Side: [ Video A ] / [canvasGap] / [ Video B ]
+            let nativeMaxW = max(rawWA, rawWB)
+            let nativeTotalH = rawHA + rawHB
+            
+            let canvasGap = engine.showResolutionLabels ? Self.resolutionLabelHeadroom : Self.defaultSideBySideGap
+            let availVideoH = max(1.0, availH - canvasGap)
+            
+            let maxPixelW = floor(availW * scale)
+            let maxPixelH = floor(availVideoH * scale)
+            
+            let s = min(maxPixelW / nativeMaxW, maxPixelH / nativeTotalH)
+            
+            let targetPixelH_A = rawHA * s
+            let stepsA = max(2.0, floor((targetPixelH_A / CGFloat(denA)) / 2.0) * 2.0)
+            let pixelW_A = stepsA * CGFloat(numA)
+            let pixelH_A = stepsA * CGFloat(denA)
+            
+            let fitWidthA = pixelW_A / scale
+            let fitHeightA = pixelH_A / scale
+            
+            let sA = pixelH_A / rawHA
+            let pixelH_B: CGFloat
+            let pixelW_B: CGFloat
+            if rawHB == rawHA {
+                pixelH_B = pixelH_A
+                pixelW_B = max(2.0, floor((rawWB * (pixelW_A / rawWA)) / 2.0) * 2.0)
+            } else {
+                pixelH_B = max(2.0, floor((rawHB * sA) / 2.0) * 2.0)
+                pixelW_B = max(2.0, floor((rawWB * sA) / 2.0) * 2.0)
+            }
+            
+            let fitWidthB = pixelW_B / scale
+            let fitHeightB = pixelH_B / scale
+            
+            let canvasW = max(fitWidthA, fitWidthB)
+            let canvasH = fitHeightA + canvasGap + fitHeightB
+            
+            let xPosA = snapToPixel((canvasW - fitWidthA) / 2.0, scale: scale)
+            let yPosA = snapToPixel(fitHeightB + canvasGap, scale: scale)
+            let frameA = CGRect(x: xPosA, y: yPosA, width: fitWidthA, height: fitHeightA)
+            
+            let xPosB = snapToPixel((canvasW - fitWidthB) / 2.0, scale: scale)
+            let yPosB: CGFloat = 0
+            let frameB = CGRect(x: xPosB, y: yPosB, width: fitWidthB, height: fitHeightB)
+            
+            return SideBySideLayout(
+                canvasSize: CGSize(width: canvasW, height: canvasH),
+                frameA: frameA,
+                frameB: frameB
+            )
+        }
+    }
+
     private func getBaseFittedSize(in bounds: CGRect) -> CGSize {
         guard let engine = engine else { return bounds.size }
         let scale = currentBackingScale()
@@ -688,52 +826,9 @@ public final class PlayerContainerNSView: NSView {
         let labelHeadroom = (engine.showResolutionLabels && hasCanvas) ? Self.resolutionLabelHeadroom : 0
         
         if isSideBySideH {
-            let pSizeA = getVideoPresentationSizeA()
-            let (numA, denA) = getRationalAspect(width: Int(round(pSizeA.width)), height: Int(round(pSizeA.height)))
-            let pSizeB = getVideoPresentationSizeB()
-            let (numB, denB) = getRationalAspect(width: Int(round(pSizeB.width)), height: Int(round(pSizeB.height)))
-            let availW = max(1.0, bounds.width)
-            let availH = max(1.0, bounds.height - labelHeadroom)
-            let slotAvailW = max(1.0, (availW - Self.defaultSideBySideGap) / 2.0)
-            
-            let maxPixelW = floor(slotAvailW * scale)
-            let maxPixelH = floor(availH * scale)
-            
-            let stepsA = max(2.0, floor(min(maxPixelW / CGFloat(numA), maxPixelH / CGFloat(denA)) / 2.0) * 2.0)
-            let fitWidthA = (stepsA * CGFloat(numA)) / scale
-            let fitHeightA = (stepsA * CGFloat(denA)) / scale
-            
-            let stepsB = max(2.0, floor(min(maxPixelW / CGFloat(numB), maxPixelH / CGFloat(denB)) / 2.0) * 2.0)
-            let fitWidthB = (stepsB * CGFloat(numB)) / scale
-            let fitHeightB = (stepsB * CGFloat(denB)) / scale
-            
-            let canvasH = max(fitHeightA, fitHeightB)
-            let canvasW = (max(fitWidthA, fitWidthB) * 2.0) + Self.defaultSideBySideGap
-            return CGSize(width: canvasW, height: canvasH)
+            return calculateSideBySideLayout(in: bounds, isVertical: false).canvasSize
         } else if isSideBySideV {
-            let pSizeA = getVideoPresentationSizeA()
-            let (numA, denA) = getRationalAspect(width: Int(round(pSizeA.width)), height: Int(round(pSizeA.height)))
-            let pSizeB = getVideoPresentationSizeB()
-            let (numB, denB) = getRationalAspect(width: Int(round(pSizeB.width)), height: Int(round(pSizeB.height)))
-            let availW = max(1.0, bounds.width)
-            let availH = max(1.0, bounds.height - labelHeadroom)
-            let canvasGap = engine.showResolutionLabels ? Self.resolutionLabelHeadroom : Self.defaultSideBySideGap
-            let slotAvailH = max(1.0, (availH - canvasGap) / 2.0)
-            
-            let maxPixelW = floor(availW * scale)
-            let maxPixelH = floor(slotAvailH * scale)
-            
-            let stepsA = max(2.0, floor(min(maxPixelW / CGFloat(numA), maxPixelH / CGFloat(denA)) / 2.0) * 2.0)
-            let fitWidthA = (stepsA * CGFloat(numA)) / scale
-            let fitHeightA = (stepsA * CGFloat(denA)) / scale
-            
-            let stepsB = max(2.0, floor(min(maxPixelW / CGFloat(numB), maxPixelH / CGFloat(denB)) / 2.0) * 2.0)
-            let fitWidthB = (stepsB * CGFloat(numB)) / scale
-            let fitHeightB = (stepsB * CGFloat(denB)) / scale
-            
-            let canvasW = max(fitWidthA, fitWidthB)
-            let canvasH = (max(fitHeightA, fitHeightB) * 2.0) + canvasGap
-            return CGSize(width: canvasW, height: canvasH)
+            return calculateSideBySideLayout(in: bounds, isVertical: true).canvasSize
         } else {
             let pSize = getVideoPresentationSizeA()
             guard pSize.width > 0, pSize.height > 0, bounds.width > 0, bounds.height > 0 else {
@@ -757,6 +852,12 @@ public final class PlayerContainerNSView: NSView {
     private func getPrimaryFittedSize(in canvasSize: CGSize) -> CGSize {
         guard let engine = engine else { return canvasSize }
 
+        if engine.compareMode == .sideBySide && engine.slotB.url != nil {
+            return calculateSideBySideLayout(in: bounds, isVertical: false).frameA.size
+        } else if engine.compareMode == .sideBySideVertical && engine.slotB.url != nil {
+            return calculateSideBySideLayout(in: bounds, isVertical: true).frameA.size
+        }
+
         let scale = currentBackingScale()
         let isBlink = engine.isBlinkCompareB && engine.compareMode == .single && engine.slotB.url != nil
         let presentationSize = isBlink ? getVideoPresentationSizeB() : getVideoPresentationSizeA()
@@ -765,21 +866,7 @@ public final class PlayerContainerNSView: NSView {
             height: Int(round(presentationSize.height))
         )
 
-        let availableSize: CGSize
-        if engine.compareMode == .sideBySide && engine.slotB.url != nil {
-            availableSize = CGSize(
-                width: max(1.0, (canvasSize.width - Self.defaultSideBySideGap) / 2.0),
-                height: canvasSize.height
-            )
-        } else if engine.compareMode == .sideBySideVertical && engine.slotB.url != nil {
-            let canvasGap = engine.showResolutionLabels ? Self.resolutionLabelHeadroom : Self.defaultSideBySideGap
-            availableSize = CGSize(
-                width: canvasSize.width,
-                height: max(1.0, (canvasSize.height - canvasGap) / 2.0)
-            )
-        } else {
-            availableSize = canvasSize
-        }
+        let availableSize = canvasSize
 
         let maxPixelW = floor(availableSize.width * scale)
         let maxPixelH = floor(availableSize.height * scale)
@@ -866,6 +953,8 @@ public final class PlayerContainerNSView: NSView {
             playerLayerB.frame = canvasLayer.bounds
             stillFrameLayerA.frame = canvasLayer.bounds
             stillFrameLayerB.frame = canvasLayer.bounds
+        } else {
+            updateCompareLayers()
         }
         
         // Pixel-aligned positioning:
@@ -1115,33 +1204,11 @@ public final class PlayerContainerNSView: NSView {
             playerLayerB.compositingFilter = nil
             stillFrameLayerB.compositingFilter = nil
             
-            let scale = currentBackingScale()
-            let pSizeA = getVideoPresentationSizeA()
-            let (numA, denA) = getRationalAspect(width: Int(round(pSizeA.width)), height: Int(round(pSizeA.height)))
-            let pSizeB = getVideoPresentationSizeB()
-            let (numB, denB) = getRationalAspect(width: Int(round(pSizeB.width)), height: Int(round(pSizeB.height)))
-            let halfW = snapToPixel((w - Self.defaultSideBySideGap) / 2, scale: scale)
-            let maxPixelHalfW = floor(halfW * scale)
-            let maxPixelH = floor(h * scale)
-            
-            let stepsA = max(1.0, min(floor(maxPixelHalfW / CGFloat(numA)), floor(maxPixelH / CGFloat(denA))))
-            let fitWidthA = (stepsA * CGFloat(numA)) / scale
-            let fitHeightA = (stepsA * CGFloat(denA)) / scale
-            let yPosA = snapToPixel((h - fitHeightA) / 2, scale: scale)
-            let xPosA = snapToPixel((halfW - fitWidthA) / 2, scale: scale)
-            let frameA = CGRect(x: xPosA, y: yPosA, width: fitWidthA, height: fitHeightA)
-            
-            let stepsB = max(1.0, min(floor(maxPixelHalfW / CGFloat(numB)), floor(maxPixelH / CGFloat(denB))))
-            let fitWidthB = (stepsB * CGFloat(numB)) / scale
-            let fitHeightB = (stepsB * CGFloat(denB)) / scale
-            let yPosB = snapToPixel((h - fitHeightB) / 2, scale: scale)
-            let xPosB = snapToPixel(w / 2 + (Self.defaultSideBySideGap / 2) + (halfW - fitWidthB) / 2, scale: scale)
-            let frameB = CGRect(x: xPosB, y: yPosB, width: fitWidthB, height: fitHeightB)
-            
-            playerLayerA.frame = frameA
-            playerLayerB.frame = frameB
-            stillFrameLayerA.frame = frameA
-            stillFrameLayerB.frame = frameB
+            let layout = calculateSideBySideLayout(in: bounds, isVertical: false)
+            playerLayerA.frame = layout.frameA
+            playerLayerB.frame = layout.frameB
+            stillFrameLayerA.frame = layout.frameA
+            stillFrameLayerB.frame = layout.frameB
             
             splitDividerLayer.isHidden = true
             splitHandleLayer.isHidden = true
@@ -1156,34 +1223,11 @@ public final class PlayerContainerNSView: NSView {
             playerLayerB.compositingFilter = nil
             stillFrameLayerB.compositingFilter = nil
             
-            let scale = currentBackingScale()
-            let pSizeA = getVideoPresentationSizeA()
-            let (numA, denA) = getRationalAspect(width: Int(round(pSizeA.width)), height: Int(round(pSizeA.height)))
-            let pSizeB = getVideoPresentationSizeB()
-            let (numB, denB) = getRationalAspect(width: Int(round(pSizeB.width)), height: Int(round(pSizeB.height)))
-            let canvasGap = engine.showResolutionLabels ? Self.resolutionLabelHeadroom : Self.defaultSideBySideGap
-            let halfH = snapToPixel((h - canvasGap) / 2, scale: scale)
-            let maxPixelW = floor(w * scale)
-            let maxPixelHalfH = floor(halfH * scale)
-            
-            let stepsA = max(1.0, min(floor(maxPixelW / CGFloat(numA)), floor(maxPixelHalfH / CGFloat(denA))))
-            let fitWidthA = (stepsA * CGFloat(numA)) / scale
-            let fitHeightA = (stepsA * CGFloat(denA)) / scale
-            let xPosA = snapToPixel((w - fitWidthA) / 2, scale: scale)
-            let yPosA = snapToPixel(h / 2 + (canvasGap / 2) + (halfH - fitHeightA) / 2, scale: scale)
-            let frameA = CGRect(x: xPosA, y: yPosA, width: fitWidthA, height: fitHeightA)
-            
-            let stepsB = max(1.0, min(floor(maxPixelW / CGFloat(numB)), floor(maxPixelHalfH / CGFloat(denB))))
-            let fitWidthB = (stepsB * CGFloat(numB)) / scale
-            let fitHeightB = (stepsB * CGFloat(denB)) / scale
-            let xPosB = snapToPixel((w - fitWidthB) / 2, scale: scale)
-            let yPosB = snapToPixel((halfH - fitHeightB) / 2, scale: scale)
-            let frameB = CGRect(x: xPosB, y: yPosB, width: fitWidthB, height: fitHeightB)
-            
-            playerLayerA.frame = frameA
-            playerLayerB.frame = frameB
-            stillFrameLayerA.frame = frameA
-            stillFrameLayerB.frame = frameB
+            let layout = calculateSideBySideLayout(in: bounds, isVertical: true)
+            playerLayerA.frame = layout.frameA
+            playerLayerB.frame = layout.frameB
+            stillFrameLayerA.frame = layout.frameA
+            stillFrameLayerB.frame = layout.frameB
             
             splitDividerLayer.isHidden = true
             splitHandleLayer.isHidden = true
