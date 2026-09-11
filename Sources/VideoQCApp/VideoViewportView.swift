@@ -564,6 +564,8 @@ public final class PlayerContainerNSView: NSView {
     public override func viewDidChangeBackingProperties() {
         super.viewDidChangeBackingProperties()
         updateScale(for: window?.backingScaleFactor ?? 2.0)
+        layoutPlayerLayer()
+        updateCompareLayers()
     }
     
     private func updateScale(for scale: CGFloat) {
@@ -749,6 +751,66 @@ public final class PlayerContainerNSView: NSView {
             return CGSize(width: pixelW / scale, height: pixelH / scale)
         }
     }
+
+    /// Returns the primary video's fitted size inside the untransformed canvas.
+    /// This is used to convert UI zoom percentages into source-pixel scale.
+    private func getPrimaryFittedSize(in canvasSize: CGSize) -> CGSize {
+        guard let engine = engine else { return canvasSize }
+
+        let scale = currentBackingScale()
+        let isBlink = engine.isBlinkCompareB && engine.compareMode == .single && engine.slotB.url != nil
+        let presentationSize = isBlink ? getVideoPresentationSizeB() : getVideoPresentationSizeA()
+        let (num, den) = getRationalAspect(
+            width: Int(round(presentationSize.width)),
+            height: Int(round(presentationSize.height))
+        )
+
+        let availableSize: CGSize
+        if engine.compareMode == .sideBySide && engine.slotB.url != nil {
+            availableSize = CGSize(
+                width: max(1.0, (canvasSize.width - Self.defaultSideBySideGap) / 2.0),
+                height: canvasSize.height
+            )
+        } else if engine.compareMode == .sideBySideVertical && engine.slotB.url != nil {
+            let canvasGap = engine.showResolutionLabels ? Self.resolutionLabelHeadroom : Self.defaultSideBySideGap
+            availableSize = CGSize(
+                width: canvasSize.width,
+                height: max(1.0, (canvasSize.height - canvasGap) / 2.0)
+            )
+        } else {
+            availableSize = canvasSize
+        }
+
+        let maxPixelW = floor(availableSize.width * scale)
+        let maxPixelH = floor(availableSize.height * scale)
+        let steps = max(1.0, min(
+            floor(maxPixelW / CGFloat(num)),
+            floor(maxPixelH / CGFloat(den))
+        ))
+        return CGSize(
+            width: (steps * CGFloat(num)) / scale,
+            height: (steps * CGFloat(den)) / scale
+        )
+    }
+
+    /// Scale applied to the fitted canvas so 100% maps one source pixel to one
+    /// physical backing-store pixel on both Retina and non-Retina displays.
+    private func pixelAccurateCanvasScale(for baseSize: CGSize) -> CGFloat {
+        guard let engine = engine,
+              engine.slotA.url != nil || engine.slotB.url != nil else { return 1.0 }
+
+        let isBlink = engine.isBlinkCompareB && engine.compareMode == .single && engine.slotB.url != nil
+        let presentationSize = isBlink ? getVideoPresentationSizeB() : getVideoPresentationSizeA()
+        let fittedSize = getPrimaryFittedSize(in: baseSize)
+        guard presentationSize.width > 0, fittedSize.width > 0 else { return 1.0 }
+
+        return (presentationSize.width / currentBackingScale()) / fittedSize.width
+    }
+
+    private func fitEquivalentZoomLevel() -> CGFloat {
+        let baseSize = getBaseFittedSize(in: bounds)
+        return 1.0 / max(0.0001, pixelAccurateCanvasScale(for: baseSize))
+    }
     
     private func layoutPlayerLayer() {
         guard let engine = engine else { return }
@@ -758,15 +820,16 @@ public final class PlayerContainerNSView: NSView {
         let scale = currentBackingScale()
         updateScale(for: scale)
         updateMagnificationFilters()
-        
-        let zoomScale: CGFloat = engine.isFitZoom ? 1.0 : engine.zoomScale
+
+        let baseSize = getBaseFittedSize(in: viewBounds)
+        let pixelAccurateScale = pixelAccurateCanvasScale(for: baseSize)
+        let zoomScale: CGFloat = engine.isFitZoom ? 1.0 : engine.zoomScale * pixelAccurateScale
         let panOffset = engine.isFitZoom ? .zero : engine.panOffset
         let isFitZoom = engine.isFitZoom
         let showCrosshair = engine.showCenterCrosshair
         let safeAreaMode = engine.safeAreaMode
         let isNineBySixteen = engine.isNineBySixteen
         let showResolutionLabels = engine.showResolutionLabels
-        let baseSize = getBaseFittedSize(in: viewBounds)
         
         // Fast path: skip expensive layer transforms & path reallocations if unchanged
         if viewBounds.size == lastBoundsSize &&
@@ -1610,7 +1673,7 @@ public final class PlayerContainerNSView: NSView {
         
         let showCrosshair = engine.showCenterCrosshair
         let safeAreaMode = engine.safeAreaMode
-        let zoomScale = engine.isFitZoom ? 1.0 : engine.zoomScale
+        let zoomScale = max(0.01, abs(canvasLayer.affineTransform().a))
         let lineWidth = 1.0 / max(0.01, zoomScale)
         let isBlink = engine.isBlinkCompareB && engine.compareMode == .single && engine.slotB.url != nil
         let isSideBySide = (engine.compareMode == .sideBySide || engine.compareMode == .sideBySideVertical) && engine.slotB.url != nil
@@ -1902,7 +1965,8 @@ public final class PlayerContainerNSView: NSView {
         guard allowScrollZoom, let engine = engine else { return }
         if gesture.state == .changed {
             let factor = 1.0 + (gesture.magnification * 0.5)
-            let newScale = min(10.0, max(0.05, engine.zoomScale * factor))
+            let currentScale = engine.isFitZoom ? fitEquivalentZoomLevel() : engine.zoomScale
+            let newScale = min(10.0, max(0.05, currentScale * factor))
             engine.isFitZoom = false
             engine.zoomScale = newScale
             gesture.magnification = 0
@@ -1921,7 +1985,8 @@ public final class PlayerContainerNSView: NSView {
             let rate: CGFloat = event.hasPreciseScrollingDeltas ? 0.003 : 0.007
             let step = min(0.08, max(-0.08, delta * rate))
             let factor: CGFloat = 1.0 + step
-            let newScale = min(10.0, max(0.05, engine.zoomScale * factor))
+            let currentScale = engine.isFitZoom ? fitEquivalentZoomLevel() : engine.zoomScale
+            let newScale = min(10.0, max(0.05, currentScale * factor))
             
             engine.isFitZoom = false
             engine.zoomScale = newScale
