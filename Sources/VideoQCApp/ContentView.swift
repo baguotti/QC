@@ -1385,195 +1385,109 @@ struct ContentView: View {
         
         eventMonitors.cleanup()
         
-        // Click-away monitor: dismisses text field focus when clicking anywhere outside text inputs
         eventMonitors.mouseMonitor = NSEvent.addLocalMonitorForEvents(matching: .leftMouseDown) { event in
-            if let window = NSApp.keyWindow,
-               let firstResponder = window.firstResponder,
-               firstResponder is NSTextView {
-                let clickLoc = event.locationInWindow
-                if let hitView = window.contentView?.hitTest(clickLoc) {
-                    var isTextInput = false
-                    var curr: NSView? = hitView
-                    while let v = curr {
-                        if v is NSTextField || v is NSTextView {
-                            isTextInput = true
-                            break
-                        }
-                        curr = v.superview
-                    }
-                    if !isTextInput {
-                        window.makeFirstResponder(nil)
-                    }
-                }
-            }
-            return event
+            KeyboardShortcutRouter.dismissTextFieldFocusIfClickedOutside(event: event)
         }
         
+        let router = KeyboardShortcutRouter.standardRouter(actions: buildKeyboardShortcutActions())
+        
         eventMonitors.keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
-            // Check if user is typing in a text field
-            if let window = NSApp.keyWindow,
-               let firstResponder = window.firstResponder,
-               firstResponder is NSTextView {
-                if event.keyCode == 53 { // ESC key: dismiss search filter focus immediately
-                    window.makeFirstResponder(nil)
-                    return nil
+            router.handle(
+                event,
+                currentTab: self.selectedTab,
+                isModalActive: self.isAnyModalActive,
+                onEscape: { self.dismissTopmostModalOrFullscreen() }
+            )
+        }
+    }
+    
+    var isAnyModalActive: Bool {
+        showShortcutsModal || showThemeModal || showUserGuide || showFeedbackModal || updateManager.showModal || showPropertiesModal || showAddNoteModal
+    }
+    
+    func dismissTopmostModalOrFullscreen() -> Bool {
+        if showPropertiesModal {
+            withAnimation(.easeInOut(duration: 0.15)) { showPropertiesModal = false }
+            return true
+        }
+        if showAddNoteModal {
+            withAnimation(.easeInOut(duration: 0.15)) { showAddNoteModal = false }
+            return true
+        }
+        if showNotesDrawer {
+            withAnimation(.easeInOut(duration: 0.15)) { showNotesDrawer = false }
+            return true
+        }
+        if showThemeModal {
+            withAnimation(.easeInOut(duration: 0.15)) { showThemeModal = false }
+            return true
+        }
+        if showShortcutsModal {
+            withAnimation(.easeInOut(duration: 0.15)) { showShortcutsModal = false }
+            return true
+        }
+        if showUserGuide {
+            withAnimation(.easeInOut(duration: 0.15)) { showUserGuide = false }
+            return true
+        }
+        if showFeedbackModal {
+            withAnimation(.easeInOut(duration: 0.15)) { showFeedbackModal = false }
+            return true
+        }
+        if updateManager.showModal {
+            withAnimation(.easeInOut(duration: 0.15)) { updateManager.showModal = false }
+            return true
+        }
+        if fullscreenMode != .none {
+            exitFullscreen()
+            return true
+        }
+        return false
+    }
+    
+    private func buildKeyboardShortcutActions() -> KeyboardShortcutActions {
+        KeyboardShortcutActions(
+            onZoomIn: {
+                withAnimation(.easeInOut(duration: 0.15)) {
+                    _ = self.themeManager.increaseButtonZoom()
                 }
-                if event.keyCode == 36 { // Return key: commit and dismiss search filter focus
-                    window.makeFirstResponder(nil)
-                    return nil
+                self.showToast("BUTTON SIZE: \(self.themeManager.buttonZoom.title) (\(String(format: "%.1fx", self.themeManager.buttonZoom.scaleFactor)))")
+            },
+            onZoomOut: {
+                withAnimation(.easeInOut(duration: 0.15)) {
+                    _ = self.themeManager.decreaseButtonZoom()
                 }
-                return event
-            }
-            
-            // ESC key: Dismiss any active modal or exit fullscreen
-            if event.keyCode == 53 {
-                if self.showPropertiesModal {
-                    withAnimation(.easeInOut(duration: 0.15)) {
-                        self.showPropertiesModal = false
-                    }
-                    return nil
+                self.showToast("BUTTON SIZE: \(self.themeManager.buttonZoom.title) (\(String(format: "%.1fx", self.themeManager.buttonZoom.scaleFactor)))")
+            },
+            onSelectPlayerTab: {
+                withAnimation(.spring(response: 0.22, dampingFraction: 0.85)) {
+                    self.selectedTab = .player
                 }
-                if self.showAddNoteModal {
-                    withAnimation(.easeInOut(duration: 0.15)) {
-                        self.showAddNoteModal = false
-                    }
-                    return nil
+            },
+            onSelectSpecsTab: {
+                withAnimation(.spring(response: 0.22, dampingFraction: 0.85)) {
+                    self.selectedTab = .specs
                 }
-                if self.showNotesDrawer {
-                    withAnimation(.easeInOut(duration: 0.15)) {
-                        self.showNotesDrawer = false
-                    }
-                    return nil
+                if self.specsState.deliverableAssets.isEmpty && !self.videoFiles.isEmpty {
+                    self.specsState.inspectDeliverablesBatch(urls: self.videoFiles)
                 }
-                if self.showThemeModal {
-                    withAnimation(.easeInOut(duration: 0.15)) {
-                        self.showThemeModal = false
-                    }
-                    return nil
+            },
+            onSelectLineFinderTab: {
+                withAnimation(.spring(response: 0.22, dampingFraction: 0.85)) {
+                    self.selectedTab = .lineFinder
                 }
-                if self.showShortcutsModal {
-                    withAnimation(.easeInOut(duration: 0.15)) {
-                        self.showShortcutsModal = false
-                    }
-                    return nil
+            },
+            onToggleLightMode: {
+                withAnimation(.easeInOut(duration: 0.15)) {
+                    self.isLightMode.toggle()
                 }
-                if self.showUserGuide {
-                    withAnimation(.easeInOut(duration: 0.15)) {
-                        self.showUserGuide = false
-                    }
-                    return nil
+            },
+            onCycleAccentTheme: {
+                withAnimation(.easeInOut(duration: 0.15)) {
+                    ThemeManager.shared.cycleAccentTheme()
                 }
-                if self.showFeedbackModal {
-                    withAnimation(.easeInOut(duration: 0.15)) {
-                        self.showFeedbackModal = false
-                    }
-                    return nil
-                }
-                if self.updateManager.showModal {
-                    withAnimation(.easeInOut(duration: 0.15)) {
-                        self.updateManager.showModal = false
-                    }
-                    return nil
-                }
-                if self.fullscreenMode != .none {
-                    self.exitFullscreen()
-                    return nil
-                }
-            }
-            
-            let isShift = event.modifierFlags.contains(.shift)
-            let isCommand = event.modifierFlags.contains(.command)
-            let isControl = event.modifierFlags.contains(.control)
-            let isOption = event.modifierFlags.contains(.option)
-            let rawChars = event.charactersIgnoringModifiers?.lowercased()
-            
-            // Global UI Button Zoom Shortcuts: Cmd + / Cmd = (Zoom In), Cmd - (Zoom Out)
-            if isCommand && !isControl && !isOption {
-                let isPlus = (event.keyCode == 24 || event.keyCode == 69 || rawChars == "=" || rawChars == "+" || event.characters == "+")
-                let isMinus = (event.keyCode == 27 || event.keyCode == 78 || rawChars == "-" || rawChars == "_" || event.characters == "-")
-                
-                if isPlus {
-                    withAnimation(.easeInOut(duration: 0.15)) {
-                        _ = self.themeManager.increaseButtonZoom()
-                    }
-                    self.showToast("BUTTON SIZE: \(self.themeManager.buttonZoom.title) (\(String(format: "%.1fx", self.themeManager.buttonZoom.scaleFactor)))")
-                    return nil
-                } else if isMinus {
-                    withAnimation(.easeInOut(duration: 0.15)) {
-                        _ = self.themeManager.decreaseButtonZoom()
-                    }
-                    self.showToast("BUTTON SIZE: \(self.themeManager.buttonZoom.title) (\(String(format: "%.1fx", self.themeManager.buttonZoom.scaleFactor)))")
-                    return nil
-                }
-            }
-            
-            // If any modal is active, block background player controls
-            if self.showShortcutsModal || self.showThemeModal || self.showUserGuide || self.showFeedbackModal || self.updateManager.showModal || self.showPropertiesModal || self.showAddNoteModal {
-                return event
-            }
-            
-            // 1. Global Tab Switching Shortcuts: Shift + 1, Shift + 2, Shift + 3
-            if isShift && !isCommand && !isControl && !isOption {
-                if event.keyCode == 18 || rawChars == "1" || event.characters == "!" {
-                    withAnimation(.spring(response: 0.22, dampingFraction: 0.85)) {
-                        self.selectedTab = .player
-                    }
-                    return nil
-                } else if event.keyCode == 19 || rawChars == "2" || event.characters == "@" {
-                    withAnimation(.spring(response: 0.22, dampingFraction: 0.85)) {
-                        self.selectedTab = .specs
-                    }
-                    if self.specsState.deliverableAssets.isEmpty && !self.videoFiles.isEmpty {
-                        self.specsState.inspectDeliverablesBatch(urls: self.videoFiles)
-                    }
-                    return nil
-                } else if event.keyCode == 20 || rawChars == "3" || event.characters == "#" {
-                    withAnimation(.spring(response: 0.22, dampingFraction: 0.85)) {
-                        self.selectedTab = .lineFinder
-                    }
-                    return nil
-                }
-            }
-            
-            // 2. Global Theme Shortcuts:
-            // T: Switch light / dark mode
-            // Shift + T: Cycle accent palette
-            if !isCommand && !isControl && !isOption && (event.keyCode == 17 || rawChars == "t") {
-                if isShift {
-                    withAnimation(.easeInOut(duration: 0.15)) {
-                        ThemeManager.shared.cycleAccentTheme()
-                    }
-                    return nil
-                } else {
-                    withAnimation(.easeInOut(duration: 0.15)) {
-                        self.isLightMode.toggle()
-                    }
-                    return nil
-                }
-            }
-            
-            // Finder Color Tags (Player tab & Specs tab): 1 = Red, 2 = Green, 3 = Blue, 4 = Yellow, 5 = Orange, 6 = Purple, 7 = Gray (0 = Clear)
-            if (self.selectedTab == .player || self.selectedTab == .specs) && !isShift && !isCommand && !isControl && !isOption {
-                let tagForNum: FinderTagColor?
-                switch event.keyCode {
-                case 18: tagForNum = .red      // 1: Red
-                case 19: tagForNum = .green    // 2: Green
-                case 20: tagForNum = .blue     // 3: Blue
-                case 21: tagForNum = .yellow   // 4: Yellow
-                case 23: tagForNum = .orange   // 5: Orange
-                case 22: tagForNum = .purple   // 6: Purple
-                case 26: tagForNum = .gray     // 7: Gray
-                default:
-                    if rawChars == "1" { tagForNum = .red }
-                    else if rawChars == "2" { tagForNum = .green }
-                    else if rawChars == "3" { tagForNum = .blue }
-                    else if rawChars == "4" { tagForNum = .yellow }
-                    else if rawChars == "5" { tagForNum = .orange }
-                    else if rawChars == "6" { tagForNum = .purple }
-                    else if rawChars == "7" { tagForNum = .gray }
-                    else { tagForNum = nil }
-                }
-                
+            },
+            onToggleFinderTag: { tag in
                 let targetURL: URL?
                 if self.selectedTab == .player {
                     let currentTarget = self.playerEngine.activeTarget
@@ -1581,158 +1495,84 @@ struct ContentView: View {
                 } else {
                     targetURL = self.specsState.selectedDeliverableURL ?? self.specsState.deliverableAssets.first?.fileURL
                 }
-                
-                if event.keyCode == 29 || rawChars == "0" { // 0: Remove Tag
-                    if let targetURL = targetURL {
-                        self.setFinderTag(nil, for: targetURL)
-                        return nil
-                    }
-                } else if let tag = tagForNum {
-                    if let targetURL = targetURL {
-                        self.toggleFinderTag(tag, for: targetURL)
-                        return nil
-                    }
-                }
-            }
-            
-            // Player-specific shortcuts below this point
-            guard self.selectedTab == .player else { return event }
-            
-            // J K L Shuttle & Core Player Keys
-            if let chars = rawChars {
-                if chars == "j" && !isCommand && !isControl {
-                    if isShift {
-                        self.playerEngine.pressSlowJ()
-                    } else {
-                        self.playerEngine.pressJ()
-                    }
-                    return nil
-                } else if chars == "k" && !isCommand && !isControl {
-                    self.playerEngine.pressK()
-                    return nil
-                } else if chars == "l" && !isCommand && !isControl {
-                    if isShift {
-                        self.playerEngine.pressSlowL()
-                    } else {
-                        self.playerEngine.pressL()
-                    }
-                    return nil
-                } else if chars == "l" && isCommand {
-                    self.playerEngine.isLooping.toggle()
-                    return nil
-                } else if chars == "a" && !isCommand && !isControl && !isShift && !isOption { // A: Toggle Autoplay ON/OFF
-                    self.playerEngine.isAutoplayEnabled.toggle()
-                    return nil
-                } else if chars == " " { // Spacebar
-                    self.playerEngine.togglePlayPause()
-                    return nil
-                } else if chars == "f" && !isCommand && !isControl { // F: Toggle Video Fullscreen (Clean) / Shift+F: Review Fullscreen
-                    if self.fullscreenMode != .none {
-                        self.exitFullscreen()
-                    } else if self.playerEngine.activeURL != nil {
-                        self.enterFullscreen(mode: isShift ? .review : .videoOnly)
-                    }
-                    return nil
-                } else if chars == "n" && !isCommand && !isControl && !isShift && !isOption { // N: Add Review Note at current frame
-                    if self.playerEngine.activeURL != nil {
-                        self.openAddNoteModal()
-                        return nil
-                    }
-                } else if (chars == "]" || event.keyCode == 30) || (chars == "n" && isOption && !isShift) { // ]: Jump to Next Review Note
-                    self.playerEngine.jumpToNextNote()
-                    return nil
-                } else if (chars == "[" || event.keyCode == 33) || (chars == "n" && isOption && isShift) { // [: Jump to Previous Review Note
-                    self.playerEngine.jumpToPreviousNote()
-                    return nil
-                } else if chars == "m" && !isCommand && !isControl && !isOption { // M: Next Line Finding / Shift+M: Previous Line Finding
-                    if isShift {
-                        self.jumpToPreviousGlitchFinding()
-                    } else {
-                        self.jumpToNextGlitchFinding()
-                    }
-                    return nil
-                } else if (chars == "s" || chars == "x") && !isCommand && !isControl && !isShift && !isOption { // S / X: Swap Slot A and Slot B
-                    if self.playerEngine.slotB.url != nil {
-                        self.playerEngine.swapSlots()
-                        return nil
-                    }
-                } else if chars == "c" && !isCommand && !isControl { // C: Cycle compare modes
-                    if self.playerEngine.slotB.url != nil {
-                        self.playerEngine.cycleCompareMode()
-                        return nil
-                    }
-                } else if chars == "?" || (isCommand && chars == "/") {
-                    self.showUserGuide.toggle()
-                    return nil
-                } else if chars == "i" && !isCommand && !isControl && !isOption && !isShift { // I: Cycle clip info (Off -> A/B -> Resolution -> Name -> Full Details)
-                    self.playerEngine.cycleClipInfoOverlayMode()
-                    return nil
-                } else if (chars == "i" && (isControl || isCommand)) || (chars == "p" && isCommand) {
-                    self.togglePropertiesModalForActiveOrSelected()
-                    return nil
-                }
-            }
-            
-            switch event.keyCode {
-            case 30: // ]: Next Note (fallback for international layouts)
-                if !isCommand && !isControl {
-                    self.playerEngine.jumpToNextNote()
-                    return nil
-                }
-            case 33: // [: Previous Note (fallback for international layouts)
-                if !isCommand && !isControl {
-                    self.playerEngine.jumpToPreviousNote()
-                    return nil
-                }
-            case 48: // Tab key: Rapid Blink / Flicker compare between Slot A and Slot B (Single mode only)
-                if self.playerEngine.slotB.url != nil && self.playerEngine.compareMode == .single {
-                    self.playerEngine.isBlinkCompareB.toggle()
-                    return nil
-                }
-            case 126: // Up Arrow: Previous file in queue (Slot A, or Option+Up for Slot B)
-                if !isCommand && !isControl {
-                    if isOption {
-                        self.playerSelectPreviousFile(target: .slotB)
-                    } else {
-                        self.playerSelectPreviousFile(target: .slotA)
-                    }
-                    return nil
-                }
-            case 125: // Down Arrow: Next file in queue (Slot A, or Option+Down for Slot B)
-                if !isCommand && !isControl {
-                    if isOption {
-                        self.playerSelectNextFile(target: .slotB)
-                    } else {
-                        self.playerSelectNextFile(target: .slotA)
-                    }
-                    return nil
-                }
-            case 123: // Left Arrow
-                if isShift {
-                    self.playerEngine.stepFrames(count: 5, forward: false)
+                guard let targetURL = targetURL else { return false }
+                self.toggleFinderTag(tag, for: targetURL)
+                return true
+            },
+            onClearFinderTag: {
+                let targetURL: URL?
+                if self.selectedTab == .player {
+                    let currentTarget = self.playerEngine.activeTarget
+                    targetURL = (currentTarget == .slotB && self.playerEngine.slotB.url != nil) ? self.playerEngine.slotB.url : self.playerEngine.activeURL
                 } else {
-                    self.playerEngine.stepFrame(forward: false)
+                    targetURL = self.specsState.selectedDeliverableURL ?? self.specsState.deliverableAssets.first?.fileURL
                 }
-                return nil
-            case 124: // Right Arrow
-                if isShift {
-                    self.playerEngine.stepFrames(count: 5, forward: true)
-                } else {
-                    self.playerEngine.stepFrame(forward: true)
+                guard let targetURL = targetURL else { return false }
+                self.setFinderTag(nil, for: targetURL)
+                return true
+            },
+            onPressJ: { self.playerEngine.pressJ() },
+            onPressSlowJ: { self.playerEngine.pressSlowJ() },
+            onPressK: { self.playerEngine.pressK() },
+            onPressL: { self.playerEngine.pressL() },
+            onPressSlowL: { self.playerEngine.pressSlowL() },
+            onToggleLooping: { self.playerEngine.isLooping.toggle() },
+            onToggleAutoplay: { self.playerEngine.isAutoplayEnabled.toggle() },
+            onTogglePlayPause: { self.playerEngine.togglePlayPause() },
+            onStepFrame: { forward in self.playerEngine.stepFrame(forward: forward) },
+            onStepFrames: { count, forward in self.playerEngine.stepFrames(count: count, forward: forward) },
+            onJumpToBeginning: { self.playerEngine.jumpToBeginning() },
+            onJumpToEnd: { self.playerEngine.jumpToEnd() },
+            onSelectPreviousFile: { target in self.playerSelectPreviousFile(target: target) },
+            onSelectNextFile: { target in self.playerSelectNextFile(target: target) },
+            onToggleFullscreenVideo: {
+                if self.fullscreenMode != .none {
+                    self.exitFullscreen()
+                    return true
+                } else if self.playerEngine.activeURL != nil {
+                    self.enterFullscreen(mode: .videoOnly)
+                    return true
                 }
-                return nil
-            case 115: // Home
-                self.playerEngine.jumpToBeginning()
-                return nil
-            case 119: // End
-                self.playerEngine.jumpToEnd()
-                return nil
-            default:
-                break
-            }
-            
-            return event
-        }
+                return false
+            },
+            onToggleFullscreenReview: {
+                if self.fullscreenMode != .none {
+                    self.exitFullscreen()
+                    return true
+                } else if self.playerEngine.activeURL != nil {
+                    self.enterFullscreen(mode: .review)
+                    return true
+                }
+                return false
+            },
+            onOpenAddNote: {
+                guard self.playerEngine.activeURL != nil else { return false }
+                self.openAddNoteModal()
+                return true
+            },
+            onJumpToNextNote: { self.playerEngine.jumpToNextNote() },
+            onJumpToPreviousNote: { self.playerEngine.jumpToPreviousNote() },
+            onJumpToNextFinding: { self.jumpToNextGlitchFinding() },
+            onJumpToPreviousFinding: { self.jumpToPreviousGlitchFinding() },
+            onSwapSlots: {
+                guard self.playerEngine.slotB.url != nil else { return false }
+                self.playerEngine.swapSlots()
+                return true
+            },
+            onCycleCompareMode: {
+                guard self.playerEngine.slotB.url != nil else { return false }
+                self.playerEngine.cycleCompareMode()
+                return true
+            },
+            onToggleBlinkCompare: {
+                guard self.playerEngine.slotB.url != nil && self.playerEngine.compareMode == .single else { return false }
+                self.playerEngine.isBlinkCompareB.toggle()
+                return true
+            },
+            onToggleUserGuide: { self.showUserGuide.toggle() },
+            onCycleClipInfo: { self.playerEngine.cycleClipInfoOverlayMode() },
+            onToggleProperties: { self.togglePropertiesModalForActiveOrSelected() }
+        )
     }
     
     func playerSelectPreviousFile(target: SlotTarget = .slotA) {
