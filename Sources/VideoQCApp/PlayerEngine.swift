@@ -4,8 +4,51 @@ import os
 import Combine
 import CoreMedia
 import AppKit
+import UniformTypeIdentifiers
 @preconcurrency import VideoToolbox
 import VideoQCLib
+
+// MARK: - Screenshot Export Presets
+
+public enum ScreenshotPreset: String, CaseIterable, Identifiable, Sendable {
+    case jpgMedium = "JPG Medium"
+    case jpgHigh = "JPG High"
+    case pngMedium = "PNG Medium"
+    case pngHigh = "PNG High"
+    
+    public var id: String { rawValue }
+    
+    public var fileExtension: String {
+        switch self {
+        case .jpgMedium, .jpgHigh:
+            return "jpg"
+        case .pngMedium, .pngHigh:
+            return "png"
+        }
+    }
+    
+    public var utType: UTType {
+        switch self {
+        case .jpgMedium, .jpgHigh:
+            return .jpeg
+        case .pngMedium, .pngHigh:
+            return .png
+        }
+    }
+    
+    public var description: String {
+        switch self {
+        case .jpgMedium:
+            return "JPEG (Medium quality ~70%, source resolution)"
+        case .jpgHigh:
+            return "JPEG (High quality ~95%, source resolution)"
+        case .pngMedium:
+            return "PNG (Optimized compression, source resolution)"
+        case .pngHigh:
+            return "PNG (Master uncompressed RGBA, source resolution)"
+        }
+    }
+}
 
 public struct PlayerTimelineMarker: Identifiable, Sendable, Hashable {
     public let id: UUID
@@ -281,6 +324,7 @@ public final class PlayerEngine: ObservableObject {
         }
     }
     @Published public var splitPosition: CGFloat = 0.5
+    @Published public var lastScreenshotPreset: ScreenshotPreset = .jpgMedium
     
     public var hasMatchingAspectRatios: Bool {
         guard slotB.url != nil else { return true }
@@ -406,6 +450,21 @@ public final class PlayerEngine: ObservableObject {
     
     public func resetExposure() {
         self.exposureEV = 0.0
+    }
+    
+    // MARK: - Dropped Frame Telemetry (Premiere Pro-style QC Indicator)
+    
+    @Published public var droppedFramesCount: Int = 0
+    private var shouldResetDroppedFramesOnPlayback: Bool = false
+    
+    public func recordDroppedFrames(_ count: Int) {
+        guard count > 0 else { return }
+        self.droppedFramesCount += count
+    }
+    
+    public func resetDroppedFrames() {
+        self.droppedFramesCount = 0
+        self.shouldResetDroppedFramesOnPlayback = false
     }
     
     // MARK: - Exposure Video Composition (Hardware-Accelerated Playback)
@@ -549,8 +608,8 @@ public final class PlayerEngine: ObservableObject {
     
     // MARK: - Asset Loading
     
-    public func loadVideo(url: URL, into target: SlotTarget = .slotA, initialSeekFrame: Int? = nil, autoplay: Bool = false) {
-        let shouldAutoplay = autoplay && isAutoplayEnabled
+    public func loadVideo(url: URL, into target: SlotTarget = .slotA, initialSeekFrame: Int? = nil, autoplay: Bool = false, forceAutoplay: Bool = false) {
+        let shouldAutoplay = forceAutoplay || (autoplay && isAutoplayEnabled)
         if target == .slotA || slotA.url == nil {
             loadVideoIntoSlotA(url: url, initialSeekFrame: initialSeekFrame, autoplay: shouldAutoplay)
         } else {
@@ -585,6 +644,7 @@ public final class PlayerEngine: ObservableObject {
         self.currentProgress = 0.0
         self.currentTimecode = "00:00:00:00"
         self.panOffset = .zero
+        self.resetDroppedFrames()
         self.isScrubbing = false
         self.wasPlayingBeforeScrub = false
         self.isSeeking = false
@@ -1040,6 +1100,7 @@ public final class PlayerEngine: ObservableObject {
         currentTimecode = "00:00:00:00"
         isPlaying = false
         rate = 0.0
+        resetDroppedFrames()
         updateAudioVolumes()
     }
     
@@ -1381,6 +1442,10 @@ public final class PlayerEngine: ObservableObject {
     private func startSlowStepTimer() {
         stopSlowStep()
         
+        if shouldResetDroppedFramesOnPlayback {
+            resetDroppedFrames()
+        }
+        
         let targetFps = slowSpeeds[slowSpeedIndex]
         let interval = 1.0 / targetFps
         let isFwd = (slowDirection == .forward)
@@ -1458,6 +1523,7 @@ public final class PlayerEngine: ObservableObject {
         self.isSeeking = false
         self.wasPlayingBeforeScrub = false
         self.shuttleStateText = "PAUSE"
+        self.shouldResetDroppedFramesOnPlayback = true
         if let currentItem = slotA.player.currentItem, currentItem.status == .readyToPlay {
             let pausedTime = slotA.player.currentTime()
             if pausedTime.isValid && pausedTime.isNumeric {
@@ -1485,6 +1551,10 @@ public final class PlayerEngine: ObservableObject {
         if newRate == 0.0 {
             pause()
             return
+        }
+        
+        if shouldResetDroppedFramesOnPlayback {
+            resetDroppedFrames()
         }
         
         slotA.player.automaticallyWaitsToMinimizeStalling = false
@@ -1898,18 +1968,222 @@ public final class PlayerEngine: ObservableObject {
         return await currentSlot.frameExtractor.capture(at: targetTime, fallbackURL: url)
     }
     
-    /// Exports the current video frame as a medium-quality JPEG (quality ~0.65)
-    public func exportCurrentFrameAsJPEG(for slot: SlotTarget = .slotA, to destinationURL: URL, quality: CGFloat = 0.65) async throws {
-        guard let cgImage = await captureCurrentFrame(for: slot) else {
-            throw NSError(domain: "PlayerEngine", code: -1, userInfo: [NSLocalizedDescriptionKey: "Failed to capture video frame at current playhead."])
+    // MARK: - Pixel-Perfect Frame & Compare Screenshot Export
+    
+    /// Captures the current visible frame or dual-slot A/B composition for screenshot export.
+    /// Pure master frames with zero UI elements, timecode HUDs, or media info labels.
+    public func captureCompositedScreenshotImage() async -> CGImage? {
+        let isABActive = slotB.url != nil && (compareMode != .single || isBlinkCompareB)
+        
+        // Single slot / Blink slot capture
+        if !isABActive || compareMode == .single {
+            let targetSlot: SlotTarget
+            if isBlinkCompareB && slotB.url != nil {
+                targetSlot = .slotB
+            } else if activeTarget == .slotB && slotB.url != nil {
+                targetSlot = .slotB
+            } else {
+                targetSlot = .slotA
+            }
+            guard let rawImage = await captureCurrentFrame(for: targetSlot) else { return nil }
+            return ExposureAdjuster.shared.applyExposure(to: rawImage, ev: exposureEV)
         }
         
-        let exposedImage = ExposureAdjuster.shared.applyExposure(to: cgImage, ev: exposureEV)
-        let bitmapRep = NSBitmapImageRep(cgImage: exposedImage)
+        // Dual slot A/B compositing
+        async let frameA = captureCurrentFrame(for: .slotA)
+        async let frameB = captureCurrentFrame(for: .slotB)
+        let (rawA, rawB) = await (frameA, frameB)
+        
+        guard let imgA = rawA else {
+            return rawB.map { ExposureAdjuster.shared.applyExposure(to: $0, ev: exposureEV) }
+        }
+        guard let imgB = rawB else {
+            return ExposureAdjuster.shared.applyExposure(to: imgA, ev: exposureEV)
+        }
+        
+        let expA = ExposureAdjuster.shared.applyExposure(to: imgA, ev: exposureEV)
+        let expB = ExposureAdjuster.shared.applyExposure(to: imgB, ev: exposureEV)
+        
+        let colorSpace = expA.colorSpace ?? expB.colorSpace ?? CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB()
+        let bitmapInfo = CGImageAlphaInfo.premultipliedLast.rawValue
+        
+        switch compareMode {
+        case .single:
+            return expA
+            
+        case .splitVertical:
+            let outW = max(expA.width, expB.width)
+            let outH = max(expA.height, expB.height)
+            guard let ctx = CGContext(data: nil, width: outW, height: outH, bitsPerComponent: 8, bytesPerRow: 0, space: colorSpace, bitmapInfo: bitmapInfo) else {
+                return expA
+            }
+            // Base: Slot B across entire frame
+            ctx.draw(expB, in: CGRect(x: 0, y: 0, width: outW, height: outH))
+            
+            // Left portion: Slot A
+            let splitPos = max(0.0, min(1.0, splitPosition))
+            let splitX = round(CGFloat(outW) * splitPos)
+            ctx.saveGState()
+            ctx.clip(to: CGRect(x: 0, y: 0, width: splitX, height: CGFloat(outH)))
+            ctx.draw(expA, in: CGRect(x: 0, y: 0, width: outW, height: outH))
+            ctx.restoreGState()
+            
+            // Cyan split wipe line at divider position
+            let lineWidth = max(2.0, round(CGFloat(outW) / 960.0))
+            let dividerRect = CGRect(x: splitX - (lineWidth / 2.0), y: 0, width: lineWidth, height: CGFloat(outH))
+            ctx.setFillColor(red: 0.1, green: 0.95, blue: 0.85, alpha: 0.9)
+            ctx.fill(dividerRect)
+            
+            return ctx.makeImage() ?? expA
+            
+        case .splitHorizontal:
+            let outW = max(expA.width, expB.width)
+            let outH = max(expA.height, expB.height)
+            guard let ctx = CGContext(data: nil, width: outW, height: outH, bitsPerComponent: 8, bytesPerRow: 0, space: colorSpace, bitmapInfo: bitmapInfo) else {
+                return expA
+            }
+            // Base: Slot B across entire frame (bottom)
+            ctx.draw(expB, in: CGRect(x: 0, y: 0, width: outW, height: outH))
+            
+            // Top portion: Slot A (in CGContext, y=0 is bottom, top is splitY to outH)
+            let splitPos = max(0.0, min(1.0, splitPosition))
+            let splitY = round(CGFloat(outH) * splitPos)
+            ctx.saveGState()
+            ctx.clip(to: CGRect(x: 0, y: splitY, width: CGFloat(outW), height: CGFloat(outH) - splitY))
+            ctx.draw(expA, in: CGRect(x: 0, y: 0, width: outW, height: outH))
+            ctx.restoreGState()
+            
+            // Cyan split wipe line at divider position
+            let lineHeight = max(2.0, round(CGFloat(outH) / 540.0))
+            let dividerRect = CGRect(x: 0, y: splitY - (lineHeight / 2.0), width: CGFloat(outW), height: lineHeight)
+            ctx.setFillColor(red: 0.1, green: 0.95, blue: 0.85, alpha: 0.9)
+            ctx.fill(dividerRect)
+            
+            return ctx.makeImage() ?? expA
+            
+        case .sideBySide:
+            let outW = expA.width + expB.width
+            let outH = max(expA.height, expB.height)
+            guard let ctx = CGContext(data: nil, width: outW, height: outH, bitsPerComponent: 8, bytesPerRow: 0, space: colorSpace, bitmapInfo: bitmapInfo) else {
+                return expA
+            }
+            ctx.setFillColor(red: 0, green: 0, blue: 0, alpha: 1.0)
+            ctx.fill(CGRect(x: 0, y: 0, width: outW, height: outH))
+            
+            let rectA = CGRect(x: 0, y: (outH - expA.height) / 2, width: expA.width, height: expA.height)
+            let rectB = CGRect(x: expA.width, y: (outH - expB.height) / 2, width: expB.width, height: expB.height)
+            ctx.draw(expA, in: rectA)
+            ctx.draw(expB, in: rectB)
+            
+            return ctx.makeImage() ?? expA
+            
+        case .sideBySideVertical:
+            let outW = max(expA.width, expB.width)
+            let outH = expA.height + expB.height
+            guard let ctx = CGContext(data: nil, width: outW, height: outH, bitsPerComponent: 8, bytesPerRow: 0, space: colorSpace, bitmapInfo: bitmapInfo) else {
+                return expA
+            }
+            ctx.setFillColor(red: 0, green: 0, blue: 0, alpha: 1.0)
+            ctx.fill(CGRect(x: 0, y: 0, width: outW, height: outH))
+            
+            // In CGContext, y=0 is bottom (Slot B) and top is Slot A
+            let rectB = CGRect(x: (outW - expB.width) / 2, y: 0, width: expB.width, height: expB.height)
+            let rectA = CGRect(x: (outW - expA.width) / 2, y: expB.height, width: expA.width, height: expA.height)
+            ctx.draw(expB, in: rectB)
+            ctx.draw(expA, in: rectA)
+            
+            return ctx.makeImage() ?? expA
+            
+        case .difference:
+            let outW = max(expA.width, expB.width)
+            let outH = max(expA.height, expB.height)
+            guard let ctx = CGContext(data: nil, width: outW, height: outH, bitsPerComponent: 8, bytesPerRow: 0, space: colorSpace, bitmapInfo: bitmapInfo) else {
+                return expA
+            }
+            ctx.draw(expA, in: CGRect(x: 0, y: 0, width: outW, height: outH))
+            ctx.setBlendMode(.difference)
+            ctx.draw(expB, in: CGRect(x: 0, y: 0, width: outW, height: outH))
+            ctx.setBlendMode(.normal)
+            
+            return ctx.makeImage() ?? expA
+            
+        case .overlay:
+            let outW = max(expA.width, expB.width)
+            let outH = max(expA.height, expB.height)
+            guard let ctx = CGContext(data: nil, width: outW, height: outH, bitsPerComponent: 8, bytesPerRow: 0, space: colorSpace, bitmapInfo: bitmapInfo) else {
+                return expA
+            }
+            ctx.draw(expA, in: CGRect(x: 0, y: 0, width: outW, height: outH))
+            ctx.setAlpha(0.5)
+            ctx.draw(expB, in: CGRect(x: 0, y: 0, width: outW, height: outH))
+            
+            return ctx.makeImage() ?? expA
+        }
+    }
+    
+    /// Encodes a CGImage to the specified preset format and compression.
+    public func encodeScreenshot(image: CGImage, preset: ScreenshotPreset) throws -> Data {
+        switch preset {
+        case .jpgMedium:
+            let bitmapRep = NSBitmapImageRep(cgImage: image)
+            guard let data = bitmapRep.representation(using: .jpeg, properties: [.compressionFactor: 0.70]) else {
+                throw NSError(domain: "PlayerEngine", code: -2, userInfo: [NSLocalizedDescriptionKey: "Failed to encode image to JPG Medium."])
+            }
+            return data
+            
+        case .jpgHigh:
+            let bitmapRep = NSBitmapImageRep(cgImage: image)
+            guard let data = bitmapRep.representation(using: .jpeg, properties: [.compressionFactor: 0.95]) else {
+                throw NSError(domain: "PlayerEngine", code: -2, userInfo: [NSLocalizedDescriptionKey: "Failed to encode image to JPG High."])
+            }
+            return data
+            
+        case .pngHigh:
+            let bitmapRep = NSBitmapImageRep(cgImage: image)
+            guard let data = bitmapRep.representation(using: .png, properties: [:]) else {
+                throw NSError(domain: "PlayerEngine", code: -2, userInfo: [NSLocalizedDescriptionKey: "Failed to encode image to PNG High."])
+            }
+            return data
+            
+        case .pngMedium:
+            // PNG Medium: 100% source resolution with 24-bit RGB and SUB compression filter for lower bitrate
+            let w = image.width
+            let h = image.height
+            let colorSpace = image.colorSpace ?? CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB()
+            if let ctx24 = CGContext(data: nil, width: w, height: h, bitsPerComponent: 8, bytesPerRow: 0, space: colorSpace, bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue) {
+                ctx24.draw(image, in: CGRect(x: 0, y: 0, width: w, height: h))
+                if let img24 = ctx24.makeImage() {
+                    let mutableData = NSMutableData()
+                    if let dest = CGImageDestinationCreateWithData(mutableData as CFMutableData, "public.png" as CFString, 1, nil) {
+                        let options: [CFString: Any] = [
+                            kCGImagePropertyPNGDictionary: [
+                                kCGImagePropertyPNGCompressionFilter: 0x10
+                            ]
+                        ]
+                        CGImageDestinationAddImage(dest, img24, options as CFDictionary)
+                        if CGImageDestinationFinalize(dest) {
+                            return mutableData as Data
+                        }
+                    }
+                }
+            }
+            let bitmapRep = NSBitmapImageRep(cgImage: image)
+            guard let data = bitmapRep.representation(using: .png, properties: [:]) else {
+                throw NSError(domain: "PlayerEngine", code: -2, userInfo: [NSLocalizedDescriptionKey: "Failed to encode image to PNG Medium."])
+            }
+            return data
+        }
+    }
+    
+    /// Exports the current video frame as a medium-quality JPEG (backward compatible)
+    public func exportCurrentFrameAsJPEG(for slot: SlotTarget = .slotA, to destinationURL: URL, quality: CGFloat = 0.65) async throws {
+        guard let composited = await captureCompositedScreenshotImage() else {
+            throw NSError(domain: "PlayerEngine", code: -1, userInfo: [NSLocalizedDescriptionKey: "Failed to capture video frame at current playhead."])
+        }
+        let bitmapRep = NSBitmapImageRep(cgImage: composited)
         guard let jpegData = bitmapRep.representation(using: .jpeg, properties: [.compressionFactor: quality]) else {
             throw NSError(domain: "PlayerEngine", code: -2, userInfo: [NSLocalizedDescriptionKey: "Failed to encode image to JPEG format."])
         }
-        
         try jpegData.write(to: destinationURL, options: .atomic)
     }
 }

@@ -744,10 +744,18 @@ extension KeyboardShortcutRouter {
                 return true
             },
             
-            // Player: Home / End
+            // Player: Home / End / Shift+I (Jump to Start)
             Rule(
-                id: "jumpBeginning",
+                id: "jumpBeginningHome",
                 trigger: ShortcutTrigger(keyCodes: [115], modifiers: []),
+                scope: .playerOnly
+            ) {
+                actions.onJumpToBeginning()
+                return true
+            },
+            Rule(
+                id: "jumpBeginningShiftI",
+                trigger: ShortcutTrigger(keyCodes: [34], characters: ["i"], modifiers: [.shift]),
                 scope: .playerOnly
             ) {
                 actions.onJumpToBeginning()

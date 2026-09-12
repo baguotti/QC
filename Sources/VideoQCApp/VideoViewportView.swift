@@ -121,6 +121,9 @@ public final class PlayerContainerNSView: NSView {
     private var resolutionLabelWidthA: CGFloat = 0
     private var resolutionLabelWidthB: CGFloat = 0
     
+    // Playback dropped frame telemetry state
+    private var lastPlaybackPTS: Double = -1.0
+    
     // Still frame inspection caching to eliminate AVPlayerLayer motion-downsampling
     private var lastCapturedTimeA: CMTime? = nil
     private var lastCapturedTimeB: CMTime? = nil
@@ -502,12 +505,18 @@ public final class PlayerContainerNSView: NSView {
     }
     
     @objc private func onDisplayLinkTick() {
-        guard let engine = engine, engine.isPlaying else { return }
+        guard let engine = engine, engine.isPlaying else {
+            self.lastPlaybackPTS = -1.0
+            return
+        }
         renderPlaybackFrames()
     }
     
     private func renderPlaybackFrames() {
-        guard let engine = engine, engine.isPlaying else { return }
+        guard let engine = engine, engine.isPlaying else {
+            self.lastPlaybackPTS = -1.0
+            return
+        }
         
         var newImgA: CGImage? = nil
         var newTimeA: CMTime? = nil
@@ -520,6 +529,33 @@ public final class PlayerContainerNSView: NSView {
         if let outputA = engine.slotA.videoOutput {
             var displayTime = CMTime.zero
             if let pb = outputA.copyPixelBuffer(forItemTime: masterTime, itemTimeForDisplay: &displayTime) {
+                // Monitor dropped frames during continuous 1.0x playback
+                if engine.rate == 1.0 && !engine.isSeeking && !engine.isScrubbing {
+                    let pts = CMTimeGetSeconds(displayTime)
+                    if pts.isFinite && !pts.isNaN {
+                        if self.lastPlaybackPTS >= 0 {
+                            if pts < self.lastPlaybackPTS {
+                                // Loop or backward discontinuity
+                                self.lastPlaybackPTS = pts
+                            } else {
+                                let delta = pts - self.lastPlaybackPTS
+                                let fps = engine.slotA.fps > 0 ? engine.slotA.fps : 25.0
+                                let frames = Int(round(delta * fps))
+                                if frames > 1 && delta < 1.0 {
+                                    engine.recordDroppedFrames(frames - 1)
+                                }
+                                if frames >= 1 {
+                                    self.lastPlaybackPTS = pts
+                                }
+                            }
+                        } else {
+                            self.lastPlaybackPTS = pts
+                        }
+                    }
+                } else {
+                    self.lastPlaybackPTS = -1.0
+                }
+                
                 var cgImageA: CGImage?
                 VTCreateCGImageFromCVPixelBuffer(pb, options: nil, imageOut: &cgImageA)
                 if let img = cgImageA {

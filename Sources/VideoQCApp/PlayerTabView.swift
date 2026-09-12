@@ -685,7 +685,7 @@ extension ContentView {
                 scanResults: scannerState.scanResults,
                 isLightMode: isLightMode,
                 hoverExplanation: $hoverExplanation,
-                onExportScreenshot: { exportCurrentFrameScreenshot() },
+                onExportScreenshot: { preset in exportCurrentFrameScreenshot(preset: preset) },
                 showNotesAndGlitches: false
             )
             
@@ -797,36 +797,116 @@ extension ContentView {
         }
     }
     
-    private func exportCurrentFrameScreenshot() {
+    private func exportCurrentFrameScreenshot(preset initialPreset: ScreenshotPreset = .jpgMedium) {
+        playerEngine.lastScreenshotPreset = initialPreset
+        let isABActive = playerEngine.slotB.url != nil && (playerEngine.compareMode != .single || playerEngine.isBlinkCompareB)
         let currentTarget = playerEngine.activeTarget
         let currentSlot: SlotTarget = (currentTarget == .slotB && playerEngine.slotB.url != nil) ? .slotB : .slotA
-        guard let url = (currentSlot == .slotA) ? playerEngine.slotA.url : playerEngine.slotB.url else { return }
+        guard let activeURL = (currentSlot == .slotA) ? playerEngine.slotA.url : playerEngine.slotB.url else { return }
         
-        let baseName = url.deletingPathExtension().lastPathComponent
-        let frameNum = (currentSlot == .slotA) ? playerEngine.currentFrame : Int(round(CMTimeGetSeconds(playerEngine.slotB.currentTime) * max(1.0, playerEngine.slotB.fps)))
-        let defaultFileName = "\(baseName)_frame_\(frameNum).jpg"
+        var selectedPreset = initialPreset
+        let baseNameA = playerEngine.slotA.url?.deletingPathExtension().lastPathComponent ?? "videoA"
+        let frameA = playerEngine.currentFrame
+        
+        let defaultFileName: String
+        let panelTitle: String
+        
+        if isABActive && playerEngine.compareMode != .single {
+            let baseNameB = playerEngine.slotB.url?.deletingPathExtension().lastPathComponent ?? "videoB"
+            let suffix: String
+            switch playerEngine.compareMode {
+            case .splitVertical: suffix = "_splitV"
+            case .splitHorizontal: suffix = "_splitH"
+            case .sideBySide: suffix = "_sideBySide"
+            case .sideBySideVertical: suffix = "_sideBySideV"
+            case .difference: suffix = "_diff"
+            case .overlay: suffix = "_overlay"
+            case .single: suffix = ""
+            }
+            defaultFileName = "\(baseNameA)_vs_\(baseNameB)_f\(frameA)\(suffix).\(initialPreset.fileExtension)"
+            panelTitle = "Save Frame Screenshot [\(playerEngine.compareMode.rawValue)]"
+        } else {
+            let slotName = (playerEngine.isBlinkCompareB || currentSlot == .slotB) ? "Slot B" : "Slot A"
+            let url = (slotName == "Slot B") ? (playerEngine.slotB.url ?? activeURL) : activeURL
+            let baseName = url.deletingPathExtension().lastPathComponent
+            let frameNum = (slotName == "Slot B") ? Int(round(CMTimeGetSeconds(playerEngine.slotB.currentTime) * max(1.0, playerEngine.slotB.fps))) : frameA
+            defaultFileName = "\(baseName)_frame_\(frameNum).\(initialPreset.fileExtension)"
+            panelTitle = "Save Frame Screenshot (\(slotName))"
+        }
         
         let savePanel = NSSavePanel()
-        savePanel.title = "Save Frame Screenshot (\(currentSlot == .slotA ? "Slot A" : "Slot B"))"
+        savePanel.title = panelTitle
         savePanel.prompt = "Save"
         savePanel.canCreateDirectories = true
         savePanel.nameFieldStringValue = defaultFileName
-        savePanel.allowedContentTypes = [.jpeg]
+        savePanel.allowedContentTypes = [initialPreset.utType]
         
         if let parentDir = folderURL {
             savePanel.directoryURL = parentDir
         }
         
+        // Accessory View with Preset Selector
+        let accessoryView = NSView(frame: NSRect(x: 0, y: 0, width: 280, height: 32))
+        let label = NSTextField(labelWithString: "Preset:")
+        label.frame = NSRect(x: 0, y: 6, width: 60, height: 20)
+        label.alignment = .right
+        label.font = .systemFont(ofSize: 12)
+        accessoryView.addSubview(label)
+        
+        let popUp = NSPopUpButton(frame: NSRect(x: 66, y: 4, width: 190, height: 24), pullsDown: false)
+        for preset in ScreenshotPreset.allCases {
+            popUp.addItem(withTitle: preset.rawValue)
+        }
+        popUp.selectItem(withTitle: initialPreset.rawValue)
+        
+        @MainActor
+        final class FormatChangeTarget: NSObject {
+            weak var panel: NSSavePanel?
+            var onSelectionChanged: ((ScreenshotPreset) -> Void)?
+            
+            @objc func onPopUpChanged(_ sender: NSPopUpButton) {
+                let idx = sender.indexOfSelectedItem
+                guard idx >= 0 && idx < ScreenshotPreset.allCases.count else { return }
+                let newPreset = ScreenshotPreset.allCases[idx]
+                onSelectionChanged?(newPreset)
+                if let panel = panel {
+                    panel.allowedContentTypes = [newPreset.utType]
+                    let currentName = panel.nameFieldStringValue
+                    let base = (currentName as NSString).deletingPathExtension
+                    panel.nameFieldStringValue = "\(base).\(newPreset.fileExtension)"
+                }
+            }
+        }
+        
+        let target = FormatChangeTarget()
+        target.panel = savePanel
+        target.onSelectionChanged = { [weak playerEngine] newPreset in
+            selectedPreset = newPreset
+            playerEngine?.lastScreenshotPreset = newPreset
+        }
+        popUp.target = target
+        popUp.action = #selector(FormatChangeTarget.onPopUpChanged(_:))
+        accessoryView.addSubview(popUp)
+        savePanel.accessoryView = accessoryView
+        
         if savePanel.runModal() == .OK, let targetURL = savePanel.url {
+            let idx = popUp.indexOfSelectedItem
+            let finalPreset = (idx >= 0 && idx < ScreenshotPreset.allCases.count) ? ScreenshotPreset.allCases[idx] : selectedPreset
+            playerEngine.lastScreenshotPreset = finalPreset
             Task { @MainActor in
                 do {
-                    try await playerEngine.exportCurrentFrameAsJPEG(for: currentSlot, to: targetURL, quality: 0.65)
+                    guard let composited = await playerEngine.captureCompositedScreenshotImage() else {
+                        throw NSError(domain: "PlayerEngine", code: -1, userInfo: [NSLocalizedDescriptionKey: "Failed to capture video frame at current playhead."])
+                    }
+                    let data = try playerEngine.encodeScreenshot(image: composited, preset: finalPreset)
+                    try data.write(to: targetURL, options: .atomic)
                     ScreenshotSoundPlayer.shared.play()
                 } catch {
                     print("[Screenshot] Export error: \(error.localizedDescription)")
                 }
             }
         }
+        _ = target
     }
     
     // MARK: - Tag Picker Popover
@@ -888,17 +968,19 @@ extension ContentView {
             engine: playerEngine,
             scanResults: scannerState.scanResults,
             videoFiles: videoFiles,
+            isLightMode: isLightMode,
             onExit: { exitFullscreen() },
             onJumpNext: { jumpToNextGlitchFinding() },
             onJumpPrev: { jumpToPreviousGlitchFinding() },
             onAddNote: { openAddNoteModal() },
-            onExportScreenshot: { exportCurrentFrameScreenshot() }
+            onExportScreenshot: { preset in exportCurrentFrameScreenshot(preset: preset) }
         )
     }
     
     var cleanVideoFullscreenOverlay: some View {
         CleanVideoFullscreenView(
             engine: playerEngine,
+            isLightMode: isLightMode,
             onExit: { exitFullscreen() }
         )
     }
@@ -1118,8 +1200,8 @@ struct PlayerComparisonBar: View {
                         isActive ? accentSlotB : textMuted,
                         style: StrokeStyle(lineWidth: StudioTheme.scale(1.25), dash: [StudioTheme.scale(2), StudioTheme.scale(1.5)])
                     )
-                    .padding(.vertical, StudioTheme.scale(1.5))
             }
+            .clipShape(RoundedRectangle(cornerRadius: StudioTheme.scale(2)))
             .frame(width: StudioTheme.scale(16), height: StudioTheme.scale(12))
             
         case .splitHorizontal:
@@ -1146,8 +1228,8 @@ struct PlayerComparisonBar: View {
                         isActive ? accentSlotB : textMuted,
                         style: StrokeStyle(lineWidth: StudioTheme.scale(1.25), dash: [StudioTheme.scale(2), StudioTheme.scale(1.5)])
                     )
-                    .padding(.horizontal, StudioTheme.scale(1.5))
             }
+            .clipShape(RoundedRectangle(cornerRadius: StudioTheme.scale(2)))
             .frame(width: StudioTheme.scale(16), height: StudioTheme.scale(12))
             
         case .sideBySide:

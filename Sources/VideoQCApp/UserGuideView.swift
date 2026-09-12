@@ -151,7 +151,7 @@ struct UserGuideView: View {
             guideRow(name: "SPACEBAR", desc: "Quick toggle between normal 1x Play and Pause.")
             guideRow(name: "SINGLE FRAME STEPPING (← / →)", desc: "Left and right arrow keys step exactly 1 frame backward or forward.")
             guideRow(name: "5 FRAME JUMP (⇧ + ← / →)", desc: "Shift + Left/Right arrow jumps 5 video frames backward or forward.")
-            guideRow(name: "HOME / END", desc: "Home key jumps directly to the first frame. End key jumps to the last frame.")
+            guideRow(name: "HOME / END (⇧ + I)", desc: "Shift + I or Home key jumps directly to the first frame (start of clip). End key jumps to the last frame.")
             guideRow(name: "TIMELINE SCRUBBING", desc: "Drag the playhead or click anywhere on the SMPTE ruler to scrub frame-accurately.")
             guideRow(name: "SCROLL ZOOM & HAND-PAN", desc: "Scroll your mouse wheel up or down directly to zoom into or out of the canvas (10% to 400%). Pinch on trackpad to zoom. Click and drag across the canvas with the hand tool to pan around.")
             guideRow(name: "QUEUE NAVIGATION (↑ / ↓, ⌥↑ / ⌥↓)", desc: "Up and down arrow keys navigate the queue for Slot A. Option + Up/Down (⌥↑ / ⌥↓) navigates the queue for Slot B.")
@@ -161,7 +161,7 @@ struct UserGuideView: View {
             guideRow(name: "CHANGE EXPOSURE (AE STYLE)", desc: "Click and drag left or right on the +0.0 EV number to brighten shadows and reveal faint black line glitches or drop highlights (-5.0 to +5.0 EV). Click the camera aperture icon or double-click the number to reset back to +0.0 EV.")
             guideRow(name: "JUMP TO NEXT LINE (N / NEXT LINE)", desc: "Cycles through all detected line glitches across all deliverables from Tab 3, seeking frame-accurately and pausing playback for inspection.")
             guideRow(name: "MACOS FINDER COLOR TAGS", desc: "Tag the active file with native macOS Finder color tags (Red, Orange, Yellow, Green, Blue, Purple, Gray) via the [TAGS] button or by right-clicking on any asset in the queue.")
-            guideRow(name: "FRAME SCREENSHOT (CAMERA ICON)", desc: "Click the square camera button in the transport bar to export the current video frame as a medium-quality JPEG to any folder.")
+            guideRow(name: "FRAME SCREENSHOT (CAMERA ICON)", desc: "Left-click the camera button to export the current frame or active A/B comparison view directly using the active preset (default: JPG Medium). Right-click to choose from 4 presets: JPG Medium, JPG High, PNG Medium, or PNG High (all at full source resolution).")
             guideRow(name: "SEAMLESS LOOP (⌘L)", desc: "Toggles automatic looping. Reaching the end seamlessly restarts from the beginning without stopping.")
             guideRow(name: "AUDIO & MUTE", desc: "Master playback volume slider and instant audio mute button.")
         }

@@ -1056,10 +1056,10 @@ struct ContentView: View {
     
     func handleIncomingOpenFiles(_ urls: [URL]) {
         self.selectedTab = .player
-        self.addAssets(urls: urls, forceLoad: true)
+        self.addAssets(urls: urls, forceLoad: true, forceAutoplay: true)
     }
     
-    func addAssets(urls: [URL], targetSlot: SlotTarget? = nil, forceLoad: Bool = false) {
+    func addAssets(urls: [URL], targetSlot: SlotTarget? = nil, forceLoad: Bool = false, forceAutoplay: Bool = false) {
         guard !urls.isEmpty else { return }
         var collectedVideos: [URL] = []
         var detectedFolder: URL? = nil
@@ -1112,7 +1112,7 @@ struct ContentView: View {
             }
         } else if forceLoad {
             if let first = newlyAdded.first ?? collectedVideos.first {
-                self.playerEngine.loadVideo(url: first, into: .slotA, autoplay: self.playerEngine.isAutoplayEnabled)
+                self.playerEngine.loadVideo(url: first, into: .slotA, autoplay: self.playerEngine.isAutoplayEnabled, forceAutoplay: forceAutoplay)
                 self.queueScrollTarget = first
             }
         } else if self.playerEngine.activeURL == nil, let first = newlyAdded.first ?? collectedVideos.first {

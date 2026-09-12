@@ -18,7 +18,7 @@ struct PlayerTransportDeckView: View {
     var isNotesDrawerOpen: Bool
     var onJumpPrevNote: (() -> Void)?
     var onJumpNextNote: (() -> Void)?
-    var onExportScreenshot: (() -> Void)?
+    var onExportScreenshot: ((ScreenshotPreset) -> Void)?
     var showNotesAndGlitches: Bool
     
     init(
@@ -34,7 +34,7 @@ struct PlayerTransportDeckView: View {
         isNotesDrawerOpen: Bool = false,
         onJumpPrevNote: (() -> Void)? = nil,
         onJumpNextNote: (() -> Void)? = nil,
-        onExportScreenshot: (() -> Void)? = nil,
+        onExportScreenshot: ((ScreenshotPreset) -> Void)? = nil,
         showNotesAndGlitches: Bool = false
     ) {
         self.engine = engine
@@ -235,15 +235,33 @@ struct PlayerTransportDeckView: View {
                 if let onExport = onExportScreenshot {
                     transportBtn(
                         icon: "camera.fill",
-                        tooltip: "Export screenshot of current video frame as medium-quality JPG.",
+                        tooltip: "Export Screenshot: \(engine.lastScreenshotPreset.rawValue) (Click to export, Right-click to choose preset).",
                         size: 11,
                         weight: .bold,
                         width: 26
                     ) {
-                        onExport()
+                        onExport(engine.lastScreenshotPreset)
                     }
                     .disabled(engine.activeURL == nil)
+                    .contextMenu {
+                        ForEach(ScreenshotPreset.allCases) { preset in
+                            Button(action: {
+                                engine.lastScreenshotPreset = preset
+                                onExport(preset)
+                            }) {
+                                HStack {
+                                    Text(preset.rawValue)
+                                    if engine.lastScreenshotPreset == preset {
+                                        Spacer()
+                                        Image(systemName: "checkmark")
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
+                
+                droppedFrameIndicator
             }
             
             // 3. Compact Review Notes Controls (Optional for decks that display notes inline, e.g. Fullscreen HUD)
@@ -420,5 +438,36 @@ struct PlayerTransportDeckView: View {
         }
         .buttonStyle(TransportIconButtonStyle())
         .explain(tooltip, binding: hoverExplanation)
+    }
+    
+    // MARK: - Dropped Frame Indicator (Premiere Pro-style QC Monitor)
+    
+    private var droppedFrameIndicator: some View {
+        Button(action: {
+            engine.resetDroppedFrames()
+        }) {
+            HStack(spacing: themeManager.scale(3)) {
+                Circle()
+                    .fill(engine.droppedFramesCount > 0 ? alertRed : palette.positive)
+                    .frame(width: themeManager.scale(7), height: themeManager.scale(7))
+                
+                if engine.droppedFramesCount > 0 {
+                    Text("\(engine.droppedFramesCount)")
+                        .font(.system(size: themeManager.scaleFont(10), weight: .bold, design: .monospaced))
+                        .foregroundColor(alertRed)
+                }
+            }
+            .padding(.horizontal, engine.droppedFramesCount > 0 ? themeManager.scale(4) : 0)
+            .frame(minWidth: btnWidth(engine.droppedFramesCount > 0 ? 32 : 22))
+            .frame(height: btnHeight)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(TransportIconButtonStyle())
+        .explain(
+            engine.droppedFramesCount > 0
+                ? "Dropped Frames: \(engine.droppedFramesCount) during playback (Click to reset)"
+                : "Dropped Frames: 0 (Smooth real-time playback)",
+            binding: hoverExplanation
+        )
     }
 }

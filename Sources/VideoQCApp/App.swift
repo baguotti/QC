@@ -21,6 +21,17 @@ struct QCpieApp: App {
 
         NSColorPanel.setPickerMask(.wheelModeMask)
         NSColorPanel.setPickerMode(.wheel)
+        
+        // Ensure List View is the high-performance default for both tabs
+        if UserDefaults.standard.object(forKey: "hasSetDefaultListViewV2") == nil {
+            UserDefaults.standard.set("inline", forKey: "queueDisplayMode")
+            UserDefaults.standard.set("inline", forKey: "specsDisplayMode")
+            UserDefaults.standard.set(true, forKey: "hasSetDefaultListViewV2")
+        }
+        UserDefaults.standard.register(defaults: [
+            "queueDisplayMode": "inline",
+            "specsDisplayMode": "inline"
+        ])
     }
     
     var body: some Scene {

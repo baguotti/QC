@@ -245,4 +245,67 @@ struct PlayerEngineTests {
         #expect(engine.clipInfoOverlayMode == .resolution)
         #expect(engine.showResolutionLabels == true)
     }
+    
+    // MARK: - Dropped Frame Telemetry
+    
+    @Test @MainActor
+    func droppedFrameTelemetryTracking() {
+        let engine = PlayerEngine()
+        #expect(engine.droppedFramesCount == 0)
+        
+        // Negative or zero drops ignored
+        engine.recordDroppedFrames(0)
+        engine.recordDroppedFrames(-5)
+        #expect(engine.droppedFramesCount == 0)
+        
+        // Positive frame drops accumulate
+        engine.recordDroppedFrames(2)
+        #expect(engine.droppedFramesCount == 2)
+        
+        engine.recordDroppedFrames(1)
+        #expect(engine.droppedFramesCount == 3)
+        
+        // Reset wipes count
+        engine.resetDroppedFrames()
+        #expect(engine.droppedFramesCount == 0)
+    }
+    
+    @Test @MainActor
+    func clearSlotAResetsDroppedFrames() {
+        let engine = PlayerEngine()
+        engine.recordDroppedFrames(5)
+        #expect(engine.droppedFramesCount == 5)
+        
+        engine.clearSlotA()
+        #expect(engine.droppedFramesCount == 0)
+    }
+    
+    @Test @MainActor
+    func playbackAfterPauseResetsDroppedFrames() {
+        let engine = PlayerEngine()
+        engine.recordDroppedFrames(4)
+        #expect(engine.droppedFramesCount == 4)
+        
+        // Pausing preserves count for inspection
+        engine.pause()
+        #expect(engine.droppedFramesCount == 4)
+        
+        // Starting forward playback resets dropped frames
+        engine.setPlaybackRate(1.0)
+        #expect(engine.droppedFramesCount == 0)
+        
+        // Accumulate more during playback
+        engine.recordDroppedFrames(2)
+        #expect(engine.droppedFramesCount == 2)
+        
+        // Changing rate mid-playback (e.g. fast forward 2x) does not reset
+        engine.setPlaybackRate(2.0)
+        #expect(engine.droppedFramesCount == 2)
+        
+        // Pausing and then starting backward playback resets dropped frames
+        engine.pause()
+        #expect(engine.droppedFramesCount == 2)
+        engine.setPlaybackRate(-1.0)
+        #expect(engine.droppedFramesCount == 0)
+    }
 }

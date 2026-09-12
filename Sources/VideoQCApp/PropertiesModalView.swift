@@ -9,10 +9,8 @@ import VideoQCLib
 // MARK: - Media Info Inspector Tabs
 
 public enum MediaInfoTab: String, CaseIterable, Identifiable, Sendable {
-    case general = "General"
     case tracks = "Tracks"
     case file = "File"
-    case status = "Status"
     
     public var id: String { rawValue }
 }
@@ -44,6 +42,18 @@ public struct ExtendedMediaInfo: Sendable {
     public var fpsString: String = "25.000000"
     public var videoSizeString: String = "--"
     public var videoDurationString: String = "--"
+    
+    public var formattedFPS: String {
+        guard let fpsVal = Double(fpsString), fpsVal > 0 else {
+            return "25 fps"
+        }
+        if fpsVal.truncatingRemainder(dividingBy: 1.0) == 0 {
+            return "\(Int(fpsVal)) fps"
+        }
+        let formatted = String(format: "%.3f", fpsVal)
+        let trimmed = formatted.replacingOccurrences(of: "\\.?0+$", with: "", options: .regularExpression)
+        return "\(trimmed) fps"
+    }
     
     public var hasAudio: Bool = false
     public var audioFormat: String = "aac"
@@ -340,7 +350,7 @@ public struct PropertiesModalView: View {
     public var onLoadSlotA: ((URL) -> Void)?
     public var onLoadSlotB: ((URL) -> Void)?
     
-    @State private var selectedTab: MediaInfoTab = .general
+    @State private var selectedTab: MediaInfoTab = .tracks
     @State private var extendedInfo: ExtendedMediaInfo? = nil
     @State private var isExtractingExtended: Bool = false
     
@@ -378,7 +388,7 @@ public struct PropertiesModalView: View {
             
             // Modal Window (Matching Reference Inspector)
             VStack(spacing: 0) {
-                // Top Header Strip: Window Controls + Segmented Pill Selector
+                // Top Header Strip: Window Controls + Segmented Pill Selector (Draggable Handle)
                 HStack(spacing: 12) {
                     // Traffic light close dot
                     Button(action: { dismissModal() }) {
@@ -402,7 +412,7 @@ public struct PropertiesModalView: View {
                     
                     Spacer()
                     
-                    // Segmented Pill Control (Reference Style: General | Tracks | File | Status)
+                    // Segmented Pill Control (Tracks | File)
                     segmentedPillControl
                     
                     Spacer()
@@ -442,14 +452,10 @@ public struct PropertiesModalView: View {
                     ScrollView {
                         VStack(alignment: .leading, spacing: 18) {
                             switch selectedTab {
-                            case .general:
-                                generalTabView(asset: asset, info: info)
                             case .tracks:
                                 tracksTabView(asset: asset, info: info)
                             case .file:
                                 fileTabView(asset: asset, info: info)
-                            case .status:
-                                statusTabView(asset: asset, info: info)
                             }
                         }
                         .padding(22)
@@ -500,10 +506,10 @@ public struct PropertiesModalView: View {
         }
     }
     
-    // MARK: - Pill Segmented Control (Reference Style)
+    // MARK: - Pill Segmented Control (Tracks | File)
     
     private var segmentedPillControl: some View {
-        HStack(spacing: 2) {
+        HStack(spacing: 4) {
             ForEach(MediaInfoTab.allCases) { tab in
                 Button(action: {
                     withAnimation(.easeInOut(duration: 0.12)) {
@@ -511,85 +517,32 @@ public struct PropertiesModalView: View {
                     }
                 }) {
                     Text(tab.rawValue)
-                        .font(.system(size: 10, weight: selectedTab == tab ? .bold : .medium, design: .monospaced))
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 4)
+                        .font(.system(size: 11, weight: selectedTab == tab ? .bold : .medium, design: .monospaced))
+                        .padding(.horizontal, 20)
+                        .padding(.vertical, 6)
                         .foregroundColor(selectedTab == tab ? (isLightMode ? Color.black : Color.white) : palette.textMuted)
                         .background(
                             selectedTab == tab
-                                ? RoundedRectangle(cornerRadius: 10).fill(isLightMode ? Color.white : Color.white.opacity(0.20))
-                                : RoundedRectangle(cornerRadius: 10).fill(Color.clear)
+                                ? RoundedRectangle(cornerRadius: 12).fill(isLightMode ? Color.white : Color.white.opacity(0.22))
+                                : RoundedRectangle(cornerRadius: 12).fill(Color.clear)
                         )
+                        .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
             }
         }
         .padding(3)
         .background(
-            RoundedRectangle(cornerRadius: 13)
+            RoundedRectangle(cornerRadius: 15)
                 .fill(palette.bgSubtle)
                 .overlay(
-                    RoundedRectangle(cornerRadius: 13)
+                    RoundedRectangle(cornerRadius: 15)
                         .stroke(palette.borderLine, lineWidth: 1)
                 )
         )
     }
     
-    // MARK: - Tab 1: General View (Matching Reference Image Layout)
-    
-    @ViewBuilder
-    private func generalTabView(asset: DeliverableAsset, info: ExtendedMediaInfo) -> some View {
-        VStack(alignment: .leading, spacing: 18) {
-            // VIDEO SECTION
-            VStack(alignment: .leading, spacing: 8) {
-                Text("VIDEO")
-                    .font(.system(size: 11, weight: .bold, design: .monospaced))
-                    .foregroundColor(palette.textMain)
-                    .tracking(1.0)
-                
-                VStack(alignment: .leading, spacing: 6) {
-                    infoRow(label: "Format:", value: info.videoFormat)
-                    infoRow(label: "Codec:", value: info.videoCodecLong)
-                    infoRow(label: "Hw Decoder:", value: info.hwDecoder)
-                    infoRow(label: "Primaries:", value: info.primaries)
-                    infoRow(label: "Colorspace:", value: info.colorspace)
-                    infoRow(label: "Pixel Format:", value: info.pixelFormat)
-                    infoRow(label: "Driver:", value: info.driver)
-                    infoRow(label: "Size:", value: "\(asset.width)×\(asset.height)")
-                    infoRow(label: "Bit Rate:", value: info.videoBitrate)
-                    infoRow(label: "FPS:", value: info.fpsString)
-                }
-            }
-            
-            Rectangle().fill(palette.borderLine).frame(height: 1)
-            
-            // AUDIO SECTION
-            VStack(alignment: .leading, spacing: 8) {
-                Text("AUDIO")
-                    .font(.system(size: 11, weight: .bold, design: .monospaced))
-                    .foregroundColor(palette.textMain)
-                    .tracking(1.0)
-                
-                if info.hasAudio {
-                    VStack(alignment: .leading, spacing: 6) {
-                        infoRow(label: "Format:", value: info.audioFormat)
-                        infoRow(label: "Codec:", value: info.audioCodecLong)
-                        infoRow(label: "Driver:", value: info.audioDriver)
-                        infoRow(label: "Channels:", value: info.audioChannels)
-                        infoRow(label: "Bit Rate:", value: info.audioBitrate)
-                        infoRow(label: "Sample Rate:", value: info.audioSampleRate)
-                    }
-                } else {
-                    Text("No Audio Streams Detected in Media Container")
-                        .font(.system(size: 10, design: .monospaced))
-                        .foregroundColor(palette.textMuted)
-                        .padding(.vertical, 4)
-                }
-            }
-        }
-    }
-    
-    // MARK: - Tab 2: Tracks View
+    // MARK: - Tab 1: Tracks View
     
     @ViewBuilder
     private func tracksTabView(asset: DeliverableAsset, info: ExtendedMediaInfo) -> some View {
@@ -600,7 +553,7 @@ public struct PropertiesModalView: View {
                 .tracking(1.0)
             
             ForEach(info.tracks) { track in
-                VStack(alignment: .leading, spacing: 6) {
+                VStack(alignment: .leading, spacing: 8) {
                     HStack {
                         Text(track.typeName)
                             .font(.system(size: 10, weight: .bold, design: .monospaced))
@@ -610,19 +563,41 @@ public struct PropertiesModalView: View {
                         
                         Text(track.format.uppercased())
                             .font(.system(size: 9, weight: .bold, design: .monospaced))
-                            .padding(.horizontal, 6)
-                            .padding(.vertical, 2)
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 3)
                             .foregroundColor(palette.textMain)
                             .studioBox(background: palette.bgSubtle, border: palette.borderLine)
                     }
                     
-                    VStack(alignment: .leading, spacing: 4) {
-                        infoRow(label: "Codec:", value: track.codec)
-                        infoRow(label: "Configuration:", value: track.details)
-                        if track.bitrate != "--" {
-                            infoRow(label: "Bitrate:", value: track.bitrate)
+                    VStack(alignment: .leading, spacing: 5) {
+                        if track.typeName.contains("VIDEO") {
+                            infoRow(label: "Format:", value: info.videoFormat)
+                            infoRow(label: "Codec:", value: track.codec)
+                            infoRow(label: "Size:", value: "\(asset.width)×\(asset.height) (\(asset.aspectRatioString))")
+                            infoRow(label: "FPS:", value: info.formattedFPS)
+                            infoRow(label: "Bit Rate:", value: info.videoBitrate)
+                            infoRow(label: "Colorspace:", value: info.colorspace)
+                            infoRow(label: "Primaries:", value: info.primaries)
+                            infoRow(label: "Pixel Format:", value: info.pixelFormat)
+                            infoRow(label: "Hw Decoder:", value: info.hwDecoder)
+                        } else if track.typeName.contains("AUDIO") {
+                            infoRow(label: "Format:", value: info.audioFormat)
+                            infoRow(label: "Codec:", value: track.codec)
+                            infoRow(label: "Channels:", value: info.audioChannels)
+                            infoRow(label: "Sample Rate:", value: info.audioSampleRate != "--" ? "\(info.audioSampleRate) Hz" : "--")
+                            if info.audioBitrate != "--" {
+                                infoRow(label: "Bit Rate:", value: info.audioBitrate)
+                            }
+                            infoRow(label: "Language:", value: track.language)
+                        } else {
+                            infoRow(label: "Format:", value: track.format)
+                            infoRow(label: "Codec:", value: track.codec)
+                            infoRow(label: "Configuration:", value: track.details)
+                            if track.bitrate != "--" {
+                                infoRow(label: "Bit Rate:", value: track.bitrate)
+                            }
+                            infoRow(label: "Language:", value: track.language)
                         }
-                        infoRow(label: "Language:", value: track.language)
                     }
                 }
                 .padding(12)
@@ -631,7 +606,7 @@ public struct PropertiesModalView: View {
         }
     }
     
-    // MARK: - Tab 3: File View
+    // MARK: - Tab 2: File View
     
     @ViewBuilder
     private func fileTabView(asset: DeliverableAsset, info: ExtendedMediaInfo) -> some View {
@@ -671,32 +646,6 @@ public struct PropertiesModalView: View {
                     } else {
                         infoRow(label: "Name Matching:", value: "All Filename Tags Validated")
                     }
-                }
-            }
-        }
-    }
-    
-    // MARK: - Tab 4: Status View
-    
-    @ViewBuilder
-    private func statusTabView(asset: DeliverableAsset, info: ExtendedMediaInfo) -> some View {
-        VStack(alignment: .leading, spacing: 18) {
-            VStack(alignment: .leading, spacing: 8) {
-                Text("QCPIE HARDWARE PIPELINE")
-                    .font(.system(size: 11, weight: .black, design: .monospaced))
-                    .foregroundColor(palette.textMain)
-                    .tracking(1.0)
-                
-                VStack(alignment: .leading, spacing: 6) {
-                    infoRow(label: "Pipeline:", value: "Direct-Pixel GPU Compositor")
-                    infoRow(label: "Display Engine:", value: "CADisplayLink (60/120Hz ProMotion Sync)")
-                    infoRow(label: "Compositor:", value: "Apple Silicon Metal (<0.14ms/frame)")
-                    infoRow(label: "Active Viewport:", value: "stillFrameLayer uncompressed CGImage")
-                    infoRow(label: "Downsampling:", value: "CoreMedia Proxy Downsampling Bypassed")
-                    infoRow(label: "Texture Filter:", value: "Adaptive Linear / Nearest (QuickTime-grade)")
-                    infoRow(label: "Edge Precision:", value: "Discrete 1-Pixel Glitch 100% Saturation")
-                    infoRow(label: "Decoder Engine:", value: info.hwDecoder)
-                    infoRow(label: "Audio Output:", value: "AVAudioEngine CoreAudio Direct-Pass")
                 }
             }
         }
@@ -829,7 +778,7 @@ public struct PropertiesModalView: View {
         lines.append("Container: \(containerType)")
         lines.append("File Size: \(asset.formattedFileSize) (\(formattedByteString(asset.fileSizeBytes)))")
         lines.append("Resolution: \(asset.width) x \(asset.height) (\(asset.aspectRatioString))")
-        lines.append("Frame Rate: \(info?.fpsString ?? String(format: "%.3f fps", asset.fps))")
+        lines.append("Frame Rate: \(info?.formattedFPS ?? String(format: "%.3f fps", asset.fps))")
         lines.append("Video Format: \(info?.videoFormat ?? asset.videoCodec)")
         lines.append("Video Codec: \(info?.videoCodecLong ?? asset.videoCodec)")
         if let info = info {

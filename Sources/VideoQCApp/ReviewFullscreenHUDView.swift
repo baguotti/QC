@@ -11,31 +11,33 @@ struct FullscreenPlayerView: View {
     @ObservedObject var engine: PlayerEngine
     var scanResults: [VideoQCResult]
     var videoFiles: [URL] = []
+    var isLightMode: Bool = false
     var onExit: () -> Void
     var onJumpNext: () -> Void
     var onJumpPrev: () -> Void
     var onAddNote: (() -> Void)? = nil
-    var onExportScreenshot: (() -> Void)? = nil
+    var onExportScreenshot: ((ScreenshotPreset) -> Void)? = nil
     
     @State private var showControls: Bool = true
     @State private var isHoveringControls: Bool = false
     @State private var hideTask: Task<Void, Never>? = nil
     
-    private var accentPositive: Color { StudioTheme.positive }
-    private var accentSlotB: Color { StudioTheme.slotBAccent }
-    private var alertRed: Color { StudioTheme.negative }
-    private var accentBlue: Color { StudioTheme.accentBlue(false) }
+    private var palette: StudioPalette { StudioPalette(isLightMode) }
+    private var accentPositive: Color { palette.accentPositive }
+    private var accentSlotB: Color { palette.accentSlotB }
+    private var alertRed: Color { palette.alertRed }
+    private var accentBlue: Color { palette.accentBlue }
     
     var body: some View {
         ZStack {
-            Color.black
+            (isLightMode ? Color(white: 0.94) : Color.black)
                 .ignoresSafeArea()
             
             // Fullscreen Video Viewport
             if engine.activeURL != nil {
                 VideoViewportView(
                     engine: engine,
-                    isLightMode: false,
+                    isLightMode: isLightMode,
                     allowScrollZoom: true,
                     onSingleClick: {
                         engine.togglePlayPause()
@@ -109,7 +111,7 @@ struct FullscreenPlayerView: View {
                 // Centered Comparison Controls Toolbar
                 PlayerComparisonBar(
                     engine: engine,
-                    isLightMode: false,
+                    isLightMode: isLightMode,
                     onInteraction: { userDidInteract() }
                 )
                 
@@ -118,13 +120,13 @@ struct FullscreenPlayerView: View {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(engine.activeFileName.isEmpty ? "NO ACTIVE ASSET" : engine.activeFileName.uppercased())
                         .font(.system(size: 13, weight: .black, design: .monospaced))
-                        .foregroundColor(.white)
+                        .foregroundColor(palette.textMain)
                         .lineLimit(1)
                     
                     if !engine.activeResolution.isEmpty {
                         Text("\(engine.activeResolution) // \(String(format: "%.1f", engine.activeFps)) FPS // \(engine.activeCodec)")
                             .font(.system(size: 10, weight: .bold, design: .monospaced))
-                            .foregroundColor(Color(white: 0.6))
+                            .foregroundColor(palette.textMuted)
                     }
                 }
                 
@@ -156,7 +158,7 @@ struct FullscreenPlayerView: View {
                     }
                     .padding(.horizontal, StudioTheme.scale(10))
                     .padding(.vertical, StudioTheme.scale(6))
-                    .background(Color(white: 0.15).opacity(0.85))
+                    .background(palette.bgPanel.opacity(0.85))
                     .foregroundColor(accentSlotB)
                     .border(accentSlotB.opacity(0.6), width: 1)
                 }
@@ -175,9 +177,9 @@ struct FullscreenPlayerView: View {
                 }
                 .padding(.horizontal, StudioTheme.scale(14))
                 .padding(.vertical, StudioTheme.scale(8))
-                .background(Color(white: 0.15).opacity(0.85))
-                .foregroundColor(.white)
-                .border(Color(white: 0.35), width: 1)
+                .background(palette.bgPanel.opacity(0.85))
+                .foregroundColor(palette.textMain)
+                .border(palette.borderLine, width: 1)
             }
             .buttonStyle(.plain)
             .help("Exit Fullscreen (ESC / F)")
@@ -186,7 +188,9 @@ struct FullscreenPlayerView: View {
         .padding(.vertical, 16)
         .background(
             LinearGradient(
-                colors: [Color.black.opacity(0.85), Color.black.opacity(0.0)],
+                colors: isLightMode
+                    ? [palette.bgMain.opacity(0.92), palette.bgMain.opacity(0.0)]
+                    : [Color.black.opacity(0.85), Color.black.opacity(0.0)],
                 startPoint: .top,
                 endPoint: .bottom
             )
@@ -214,7 +218,7 @@ struct FullscreenPlayerView: View {
     private var bottomBar: some View {
         VStack(spacing: 12) {
             // Timeline Scrubber
-            TimelineScrubberView(engine: engine, isLightMode: false)
+            TimelineScrubberView(engine: engine, isLightMode: isLightMode)
                 .frame(height: 52)
             
             // Transport & Timecode Bar
@@ -292,7 +296,7 @@ struct FullscreenPlayerView: View {
                 PlayerTransportDeckView(
                     engine: engine,
                     scanResults: scanResults,
-                    isLightMode: false,
+                    isLightMode: isLightMode,
                     hoverExplanation: nil,
                     hideGlitchNavWhenEmpty: true,
                     onJumpPrevGlitch: onJumpPrev,
@@ -311,15 +315,15 @@ struct FullscreenPlayerView: View {
                     Text(engine.displayTimeAsFrames ? "\(engine.totalFrames) frames" : engine.durationTimecode)
                         .font(.system(size: 13, weight: .bold, design: .monospaced))
                         .monospacedDigit()
-                        .foregroundColor(Color(white: 0.6))
+                        .foregroundColor(palette.textMuted)
                         .frame(width: 120, alignment: .trailing)
                     
                     Button(action: onExit) {
                         Image(systemName: "arrow.down.right.and.arrow.up.left")
                             .font(.system(size: StudioTheme.scaleFont(11), weight: .bold))
                             .frame(width: StudioTheme.scale(32), height: StudioTheme.scale(30))
-                            .foregroundColor(.white)
-                            .studioBox(background: Color(white: 0.15), border: Color(white: 0.35))
+                            .foregroundColor(palette.textMain)
+                            .studioBox(background: palette.bgPanel, border: palette.borderLine)
                     }
                     .buttonStyle(.plain)
                     .help("Exit Fullscreen (ESC / F)")
@@ -333,7 +337,9 @@ struct FullscreenPlayerView: View {
         .padding(.bottom, 22)
         .background(
             LinearGradient(
-                colors: [Color.black.opacity(0.0), Color.black.opacity(0.92)],
+                colors: isLightMode
+                    ? [palette.bgMain.opacity(0.0), palette.bgMain.opacity(0.92)]
+                    : [Color.black.opacity(0.0), Color.black.opacity(0.92)],
                 startPoint: .top,
                 endPoint: .bottom
             )
@@ -349,19 +355,20 @@ struct FullscreenPlayerView: View {
 
 struct CleanVideoFullscreenView: View {
     @ObservedObject var engine: PlayerEngine
+    var isLightMode: Bool = false
     var onExit: () -> Void
     
     @State private var hideCursorTask: Task<Void, Never>? = nil
     
     var body: some View {
         ZStack {
-            Color.black
+            (isLightMode ? Color(white: 0.94) : Color.black)
                 .ignoresSafeArea()
             
             if engine.activeURL != nil {
                 VideoViewportView(
                     engine: engine,
-                    isLightMode: false,
+                    isLightMode: isLightMode,
                     allowScrollZoom: false,
                     onSingleClick: {
                         engine.togglePlayPause()
