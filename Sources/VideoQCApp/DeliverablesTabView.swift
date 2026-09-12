@@ -13,7 +13,7 @@ extension ContentView {
                 deliveryAssetsSection(forTab: .specs)
                 
                 // Search Filter (like in Tab 1)
-                if !deliverableAssets.isEmpty {
+                if !specsState.deliverableAssets.isEmpty {
                     specsSearchFilterBar
                 }
                 
@@ -28,7 +28,7 @@ extension ContentView {
             
             // Right Panel: Specs Table / Stats
             VStack(alignment: .leading, spacing: 0) {
-                if isInspectingDeliverables {
+                if specsState.isInspectingDeliverables {
                     VStack(alignment: .center, spacing: 12) {
                         Spacer()
                         Text("INSPECTING DELIVERABLES SPECS...")
@@ -39,7 +39,7 @@ extension ContentView {
                     }
                     .frame(maxWidth: .infinity)
                     .padding(28)
-                } else if deliverableAssets.isEmpty {
+                } else if specsState.deliverableAssets.isEmpty {
                     emptyDeliverablesStateView
                 } else {
                     deliverablesResultsView
@@ -59,23 +59,21 @@ extension ContentView {
                 .foregroundColor(textMuted)
             
             ZStack(alignment: .leading) {
-                if specsFilterText.isEmpty {
+                if specsState.specsFilterText.isEmpty {
                     Text("FILTER ASSETS...")
                         .font(.system(size: 11, weight: .bold, design: .monospaced))
                         .foregroundColor(textMuted)
                         .allowsHitTesting(false)
                 }
-                TextField("", text: $specsFilterText)
+                TextField("", text: $specsState.specsFilterText)
                     .font(.system(size: 11, weight: .medium, design: .monospaced))
                     .textFieldStyle(.plain)
                     .foregroundColor(textMain)
-                    .onSubmit {
-                        NSApp.keyWindow?.makeFirstResponder(nil)
-                    }
+                    .padding(.horizontal, 4)
             }
             
-            if !specsFilterText.isEmpty {
-                Button(action: { specsFilterText = "" }) {
+            if !specsState.specsFilterText.isEmpty {
+                Button(action: { specsState.specsFilterText = "" }) {
                     Image(systemName: "xmark.circle.fill")
                         .font(.system(size: 10))
                         .foregroundColor(textMuted)
@@ -101,7 +99,7 @@ extension ContentView {
                 HStack(spacing: 6) {
                     // Google Sheets
                     Button(action: {
-                        if !deliverableAssets.isEmpty {
+                        if !specsState.deliverableAssets.isEmpty {
                             openDeliverablesInGoogleSheets()
                         }
                     }) {
@@ -115,16 +113,16 @@ extension ContentView {
                         }
                         .frame(maxWidth: .infinity, alignment: .center)
                         .frame(height: 28)
-                        .foregroundColor(deliverableAssets.isEmpty ? textMuted : textMain)
+                        .foregroundColor(specsState.deliverableAssets.isEmpty ? textMuted : textMain)
                         .studioBox(background: bgSubtle, border: borderLine)
                     }
                     .buttonStyle(.plain)
-                    .disabled(deliverableAssets.isEmpty)
+                    .disabled(specsState.deliverableAssets.isEmpty)
                     .explain("Copies specs as spreadsheet data and opens Google Sheets ready to paste (⌘V).", binding: $hoverExplanation)
                     
                     // Save CSV
                     Button(action: {
-                        if !deliverableAssets.isEmpty {
+                        if !specsState.deliverableAssets.isEmpty {
                             exportDeliverablesManifest()
                         }
                     }) {
@@ -138,16 +136,16 @@ extension ContentView {
                         }
                         .frame(maxWidth: .infinity, alignment: .center)
                         .frame(height: 28)
-                        .foregroundColor(deliverableAssets.isEmpty ? textMuted : textMain)
+                        .foregroundColor(specsState.deliverableAssets.isEmpty ? textMuted : textMain)
                         .studioBox(background: bgSubtle, border: borderLine)
                     }
                     .buttonStyle(.plain)
-                    .disabled(deliverableAssets.isEmpty)
+                    .disabled(specsState.deliverableAssets.isEmpty)
                     .explain("Saves the deliverables metadata table to a local CSV file.", binding: $hoverExplanation)
                     
                     // Open HTML
                     Button(action: {
-                        if !deliverableAssets.isEmpty {
+                        if !specsState.deliverableAssets.isEmpty {
                             openManifestHTML()
                         }
                     }) {
@@ -161,18 +159,18 @@ extension ContentView {
                         }
                         .frame(maxWidth: .infinity, alignment: .center)
                         .frame(height: 28)
-                        .foregroundColor(deliverableAssets.isEmpty ? textMuted : textMain)
+                        .foregroundColor(specsState.deliverableAssets.isEmpty ? textMuted : textMain)
                         .studioBox(background: bgSubtle, border: borderLine)
                     }
                     .buttonStyle(.plain)
-                    .disabled(deliverableAssets.isEmpty)
+                    .disabled(specsState.deliverableAssets.isEmpty)
                     .explain("Generates and opens a formatted HTML delivery specs sheet in browser.", binding: $hoverExplanation)
                 }
                 
                 // Reveal in Finder
-                if let firstURL = deliverableAssets.first?.fileURL {
+                if let firstURL = specsState.deliverableAssets.first?.fileURL {
                     Button(action: {
-                        NSWorkspace.shared.activateFileViewerSelecting([selectedDeliverableURL ?? firstURL])
+                        NSWorkspace.shared.activateFileViewerSelecting([specsState.selectedDeliverableURL ?? firstURL])
                     }) {
                         HStack(spacing: 5) {
                             Image(systemName: "folder")
@@ -191,10 +189,10 @@ extension ContentView {
             }
             
             // Clear Button
-            if !deliverableAssets.isEmpty {
+            if !specsState.deliverableAssets.isEmpty {
                 Button(action: {
-                    deliverableAssets = []
-                    selectedDeliverableURL = nil
+                    specsState.deliverableAssets = []
+                    specsState.selectedDeliverableURL = nil
                 }) {
                     HStack(spacing: 4) {
                         Image(systemName: "xmark")
@@ -255,12 +253,12 @@ extension ContentView {
                     .font(.system(size: 28, weight: .black, design: .default))
                     .foregroundColor(textMain)
                     .tracking(1.0)
-                if specsFilterText.isEmpty {
-                    Text("\(deliverableAssets.count) ASSETS ANALYZED")
+                if specsState.specsFilterText.isEmpty {
+                    Text("\(specsState.deliverableAssets.count) ASSETS ANALYZED")
                         .font(.system(size: 11, weight: .bold, design: .monospaced))
                         .foregroundColor(textMuted)
                 } else {
-                    Text("\(displayAssets.count) OF \(deliverableAssets.count) ASSETS (FILTERED)")
+                    Text("\(displayAssets.count) OF \(specsState.deliverableAssets.count) ASSETS (FILTERED)")
                         .font(.system(size: 11, weight: .bold, design: .monospaced))
                         .foregroundColor(accentBlue)
                 }
@@ -270,7 +268,7 @@ extension ContentView {
             HStack(alignment: .bottom, spacing: 12) {
                 // Left: Quick Stats
                 HStack(spacing: 12) {
-                    statBox(title: specsFilterText.isEmpty ? "TOTAL ASSETS" : "FILTERED ASSETS", val: String(format: "%02d", displayAssets.count))
+                    statBox(title: specsState.specsFilterText.isEmpty ? "TOTAL ASSETS" : "FILTERED ASSETS", val: String(format: "%02d", displayAssets.count))
                     statBox(title: "NAME MISMATCHES", val: String(format: "%02d", mismatchCount), isRed: mismatchCount > 0, isPositive: mismatchCount == 0 && !displayAssets.isEmpty)
                     statBox(title: "TOTAL RUNTIME", val: TimecodeFormatter.format(frameIndex: Int(round(totalSeconds * 25.0)), fps: 25.0))
                     statBox(title: "TOTAL BATCH SIZE", val: DeliverablesInspector.formatFileSize(bytes: totalBytes))
@@ -291,10 +289,10 @@ extension ContentView {
                         .padding(.horizontal, 8)
                         .frame(height: 24)
                         .contentShape(Rectangle())
-                        .foregroundColor(isFileNameExpanded ? textMain : (deliverableAssets.isEmpty ? textMuted : textSubtle))
+                        .foregroundColor(isFileNameExpanded ? textMain : (specsState.deliverableAssets.isEmpty ? textMuted : textSubtle))
                     }
                     .buttonStyle(.plain)
-                    .disabled(deliverableAssets.isEmpty)
+                    .disabled(specsState.deliverableAssets.isEmpty)
                     .fixedSize()
                     .studioBox(
                         background: isFileNameExpanded ? (isLightMode ? Color.white : bgCardHeader) : bgSubtle,
@@ -341,8 +339,8 @@ extension ContentView {
                         if !isFoldersHidden && hasDeliverablesSubfolders {
                             Divider()
                             Button(action: toggleAllDeliverablesFolders) {
-                                Label(deliverablesCollapsedFolderIDs.isEmpty ? "Collapse All Folders" : "Expand All Folders",
-                                      systemImage: deliverablesCollapsedFolderIDs.isEmpty ? "chevron.down.square" : "chevron.right.square")
+                                Label(specsState.deliverablesCollapsedFolderIDs.isEmpty ? "Collapse All Folders" : "Expand All Folders",
+                                      systemImage: specsState.deliverablesCollapsedFolderIDs.isEmpty ? "chevron.down.square" : "chevron.right.square")
                             }
                         }
                     }
@@ -411,10 +409,10 @@ extension ContentView {
                                 HStack(spacing: 3) {
                                     Text("FILE NAME")
                                         .lineLimit(1)
-                                        .foregroundColor(specsSortColumn == .name ? textMain : textMuted)
+                                        .foregroundColor(specsState.specsSortColumn == .name ? textMain : textMuted)
                                     
-                                    if specsSortColumn == .name {
-                                        Image(systemName: specsSortAscending ? "chevron.up" : "chevron.down")
+                                    if specsState.specsSortColumn == .name {
+                                        Image(systemName: specsState.specsSortAscending ? "chevron.up" : "chevron.down")
                                             .font(.system(size: 7, weight: .black))
                                             .foregroundColor(accentBlue)
                                     }
@@ -432,8 +430,8 @@ extension ContentView {
                                     .contentShape(Rectangle())
                                 
                                 Rectangle()
-                                    .fill(isDraggingFileNameColumn ? accentBlue : borderLine.opacity(0.85))
-                                    .frame(width: isDraggingFileNameColumn ? 2 : 1, height: 12)
+                                    .fill(specsState.isDraggingFileNameColumn ? accentBlue : borderLine.opacity(0.85))
+                                    .frame(width: specsState.isDraggingFileNameColumn ? 2 : 1, height: 12)
                             }
                             .frame(width: 16)
                             .onTapGesture(count: 2) {
@@ -449,27 +447,15 @@ extension ContentView {
                             .gesture(
                                 DragGesture(minimumDistance: 1, coordinateSpace: .global)
                                     .onChanged { value in
-                                        if dragStartFileNameWidth == nil {
-                                            dragStartFileNameWidth = specsFileNameColumnWidth
-                                            isDraggingFileNameColumn = true
-                                        }
-                                        let start = dragStartFileNameWidth ?? specsFileNameColumnWidth
-                                        let newWidth = max(140.0, min(1200.0, start + Double(value.translation.width)))
-                                        liveFileNameColumnWidth = newWidth
+                                        specsState.onFileNameDragChanged(translationWidth: Double(value.translation.width))
                                     }
                                     .onEnded { value in
-                                        if let start = dragStartFileNameWidth {
-                                            let finalWidth = max(140.0, min(1200.0, start + Double(value.translation.width)))
-                                            specsFileNameColumnWidth = finalWidth
-                                            liveFileNameColumnWidth = finalWidth
-                                        }
-                                        dragStartFileNameWidth = nil
-                                        isDraggingFileNameColumn = false
+                                        specsState.onFileNameDragEnded(translationWidth: Double(value.translation.width))
                                     }
                             )
                         }
                         .frame(width: CGFloat(effectiveFileNameColumnWidth), alignment: .leading)
-                        .explain("Click to sort by filename (\(specsSortColumn == .name ? (specsSortAscending ? "A-Z" : "Z-A") : "click to sort")). Drag divider to resize.", binding: $hoverExplanation)
+                        .explain("Click to sort by filename (\(specsState.specsSortColumn == .name ? (specsState.specsSortAscending ? "A-Z" : "Z-A") : "click to sort")). Drag divider to resize.", binding: $hoverExplanation)
                         
                         sortableHeaderCell("TIMECODE (TC)", column: .timecode, width: 142)
                         sortableHeaderCell("RATIO & SIZE", column: .ratio, width: 152)
@@ -493,16 +479,16 @@ extension ContentView {
                                 }) {
                                     HStack {
                                         Text(col.displayName)
-                                        if specsSortColumn == col {
-                                            Image(systemName: specsSortAscending ? "chevron.up" : "chevron.down")
+                                        if specsState.specsSortColumn == col {
+                                            Image(systemName: specsState.specsSortAscending ? "chevron.up" : "chevron.down")
                                         }
                                     }
                                 }
                             }
                         }
                         Divider()
-                        Button(action: { specsSortAscending.toggle() }) {
-                            Label(specsSortAscending ? "Ascending" : "Descending", systemImage: specsSortAscending ? "arrow.up" : "arrow.down")
+                        Button(action: { specsState.specsSortAscending.toggle() }) {
+                            Label(specsState.specsSortAscending ? "Ascending" : "Descending", systemImage: specsState.specsSortAscending ? "arrow.up" : "arrow.down")
                         }
                     }
                     
@@ -513,16 +499,16 @@ extension ContentView {
                         VStack(spacing: 0) {
                             let assetMap = deliverableAssetsMap
                             
-                            if filteredDeliverableAssets.isEmpty && !specsFilterText.isEmpty {
+                            if filteredDeliverableAssets.isEmpty && !specsState.specsFilterText.isEmpty {
                                 VStack(spacing: 10) {
                                     Spacer().frame(height: 40)
                                     Image(systemName: "line.3.horizontal.decrease.circle")
                                         .font(.system(size: 26))
                                         .foregroundColor(textMuted)
-                                    Text("NO ASSETS MATCHING \"\(specsFilterText)\"")
+                                    Text("NO ASSETS MATCHING \"\(specsState.specsFilterText)\"")
                                         .font(.system(size: 11, weight: .bold, design: .monospaced))
                                         .foregroundColor(textMuted)
-                                    Button(action: { specsFilterText = "" }) {
+                                    Button(action: { specsState.specsFilterText = "" }) {
                                         Text("CLEAR FILTER")
                                             .font(.system(size: 10, weight: .bold, design: .monospaced))
                                             .foregroundColor(accentBlue)
@@ -575,27 +561,16 @@ extension ContentView {
     // MARK: - Column Resizing & Width Helpers
     
     var effectiveFileNameColumnWidth: Double {
-        isDraggingFileNameColumn ? liveFileNameColumnWidth : specsFileNameColumnWidth
+        specsState.effectiveFileNameColumnWidth
     }
     
     var isFileNameExpanded: Bool {
-        effectiveFileNameColumnWidth > 240.0
+        specsState.isFileNameExpanded
     }
     
     func autoFitFileNameColumnWidth() {
-        if isFileNameExpanded {
-            withAnimation(.easeInOut(duration: 0.15)) {
-                specsFileNameColumnWidth = 220.0
-                liveFileNameColumnWidth = 220.0
-            }
-        } else {
-            let longestName = filteredDeliverableAssets.map { $0.fileName }.max(by: { $0.count < $1.count }) ?? ""
-            let estWidth = Double(longestName.count) * 7.5 + 40.0
-            let targetWidth = max(260.0, min(1000.0, estWidth))
-            withAnimation(.easeInOut(duration: 0.15)) {
-                specsFileNameColumnWidth = targetWidth
-                liveFileNameColumnWidth = targetWidth
-            }
+        withAnimation(.easeInOut(duration: 0.15)) {
+            specsState.autoFitFileNameColumnWidth(filteredAssets: filteredDeliverableAssets)
         }
     }
     
@@ -613,16 +588,7 @@ extension ContentView {
     
     func toggleSpecsSort(_ column: SpecsSortColumn) {
         withAnimation(.easeInOut(duration: 0.15)) {
-            if specsSortColumn == column {
-                specsSortAscending.toggle()
-            } else {
-                specsSortColumn = column
-                if column == .date || column == .size {
-                    specsSortAscending = false
-                } else {
-                    specsSortAscending = true
-                }
-            }
+            specsState.toggleSpecsSort(column)
         }
     }
     
@@ -634,7 +600,7 @@ extension ContentView {
         maxWidth: CGFloat? = nil,
         alignment: Alignment = .center
     ) -> some View {
-        let isCurrent = specsSortColumn == column
+        let isCurrent = specsState.specsSortColumn == column
         return Button(action: { toggleSpecsSort(column) }) {
             HStack(spacing: 3) {
                 Text(title)
@@ -642,7 +608,7 @@ extension ContentView {
                     .foregroundColor(isCurrent ? textMain : textMuted)
                 
                 if isCurrent {
-                    Image(systemName: specsSortAscending ? "chevron.up" : "chevron.down")
+                    Image(systemName: specsState.specsSortAscending ? "chevron.up" : "chevron.down")
                         .font(.system(size: 7, weight: .black))
                         .foregroundColor(accentBlue)
                 }
@@ -656,80 +622,22 @@ extension ContentView {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .explain("Sort by \(title.lowercased()) (\(isCurrent ? (specsSortAscending ? "ascending" : "descending") : "click to sort")).", binding: $hoverExplanation)
+        .explain("Sort by \(title.lowercased()) (\(isCurrent ? (specsState.specsSortAscending ? "ascending" : "descending") : "click to sort")).", binding: $hoverExplanation)
     }
     
     func sortDeliverableAssets(_ assets: [DeliverableAsset]) -> [DeliverableAsset] {
-        assets.sorted { a, b in
-            let order: ComparisonResult
-            switch specsSortColumn {
-            case .name:
-                order = a.fileName.localizedStandardCompare(b.fileName)
-            case .timecode:
-                if a.durationSeconds == b.durationSeconds {
-                    order = a.fileName.localizedStandardCompare(b.fileName)
-                } else {
-                    order = a.durationSeconds < b.durationSeconds ? .orderedAscending : .orderedDescending
-                }
-            case .ratio:
-                let aPixels = a.width * a.height
-                let bPixels = b.width * b.height
-                if aPixels == bPixels {
-                    order = a.aspectRatioString.compare(b.aspectRatioString)
-                } else {
-                    order = aPixels < bPixels ? .orderedAscending : .orderedDescending
-                }
-            case .fps:
-                if a.fps == b.fps {
-                    order = a.fileName.localizedStandardCompare(b.fileName)
-                } else {
-                    order = a.fps < b.fps ? .orderedAscending : .orderedDescending
-                }
-            case .size:
-                if a.fileSizeBytes == b.fileSizeBytes {
-                    order = a.fileName.localizedStandardCompare(b.fileName)
-                } else {
-                    order = a.fileSizeBytes < b.fileSizeBytes ? .orderedAscending : .orderedDescending
-                }
-            case .date:
-                let aDate = a.creationDate ?? .distantPast
-                let bDate = b.creationDate ?? .distantPast
-                if aDate == bDate {
-                    order = a.fileName.localizedStandardCompare(b.fileName)
-                } else {
-                    order = aDate < bDate ? .orderedAscending : .orderedDescending
-                }
-            case .videoCodec:
-                if a.videoCodec == b.videoCodec {
-                    order = a.fileName.localizedStandardCompare(b.fileName)
-                } else {
-                    order = a.videoCodec.localizedStandardCompare(b.videoCodec)
-                }
-            case .audioCodec:
-                let aAudio = "\(a.audioCodec) \(a.audioBitrate)"
-                let bAudio = "\(b.audioCodec) \(b.audioBitrate)"
-                if aAudio == bAudio {
-                    order = a.fileName.localizedStandardCompare(b.fileName)
-                } else {
-                    order = aAudio.localizedStandardCompare(bAudio)
-                }
-            case .path:
-                order = a.fileURL.path.localizedStandardCompare(b.fileURL.path)
-            }
-            
-            return specsSortAscending ? (order == .orderedAscending) : (order == .orderedDescending)
-        }
+        specsState.sortDeliverableAssets(assets)
     }
     
     // MARK: - Deliverables Filtering & Hierarchy Helpers
     
     var filteredDeliverableAssets: [DeliverableAsset] {
-        let q = specsFilterText.trimmingCharacters(in: .whitespacesAndNewlines)
+        let q = specsState.specsFilterText.trimmingCharacters(in: .whitespacesAndNewlines)
         let base: [DeliverableAsset]
         if q.isEmpty {
-            base = deliverableAssets
+            base = specsState.deliverableAssets
         } else {
-            base = deliverableAssets.filter {
+            base = specsState.deliverableAssets.filter {
                 $0.fileName.localizedCaseInsensitiveContains(q) ||
                 $0.fileURL.path.localizedCaseInsensitiveContains(q)
             }
@@ -752,7 +660,7 @@ extension ContentView {
     var flattenedDeliverableNodes: [FileSystemTreeNode] {
         FileSystemTreeBuilder.flatten(
             nodes: deliverablesTree,
-            collapsedIDs: deliverablesCollapsedFolderIDs,
+            collapsedIDs: specsState.deliverablesCollapsedFolderIDs,
             hiddenIDs: hiddenFolderIDs,
             hideAllFolders: hideAllFolders
         )
@@ -763,7 +671,7 @@ extension ContentView {
     }
     
     private func toggleAllDeliverablesFolders() {
-        if deliverablesCollapsedFolderIDs.isEmpty {
+        if specsState.deliverablesCollapsedFolderIDs.isEmpty {
             func collectFolderIDs(_ node: FileSystemTreeNode) -> [String] {
                 var ids: [String] = []
                 if node.isDirectory {
@@ -774,14 +682,20 @@ extension ContentView {
                 }
                 return ids
             }
-            deliverablesCollapsedFolderIDs = Set(deliverablesTree.flatMap { collectFolderIDs($0) })
+            specsState.deliverablesCollapsedFolderIDs = Set(deliverablesTree.flatMap { collectFolderIDs($0) })
         } else {
-            deliverablesCollapsedFolderIDs.removeAll()
+            specsState.deliverablesCollapsedFolderIDs.removeAll()
+        }
+    }
+    
+    var isDeliverablesFolderRowCollapsed: (FileSystemTreeNode) -> Bool {
+        { node in
+            specsState.deliverablesCollapsedFolderIDs.contains(node.id)
         }
     }
     
     private func deliverablesFolderBannerRow(node: FileSystemTreeNode, assetMap: [URL: DeliverableAsset]) -> some View {
-        let isCollapsed = deliverablesCollapsedFolderIDs.contains(node.id)
+        let isCollapsed = isDeliverablesFolderRowCollapsed(node)
         let folderAssets = node.videoURLs.compactMap { assetMap[$0] }
         let folderMismatches = folderAssets.filter { $0.validation.hasAnyMismatch }.count
         let totalBytes = folderAssets.reduce(Int64(0)) { $0 + $1.fileSizeBytes }
@@ -839,9 +753,9 @@ extension ContentView {
         .contentShape(Rectangle())
         .onTapGesture {
             if isCollapsed {
-                deliverablesCollapsedFolderIDs.remove(node.id)
+                specsState.deliverablesCollapsedFolderIDs.remove(node.id)
             } else {
-                deliverablesCollapsedFolderIDs.insert(node.id)
+                specsState.deliverablesCollapsedFolderIDs.insert(node.id)
             }
         }
         .explain(node.url.path, binding: $hoverExplanation)
@@ -865,7 +779,7 @@ extension ContentView {
     
     private func deliverablesAssetRow(idx: Int, asset: DeliverableAsset, depth: Int = 0) -> some View {
         let hasMismatch = asset.validation.hasAnyMismatch
-        let isSelected = selectedDeliverableURL?.standardizedFileURL == asset.fileURL.standardizedFileURL
+        let isSelected = specsState.selectedDeliverableURL?.standardizedFileURL == asset.fileURL.standardizedFileURL
         
         return HStack(spacing: 8) {
             Text(String(format: "%02d", idx + 1))
@@ -906,7 +820,7 @@ extension ContentView {
                     }
                 
                 Button(action: {
-                    selectedDeliverableURL = asset.fileURL
+                    specsState.selectedDeliverableURL = asset.fileURL
                     openProperties(for: asset.fileURL)
                 }) {
                     Image(systemName: "info.circle")
@@ -1083,25 +997,25 @@ extension ContentView {
         )
         .contentShape(Rectangle())
         .onTapGesture {
-            selectedDeliverableURL = asset.fileURL
+            specsState.selectedDeliverableURL = asset.fileURL
         }
         .simultaneousGesture(
             TapGesture(count: 2).onEnded {
-                selectedDeliverableURL = asset.fileURL
+                specsState.selectedDeliverableURL = asset.fileURL
                 playDeliverableInPlayer(url: asset.fileURL)
             }
         )
         .explain(asset.fileURL.path, binding: $hoverExplanation)
         .contextMenu {
             Button(action: {
-                selectedDeliverableURL = asset.fileURL
+                specsState.selectedDeliverableURL = asset.fileURL
                 playDeliverableInPlayer(url: asset.fileURL)
             }) {
                 Label("Play in Player (Tab 1)", systemImage: "play.fill")
             }
             Divider()
             Button(action: {
-                selectedDeliverableURL = asset.fileURL
+                specsState.selectedDeliverableURL = asset.fileURL
                 openProperties(for: asset.fileURL)
             }) {
                 Label("Media Info (⌘I)", systemImage: "info.circle")

@@ -49,24 +49,7 @@ struct ContentView: View {
     @State private var eventMonitors = EventMonitorCoordinator()
     
     // MARK: - Tab 2: Specs State
-    @State var deliverableAssets: [DeliverableAsset] = []
-    @State var specsFilterText: String = ""
-    @State var selectedDeliverableURL: URL? = nil
-    @State var isInspectingDeliverables: Bool = false
-    @State var manifestCSVURL: URL? = nil
-    @State var manifestHTMLURL: URL? = nil
-    @State var deliverablesCollapsedFolderIDs: Set<String> = []
-    @AppStorage("specsFileNameColumnWidth") var specsFileNameColumnWidth: Double = 220.0
-    @State var liveFileNameColumnWidth: Double = 220.0
-    @State var isDraggingFileNameColumn: Bool = false
-    @State var dragStartFileNameWidth: Double? = nil
-    @AppStorage("specsSortColumn") var specsSortColumnRaw: String = SpecsSortColumn.name.rawValue
-    @AppStorage("specsSortAscending") var specsSortAscending: Bool = true
-    
-    var specsSortColumn: SpecsSortColumn {
-        get { SpecsSortColumn(rawValue: specsSortColumnRaw) ?? .name }
-        nonmutating set { specsSortColumnRaw = newValue.rawValue }
-    }
+    @StateObject var specsState = SpecsState()
     
     // MARK: - Tab 3: Line Finder State
     @StateObject var scannerState = ScannerState()
@@ -620,8 +603,8 @@ struct ContentView: View {
                         
                         Button(action: {
                             selectedTab = tab
-                            if tab == .specs && deliverableAssets.isEmpty && !videoFiles.isEmpty {
-                                inspectDeliverablesBatch(urls: videoFiles)
+                            if tab == .specs && specsState.deliverableAssets.isEmpty && !videoFiles.isEmpty {
+                                specsState.inspectDeliverablesBatch(urls: videoFiles)
                             } else if tab == .player && playerEngine.activeURL == nil, let first = videoFiles.first {
                                 playerEngine.loadVideo(url: first)
                             }
@@ -892,7 +875,7 @@ struct ContentView: View {
         let urlsToRemove = Set(node.videoURLs.map { $0.standardizedFileURL.path })
         withAnimation(.easeInOut(duration: 0.2)) {
             videoFiles.removeAll { urlsToRemove.contains($0.standardizedFileURL.path) }
-            deliverableAssets.removeAll { urlsToRemove.contains($0.fileURL.standardizedFileURL.path) }
+            specsState.deliverableAssets.removeAll { urlsToRemove.contains($0.fileURL.standardizedFileURL.path) }
             scannerState.scanResults.removeAll { urlsToRemove.contains($0.fileURL.standardizedFileURL.path) }
             
             func collectFolderIDs(_ n: FileSystemTreeNode) -> [String] {
@@ -904,7 +887,7 @@ struct ContentView: View {
             }
             let allFolderIDs = Set(collectFolderIDs(node))
             playerCollapsedFolderIDs.subtract(allFolderIDs)
-            deliverablesCollapsedFolderIDs.subtract(allFolderIDs)
+            specsState.deliverablesCollapsedFolderIDs.subtract(allFolderIDs)
             hiddenFolderIDs.subtract(allFolderIDs)
             
             if videoFiles.isEmpty {
@@ -1002,7 +985,7 @@ struct ContentView: View {
                 self.folderURL = determineFolderURL(for: mergedVideos, detectedFolder: self.folderURL ?? detectedFolder)
                 
                 // Inspect only newly added deliverables and append to existing deliverables
-                inspectDeliverablesBatch(urls: newlyAdded, append: true)
+                specsState.inspectDeliverablesBatch(urls: newlyAdded, append: true)
                 self.loadFinderTagsForQueue()
                 if self.playerEngine.activeURL == nil, let first = newlyAdded.first {
                     self.playerEngine.loadVideo(url: first)
@@ -1023,13 +1006,13 @@ struct ContentView: View {
                 self.folderURL = determineFolderURL(for: uniqueVideos, detectedFolder: detectedFolder)
                 self.videoFiles = uniqueVideos
                 self.playerCollapsedFolderIDs = []
-                self.deliverablesCollapsedFolderIDs = []
+                self.specsState.deliverablesCollapsedFolderIDs = []
                 self.scannerState.scanResults = []
                 self.scannerState.generatedReportURL = nil
                 self.scannerState.generatedCSVURL = nil
                 
                 // Populate deliverables in background
-                inspectDeliverablesBatch(urls: uniqueVideos, append: false)
+                specsState.inspectDeliverablesBatch(urls: uniqueVideos, append: false)
                 self.loadFinderTagsForQueue()
                 if self.playerEngine.activeURL == nil, let first = uniqueVideos.first {
                     self.playerEngine.loadVideo(url: first)
@@ -1119,7 +1102,7 @@ struct ContentView: View {
         if !newlyAdded.isEmpty {
             self.videoFiles = mergedVideos
             self.folderURL = self.determineFolderURL(for: mergedVideos, detectedFolder: self.folderURL ?? detectedFolder)
-            self.inspectDeliverablesBatch(urls: newlyAdded, append: true)
+            self.specsState.inspectDeliverablesBatch(urls: newlyAdded, append: true)
             self.loadFinderTagsForQueue()
         }
         
@@ -1225,8 +1208,8 @@ struct ContentView: View {
         self.loadFinderTagsForQueue()
         
         // Sync with Deliverables inspector if deliverables are loaded
-        if !deliverableAssets.isEmpty {
-            inspectDeliverablesBatch(urls: refreshedVideos, append: false)
+        if !specsState.deliverableAssets.isEmpty {
+            specsState.inspectDeliverablesBatch(urls: refreshedVideos, append: false)
         }
         
         // Validate active slot videos
@@ -1262,37 +1245,16 @@ struct ContentView: View {
                 }
             }
             self.videoFiles = merged
-            inspectDeliverablesBatch(urls: merged, append: false)
+            specsState.inspectDeliverablesBatch(urls: merged, append: false)
         } else if !videoFiles.isEmpty {
             let valid = videoFiles.filter { FileManager.default.fileExists(atPath: $0.path) }
             self.videoFiles = valid
-            inspectDeliverablesBatch(urls: valid, append: false)
+            specsState.inspectDeliverablesBatch(urls: valid, append: false)
         }
     }
     
     func inspectDeliverablesBatch(urls: [URL], append: Bool = false) {
-        guard !urls.isEmpty else { return }
-        isInspectingDeliverables = true
-        
-        Task {
-            let assets = await DeliverablesInspector.inspectBatch(urls: urls)
-            
-            DispatchQueue.main.async {
-                if append {
-                    var existingMap = Dictionary(uniqueKeysWithValues: self.deliverableAssets.map { ($0.fileURL.standardizedFileURL, $0) })
-                    for asset in assets {
-                        let key = asset.fileURL.standardizedFileURL
-                        if existingMap[key] == nil {
-                            existingMap[key] = asset
-                            self.deliverableAssets.append(asset)
-                        }
-                    }
-                } else {
-                    self.deliverableAssets = assets
-                }
-                self.isInspectingDeliverables = false
-            }
-        }
+        specsState.inspectDeliverablesBatch(urls: urls, append: append)
     }
     
     func playDeliverableInPlayer(url: URL) {
@@ -1303,39 +1265,15 @@ struct ContentView: View {
     }
     
     func exportDeliverablesManifest() {
-        guard !deliverableAssets.isEmpty else { return }
-        
-        let csvString = DeliverablesInspector.generateManifestCSV(assets: deliverableAssets, rootFolderURL: folderURL)
-        let savePanel = NSSavePanel()
-        savePanel.allowedContentTypes = [UTType.commaSeparatedText]
-        savePanel.nameFieldStringValue = "Deliverables_Specs_\(Date().timeIntervalSince1970).csv"
-        
-        if savePanel.runModal() == .OK, let url = savePanel.url {
-            try? csvString.write(to: url, atomically: true, encoding: .utf8)
-            self.manifestCSVURL = url
-            NSWorkspace.shared.activateFileViewerSelecting([url])
-        }
+        specsState.exportDeliverablesManifest(rootFolderURL: folderURL)
     }
     
     func openManifestHTML() {
-        guard !deliverableAssets.isEmpty else { return }
-        
-        let folderName = (folderURL ?? deliverableAssets.first?.fileURL.deletingLastPathComponent())?.lastPathComponent ?? "DELIVERY_ASSETS"
-        let htmlString = DeliverablesInspector.generateManifestHTML(assets: deliverableAssets, folderName: folderName, rootFolderURL: folderURL)
-        let tempURL = FileManager.default.temporaryDirectory.appendingPathComponent("Deliverables_Specs_\(UUID().uuidString).html")
-        
-        do {
-            try htmlString.write(to: tempURL, atomically: true, encoding: .utf8)
-            self.manifestHTMLURL = tempURL
-            NSWorkspace.shared.open(tempURL)
-        } catch {
-            print("Failed to open Deliverables HTML: \(error)")
-        }
+        specsState.openManifestHTML(rootFolderURL: folderURL)
     }
     
     func openDeliverablesInGoogleSheets() {
-        guard !deliverableAssets.isEmpty else { return }
-        let tsvString = DeliverablesInspector.generateManifestTSV(assets: deliverableAssets, rootFolderURL: folderURL)
+        guard let tsvString = specsState.generateManifestTSV(rootFolderURL: folderURL) else { return }
         let pasteboard = NSPasteboard.general
         pasteboard.clearContents()
         pasteboard.setString(tsvString, forType: .string)
@@ -1585,8 +1523,8 @@ struct ContentView: View {
                     withAnimation(.spring(response: 0.22, dampingFraction: 0.85)) {
                         self.selectedTab = .specs
                     }
-                    if self.deliverableAssets.isEmpty && !self.videoFiles.isEmpty {
-                        self.inspectDeliverablesBatch(urls: self.videoFiles)
+                    if self.specsState.deliverableAssets.isEmpty && !self.videoFiles.isEmpty {
+                        self.specsState.inspectDeliverablesBatch(urls: self.videoFiles)
                     }
                     return nil
                 } else if event.keyCode == 20 || rawChars == "3" || event.characters == "#" {
@@ -1641,7 +1579,7 @@ struct ContentView: View {
                     let currentTarget = self.playerEngine.activeTarget
                     targetURL = (currentTarget == .slotB && self.playerEngine.slotB.url != nil) ? self.playerEngine.slotB.url : self.playerEngine.activeURL
                 } else {
-                    targetURL = self.selectedDeliverableURL ?? self.deliverableAssets.first?.fileURL
+                    targetURL = self.specsState.selectedDeliverableURL ?? self.specsState.deliverableAssets.first?.fileURL
                 }
                 
                 if event.keyCode == 29 || rawChars == "0" { // 0: Remove Tag
@@ -1969,7 +1907,7 @@ struct ContentView: View {
     
     func openProperties(for url: URL) {
         propertiesURL = url
-        if let existing = deliverableAssets.first(where: { $0.fileURL.standardizedFileURL == url.standardizedFileURL }) {
+        if let existing = specsState.deliverableAssets.first(where: { $0.fileURL.standardizedFileURL == url.standardizedFileURL }) {
             propertiesAsset = existing
             isInspectingProperties = false
             withAnimation(.easeInOut(duration: 0.15)) {
@@ -1985,8 +1923,8 @@ struct ContentView: View {
             Task { @MainActor in
                 if let asset = await DeliverablesInspector.inspectFile(url: url) {
                     self.propertiesAsset = asset
-                    if !self.deliverableAssets.contains(where: { $0.fileURL.standardizedFileURL == url.standardizedFileURL }) {
-                        self.deliverableAssets.append(asset)
+                    if !self.specsState.deliverableAssets.contains(where: { $0.fileURL.standardizedFileURL == url.standardizedFileURL }) {
+                        self.specsState.deliverableAssets.append(asset)
                     }
                 }
                 self.isInspectingProperties = false
@@ -2003,7 +1941,7 @@ struct ContentView: View {
         }
         
         if selectedTab == .specs {
-            let targetURL = selectedDeliverableURL ?? deliverableAssets.first?.fileURL
+            let targetURL = specsState.selectedDeliverableURL ?? specsState.deliverableAssets.first?.fileURL
             if let url = targetURL {
                 openProperties(for: url)
             }
