@@ -54,6 +54,9 @@ struct ContentView: View {
     // MARK: - Tab 3: Line Finder State
     @StateObject var scannerState = ScannerState()
     
+    // MARK: - Tab 4: Ingest State
+    @StateObject var ingestState = IngestState()
+    
     // MARK: - Folder Grouping State
     @State var hideAllFolders: Bool = false
     @State var hiddenFolderIDs: Set<String> = []
@@ -213,6 +216,8 @@ struct ContentView: View {
                 deliverablesTabView
             case .lineFinder:
                 lineScannerTabView
+            case .ingest:
+                ingestTabView
             }
             
             // 4. Bottom Contextual Explanation Bar
@@ -664,7 +669,8 @@ struct ContentView: View {
                         .explain(
                             tab == .player ? "PLAYER: High-performance delivery playback with J-K-L shuttle, timeline scrubbing, and zoom." :
                             (tab == .specs ? "SPECS: Reads container resolution, timecode, audio, and codecs." :
-                             "LINE FINDER: Scans video frames for edge line glitches and blanking errors."),
+                             (tab == .lineFinder ? "LINE FINDER: Scans video frames for edge line glitches and blanking errors." :
+                              "INGEST: Intake checklist, automatic metadata aggregation, and DIT cross-referencing.")),
                             binding: $hoverExplanation
                         )
                     }
@@ -935,6 +941,19 @@ struct ContentView: View {
     }
     
     func selectAssets(forTab: AppTab, append: Bool = false) {
+        if forTab == .ingest {
+            let panel = NSOpenPanel()
+            panel.canChooseFiles = true
+            panel.canChooseDirectories = true
+            panel.allowsMultipleSelection = true
+            panel.prompt = "Select Intake"
+            panel.message = "Choose a delivery folder or media files to ingest"
+            if panel.runModal() == .OK, !panel.urls.isEmpty {
+                self.ingestState.scanIntake(urls: panel.urls)
+            }
+            return
+        }
+        
         let panel = NSOpenPanel()
         panel.canChooseFiles = true
         panel.canChooseDirectories = true
@@ -1049,7 +1068,11 @@ struct ContentView: View {
         }
         
         group.notify(queue: .main) {
-            self.addAssets(urls: collector.urls, targetSlot: targetSlot)
+            if forTab == .ingest {
+                self.ingestState.scanIntake(urls: collector.urls)
+            } else {
+                self.addAssets(urls: collector.urls, targetSlot: targetSlot)
+            }
         }
         return true
     }

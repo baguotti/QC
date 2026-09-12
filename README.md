@@ -6,7 +6,7 @@
 
 ## OVERVIEW
 
-QCpie (LineFinder 5000) is a high-performance native macOS application for video post-production teams, QC engineers, colorists, and delivery editors. It combines a frame-accurate dual-slot video viewport with automated edge glitch scanning, container metadata inspection, and batch renaming.
+QCpie (LineFinder 5000) is a high-performance native macOS application for video post-production teams, QC engineers, colorists, and delivery editors. It combines a frame-accurate dual-slot video viewport with automated edge glitch scanning and container metadata inspection.
 
 ---
 
@@ -72,11 +72,16 @@ QCpie (LineFinder 5000) is a high-performance native macOS application for video
 
 ---
 
-### 4. BATCH RENAMER (TAB 04 // RENAMER)
+### 4. FOOTAGE INGEST & DIT REPORT AUDIT (TAB 04 // INGEST)
 
-- **Pattern Modes**: Template tokens, Find & Replace, and Prefix/Suffix appending.
-- **Metadata Tokens**: `{NAME}`, `{ORIGINAL}`, `{DUR}`, `{RATIO}`, `{TAG}`, `{RES}`, `{DIMS}`, `{FPS}`, `{CODEC}`, `{AUDIO}`, `{INDEX}`, `{DATE}`.
-- **Safety Checks**: Collision detection, name matching, and non-destructive disk operations with instant Undo/Revert.
+- **Automated Delivery Intake**: Point to any shoot or delivery intake folder to catalog all files recursively.
+- **Intelligent Classification**: Separates raw footage, transcodes (detects `TRANSCODES` or `PROXY` subfolders and naming conventions), location audio, shooting LUTs, and camera reports.
+- **Metadata Auto-Aggregation**: Extracts camera make/model, dominant codecs, shooting resolution, and project timebase automatically from container atoms.
+- **DIT Report Cross-Referencing**: Imports CSV, TSV, or ALE reports from DITs and flags discrepancies:
+  - Missing clips on disk (critical)
+  - Unreported footage on storage (info)
+  - Frame rate, resolution, or codec mismatches (warning)
+- **Production Checklist & Export**: Interactive checklist matching industry-standard intake forms (job numbers, client drives status, VFX flags, HD source return notes). Exports final intake manifests as CSV, interactive HTML, or formatted clipboard summaries.
 
 ---
 

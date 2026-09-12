@@ -7,6 +7,7 @@ enum AppTab: Int, CaseIterable, Identifiable {
     case player = 0
     case specs = 1
     case lineFinder = 2
+    case ingest = 3
     
     var id: Int { rawValue }
     var title: String {
@@ -14,6 +15,7 @@ enum AppTab: Int, CaseIterable, Identifiable {
         case .player: return "PLAYER"
         case .specs: return "SPECS"
         case .lineFinder: return "LINE FINDER"
+        case .ingest: return "INGEST"
         }
     }
     
@@ -22,6 +24,7 @@ enum AppTab: Int, CaseIterable, Identifiable {
         case .player: return "film"
         case .specs: return "doc.text"
         case .lineFinder: return "viewfinder"
+        case .ingest: return "tray.and.arrow.down"
         }
     }
 }
