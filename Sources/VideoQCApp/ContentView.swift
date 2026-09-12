@@ -168,23 +168,24 @@ struct ContentView: View {
     }
     
     // Dynamic Studio Theme Palette
-    var bgMain: Color { StudioTheme.bgMain(isLightMode) }
-    var bgPanel: Color { StudioTheme.bgPanel(isLightMode) }
-    var bgSubtle: Color { StudioTheme.bgSubtle(isLightMode) }
-    var bgCardHeader: Color { StudioTheme.bgCardHeader(isLightMode) }
-    var bgCardSubtle: Color { StudioTheme.bgCardSubtle(isLightMode) }
-    var borderLine: Color { StudioTheme.borderLine(isLightMode) }
-    var borderStrong: Color { StudioTheme.borderStrong(isLightMode) }
-    var textMain: Color { StudioTheme.textMain(isLightMode) }
-    var textMuted: Color { StudioTheme.textMuted(isLightMode) }
-    var textSubtle: Color { StudioTheme.textSubtle(isLightMode) }
-    var alertRed: Color { StudioTheme.negative }
-    var accentPositive: Color { StudioTheme.positive }
-    var accentNegative: Color { StudioTheme.negative }
-    var accentSlotB: Color { StudioTheme.slotBAccent }
-    var accentBlue: Color { StudioTheme.accentBlue(isLightMode) }
-    var primaryBtnBg: Color { StudioTheme.primaryBtnBg(isLightMode) }
-    var primaryBtnFg: Color { StudioTheme.primaryBtnFg(isLightMode) }
+    var palette: StudioPalette { StudioPalette(isLightMode) }
+    var bgMain: Color { palette.bgMain }
+    var bgPanel: Color { palette.bgPanel }
+    var bgSubtle: Color { palette.bgSubtle }
+    var bgCardHeader: Color { palette.bgCardHeader }
+    var bgCardSubtle: Color { palette.bgCardSubtle }
+    var borderLine: Color { palette.borderLine }
+    var borderStrong: Color { palette.borderStrong }
+    var textMain: Color { palette.textMain }
+    var textMuted: Color { palette.textMuted }
+    var textSubtle: Color { palette.textSubtle }
+    var alertRed: Color { palette.alertRed }
+    var accentPositive: Color { palette.accentPositive }
+    var accentNegative: Color { palette.accentNegative }
+    var accentSlotB: Color { palette.accentSlotB }
+    var accentBlue: Color { palette.accentBlue }
+    var primaryBtnBg: Color { palette.primaryBtnBg }
+    var primaryBtnFg: Color { palette.primaryBtnFg }
     
     var body: some View {
         ZStack {
@@ -201,79 +202,16 @@ struct ContentView: View {
         .animation(.easeInOut(duration: 0.15), value: showNotesDrawer)
         .animation(.easeInOut(duration: 0.15), value: fullscreenMode)
         .animation(.spring(response: 0.3, dampingFraction: 0.7), value: toastMessage)
-        .onChange(of: showPropertiesModal) { _, newValue in
-            if !newValue {
-                DispatchQueue.main.async {
-                    if let window = NSApp.windows.first(where: { $0.canBecomeKey }) {
-                        window.makeKeyAndOrderFront(nil)
-                        window.makeFirstResponder(nil)
-                    }
-                }
-            }
-        }
-        .onChange(of: showAddNoteModal) { _, newValue in
-            if !newValue {
-                DispatchQueue.main.async {
-                    if let window = NSApp.windows.first(where: { $0.canBecomeKey }) {
-                        window.makeKeyAndOrderFront(nil)
-                        window.makeFirstResponder(nil)
-                    }
-                }
-            }
-        }
+        .onChange(of: showPropertiesModal) { _, newValue in if !newValue { dismissFocusReset() } }
+        .onChange(of: showAddNoteModal) { _, newValue in if !newValue { dismissFocusReset() } }
         .onChange(of: playerEngine.activeURL) { _, newURL in
             loadNotesForActiveURL(newURL)
         }
-        .onChange(of: showThemeModal) { _, newValue in
-            if !newValue {
-                DispatchQueue.main.async {
-                    if let window = NSApp.windows.first(where: { $0.canBecomeKey }) {
-                        window.makeKeyAndOrderFront(nil)
-                        window.makeFirstResponder(nil)
-                    }
-                }
-            }
-        }
-        .onChange(of: showUserGuide) { _, newValue in
-            if !newValue {
-                DispatchQueue.main.async {
-                    if let window = NSApp.windows.first(where: { $0.canBecomeKey }) {
-                        window.makeKeyAndOrderFront(nil)
-                        window.makeFirstResponder(nil)
-                    }
-                }
-            }
-        }
-        .onChange(of: showFeedbackModal) { _, newValue in
-            if !newValue {
-                DispatchQueue.main.async {
-                    if let window = NSApp.windows.first(where: { $0.canBecomeKey }) {
-                        window.makeKeyAndOrderFront(nil)
-                        window.makeFirstResponder(nil)
-                    }
-                }
-            }
-        }
-        .onChange(of: showShortcutsModal) { _, newValue in
-            if !newValue {
-                DispatchQueue.main.async {
-                    if let window = NSApp.windows.first(where: { $0.canBecomeKey }) {
-                        window.makeKeyAndOrderFront(nil)
-                        window.makeFirstResponder(nil)
-                    }
-                }
-            }
-        }
-        .onChange(of: updateManager.showModal) { _, newValue in
-            if !newValue {
-                DispatchQueue.main.async {
-                    if let window = NSApp.windows.first(where: { $0.canBecomeKey }) {
-                        window.makeKeyAndOrderFront(nil)
-                        window.makeFirstResponder(nil)
-                    }
-                }
-            }
-        }
+        .onChange(of: showThemeModal) { _, newValue in if !newValue { dismissFocusReset() } }
+        .onChange(of: showUserGuide) { _, newValue in if !newValue { dismissFocusReset() } }
+        .onChange(of: showFeedbackModal) { _, newValue in if !newValue { dismissFocusReset() } }
+        .onChange(of: showShortcutsModal) { _, newValue in if !newValue { dismissFocusReset() } }
+        .onChange(of: updateManager.showModal) { _, newValue in if !newValue { dismissFocusReset() } }
         .onReceive(NotificationCenter.default.publisher(for: NSWindow.didExitFullScreenNotification)) { _ in
             if fullscreenMode != .none {
                 fullscreenMode = .none
@@ -325,6 +263,15 @@ struct ContentView: View {
         .onDisappear {
             eventMonitors.cleanup()
             hasSetupKeyboardMonitor = false
+        }
+    }
+    
+    private func dismissFocusReset() {
+        DispatchQueue.main.async {
+            if let window = NSApp.windows.first(where: { $0.canBecomeKey }) {
+                window.makeKeyAndOrderFront(nil)
+                window.makeFirstResponder(nil)
+            }
         }
     }
     
@@ -1921,16 +1868,6 @@ struct ContentView: View {
             }
             
             switch event.keyCode {
-            case 0: // A key: Toggle Autoplay fallback
-                if !isCommand && !isControl && !isShift && !isOption {
-                    self.playerEngine.isAutoplayEnabled.toggle()
-                    return nil
-                }
-            case 34: // I key: Fallback for cycling clip info
-                if !isCommand && !isControl && !isOption && !isShift {
-                    self.playerEngine.cycleClipInfoOverlayMode()
-                    return nil
-                }
             case 30: // ]: Next Note (fallback for international layouts)
                 if !isCommand && !isControl {
                     self.playerEngine.jumpToNextNote()

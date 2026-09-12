@@ -353,11 +353,6 @@ public final class PlayerEngine: ObservableObject {
     @Published public var clipInfoOverlayMode: ClipInfoOverlayMode = .resolution
     @Published public var showResolutionLabels: Bool = true
     
-    public var showClipNamesOverlay: Bool {
-        get { clipInfoOverlayMode == .fileName || clipInfoOverlayMode == .fullDetails }
-        set { }
-    }
-    
     public func cycleClipInfoOverlayMode() {
         self.clipInfoOverlayMode = self.clipInfoOverlayMode.next
         self.showResolutionLabels = (clipInfoOverlayMode != .off)
@@ -394,11 +389,6 @@ public final class PlayerEngine: ObservableObject {
     // Crosshair & Guides
     @Published public var showCenterCrosshair: Bool = false
     @Published public var safeAreaMode: SafeAreaMode = .off
-    
-    public var showTitleSafe: Bool {
-        get { safeAreaMode != .off }
-        set { safeAreaMode = newValue ? .standard : .off }
-    }
     
     // Video Exposure Adjustment (EV stops: -5.0 to +5.0)
     @Published public var exposureEV: Double = 0.0 {

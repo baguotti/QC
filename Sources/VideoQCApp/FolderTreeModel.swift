@@ -355,4 +355,32 @@ public struct FileSystemTreeBuilder {
         }
         return common
     }
+    
+    /// Expands all ancestor directories containing the specified file URL within the given tree nodes.
+    public static func expandAncestors(of url: URL, in nodes: [FileSystemTreeNode], collapsedIDs: inout Set<String>) {
+        guard !collapsedIDs.isEmpty else { return }
+        let targetPath = url.standardizedFileURL.path
+        
+        var idsToExpand: Set<String> = []
+        func checkNode(_ node: FileSystemTreeNode) {
+            guard node.isDirectory else { return }
+            let dirPath = node.url.standardizedFileURL.path
+            let isAncestor = targetPath.hasPrefix(dirPath + "/") || node.videoURLs.contains(where: { $0.standardizedFileURL.path == targetPath })
+            if isAncestor {
+                idsToExpand.insert(node.id)
+                for child in node.children {
+                    checkNode(child)
+                }
+            }
+        }
+        
+        for root in nodes {
+            checkNode(root)
+        }
+        
+        let intersection = collapsedIDs.intersection(idsToExpand)
+        if !intersection.isEmpty {
+            collapsedIDs.subtract(intersection)
+        }
+    }
 }

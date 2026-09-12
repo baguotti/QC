@@ -8,10 +8,6 @@ enum AppTab: Int, CaseIterable, Identifiable {
     case specs = 1
     case lineFinder = 2
     
-    // Compatibility aliases
-    static let deliverables = AppTab.specs
-    static let lineScanner = AppTab.lineFinder
-    
     var id: Int { rawValue }
     var title: String {
         switch self {

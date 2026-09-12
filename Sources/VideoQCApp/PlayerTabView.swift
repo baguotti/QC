@@ -1131,31 +1131,8 @@ public struct PlayerQueuePanelView: View, Equatable {
     }
     
     private func revealFolderContaining(url: URL) {
-        guard !playerCollapsedFolderIDs.isEmpty else { return }
-        let targetPath = url.standardizedFileURL.path
-        
-        var idsToExpand: Set<String> = []
-        func checkNode(_ node: FileSystemTreeNode) {
-            guard node.isDirectory else { return }
-            let dirPath = node.url.standardizedFileURL.path
-            let isAncestor = targetPath.hasPrefix(dirPath + "/") || node.videoURLs.contains(where: { $0.standardizedFileURL.path == targetPath })
-            if isAncestor {
-                idsToExpand.insert(node.id)
-                for child in node.children {
-                    checkNode(child)
-                }
-            }
-        }
-        
-        for root in playerTreeNodes {
-            checkNode(root)
-        }
-        
-        let intersection = playerCollapsedFolderIDs.intersection(idsToExpand)
-        if !intersection.isEmpty {
-            withAnimation(.easeInOut(duration: 0.2)) {
-                playerCollapsedFolderIDs.subtract(intersection)
-            }
+        withAnimation(.easeInOut(duration: 0.2)) {
+            FileSystemTreeBuilder.expandAncestors(of: url, in: playerTreeNodes, collapsedIDs: &playerCollapsedFolderIDs)
         }
     }
 }
@@ -1776,31 +1753,8 @@ extension ContentView {
     }
     
     func revealPlayerFolderContaining(url: URL) {
-        guard !playerCollapsedFolderIDs.isEmpty else { return }
-        let targetPath = url.standardizedFileURL.path
-        
-        var idsToExpand: Set<String> = []
-        func checkNode(_ node: FileSystemTreeNode) {
-            guard node.isDirectory else { return }
-            let dirPath = node.url.standardizedFileURL.path
-            let isAncestor = targetPath.hasPrefix(dirPath + "/") || node.videoURLs.contains(where: { $0.standardizedFileURL.path == targetPath })
-            if isAncestor {
-                idsToExpand.insert(node.id)
-                for child in node.children {
-                    checkNode(child)
-                }
-            }
-        }
-        
-        for root in playerTreeNodes {
-            checkNode(root)
-        }
-        
-        let intersection = playerCollapsedFolderIDs.intersection(idsToExpand)
-        if !intersection.isEmpty {
-            withAnimation(.easeInOut(duration: 0.2)) {
-                playerCollapsedFolderIDs.subtract(intersection)
-            }
+        withAnimation(.easeInOut(duration: 0.2)) {
+            FileSystemTreeBuilder.expandAncestors(of: url, in: playerTreeNodes, collapsedIDs: &playerCollapsedFolderIDs)
         }
     }
     
