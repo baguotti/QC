@@ -199,14 +199,30 @@ struct PlayerTransportDeckView: View {
                 }
 
                 transportBtn(
-                    icon: "aspectratio",
-                    tooltip: engine.showResolutionLabels ? "Canvas Resolution Labels: ON" : "Canvas Resolution Labels: OFF",
-                    isActive: engine.showResolutionLabels,
+                    icon: "info.circle",
+                    tooltip: "Clip Info: \(engine.clipInfoOverlayMode.rawValue) (I: Cycle, Right-click to choose).",
+                    isActive: engine.clipInfoOverlayMode != .off,
                     size: 12,
                     weight: .semibold,
                     width: 26
                 ) {
-                    engine.showResolutionLabels.toggle()
+                    engine.cycleClipInfoOverlayMode()
+                }
+                .contextMenu {
+                    ForEach(ClipInfoOverlayMode.allCases, id: \.self) { mode in
+                        Button(action: {
+                            engine.clipInfoOverlayMode = mode
+                            engine.showResolutionLabels = (mode != .off)
+                        }) {
+                            HStack {
+                                Text(mode.rawValue)
+                                if engine.clipInfoOverlayMode == mode {
+                                    Spacer()
+                                    Image(systemName: "checkmark")
+                                }
+                            }
+                        }
+                    }
                 }
                 
                 ExposureScrubberView(

@@ -1911,13 +1911,9 @@ struct ContentView: View {
                 } else if chars == "?" || (isCommand && chars == "/") {
                     self.showUserGuide.toggle()
                     return nil
-                } else if chars == "i" && isShift && !isCommand && !isControl && !isOption { // Shift + I: Cycle clip info overlay (Hide -> Names -> More Info)
-                    if self.playerEngine.slotB.url != nil {
-                        withAnimation(.easeInOut(duration: 0.15)) {
-                            self.playerEngine.cycleClipInfoOverlayMode()
-                        }
-                        return nil
-                    }
+                } else if chars == "i" && !isCommand && !isControl && !isOption && !isShift { // I: Cycle clip info (Off -> A/B -> Resolution -> Name -> Full Details)
+                    self.playerEngine.cycleClipInfoOverlayMode()
+                    return nil
                 } else if (chars == "i" && (isControl || isCommand)) || (chars == "p" && isCommand) {
                     self.togglePropertiesModalForActiveOrSelected()
                     return nil
@@ -1930,14 +1926,10 @@ struct ContentView: View {
                     self.playerEngine.isAutoplayEnabled.toggle()
                     return nil
                 }
-            case 34: // I key: Shift + I fallback
-                if isShift && !isCommand && !isControl && !isOption {
-                    if self.playerEngine.slotB.url != nil {
-                        withAnimation(.easeInOut(duration: 0.15)) {
-                            self.playerEngine.cycleClipInfoOverlayMode()
-                        }
-                        return nil
-                    }
+            case 34: // I key: Fallback for cycling clip info
+                if !isCommand && !isControl && !isOption && !isShift {
+                    self.playerEngine.cycleClipInfoOverlayMode()
+                    return nil
                 }
             case 30: // ]: Next Note (fallback for international layouts)
                 if !isCommand && !isControl {

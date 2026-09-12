@@ -1296,10 +1296,6 @@ extension ContentView {
                             .frame(maxWidth: .infinity, maxHeight: .infinity)
                             .background(bgMain)
                         }
-                        
-                        // Dual A/B Mode: Clip Names & Info at top-left of canvas (Togglable)
-                        ClipInfoOverlayView(engine: playerEngine, accentPositive: accentPositive, accentSlotB: accentSlotB)
-                            .padding(10)
                     }
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .onDrop(of: [UTType.fileURL.identifier], isTargeted: nil) { providers, location in
@@ -2077,22 +2073,6 @@ struct PlayerComparisonBar: View {
                 .buttonStyle(TransportIconButtonStyle())
                 .explain("Swap Slots (X): Swap Slot A (Master) and Slot B (Compare).", binding: hoverExplanation)
                 
-                // Show/Hide / More Info Deliverable Clip Names on Canvas (Next to SWAP, before CLEAR B)
-                Button(action: {
-                    withAnimation(.easeInOut(duration: 0.15)) {
-                        engine.cycleClipInfoOverlayMode()
-                    }
-                    onInteraction?()
-                }) {
-                    Image(systemName: engine.clipInfoOverlayMode == .detailed ? "info.circle.fill" : "character.textbox")
-                        .font(.system(size: StudioTheme.scaleFont(11), weight: .bold))
-                        .frame(width: StudioTheme.scale(26), height: StudioTheme.scale(26))
-                        .foregroundColor(engine.clipInfoOverlayMode != .hide ? textMain : textMuted)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(TransportIconButtonStyle())
-                .explain("Clip Info Overlay (\(engine.clipInfoOverlayMode.rawValue)) (⇧I): Cycle between Hide, Names, and More Info.", binding: hoverExplanation)
-                
                 // Clear B Button
                 Button(action: {
                     engine.clearSlotB()
@@ -2370,16 +2350,6 @@ struct FullscreenPlayerView: View {
                 VStack(spacing: 0) {
                     topBar
                         .transition(.move(edge: .top).combined(with: .opacity))
-                    
-                    if engine.slotB.url != nil && engine.clipInfoOverlayMode != .hide {
-                        HStack {
-                            ClipInfoOverlayView(engine: engine, accentPositive: accentPositive, accentSlotB: accentSlotB)
-                                .padding(.leading, 16)
-                                .padding(.top, 8)
-                            
-                            Spacer()
-                        }
-                    }
                     
                     Spacer()
                     
@@ -2903,90 +2873,5 @@ struct PlayerZoomMenuView: View {
     }
 }
 
-// MARK: - Dual A/B Mode Clip Names & Metadata Overlay
-
-struct ClipInfoOverlayView: View {
-    @ObservedObject var engine: PlayerEngine
-    var accentPositive: Color
-    var accentSlotB: Color
-    
-    var body: some View {
-        if engine.slotB.url != nil && engine.clipInfoOverlayMode != .hide {
-            VStack(alignment: .leading, spacing: engine.clipInfoOverlayMode == .detailed ? 6 : 3) {
-                // Slot A (Master)
-                VStack(alignment: .leading, spacing: 2) {
-                    HStack(spacing: 5) {
-                        Text("A:")
-                            .font(.system(size: 9, weight: .black, design: .monospaced))
-                            .foregroundColor(accentPositive)
-                        Text(engine.slotA.fileName.isEmpty ? "--" : engine.slotA.fileName.uppercased())
-                            .font(.system(size: 10, weight: .bold, design: .monospaced))
-                            .foregroundColor(.white)
-                            .lineLimit(1)
-                            .truncationMode(.middle)
-                    }
-                    if engine.clipInfoOverlayMode == .detailed {
-                        HStack(spacing: 6) {
-                            Text(engine.slotA.displayResolution)
-                            Text("•")
-                                .foregroundColor(Color.white.opacity(0.4))
-                            Text(engine.slotA.displayCodec)
-                            Text("•")
-                                .foregroundColor(Color.white.opacity(0.4))
-                            Text(engine.slotA.formattedFileSize)
-                        }
-                        .font(.system(size: 8.5, weight: .medium, design: .monospaced))
-                        .foregroundColor(Color.white.opacity(0.75))
-                        .padding(.leading, 14)
-                    }
-                }
-                
-                if engine.clipInfoOverlayMode == .detailed {
-                    Rectangle()
-                        .fill(Color.white.opacity(0.12))
-                        .frame(height: 1)
-                }
-                
-                // Slot B (Reference / Compare)
-                VStack(alignment: .leading, spacing: 2) {
-                    HStack(spacing: 5) {
-                        Text("B:")
-                            .font(.system(size: 9, weight: .black, design: .monospaced))
-                            .foregroundColor(accentSlotB)
-                        Text(engine.slotB.fileName.isEmpty ? "--" : engine.slotB.fileName.uppercased())
-                            .font(.system(size: 10, weight: .bold, design: .monospaced))
-                            .foregroundColor(.white)
-                            .lineLimit(1)
-                            .truncationMode(.middle)
-                    }
-                    if engine.clipInfoOverlayMode == .detailed {
-                        HStack(spacing: 6) {
-                            Text(engine.slotB.displayResolution)
-                            Text("•")
-                                .foregroundColor(Color.white.opacity(0.4))
-                            Text(engine.slotB.displayCodec)
-                            Text("•")
-                                .foregroundColor(Color.white.opacity(0.4))
-                            Text(engine.slotB.formattedFileSize)
-                        }
-                        .font(.system(size: 8.5, weight: .medium, design: .monospaced))
-                        .foregroundColor(Color.white.opacity(0.75))
-                        .padding(.leading, 14)
-                    }
-                }
-            }
-            .padding(.horizontal, 9)
-            .padding(.vertical, 6)
-            .background(Color.black.opacity(0.75))
-            .cornerRadius(4)
-            .overlay(
-                RoundedRectangle(cornerRadius: 4)
-                    .stroke(Color.white.opacity(0.14), lineWidth: 1)
-            )
-            .allowsHitTesting(false)
-            .transition(.opacity)
-        }
-    }
-}
 
 

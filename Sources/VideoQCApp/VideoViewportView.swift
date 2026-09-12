@@ -85,8 +85,8 @@ public final class PlayerContainerNSView: NSView {
     private let resolutionLabelLayerB = CATextLayer()
     private static let resolutionLabelHeight: CGFloat = 16
     private static let resolutionLabelGap: CGFloat = 3
-    private static let resolutionLabelHeadroom: CGFloat = 22
     private static let defaultSideBySideGap: CGFloat = 4
+    private static let verticalSideBySideGap: CGFloat = 22
     
     private var displayLink: CADisplayLink?
     private weak var engine: PlayerEngine?
@@ -107,6 +107,7 @@ public final class PlayerContainerNSView: NSView {
     private var lastSafeAreaMode: SafeAreaMode = .off
     private var lastIsNineBySixteen: Bool = false
     private var lastShowResolutionLabels: Bool = false
+    private var lastClipInfoOverlayMode: ClipInfoOverlayMode? = nil
     private var lastSlotAURL: URL? = nil
     private var lastSlotBURL: URL? = nil
     private var lastExposureEV: Double = 0.0
@@ -398,6 +399,15 @@ public final class PlayerContainerNSView: NSView {
             CATransaction.commit()
         }
         
+        let clipInfoChanged = (engine.clipInfoOverlayMode != lastClipInfoOverlayMode || engine.showResolutionLabels != lastShowResolutionLabels)
+        if clipInfoChanged {
+            lastClipInfoOverlayMode = engine.clipInfoOverlayMode
+            lastShowResolutionLabels = engine.showResolutionLabels
+            lastResolutionTextA = ""
+            lastResolutionTextB = ""
+            updateResolutionLabels()
+        }
+        
         let canvasColor = isLightMode ? NSColor(white: 0.88, alpha: 1.0).cgColor : NSColor(red: 0.08, green: 0.08, blue: 0.08, alpha: 1.0).cgColor
         layer?.backgroundColor = canvasColor
         canvasLayer.backgroundColor = NSColor.clear.cgColor
@@ -686,7 +696,7 @@ public final class PlayerContainerNSView: NSView {
     }
     
     private func calculateSideBySideLayout(in bounds: CGRect, isVertical: Bool) -> SideBySideLayout {
-        guard let engine = engine else {
+        guard engine != nil else {
             return SideBySideLayout(canvasSize: bounds.size, frameA: bounds, frameB: bounds)
         }
         
@@ -708,10 +718,8 @@ public final class PlayerContainerNSView: NSView {
         }
         
         let (numA, denA) = getRationalAspect(width: Int(rawWA), height: Int(rawHA))
-        let hasCanvas = engine.slotA.url != nil || engine.slotB.url != nil
-        let labelHeadroom = (engine.showResolutionLabels && hasCanvas) ? Self.resolutionLabelHeadroom : 0
         let availW = max(1.0, bounds.width)
-        let availH = max(1.0, bounds.height - labelHeadroom)
+        let availH = max(1.0, bounds.height)
         
         if !isVertical {
             // Horizontal Side-by-Side: [ Video A ] [gap] [ Video B ]
@@ -768,7 +776,7 @@ public final class PlayerContainerNSView: NSView {
             let nativeMaxW = max(rawWA, rawWB)
             let nativeTotalH = rawHA + rawHB
             
-            let canvasGap = engine.showResolutionLabels ? Self.resolutionLabelHeadroom : Self.defaultSideBySideGap
+            let canvasGap = Self.verticalSideBySideGap
             let availVideoH = max(1.0, availH - canvasGap)
             
             let maxPixelW = floor(availW * scale)
@@ -822,8 +830,6 @@ public final class PlayerContainerNSView: NSView {
         let scale = currentBackingScale()
         let isSideBySideH = (engine.compareMode == .sideBySide && engine.slotB.url != nil)
         let isSideBySideV = (engine.compareMode == .sideBySideVertical && engine.slotB.url != nil)
-        let hasCanvas = engine.slotA.url != nil || engine.slotB.url != nil
-        let labelHeadroom = (engine.showResolutionLabels && hasCanvas) ? Self.resolutionLabelHeadroom : 0
         
         if isSideBySideH {
             return calculateSideBySideLayout(in: bounds, isVertical: false).canvasSize
@@ -836,7 +842,7 @@ public final class PlayerContainerNSView: NSView {
             }
             let (num, den) = getRationalAspect(width: Int(round(pSize.width)), height: Int(round(pSize.height)))
             let maxPixelW = floor(bounds.width * scale)
-            let maxPixelH = floor(max(1.0, bounds.height - labelHeadroom) * scale)
+            let maxPixelH = floor(bounds.height * scale)
             let stepW = maxPixelW / CGFloat(num)
             let stepH = maxPixelH / CGFloat(den)
             let rawSteps = min(stepW, stepH)
@@ -917,6 +923,7 @@ public final class PlayerContainerNSView: NSView {
         let safeAreaMode = engine.safeAreaMode
         let isNineBySixteen = engine.isNineBySixteen
         let showResolutionLabels = engine.showResolutionLabels
+        let clipInfoOverlayMode = engine.clipInfoOverlayMode
         
         // Fast path: skip expensive layer transforms & path reallocations if unchanged
         if viewBounds.size == lastBoundsSize &&
@@ -927,6 +934,7 @@ public final class PlayerContainerNSView: NSView {
            safeAreaMode == lastSafeAreaMode &&
            isNineBySixteen == lastIsNineBySixteen &&
            showResolutionLabels == lastShowResolutionLabels &&
+           clipInfoOverlayMode == lastClipInfoOverlayMode &&
            canvasLayer.bounds.size == baseSize {
             updateResolutionLabels()
             return
@@ -940,6 +948,7 @@ public final class PlayerContainerNSView: NSView {
         lastSafeAreaMode = safeAreaMode
         lastIsNineBySixteen = isNineBySixteen
         lastShowResolutionLabels = showResolutionLabels
+        lastClipInfoOverlayMode = clipInfoOverlayMode
         
         CATransaction.begin()
         CATransaction.setDisableActions(true)
@@ -959,10 +968,8 @@ public final class PlayerContainerNSView: NSView {
         
         // Pixel-aligned positioning:
         // Snap the center of canvasLayer to physical display pixels to eliminate fractional-pixel blurring.
-        let hasCanvas = engine.slotA.url != nil || engine.slotB.url != nil
-        let labelCenterOffset = (showResolutionLabels && hasCanvas) ? Self.resolutionLabelHeadroom / 2.0 : 0
         let centerX = snapToPixel(viewBounds.midX + panOffset.width, scale: scale)
-        let centerY = snapToPixel(viewBounds.midY - labelCenterOffset + panOffset.height, scale: scale)
+        let centerY = snapToPixel(viewBounds.midY + panOffset.height, scale: scale)
         
         canvasLayer.anchorPoint = CGPoint(x: 0.5, y: 0.5)
         canvasLayer.position = CGPoint(x: centerX, y: centerY)
@@ -1304,25 +1311,71 @@ public final class PlayerContainerNSView: NSView {
         label.borderWidth = 0
         label.zPosition = 1_000
         label.isHidden = true
-        label.actions = ["hidden": NSNull(), "position": NSNull(), "bounds": NSNull(), "frame": NSNull(), "string": NSNull(), "foregroundColor": NSNull()]
+        label.actions = [
+            "hidden": NSNull(),
+            "position": NSNull(),
+            "bounds": NSNull(),
+            "frame": NSNull(),
+            "string": NSNull(),
+            "contents": NSNull(),
+            "foregroundColor": NSNull(),
+            "alignmentMode": NSNull(),
+            "opacity": NSNull()
+        ]
     }
 
     private func resolutionLabelText(for slot: PlayerSlot, prefix: String) -> String {
-        let resolution = slot.displayResolution.uppercased().replacingOccurrences(of: "X", with: " × ")
-        return "\(prefix)  \(resolution)"
+        guard let engine = engine else { return prefix }
+        let mode = engine.clipInfoOverlayMode
+        let isSideBySideH = (engine.compareMode == .sideBySide && engine.slotB.url != nil)
+        
+        switch mode {
+        case .off:
+            return ""
+        case .abOnly:
+            return prefix
+        case .resolution:
+            let resolution = slot.displayResolution.uppercased().replacingOccurrences(of: "X", with: " × ")
+            return "\(prefix)  \(resolution)"
+        case .fileName:
+            let name = slot.fileName.isEmpty ? "--" : slot.fileName
+            return "\(prefix)  \(name)"
+        case .fullDetails:
+            let name = slot.fileName.isEmpty ? "--" : slot.fileName
+            let res = slot.displayResolution.uppercased().replacingOccurrences(of: "X", with: " × ")
+            let codec = slot.displayCodec
+            let size = slot.formattedFileSize
+            let dur = slot.formattedDuration
+            if isSideBySideH {
+                return "\(prefix)  \(name)\n\(res)  •  \(codec)  •  \(size)\n\(dur)"
+            } else {
+                return "\(prefix)  \(name)  •  \(res)  •  \(codec)  •  \(size)  •  \(dur)"
+            }
+        }
     }
 
     private func updateResolutionLabelText(_ text: String, layer: CATextLayer, cachedText: inout String, cachedWidth: inout CGFloat) {
         guard text != cachedText else { return }
         let font = NSFont.monospacedSystemFont(ofSize: 9, weight: .bold)
         cachedText = text
-        cachedWidth = ceil((text as NSString).size(withAttributes: [.font: font]).width)
+        let lines = text.components(separatedBy: "\n")
+        var maxW: CGFloat = 0
+        for line in lines {
+            let w = ceil((line as NSString).size(withAttributes: [.font: font]).width)
+            if w > maxW { maxW = w }
+        }
+        cachedWidth = maxW
         layer.string = text
     }
 
     private func updateResolutionLabels() {
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        defer { CATransaction.commit() }
+
         guard let engine = engine,
               engine.showResolutionLabels,
+              engine.clipInfoOverlayMode != .off,
               engine.slotA.url != nil || engine.slotB.url != nil else {
             resolutionLabelLayerA.isHidden = true
             resolutionLabelLayerB.isHidden = true
@@ -1340,40 +1393,69 @@ public final class PlayerContainerNSView: NSView {
 
         let scale = currentBackingScale()
         let labelYGap = Self.resolutionLabelGap
-        let labelHeight = Self.resolutionLabelHeight
         let mode = engine.slotB.url == nil ? CompareMode.single : engine.compareMode
         let isBlink = engine.isBlinkCompareB && mode == .single && engine.slotB.url != nil
         let usesSeparateCanvases = mode == .sideBySide || mode == .sideBySideVertical
+        let isSideBySideH = (mode == .sideBySide && engine.slotB.url != nil)
+        let isSideBySideV = (mode == .sideBySideVertical && engine.slotB.url != nil)
+        let isSharedSplit = (mode == .splitVertical || mode == .splitHorizontal || mode == .difference || mode == .overlay) && !isBlink
+
         let showA = engine.slotA.url != nil && !isBlink
         let showB = engine.slotB.url != nil && (isBlink || mode != .single)
+
+        let isThreeLine = isSideBySideH && engine.clipInfoOverlayMode == .fullDetails
+        let labelHeight: CGFloat = isThreeLine ? 42 : Self.resolutionLabelHeight
 
         let frameA = playerLayerA.frame
         let frameB = playerLayerB.frame
 
-        let isSideBySideV = mode == .sideBySideVertical
+        let centerGap: CGFloat = 8
+        let centerX = frameA.midX
 
         if showA {
-            resolutionLabelLayerA.frame = CGRect(
-                x: snapToPixel(frameA.minX, scale: scale),
-                y: snapToPixel(frameA.maxY + labelYGap, scale: scale),
-                width: resolutionLabelWidthA,
-                height: labelHeight
-            )
+            if isSharedSplit && showB {
+                resolutionLabelLayerA.alignmentMode = .right
+                resolutionLabelLayerA.frame = CGRect(
+                    x: snapToPixel(centerX - centerGap - resolutionLabelWidthA, scale: scale),
+                    y: snapToPixel(frameA.maxY + labelYGap, scale: scale),
+                    width: resolutionLabelWidthA,
+                    height: labelHeight
+                )
+            } else {
+                resolutionLabelLayerA.alignmentMode = .left
+                resolutionLabelLayerA.frame = CGRect(
+                    x: snapToPixel(frameA.minX, scale: scale),
+                    y: snapToPixel(frameA.maxY + labelYGap, scale: scale),
+                    width: resolutionLabelWidthA,
+                    height: labelHeight
+                )
+            }
         }
 
         if showB {
-            let labelFrame = (usesSeparateCanvases || isBlink) ? frameB : frameA
-            let sharedCanvasOffset = (!usesSeparateCanvases && !isBlink && showA) ? resolutionLabelWidthA + 12 : 0
-            let labelY = isSideBySideV
-                ? snapToPixel(frameB.maxY + labelYGap, scale: scale)
-                : snapToPixel(labelFrame.maxY + labelYGap, scale: scale)
+            if isSharedSplit && showA {
+                resolutionLabelLayerB.alignmentMode = .left
+                resolutionLabelLayerB.frame = CGRect(
+                    x: snapToPixel(centerX + centerGap, scale: scale),
+                    y: snapToPixel(frameA.maxY + labelYGap, scale: scale),
+                    width: resolutionLabelWidthB,
+                    height: labelHeight
+                )
+            } else {
+                resolutionLabelLayerB.alignmentMode = .left
+                let labelFrame = (usesSeparateCanvases || isBlink) ? frameB : frameA
+                let sharedCanvasOffset = (!usesSeparateCanvases && !isBlink && showA) ? resolutionLabelWidthA + 12 : 0
+                let labelY = isSideBySideV
+                    ? snapToPixel(frameB.maxY + labelYGap, scale: scale)
+                    : snapToPixel(labelFrame.maxY + labelYGap, scale: scale)
 
-            resolutionLabelLayerB.frame = CGRect(
-                x: snapToPixel(labelFrame.minX + sharedCanvasOffset, scale: scale),
-                y: labelY,
-                width: resolutionLabelWidthB,
-                height: labelHeight
-            )
+                resolutionLabelLayerB.frame = CGRect(
+                    x: snapToPixel(labelFrame.minX + sharedCanvasOffset, scale: scale),
+                    y: labelY,
+                    width: resolutionLabelWidthB,
+                    height: labelHeight
+                )
+            }
         }
 
         resolutionLabelLayerA.isHidden = !showA
