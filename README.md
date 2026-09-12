@@ -1,116 +1,131 @@
-# QCpie
-**Version 0.2.2** • [GitHub Repository](https://github.com/baguotti/QC)
+# QCPIE
 
-Video QC, metadata inspection, and batch renaming for macOS (Apple Silicon).
-
----
-
-## 🚀 How to Install & Run
-
-- **Disk Image Installer (.dmg):** Open `build/QCpie.dmg` and drag `QCpie` to `/Applications`.
-- **Standalone App (.app):** Open `build/QCpie.app` directly.
-- **Terminal Launcher:** Double-click `Start_QCpie.command`.
+**VERSION 0.7.2** | MACOS VIDEO QC, DUAL-SLOT COMPARISON & METADATA TOOLKIT
 
 ---
 
-## What Each Tab Does
+## OVERVIEW
 
-### 01 // PLAYER
-High-performance delivery playback and inspection engine mimicking Adobe Premiere Pro's Program Monitor.
-- **[ + SELECT FILES OR FOLDER ] / Queue:** Left sidebar displays all video files in batch with instant switching and name filtering.
-- **Queue Navigation:** Press `Up Arrow` (↑) and `Down Arrow` (↓) to quickly cycle through all deliverables in the queue, automatically loading each into the player.
-- **Jump to Next Line Finding (`NEXT LINE` or `N`):** Automatically cycles through all line glitches detected in Tab 3 across all deliverables, seeking frame-accurately and pausing playback for inspection.
-- **Native macOS Finder Color Tags (`TAGS` / Right-Click):** Tag any deliverable with native macOS Finder color tags (Red, Orange, Yellow, Green, Blue, Purple, Gray) via the `[ TAGS ]` popover in the transport bar or by right-clicking on any asset in the queue. Tags are applied directly to files on disk in macOS Finder.
-- **Center Crosshair Overlay:** Toggle button (`CROSSHAIR: ON/OFF`) draws a pixel-accurate top-to-bottom and left-to-right crosshair guide with a center reticle to verify element centering.
-- **J-K-L Shuttling:** Tap `L` to shuttle forward (1x, 2x, 4x, 8x, 16x), `K` to pause, `J` to shuttle reverse (-1x, -2x, -4x, -8x, -16x).
-- **Slow Frame-by-Frame Automatic Shuttle:** Tap `Shift + L` (forward) or `Shift + J` (reverse) or use the dedicated UI buttons. Tapping repeatedly accelerates frame-by-frame playback speed (2, 4, 8, 15, 24, 30 FPS).
-- **Spacebar:** Toggles 1x playback and pause.
-- **Single Frame Stepping:** Left / Right arrow keys step exactly 1 frame backward / forward.
-- **Second Stepping:** Shift + Left / Right arrow jumps 1 second.
-- **Home / End:** Jumps instantly to the first frame or last frame.
-- **Timeline Scrubber:** Frame-accurate time ruler with playhead needle and click-to-seek.
-- **Canvas Zoom & Pan:** Scroll mouse wheel directly up/down to zoom in/out (from 10% to 400%). Pinch-to-zoom on trackpad. Click and drag with the hand tool to pan anywhere on the canvas at any zoom level.
-- **Seamless Loop:** Toggle button (`Loop ON/OFF` or `⌘L`) for continuous looping.
-- **Audio Monitoring:** Master volume slider and instant audio mute toggle.
+QCpie (LineFinder 5000) is a high-performance native macOS application for video post-production teams, QC engineers, colorists, and delivery editors. It combines a frame-accurate dual-slot video viewport with automated edge glitch scanning, container metadata inspection, and batch renaming.
 
 ---
 
-### 02 // SPECS
-Reads container metadata across multiple files without decoding video frames.
-- **[ + SELECT DELIVERY FOLDER / FILES ]:** Loads files or folders for inspection.
-- **File Name:** Name of the file.
-- **Resolution & Aspect Ratio:** Pixel dimensions (e.g. 1920x1080) and ratio (16:9, 9:16, 1:1, 4:5).
-- **Duration & Timecode:** Total duration in seconds and SMPTE timecode (HH:MM:SS:FF).
-- **FPS:** Video track frame rate.
-- **Video Codec:** Compression format (ProRes, H.264, HEVC) and profile.
-- **Audio Configuration:** Channel layout (Stereo, 5.1, Mono), sample rate, and bit depth.
-- **File Size:** File size in MB or GB.
-- **Mismatch Warnings:** Highlights files where filename tags (e.g. 16x9, 1080p, 15s) conflict with actual stream metadata.
-- **[ EXPORT CSV ]:** Exports the specs table to a CSV file.
-- **[ OPEN IN GOOGLE SHEETS ]:** Copies tab-separated data to clipboard and opens Google Sheets.
-- **[ EXPORT HTML SPECS SHEET ]:** Exports a styled HTML report.
+## CORE SYSTEM ARCHITECTURE
+
+### 1. DUAL-SLOT DELIVERY VIEWPORT (TAB 01 // PLAYER)
+
+#### DUAL-SLOT COMPOSITING ENGINE
+- **Slot A & Slot B Architecture**: Load reference cuts, graded masters, or previous passes side-by-side or overlaid.
+- **8 Comparison Modes**:
+  - `Single (A)`: View Slot A or toggle to Slot B.
+  - `Split Wipe (V)`: Interactive vertical split wipe divider.
+  - `Split Wipe (H)`: Interactive horizontal split wipe divider.
+  - `Side-by-Side (H)`: Horizontal side-by-side comparison of full master deliverables.
+  - `Side-by-Side (V)`: Vertical side-by-side stacked comparison of full master deliverables.
+  - `Difference Mode`: Absolute mathematical pixel difference (`|RGB_A - RGB_B|`).
+  - `50% Opacity Overlay`: 50% opacity blend between Slot A and Slot B.
+  - `Blink Compare`: Rapid toggle between Slot A and Slot B to spot single-frame discrepancies.
+
+#### MOTION-DOWNSAMPLING IMMUNE VIEWPORT
+- **Dedicated Still Frame Architecture**: Dual CALayers (`stillFrameLayerA` / `stillFrameLayerB`) backed by uncompressed `CGImage` GPU textures. Guarantees 100% immunity to CoreMedia dynamic proxy downsampling when panning, zooming, or stepping while paused.
+- **Adaptive Texture Filtering**: Smooth `.linear` anti-aliasing at normal view scale; switches dynamically to discrete `.nearest` pixel rendering at >= 1.75x zoom for square-pixel QC inspection.
+
+#### QC & EXPOSURE TOOLS
+- **Exposure Control (-5.0 to +5.0 EV)**: GPU-accelerated exposure adjustment (`CIExposureAdjust`) to reveal faint black-level line glitches, dark shadow errors, or highlight clipping.
+- **Dropped Frame Telemetry**: Real-time monitor tracking dropped frames during playback with automatic reset upon playback resume.
+- **Center Crosshair Overlay**: Pixel-accurate guide reticle to verify element centering.
+
+#### MULTI-PRESET SCREENSHOT EXPORT
+- **Presets (100% Source Resolution)**:
+  - `JPG Medium` (Default): Medium bitrate JPEG (~70% quality).
+  - `JPG High`: High bitrate JPEG (~95% quality, near-lossless).
+  - `PNG Medium`: 24-bit RGB with SUB compression filter for reduced file size without downscaling.
+  - `PNG High`: 32-bit RGBA master uncompressed PNG.
+- **Interaction**: Left-click exports directly using active preset. Right-click opens preset menu.
+- **Compositing**: Full support for split wipes with line position, side-by-side, difference, and overlay modes. Pure video deliverable frames with zero UI labels or overlays.
+- **Save Dialog**: Includes an accessory format popup in `NSSavePanel` for format switching.
+
+#### FILE & QUEUE MANAGEMENT
+- **Native Finder Tags**: Apply native macOS Finder color tags (Red, Orange, Yellow, Green, Blue, Purple, Gray) directly to files on disk.
 
 ---
 
-### 03 // LINE FINDER
-Scans video frames for edge line glitches, matte slips, and blanking errors.
-- **[ + CHOOSE FOLDER / FILES ]:** Selects or drags in video files or folders to scan.
-- **Color Picker & Hex:** Sets the RGB target color for edge line detection.
-- **Color Presets:** One-click targets: Green (#00FF00), Magenta (#FF00B4), Black (#000000), or Custom Color Wheel.
-- **Tolerance Slider:** Sets color match sensitivity (5–50%).
-- **Head Skip:** Skips the first X seconds of video (ignores slates/countdowns).
-- **Edge Depth:** Number of pixels inward from outer frame boundary to inspect (2–40px). All 4 borders are always scanned.
-- **Scan Full Screen:** Toggles full-frame inspection for internal split-screen dividing lines and PIP seams.
-- **10X Exposure Boost:** Brightens shadows during black scans to prevent dark scenes from being flagged.
-- **Ignore Full Black Frames:** Skips full black frames (fades, commercial breaks).
-- **[ START QC SCAN ]:** Starts frame-by-frame analysis.
-- **Finder Red Tagging:** Automatically applies a macOS Red Tag to flagged video files in Finder.
-- **Glitch List & Frame Viewer:** Click any detected error to view the exact frame, timecode, and red bounding box.
-- **Save HTML / Export CSV:** Exports scan results as an interactive HTML page or CSV table.
+### 2. DELIVERABLES & SPECIFICATIONS (TAB 02 // SPECS)
+
+- **Container Metadata Inspection**: Reads video/audio stream parameters without decoding video frames.
+- **Inspected Fields**: Resolution, aspect ratio, frame rate (up to 3 decimal places), duration, SMPTE timecode, video codec & profile, audio channel configuration, sample rate, and file size.
+- **Mismatch Warnings**: Automatically flags files where filename tags (e.g. `16x9`, `1080p`, `25fps`) conflict with actual container stream metadata.
+- **Manifest Export**: Export deliverables inventory as CSV, formatted HTML reports, or copy TSV directly to Google Sheets.
 
 ---
 
-### 04 // BATCH RENAMER
-Renames files using inspected video metadata.
-- **Renaming Modes:**
-  - **Template:** Builds new names using text and metadata tokens.
-  - **Find & Replace:** Finds and replaces text in filenames.
-  - **Prefix / Suffix:** Adds text to the start or end of filenames.
-- **Project / Asset Name ({NAME}):** Text field to replace the `{NAME}` token. Defaults to original filename if left blank.
-- **Metadata Tokens:**
-  - `{NAME}`: Value from the Project Name field.
-  - `{ORIGINAL}`: Original filename without extension.
-  - `{DUR}`: Duration rounded to integer seconds.
-  - `{RATIO}`: Aspect ratio tag (16x9, 9x16, 1x1, 4x5).
-  - `{TAG}`: Orientation tag (HORIZONTAL, VERTICAL, SQUARE).
-  - `{RES}`: Resolution label (1080p, 4K, 720p).
-  - `{DIMS}`: Exact pixel dimensions (e.g. 1920x1080).
-  - `{FPS}`: Frame rate label (e.g. 25fps).
-  - `{CODEC}`: Video codec name (e.g. ProRes422HQ, H264).
-  - `{AUDIO}`: Audio layout (Stereo, 5.1, Mono).
-  - `{INDEX}`: Sequential counter with custom padding.
-  - `{DATE}`: Current date in YYYYMMDD format.
-- **Casing:** Sets name to Preserve, UPPERCASE, lowercase, or Title Case.
-- **Index Settings:** Configures start number and digit padding (01 vs 001).
-- **Select All / Deselect All:** Toggles selection for all files.
-- **File Checkboxes:** Click any row to include or exclude a file. Excluded files are not renamed on disk.
-- **Status Badges:**
-  - `PENDING`: Ready to rename.
-  - `UNCHANGED`: New name matches current name.
-  - `EXCLUDED`: File bypassed by user.
-  - `COLLISION`: Warning: Multiple files would share the same name.
-  - `OVERWRITE`: Warning: Target name already exists on disk.
-- **[ RENAME SELECTED FILE(S) ]:** Executes renaming on disk.
-- **[ ⎌ UNDO / REVERT ]:** Reverses the last rename operation on disk.
+### 3. AUTOMATED LINE FINDER 5000 (TAB 03 // LINE FINDER)
+
+- **Automated Glitch Detection**: Scans video frames for edge line glitches, green border lines, matte slips, and blanking errors.
+- **Target Color Selection**: Pre-configured targets (#00FF00 green, #FF00B4 magenta, #000000 black) or custom hex color picking with adjustable match tolerance (5–50%).
+- **Scan Parameters**:
+  - `Edge Depth`: 2–40px inward inspection boundary across all 4 outer borders.
+  - `Full Screen Scan`: Toggles full-frame inspection for internal split-screen divider lines and PIP seams.
+  - `10X Exposure Boost`: Shadow brightening during black line scans to eliminate false positives in dark scenes.
+  - `Ignore Full Black/White`: Skips commercial fades and white slates.
+- **Glitch Navigation & Reports**: Frame viewer with timecode seeking and error bounding boxes (`N` key). Export scan results as interactive HTML or CSV reports.
 
 ---
 
-## 🔨 Rebuild & Package
-- **Compile Application (.app):**
-  ```bash
-  ./BuildApp.sh
-  ```
-- **Create Installer Disk Image (.dmg):**
-  ```bash
-  ./CreateDMG.sh
-  ```
+### 4. BATCH RENAMER (TAB 04 // RENAMER)
+
+- **Pattern Modes**: Template tokens, Find & Replace, and Prefix/Suffix appending.
+- **Metadata Tokens**: `{NAME}`, `{ORIGINAL}`, `{DUR}`, `{RATIO}`, `{TAG}`, `{RES}`, `{DIMS}`, `{FPS}`, `{CODEC}`, `{AUDIO}`, `{INDEX}`, `{DATE}`.
+- **Safety Checks**: Collision detection, name matching, and non-destructive disk operations with instant Undo/Revert.
+
+---
+
+## KEYBOARD SHORTCUTS
+
+| KEYBOARD SHORTCUT | FUNCTION |
+| :--- | :--- |
+| `Spacebar` | Toggle Play / Pause |
+| `J` / `K` / `L` | Shuttle Reverse (-1x to -16x) / Pause / Shuttle Forward (1x to 16x) |
+| `Shift + J` / `Shift + L` | Slow Frame-by-Frame Shuttle (2 to 30 FPS) |
+| `Left Arrow` / `Right Arrow` | Step 1 frame backward / forward |
+| `Shift + Left` / `Shift + Right` | Jump 5 frames backward / forward |
+| `Shift + I` / `Home` | Jump to start of clip (Frame 0) |
+| `End` | Jump to end of clip |
+| `N` | Jump to next detected line glitch |
+| `I` | Cycle Clip Info overlay mode (Off, A/B Only, Resolution, File Name, Full Details) |
+| `Cmd + L` | Toggle seamless looping |
+| `F` / `Esc` | Toggle Review Fullscreen mode / Exit |
+| `Scroll Wheel` | Canvas zoom in / out (10% to 400%) |
+| `Trackpad Pinch` | Pinch-to-zoom |
+| `Click + Drag` | Canvas pan (Hand tool) |
+
+---
+
+## BUILD & COMPILATION
+
+### SYSTEM REQUIREMENTS
+- macOS 14.0 or later
+- Xcode 15+ / Swift 5.9+ toolchain
+
+### BUILD COMMANDS
+
+Debug Compilation:
+```bash
+swift build --sdk /Library/Developer/CommandLineTools/SDKs/MacOSX26.5.sdk
+```
+
+Application Bundle (.app):
+```bash
+./BuildApp.sh
+```
+
+Disk Image Installer (.dmg):
+```bash
+./CreateDMG.sh
+```
+
+---
+
+## REPOSITORY
+
+GitHub: [https://github.com/baguotti/QC](https://github.com/baguotti/QC)
