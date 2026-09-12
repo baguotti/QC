@@ -21,6 +21,11 @@ let package = Package(
             name: "QCpie",
             dependencies: ["VideoQCLib"],
             path: "Sources/VideoQCApp"
+        ),
+        .testTarget(
+            name: "QCpieTests",
+            dependencies: ["QCpie", "VideoQCLib"],
+            path: "Tests"
         )
     ]
 )
