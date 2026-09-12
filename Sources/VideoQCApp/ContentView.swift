@@ -1946,12 +1946,24 @@ struct ContentView: View {
                     self.playerEngine.isBlinkCompareB.toggle()
                     return nil
                 }
-            case 126: // Up Arrow: Previous file in queue
-                self.playerSelectPreviousFile()
-                return nil
-            case 125: // Down Arrow: Next file in queue
-                self.playerSelectNextFile()
-                return nil
+            case 126: // Up Arrow: Previous file in queue (Slot A, or Option+Up for Slot B)
+                if !isCommand && !isControl {
+                    if isOption {
+                        self.playerSelectPreviousFile(target: .slotB)
+                    } else {
+                        self.playerSelectPreviousFile(target: .slotA)
+                    }
+                    return nil
+                }
+            case 125: // Down Arrow: Next file in queue (Slot A, or Option+Down for Slot B)
+                if !isCommand && !isControl {
+                    if isOption {
+                        self.playerSelectNextFile(target: .slotB)
+                    } else {
+                        self.playerSelectNextFile(target: .slotA)
+                    }
+                    return nil
+                }
             case 123: // Left Arrow
                 if isShift {
                     self.playerEngine.stepFrames(count: 5, forward: false)
@@ -1980,11 +1992,10 @@ struct ContentView: View {
         }
     }
     
-    func playerSelectPreviousFile() {
+    func playerSelectPreviousFile(target: SlotTarget = .slotA) {
         let files = filteredPlayerFiles
         guard !files.isEmpty else { return }
-        let target = playerEngine.activeTarget
-        let currentURL = (target == .slotB && playerEngine.slotB.url != nil) ? playerEngine.slotB.url : playerEngine.activeURL
+        let currentURL: URL? = (target == .slotB) ? (playerEngine.slotB.url ?? playerEngine.activeURL) : (playerEngine.activeURL ?? playerEngine.slotA.url)
         if let currentURL = currentURL, let idx = files.firstIndex(where: { isSameURL($0, currentURL) }) {
             let prevIdx = max(0, idx - 1)
             let selectedURL = files[prevIdx]
@@ -1999,11 +2010,10 @@ struct ContentView: View {
         }
     }
     
-    func playerSelectNextFile() {
+    func playerSelectNextFile(target: SlotTarget = .slotA) {
         let files = filteredPlayerFiles
         guard !files.isEmpty else { return }
-        let target = playerEngine.activeTarget
-        let currentURL = (target == .slotB && playerEngine.slotB.url != nil) ? playerEngine.slotB.url : playerEngine.activeURL
+        let currentURL: URL? = (target == .slotB) ? (playerEngine.slotB.url ?? playerEngine.activeURL) : (playerEngine.activeURL ?? playerEngine.slotA.url)
         if let currentURL = currentURL, let idx = files.firstIndex(where: { isSameURL($0, currentURL) }) {
             let nextIdx = min(files.count - 1, idx + 1)
             let selectedURL = files[nextIdx]

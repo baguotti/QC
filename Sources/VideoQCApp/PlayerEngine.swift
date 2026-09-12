@@ -331,10 +331,6 @@ public final class PlayerEngine: ObservableObject {
             if compareMode == .splitVertical || compareMode == .splitHorizontal || compareMode == .difference || compareMode == .overlay {
                 compareMode = .sideBySide
             }
-        } else {
-            if compareMode == .single {
-                compareMode = .splitVertical
-            }
         }
     }
     @Published public var isLinked: Bool = true
@@ -643,6 +639,7 @@ public final class PlayerEngine: ObservableObject {
     
     private func loadVideoIntoSlotB(url: URL, autoplay: Bool = false) {
         let stdURL = url.standardizedFileURL
+        let wasInABMode = (slotB.url != nil)
         if let currentB = slotB.url, currentB.standardizedFileURL.path == stdURL.path {
             if autoplay {
                 seek(toTime: .zero) { [weak self] in
@@ -658,6 +655,11 @@ public final class PlayerEngine: ObservableObject {
         
         isSeekingB = false
         pendingSeekTimeB = nil
+        
+        if !wasInABMode {
+            self.compareMode = .single
+            self.isBlinkCompareB = false
+        }
         
         self.objectWillChange.send()
         slotB.url = stdURL
