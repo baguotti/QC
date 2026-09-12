@@ -44,6 +44,15 @@ public enum CompareMode: String, CaseIterable, Identifiable, Sendable {
     case overlay = "50% Opacity Overlay"
     
     public var id: String { rawValue }
+    
+    public var requiresMatchingAspect: Bool {
+        switch self {
+        case .splitVertical, .splitHorizontal, .difference, .overlay:
+            return true
+        case .single, .sideBySide, .sideBySideVertical:
+            return false
+        }
+    }
 }
 
 public enum SlotTarget: String, Sendable {
@@ -266,7 +275,7 @@ public final class PlayerEngine: ObservableObject {
             if isBlinkCompareB {
                 isBlinkCompareB = false
             }
-            if !hasMatchingAspectRatios && (compareMode == .splitVertical || compareMode == .splitHorizontal || compareMode == .difference || compareMode == .overlay) {
+            if !hasMatchingAspectRatios && compareMode.requiresMatchingAspect {
                 compareMode = .sideBySide
             }
         }
@@ -327,10 +336,8 @@ public final class PlayerEngine: ObservableObject {
             }
             return
         }
-        if !hasMatchingAspectRatios {
-            if compareMode == .splitVertical || compareMode == .splitHorizontal || compareMode == .difference || compareMode == .overlay {
-                compareMode = .sideBySide
-            }
+        if !hasMatchingAspectRatios && compareMode.requiresMatchingAspect {
+            compareMode = .sideBySide
         }
     }
     @Published public var isLinked: Bool = true
@@ -360,13 +367,13 @@ public final class PlayerEngine: ObservableObject {
     
     // MARK: - Backwards Compatible Single-Player Properties (Reflects Slot A / Master)
     
-    @Published public var activeURL: URL? = nil
-    @Published public var slotBURL: URL? = nil
-    @Published public var activeFileName: String = ""
-    @Published public var activeResolution: String = ""
-    @Published public var activeFps: Double = 25.0
-    @Published public var activeCodec: String = ""
-    @Published public var videoSize: CGSize = CGSize(width: 1920, height: 1080)
+    public var activeURL: URL? { slotA.url }
+    public var slotBURL: URL? { slotB.url }
+    public var activeFileName: String { slotA.fileName }
+    public var activeResolution: String { slotA.resolution }
+    public var activeFps: Double { slotA.fps }
+    public var activeCodec: String { slotA.codec }
+    public var videoSize: CGSize { slotA.videoSize }
     
     @Published public var currentTime: CMTime = .zero
     @Published public var duration: CMTime = .zero
@@ -505,6 +512,12 @@ public final class PlayerEngine: ObservableObject {
     public init() {
         slotA.player.automaticallyWaitsToMinimizeStalling = false
         slotB.player.automaticallyWaitsToMinimizeStalling = false
+        slotA.objectWillChange.sink { [weak self] _ in
+            self?.objectWillChange.send()
+        }.store(in: &cancellables)
+        slotB.objectWillChange.sink { [weak self] _ in
+            self?.objectWillChange.send()
+        }.store(in: &cancellables)
         setupTimeObserver()
         setupEndObserver()
         updateAudioVolumes()
@@ -568,8 +581,6 @@ public final class PlayerEngine: ObservableObject {
         self.objectWillChange.send()
         slotA.url = stdURL
         slotA.fileName = stdURL.lastPathComponent
-        self.activeURL = stdURL
-        self.activeFileName = stdURL.lastPathComponent
         self.currentTime = .zero
         self.currentProgress = 0.0
         self.currentTimecode = "00:00:00:00"
@@ -601,7 +612,6 @@ public final class PlayerEngine: ObservableObject {
             .sink { [weak self] size in
                 guard let self = self, self.slotA.url == url else { return }
                 self.slotA.videoSize = size
-                self.videoSize = size
             }
         
         itemStatusCancellable = item.publisher(for: \.status)
@@ -655,7 +665,6 @@ public final class PlayerEngine: ObservableObject {
         slotB.url = stdURL
         slotB.fileName = stdURL.lastPathComponent
         slotB.slipOffsetFrames = 0
-        self.slotBURL = stdURL
         
         let asset = AVURLAsset(url: stdURL)
         Task { [slotB] in
@@ -754,10 +763,6 @@ public final class PlayerEngine: ObservableObject {
                 self.slotA.totalFrames = totFrames
                 
                 self.duration = dur
-                self.activeFps = detectedFps
-                self.activeResolution = resStr
-                self.activeCodec = codecStr
-                self.videoSize = detectedSize
                 self.totalFrames = totFrames
                 self.durationTimecode = TimecodeFormatter.format(time: dur, fps: detectedFps)
                 self.setupTimeObserver()
@@ -824,6 +829,42 @@ public final class PlayerEngine: ObservableObject {
     
     // MARK: - Dual Slot Operations
     
+    @MainActor
+    private struct SlotSnapshot {
+        let url: URL?
+        let fileName: String
+        let resolution: String
+        let fps: Double
+        let codec: String
+        let duration: CMTime
+        let videoSize: CGSize
+        let totalFrames: Int
+        let currentTime: CMTime
+        
+        init(from slot: PlayerSlot) {
+            self.url = slot.url
+            self.fileName = slot.fileName
+            self.resolution = slot.resolution
+            self.fps = slot.fps
+            self.codec = slot.codec
+            self.duration = slot.duration
+            self.videoSize = slot.videoSize
+            self.totalFrames = slot.totalFrames
+            self.currentTime = slot.player.currentTime()
+        }
+        
+        func apply(to slot: PlayerSlot) {
+            slot.url = url
+            slot.fileName = fileName
+            slot.resolution = resolution
+            slot.fps = fps
+            slot.codec = codec
+            slot.duration = duration
+            slot.videoSize = videoSize
+            slot.totalFrames = totalFrames
+        }
+    }
+    
     public func swapSlots() {
         guard slotA.url != nil || slotB.url != nil else { return }
         if isBlinkCompareB {
@@ -832,26 +873,9 @@ public final class PlayerEngine: ObservableObject {
         let wasPlaying = self.isPlaying
         pause()
         
-        let tempURL_A = slotA.url
-        let tempFileName_A = slotA.fileName
-        let tempRes_A = slotA.resolution
-        let tempFps_A = slotA.fps
-        let tempCodec_A = slotA.codec
-        let tempDur_A = slotA.duration
-        let tempSize_A = slotA.videoSize
-        let tempTotal_A = slotA.totalFrames
-        let tempTime_A = slotA.player.currentTime()
+        let snapA = SlotSnapshot(from: slotA)
+        let snapB = SlotSnapshot(from: slotB)
         let tempSlip = slotB.slipOffsetFrames
-        
-        let tempURL_B = slotB.url
-        let tempFileName_B = slotB.fileName
-        let tempRes_B = slotB.resolution
-        let tempFps_B = slotB.fps
-        let tempCodec_B = slotB.codec
-        let tempDur_B = slotB.duration
-        let tempSize_B = slotB.videoSize
-        let tempTotal_B = slotB.totalFrames
-        let tempTime_B = slotB.player.currentTime()
         
         // Detach both current items first to prevent NSInvalidArgumentException
         itemStatusCancellable?.cancel()
@@ -874,20 +898,13 @@ public final class PlayerEngine: ObservableObject {
         self.isSeekingB = false
         self.pendingSeekTimeB = nil
         
-        slotA.url = tempURL_B
-        slotA.fileName = tempFileName_B
-        slotA.resolution = tempRes_B
-        slotA.fps = tempFps_B
-        slotA.codec = tempCodec_B
-        slotA.duration = tempDur_B
-        slotA.videoSize = tempSize_B
-        slotA.totalFrames = tempTotal_B
-        if let urlA = tempURL_B {
+        snapB.apply(to: slotA)
+        if let urlA = snapB.url {
             let itemA = AVPlayerItem(asset: AVURLAsset(url: urlA))
             itemA.canUseNetworkResourcesForLiveStreamingWhilePaused = false
             slotA.attachVideoOutput(to: itemA)
             slotA.player.replaceCurrentItem(with: itemA)
-            slotA.player.seek(to: tempTime_B, toleranceBefore: .zero, toleranceAfter: .zero)
+            slotA.player.seek(to: snapB.currentTime, toleranceBefore: .zero, toleranceAfter: .zero)
             updateComposition(for: slotA)
             
             itemPresentationSizeCancellable = itemA.publisher(for: \.presentationSize)
@@ -897,7 +914,6 @@ public final class PlayerEngine: ObservableObject {
                 .sink { [weak self] size in
                     guard let self = self, self.slotA.url == urlA else { return }
                     self.slotA.videoSize = size
-                    self.videoSize = size
                 }
             
             itemStatusCancellable = itemA.publisher(for: \.status)
@@ -912,21 +928,14 @@ public final class PlayerEngine: ObservableObject {
         }
         
         self.objectWillChange.send()
-        slotB.url = tempURL_A
-        slotB.fileName = tempFileName_A
-        slotB.resolution = tempRes_A
-        slotB.fps = tempFps_A
-        slotB.codec = tempCodec_A
-        slotB.duration = tempDur_A
-        slotB.videoSize = tempSize_A
-        slotB.totalFrames = tempTotal_A
+        snapA.apply(to: slotB)
         slotB.slipOffsetFrames = -tempSlip
-        if let urlB = tempURL_A {
+        if let urlB = snapA.url {
             let itemB = AVPlayerItem(asset: AVURLAsset(url: urlB))
             itemB.canUseNetworkResourcesForLiveStreamingWhilePaused = false
             slotB.attachVideoOutput(to: itemB)
             slotB.player.replaceCurrentItem(with: itemB)
-            slotB.player.seek(to: tempTime_A, toleranceBefore: .zero, toleranceAfter: .zero)
+            slotB.player.seek(to: snapA.currentTime, toleranceBefore: .zero, toleranceAfter: .zero)
             updateComposition(for: slotB)
             
             itemPresentationSizeCancellableB = itemB.publisher(for: \.presentationSize)
@@ -951,17 +960,10 @@ public final class PlayerEngine: ObservableObject {
         }
         
         Task { [slotA, slotB] in
-            await slotA.frameExtractor.setURL(tempURL_B)
-            await slotB.frameExtractor.setURL(tempURL_A)
+            await slotA.frameExtractor.setURL(snapB.url)
+            await slotB.frameExtractor.setURL(snapA.url)
         }
         
-        self.activeURL = slotA.url
-        self.slotBURL = slotB.url
-        self.activeFileName = slotA.fileName
-        self.activeResolution = slotA.resolution
-        self.activeFps = slotA.fps
-        self.activeCodec = slotA.codec
-        self.videoSize = slotA.videoSize
         self.duration = slotA.duration
         self.totalFrames = slotA.totalFrames
         if let url = slotA.url {
@@ -996,7 +998,6 @@ public final class PlayerEngine: ObservableObject {
         itemPresentationSizeCancellableB?.cancel()
         itemPresentationSizeCancellableB = nil
         slotB.url = nil
-        self.slotBURL = nil
         slotB.fileName = ""
         slotB.resolution = ""
         slotB.codec = ""
@@ -1026,7 +1027,6 @@ public final class PlayerEngine: ObservableObject {
         itemPresentationSizeCancellable = nil
         pendingAutoplay = false
         slotA.url = nil
-        self.activeURL = nil
         slotA.fileName = ""
         slotA.resolution = ""
         slotA.codec = ""
@@ -1065,7 +1065,7 @@ public final class PlayerEngine: ObservableObject {
         }
         let validModes: [CompareMode] = hasMatchingAspectRatios
             ? CompareMode.allCases
-            : [.sideBySide, .sideBySideVertical, .single]
+            : CompareMode.allCases.filter { !$0.requiresMatchingAspect }
         if let idx = validModes.firstIndex(of: compareMode) {
             let nextIdx = (idx + 1) % validModes.count
             compareMode = validModes[nextIdx]

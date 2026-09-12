@@ -204,7 +204,7 @@ struct ContentView: View {
         .animation(.spring(response: 0.3, dampingFraction: 0.7), value: toastMessage)
         .onChange(of: showPropertiesModal) { _, newValue in if !newValue { dismissFocusReset() } }
         .onChange(of: showAddNoteModal) { _, newValue in if !newValue { dismissFocusReset() } }
-        .onChange(of: playerEngine.activeURL) { _, newURL in
+        .onChange(of: playerEngine.slotA.url) { _, newURL in
             loadNotesForActiveURL(newURL)
         }
         .onChange(of: showThemeModal) { _, newValue in if !newValue { dismissFocusReset() } }
