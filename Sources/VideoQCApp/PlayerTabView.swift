@@ -1177,7 +1177,7 @@ extension ContentView {
             hiddenFolderIDs: hiddenFolderIDs,
             hideAllFolders: hideAllFolders,
             fileTagsMap: fileTagsMap,
-            isScanning: isScanning,
+            isScanning: scannerState.isScanning,
             isAutoplayEnabled: playerEngine.isAutoplayEnabled,
             slotAURL: playerEngine.activeURL ?? playerEngine.slotA.url,
             slotAResolution: playerEngine.slotA.resolution,
@@ -1529,7 +1529,7 @@ extension ContentView {
     
     // 3. Compact Line Finding Navigation: < LINE >
     private var playerLineGlitchGroup: some View {
-        let hasGlitches = scanResults.contains(where: { $0.isFlagged && !$0.glitchSegments.isEmpty })
+        let hasGlitches = scannerState.scanResults.contains(where: { $0.isFlagged && !$0.glitchSegments.isEmpty })
         return HStack(spacing: 1) {
             Button(action: { jumpToPreviousGlitchFinding() }) {
                 Image(systemName: "chevron.left.to.line")
@@ -1713,7 +1713,7 @@ extension ContentView {
             // Center: Playback, Shuttle & Frame Controls (Camera screengrab moved next to Exposure)
             PlayerTransportDeckView(
                 engine: playerEngine,
-                scanResults: scanResults,
+                scanResults: scannerState.scanResults,
                 isLightMode: isLightMode,
                 hoverExplanation: $hoverExplanation,
                 onExportScreenshot: { exportCurrentFrameScreenshot() },
@@ -1917,7 +1917,7 @@ extension ContentView {
     var fullscreenPlayerOverlay: some View {
         FullscreenPlayerView(
             engine: playerEngine,
-            scanResults: scanResults,
+            scanResults: scannerState.scanResults,
             videoFiles: videoFiles,
             onExit: { exitFullscreen() },
             onJumpNext: { jumpToNextGlitchFinding() },

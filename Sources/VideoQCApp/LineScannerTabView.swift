@@ -11,9 +11,9 @@ extension ContentView {
             VStack(alignment: .leading, spacing: 18) {
                 deliveryAssetsSection(forTab: .lineFinder)
                 colorSettingsSection
-                if isTargetBlack {
+                if scannerState.isTargetBlack {
                     blackLineModeSection
-                } else if isTargetWhite {
+                } else if scannerState.isTargetWhite {
                     whiteLineModeSection
                 }
                 edgeSettingsSection
@@ -26,9 +26,9 @@ extension ContentView {
             
             // Right Panel: Results / Live Progress / Empty State
             VStack(alignment: .leading, spacing: 0) {
-                if isScanning {
+                if scannerState.isScanning {
                     activeScanProgressView
-                } else if !scanResults.isEmpty {
+                } else if !scannerState.scanResults.isEmpty {
                     resultsSummaryView
                 } else {
                     emptyStateView
@@ -45,17 +45,17 @@ extension ContentView {
             
             HStack(spacing: 8) {
                 // Interactive Color Swatch
-                Button(action: openColorPanel) {
+                Button(action: { scannerState.openColorPanel() }) {
                     RoundedRectangle(cornerRadius: StudioTheme.cornerRadius)
-                        .fill(colorFromHex(hexCode))
+                        .fill(scannerState.colorFromHex(scannerState.hexCode))
                         .frame(width: 28, height: 28)
                         .overlay(RoundedRectangle(cornerRadius: StudioTheme.cornerRadius).stroke(borderStrong, lineWidth: 1))
                 }
                 .buttonStyle(.plain)
-                .disabled(isScanning)
+                .disabled(scannerState.isScanning)
                 .explain("Interactive color swatch: click to open macOS color wheel.", binding: $hoverExplanation)
                 
-                TextField("#HEX", text: $hexCode)
+                TextField("#HEX", text: $scannerState.hexCode)
                     .textFieldStyle(.plain)
                     .font(.system(size: 13, weight: .bold, design: .monospaced))
                     .foregroundColor(textMain)
@@ -63,11 +63,11 @@ extension ContentView {
                     .foregroundColor(textMain)
                     .studioBox(background: bgSubtle, border: borderLine)
                     .frame(width: 95)
-                    .disabled(isScanning)
+                    .disabled(scannerState.isScanning)
                     .explain("Hex color value to search for on frame boundaries. Can be edited at all times.", binding: $hoverExplanation)
                 
                 // Custom Color Button
-                Button(action: openColorPanel) {
+                Button(action: { scannerState.openColorPanel() }) {
                     HStack(spacing: 4) {
                         Image(systemName: "paintpalette.fill")
                             .font(.system(size: 9))
@@ -76,29 +76,29 @@ extension ContentView {
                     .font(.system(size: 9, weight: .bold, design: .monospaced))
                     .padding(.horizontal, 7)
                     .frame(height: 28)
-                    .foregroundColor(isCustomColor ? primaryBtnFg : textMain)
-                    .studioBox(background: isCustomColor ? primaryBtnBg : bgSubtle, border: borderLine)
+                    .foregroundColor(scannerState.isCustomColor ? primaryBtnFg : textMain)
+                    .studioBox(background: scannerState.isCustomColor ? primaryBtnBg : bgSubtle, border: borderLine)
                 }
                 .buttonStyle(.plain)
-                .disabled(isScanning)
+                .disabled(scannerState.isScanning)
                 .explain("Opens macOS color wheel / palette to choose any custom color.", binding: $hoverExplanation)
                 
                 Spacer()
                 
-                Text("\(Int(tolerancePercentage))% TOL")
+                Text("\(Int(scannerState.tolerancePercentage))% TOL")
                     .font(.system(size: 11, weight: .bold, design: .monospaced))
                     .foregroundColor(textSubtle)
             }
             
             HStack(spacing: 5) {
-                ForEach(colorPresets, id: \.1) { name, code, defaultTol in
+                ForEach(scannerState.colorPresets, id: \.1) { name, code, defaultTol in
                     Button(action: {
-                        hexCode = code
-                        tolerancePercentage = defaultTol
+                        scannerState.hexCode = code
+                        scannerState.tolerancePercentage = defaultTol
                     }) {
                         HStack(spacing: 4) {
                             RoundedRectangle(cornerRadius: 1)
-                                .fill(colorFromHex(code))
+                                .fill(scannerState.colorFromHex(code))
                                 .frame(width: 8, height: 8)
                                 .overlay(RoundedRectangle(cornerRadius: 1).stroke(borderLine, lineWidth: 0.5))
                             Text(name)
@@ -106,11 +106,11 @@ extension ContentView {
                         .font(.system(size: 9, weight: .bold, design: .monospaced))
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 5)
-                        .foregroundColor(hexCode.uppercased() == code ? primaryBtnFg : textMain)
-                        .studioBox(background: hexCode.uppercased() == code ? primaryBtnBg : bgSubtle, border: borderLine)
+                        .foregroundColor(scannerState.hexCode.uppercased() == code ? primaryBtnFg : textMain)
+                        .studioBox(background: scannerState.hexCode.uppercased() == code ? primaryBtnBg : bgSubtle, border: borderLine)
                     }
                     .buttonStyle(.plain)
-                    .disabled(isScanning)
+                    .disabled(scannerState.isScanning)
                     .explain("Sets target color to \(name) (\(code)) with \(Int(defaultTol))% tolerance.", binding: $hoverExplanation)
                 }
             }
@@ -121,13 +121,13 @@ extension ContentView {
                         .font(.system(size: 9, weight: .bold, design: .monospaced))
                         .foregroundColor(textMuted)
                     Spacer()
-                    Text("\(Int(tolerancePercentage))%")
+                    Text("\(Int(scannerState.tolerancePercentage))%")
                         .font(.system(size: 10, weight: .bold, design: .monospaced))
                         .foregroundColor(textMain)
                 }
-                Slider(value: $tolerancePercentage, in: (isTargetBlack || isTargetWhite) ? 1...15 : 5...50, step: 1)
+                Slider(value: $scannerState.tolerancePercentage, in: (scannerState.isTargetBlack || scannerState.isTargetWhite) ? 1...15 : 5...50, step: 1)
                     .tint(primaryBtnBg)
-                    .disabled(isScanning)
+                    .disabled(scannerState.isScanning)
                     .explain("Color match sensitivity. Lower values match strictly; higher values match broader shades.", binding: $hoverExplanation)
             }
         }
@@ -146,16 +146,16 @@ extension ContentView {
                     .foregroundColor(textMain)
             }
             
-            Toggle("10X EXPOSURE BOOST MULTIPLIER", isOn: $enableExposureBoost)
+            Toggle("10X EXPOSURE BOOST MULTIPLIER", isOn: $scannerState.enableExposureBoost)
                 .font(.system(size: 10, weight: .bold, design: .monospaced))
                 .toggleStyle(StudioToggleStyle(isLight: isLightMode))
-                .disabled(isScanning)
+                .disabled(scannerState.isScanning)
                 .explain("Amplifies shadow levels 10X to avoid false flags on naturally dark scenes.", binding: $hoverExplanation)
             
-            Toggle("IGNORE FULL-FRAME BLACK SLATES", isOn: $ignoreFullBlackFrames)
+            Toggle("IGNORE FULL-FRAME BLACK SLATES", isOn: $scannerState.ignoreFullBlackFrames)
                 .font(.system(size: 10, weight: .bold, design: .monospaced))
                 .toggleStyle(StudioToggleStyle(isLight: isLightMode))
-                .disabled(isScanning)
+                .disabled(scannerState.isScanning)
                 .explain("Skips solid black frames such as slates, head countdowns, and scene fades.", binding: $hoverExplanation)
         }
         .padding(10)
@@ -175,16 +175,16 @@ extension ContentView {
                     .foregroundColor(textMain)
             }
             
-            Toggle("HIGHLIGHT EXPANSION FILTER", isOn: $enableHighlightExpansion)
+            Toggle("HIGHLIGHT EXPANSION FILTER", isOn: $scannerState.enableHighlightExpansion)
                 .font(.system(size: 10, weight: .bold, design: .monospaced))
                 .toggleStyle(StudioToggleStyle(isLight: isLightMode))
-                .disabled(isScanning)
+                .disabled(scannerState.isScanning)
                 .explain("Amplifies highlight separation so natural white cove backdrops and studio lighting are not flagged.", binding: $hoverExplanation)
             
-            Toggle("IGNORE FULL-FRAME WHITE SLATES", isOn: $ignoreFullWhiteFrames)
+            Toggle("IGNORE FULL-FRAME WHITE SLATES", isOn: $scannerState.ignoreFullWhiteFrames)
                 .font(.system(size: 10, weight: .bold, design: .monospaced))
                 .toggleStyle(StudioToggleStyle(isLight: isLightMode))
-                .disabled(isScanning)
+                .disabled(scannerState.isScanning)
                 .explain("Skips solid white logo cards, slates, and white flash transitions.", binding: $hoverExplanation)
         }
         .padding(10)
@@ -200,20 +200,20 @@ extension ContentView {
                     .font(.system(size: 10, weight: .bold, design: .monospaced))
                     .foregroundColor(textMuted)
                 Spacer()
-                Text("\(edgeDepth) PX")
+                Text("\(scannerState.edgeDepth) PX")
                     .font(.system(size: 11, weight: .bold, design: .monospaced))
                     .foregroundColor(textMain)
-                Stepper("", value: $edgeDepth, in: 2...40)
+                Stepper("", value: $scannerState.edgeDepth, in: 2...40)
                     .labelsHidden()
-                    .disabled(isScanning)
+                    .disabled(scannerState.isScanning)
                     .explain("Depth in pixels from outer frame boundaries to inspect for colored edge lines (all borders).", binding: $hoverExplanation)
             }
             
-            Toggle("SCAN FULL SCREEN (SPLIT SCREENS)", isOn: $scanFullScreen)
+            Toggle("SCAN FULL SCREEN (SPLIT SCREENS)", isOn: $scannerState.scanFullScreen)
                 .toggleStyle(StudioToggleStyle(isLight: isLightMode))
                 .font(.system(size: 10, weight: .bold, design: .monospaced))
                 .foregroundColor(textMain)
-                .disabled(isScanning)
+                .disabled(scannerState.isScanning)
                 .explain("Inspects the entire frame for internal dividing line artifacts and split-screen seams.", binding: $hoverExplanation)
         }
     }
@@ -222,7 +222,7 @@ extension ContentView {
         VStack(alignment: .leading, spacing: 8) {
             sectionHeader(num: "04", title: "EXECUTION")
             
-            if isScanning {
+            if scannerState.isScanning {
                 Button(action: cancelScan) {
                     HStack(spacing: 7) {
                         Image(systemName: "stop.fill")
@@ -254,12 +254,12 @@ extension ContentView {
                 .buttonStyle(.plain)
                 .explain("Aborts the active video scan in progress.", binding: $hoverExplanation)
             } else {
-                let isReady = !videoFiles.isEmpty && RGBColor(hex: hexCode) != nil
+                let isReady = !videoFiles.isEmpty && RGBColor(hex: scannerState.hexCode) != nil
                 Button(action: startScan) {
                     HStack(spacing: 7) {
                         Image(systemName: "viewfinder")
                             .font(.system(size: 11, weight: .bold))
-                            .scaleEffect(isAuditBtnHovered && isReady ? 1.08 : 1.0)
+                            .scaleEffect(scannerState.isAuditBtnHovered && isReady ? 1.08 : 1.0)
                         
                         SlotText(
                             "START LINE QC AUDIT",
@@ -270,7 +270,7 @@ extension ContentView {
                             tracking: 0.5,
                             stagger: 0.015,
                             rollDistance: 13,
-                            trigger: isAuditBtnHovered
+                            trigger: scannerState.isAuditBtnHovered
                         )
                     }
                     .frame(maxWidth: .infinity)
@@ -285,26 +285,26 @@ extension ContentView {
                                 RoundedRectangle(cornerRadius: 5)
                                     .fill(
                                         LinearGradient(
-                                            colors: isAuditBtnHovered
+                                            colors: scannerState.isAuditBtnHovered
                                                 ? [Color(white: 0.20), Color(white: 0.12)]
                                                 : [Color(white: 0.14), Color(white: 0.08)],
                                             startPoint: .top,
                                             endPoint: .bottom
                                         )
                                     )
-                                    .shadow(color: Color.black.opacity(isAuditBtnHovered ? 0.25 : 0.10), radius: isAuditBtnHovered ? 6 : 3, x: 0, y: 1)
+                                    .shadow(color: Color.black.opacity(scannerState.isAuditBtnHovered ? 0.25 : 0.10), radius: scannerState.isAuditBtnHovered ? 6 : 3, x: 0, y: 1)
                             } else {
                                 RoundedRectangle(cornerRadius: 5)
                                     .fill(
                                         LinearGradient(
-                                            colors: isAuditBtnHovered
+                                            colors: scannerState.isAuditBtnHovered
                                                 ? [Color.white, Color(white: 0.92)]
                                                 : [Color(white: 0.95), Color(white: 0.88)],
                                             startPoint: .top,
                                             endPoint: .bottom
                                         )
                                     )
-                                    .shadow(color: isAuditBtnHovered ? Color.white.opacity(0.18) : Color.clear, radius: 8, x: 0, y: 0)
+                                    .shadow(color: scannerState.isAuditBtnHovered ? Color.white.opacity(0.18) : Color.clear, radius: 8, x: 0, y: 0)
                             }
                         }
                     )
@@ -313,16 +313,16 @@ extension ContentView {
                             .stroke(
                                 !isReady
                                     ? borderLine.opacity(0.5)
-                                    : (isLightMode ? borderStrong.opacity(0.6) : Color.white.opacity(isAuditBtnHovered ? 0.9 : 0.5)),
+                                    : (isLightMode ? borderStrong.opacity(0.6) : Color.white.opacity(scannerState.isAuditBtnHovered ? 0.9 : 0.5)),
                                 lineWidth: 1
                             )
                     )
-                    .animation(.spring(response: 0.24, dampingFraction: 0.8), value: isAuditBtnHovered)
+                    .animation(.spring(response: 0.24, dampingFraction: 0.8), value: scannerState.isAuditBtnHovered)
                 }
                 .buttonStyle(.plain)
                 .disabled(!isReady)
                 .onHover { hovering in
-                    isAuditBtnHovered = hovering
+                    scannerState.isAuditBtnHovered = hovering
                 }
                 .explain("Starts frame-by-frame edge analysis across all files in the batch.", binding: $hoverExplanation)
             }
@@ -345,7 +345,7 @@ extension ContentView {
                     .studioBox(background: bgSubtle, border: borderLine)
             }
             
-            if let p = progressInfo {
+            if let p = scannerState.progressInfo {
                 VStack(alignment: .leading, spacing: 16) {
                     VStack(alignment: .leading, spacing: 4) {
                         Text("CURRENT ASSET")
@@ -387,8 +387,8 @@ extension ContentView {
     }
     
     var resultsSummaryView: some View {
-        let flagged = scanResults.filter { $0.isFlagged }
-        let clean = scanResults.filter { !$0.isFlagged }
+        let flagged = scannerState.scanResults.filter { $0.isFlagged }
+        let clean = scannerState.scanResults.filter { !$0.isFlagged }
         let totalSegments = flagged.reduce(0) { $0 + $1.glitchSegments.count }
         
         return VStack(alignment: .leading, spacing: 20) {
@@ -398,7 +398,7 @@ extension ContentView {
                         .font(.system(size: 28, weight: .black, design: .default))
                         .foregroundColor(textMain)
                         .tracking(1.0)
-                    Text("\(scanResults.count) ASSETS ANALYZED")
+                    Text("\(scannerState.scanResults.count) ASSETS ANALYZED")
                         .font(.system(size: 11, weight: .bold, design: .monospaced))
                         .foregroundColor(textMuted)
                 }
@@ -451,7 +451,7 @@ extension ContentView {
             }
             
             HStack(spacing: 12) {
-                statBox(title: "TOTAL SCANNED", val: String(format: "%02d", scanResults.count))
+                statBox(title: "TOTAL SCANNED", val: String(format: "%02d", scannerState.scanResults.count))
                 statBox(title: "FLAGGED FILES", val: String(format: "%02d", flagged.count), isRed: !flagged.isEmpty)
                 statBox(title: "PASSED FILES", val: String(format: "%02d", clean.count), isPositive: !clean.isEmpty)
                 statBox(title: "GLITCH SEGMENTS", val: String(format: "%02d", totalSegments), isRed: totalSegments > 0)

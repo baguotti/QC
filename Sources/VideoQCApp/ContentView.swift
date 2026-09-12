@@ -69,28 +69,7 @@ struct ContentView: View {
     }
     
     // MARK: - Tab 3: Line Finder State
-    @State var hexCode: String = "#00FF00"
-    @State var tolerancePercentage: Double = 25.0
-    @State var edgeDepth: Int = 12
-    @State var minSpanPercentage: Double = 70.0
-    @State var scanFullScreen: Bool = false
-    @State var enableExposureBoost: Bool = true
-    @State var exposureMultiplier: Double = 10.0
-    @State var ignoreFullBlackFrames: Bool = true
-    @State var maxBlackVariance: Double = 2.0
-    @State var enableHighlightExpansion: Bool = true
-    @State var highlightMultiplier: Double = 8.0
-    @State var ignoreFullWhiteFrames: Bool = true
-    @State var maxWhiteVariance: Double = 2.0
-    
-    @State var isScanning: Bool = false
-    @State var isAuditBtnHovered: Bool = false
-    @State var progressInfo: VideoScanner.ScanProgress? = nil
-    @State var scanResults: [VideoQCResult] = []
-    @State var lastScanConfig: QCConfig? = nil
-    @State var generatedReportURL: URL? = nil
-    @State var generatedCSVURL: URL? = nil
-    @State var scannerActor: VideoScanner? = nil
+    @StateObject var scannerState = ScannerState()
     
     // MARK: - Folder Grouping State
     @State var hideAllFolders: Bool = false
@@ -128,44 +107,6 @@ struct ContentView: View {
     @State var fullscreenMode: FullscreenMode = .none
     var isFullscreenVideo: Bool { fullscreenMode != .none }
     @State var didToggleWindowForFullscreen: Bool = false
-    
-    var isTargetBlack: Bool {
-        guard let rgb = RGBColor(hex: hexCode) else { return false }
-        return rgb.r <= 15 && rgb.g <= 15 && rgb.b <= 15
-    }
-    
-    var isTargetWhite: Bool {
-        guard let rgb = RGBColor(hex: hexCode) else { return false }
-        return rgb.r >= 240 && rgb.g >= 240 && rgb.b >= 240
-    }
-    
-    let colorPresets = [
-        ("GREEN", "#00FF00", 25.0),
-        ("MAGENTA", "#FF00B4", 25.0),
-        ("BLACK", "#000000", 3.0),
-        ("WHITE", "#FFFFFF", 3.0)
-    ]
-    
-    var isCustomColor: Bool {
-        !colorPresets.contains { $0.1.uppercased() == hexCode.uppercased() }
-    }
-    
-    func openColorPanel() {
-        NSColorPanel.setPickerMask(.wheelModeMask)
-        NSColorPanel.setPickerMode(.wheel)
-        let panel = NSColorPanel.shared
-        panel.showsAlpha = false
-        if let rgb = RGBColor(hex: hexCode) {
-            panel.color = NSColor(srgbRed: CGFloat(rgb.r) / 255.0, green: CGFloat(rgb.g) / 255.0, blue: CGFloat(rgb.b) / 255.0, alpha: 1.0)
-        }
-        panel.isContinuous = true
-        panel.orderFront(nil)
-    }
-    
-    func colorFromHex(_ hex: String) -> Color {
-        guard let rgb = RGBColor(hex: hex) else { return Color.clear }
-        return Color(red: Double(rgb.r) / 255.0, green: Double(rgb.g) / 255.0, blue: Double(rgb.b) / 255.0)
-    }
     
     // Dynamic Studio Theme Palette
     var palette: StudioPalette { StudioPalette(isLightMode) }
@@ -225,12 +166,12 @@ struct ContentView: View {
                 let g = Int(round(srgb.greenComponent * 255.0))
                 let b = Int(round(srgb.blueComponent * 255.0))
                 let newHex = String(format: "#%02X%02X%02X", max(0, min(255, r)), max(0, min(255, g)), max(0, min(255, b)))
-                if hexCode.uppercased() != newHex {
-                    hexCode = newHex
+                if scannerState.hexCode.uppercased() != newHex {
+                    scannerState.hexCode = newHex
                 }
             }
         }
-        .onChange(of: hexCode) { _, newHex in
+        .onChange(of: scannerState.hexCode) { _, newHex in
             if NSColorPanel.shared.isVisible, let rgb = RGBColor(hex: newHex) {
                 let newColor = NSColor(srgbRed: CGFloat(rgb.r) / 255.0, green: CGFloat(rgb.g) / 255.0, blue: CGFloat(rgb.b) / 255.0, alpha: 1.0)
                 if NSColorPanel.shared.color != newColor {
@@ -784,7 +725,7 @@ struct ContentView: View {
                         )
                     }
                     .buttonStyle(.plain)
-                    .disabled(isScanning)
+                    .disabled(scannerState.isScanning)
                     .explain(isSelectEmpty ? "Opens file picker to select video files or a folder to inspect." : "Replaces currently loaded assets with a new folder or file selection.", binding: $hoverExplanation)
                     
                     Button(action: { selectAssets(forTab: forTab, append: true) }) {
@@ -801,7 +742,7 @@ struct ContentView: View {
                         .studioBox(background: bgSubtle, border: borderLine)
                     }
                     .buttonStyle(.plain)
-                    .disabled(isScanning)
+                    .disabled(scannerState.isScanning)
                     .explain("Opens file picker to add more video files or folders to current list without losing existing assets.", binding: $hoverExplanation)
                     
                     let canRefresh = (folderURL != nil || !videoFiles.isEmpty)
@@ -819,7 +760,7 @@ struct ContentView: View {
                         .studioBox(background: bgSubtle, border: borderLine)
                     }
                     .buttonStyle(.plain)
-                    .disabled(isScanning || !canRefresh)
+                    .disabled(scannerState.isScanning || !canRefresh)
                     .explain("Rescans loaded folders and files to detect added, removed, or modified videos.", binding: $hoverExplanation)
                     
                     Spacer(minLength: 4)
@@ -952,7 +893,7 @@ struct ContentView: View {
         withAnimation(.easeInOut(duration: 0.2)) {
             videoFiles.removeAll { urlsToRemove.contains($0.standardizedFileURL.path) }
             deliverableAssets.removeAll { urlsToRemove.contains($0.fileURL.standardizedFileURL.path) }
-            scanResults.removeAll { urlsToRemove.contains($0.fileURL.standardizedFileURL.path) }
+            scannerState.scanResults.removeAll { urlsToRemove.contains($0.fileURL.standardizedFileURL.path) }
             
             func collectFolderIDs(_ n: FileSystemTreeNode) -> [String] {
                 var ids = [n.id]
@@ -1083,9 +1024,9 @@ struct ContentView: View {
                 self.videoFiles = uniqueVideos
                 self.playerCollapsedFolderIDs = []
                 self.deliverablesCollapsedFolderIDs = []
-                self.scanResults = []
-                self.generatedReportURL = nil
-                self.generatedCSVURL = nil
+                self.scannerState.scanResults = []
+                self.scannerState.generatedReportURL = nil
+                self.scannerState.generatedCSVURL = nil
                 
                 // Populate deliverables in background
                 inspectDeliverablesBatch(urls: uniqueVideos, append: false)
@@ -1200,104 +1141,31 @@ struct ContentView: View {
     // MARK: - Line Scanner Execution
     
     func startScan() {
-        guard !videoFiles.isEmpty else { return }
-        
-        let config = QCConfig(
-            targetHex: hexCode,
-            tolerance: tolerancePercentage / 100.0,
-            edgeDepth: edgeDepth,
-            minSpanRatio: minSpanPercentage / 100.0,
-            scanFullScreen: scanFullScreen,
-            enableExposureBoost: enableExposureBoost,
-            exposureMultiplier: exposureMultiplier,
-            ignoreFullBlackFrames: ignoreFullBlackFrames,
-            maxBlackVariance: maxBlackVariance,
-            enableHighlightExpansion: enableHighlightExpansion,
-            highlightMultiplier: highlightMultiplier,
-            ignoreFullWhiteFrames: ignoreFullWhiteFrames,
-            maxWhiteVariance: maxWhiteVariance
-        )
-        
-        isScanning = true
-        scanResults = []
-        generatedReportURL = nil
-        generatedCSVURL = nil
-        
-        let scanner = VideoScanner()
-        self.scannerActor = scanner
-        
-        Task {
-            let results = await scanner.scanBatch(videoURLs: videoFiles, config: config, maxConcurrentScanners: 2) { progress in
-                DispatchQueue.main.async {
-                    self.progressInfo = progress
-                }
+        scannerState.startScan(videoFiles: videoFiles) { results, config in
+            self.playerEngine.setScanResults(results)
+            for res in results where res.isFlagged {
+                self.fileTagsMap[res.fileURL] = .red
             }
-            
-            // Only tag flagged files in Finder — no auto file export
-            ReportWriter.tagFlaggedFilesInFinder(results: results)
-            
-            DispatchQueue.main.async {
-                self.scanResults = results
-                self.lastScanConfig = config
-                self.playerEngine.setScanResults(results)
-                for res in results where res.isFlagged {
-                    self.fileTagsMap[res.fileURL] = .red
-                }
-                self.syncScanResultsToNotes(results: results)
-                self.isScanning = false
-                self.scannerActor = nil
-            }
+            self.syncScanResultsToNotes(results: results)
         }
     }
     
     func cancelScan() {
-        scannerActor?.cancel()
-        self.isScanning = false
-        self.scannerActor = nil
+        scannerState.cancelScan()
     }
     
     // MARK: - On-Demand Report Export
     
     func exportScanHTML() {
-        guard !scanResults.isEmpty, let config = lastScanConfig else { return }
-        let folder = folderURL ?? videoFiles.first?.deletingLastPathComponent() ?? URL(fileURLWithPath: NSTemporaryDirectory())
-        
-        let csvFileName = "QC_Report.csv"
-        let htmlString = ReportWriter.generateHTMLReport(folderURL: folder, config: config, results: scanResults, csvFileName: csvFileName)
-        
-        let savePanel = NSSavePanel()
-        savePanel.allowedContentTypes = [.html]
-        savePanel.nameFieldStringValue = "QC_Report_\(folder.lastPathComponent).html"
-        savePanel.directoryURL = folder
-        
-        if savePanel.runModal() == .OK, let url = savePanel.url {
-            try? htmlString.write(to: url, atomically: true, encoding: .utf8)
-            self.generatedReportURL = url
-            NSWorkspace.shared.open(url)
-        }
+        scannerState.exportScanHTML(folderURL: folderURL, videoFiles: videoFiles)
     }
     
     func exportScanCSV() {
-        guard !scanResults.isEmpty else { return }
-        let folder = folderURL ?? videoFiles.first?.deletingLastPathComponent() ?? URL(fileURLWithPath: NSTemporaryDirectory())
-        
-        let csvString = ReportWriter.generateCSVReport(results: scanResults)
-        
-        let savePanel = NSSavePanel()
-        savePanel.allowedContentTypes = [.commaSeparatedText]
-        savePanel.nameFieldStringValue = "QC_Report_\(folder.lastPathComponent).csv"
-        savePanel.directoryURL = folder
-        
-        if savePanel.runModal() == .OK, let url = savePanel.url {
-            try? csvString.write(to: url, atomically: true, encoding: .utf8)
-            self.generatedCSVURL = url
-            NSWorkspace.shared.open(url)
-        }
+        scannerState.exportScanCSV(folderURL: folderURL, videoFiles: videoFiles)
     }
     
     func openScanReportInGoogleSheets() {
-        guard !scanResults.isEmpty else { return }
-        let tsvString = ReportWriter.generateTSVReport(results: scanResults)
+        guard let tsvString = scannerState.generateTSVReport() else { return }
         let pasteboard = NSPasteboard.general
         pasteboard.clearContents()
         pasteboard.setString(tsvString, forType: .string)
@@ -1980,7 +1848,7 @@ struct ContentView: View {
     
     func jumpToNextGlitchFinding() {
         var allGlitches: [(url: URL, frameIndex: Int, timecode: String, label: String)] = []
-        for result in scanResults where result.isFlagged {
+        for result in scannerState.scanResults where result.isFlagged {
             for seg in result.glitchSegments {
                 allGlitches.append((
                     url: result.fileURL,
@@ -2003,7 +1871,7 @@ struct ContentView: View {
             if let ahead = inCurrentFile.first(where: { $0.frameIndex > currentFrame + 1 }) {
                 nextTarget = ahead
             } else {
-                let distinctFlaggedFiles = scanResults.filter { $0.isFlagged && !$0.glitchSegments.isEmpty }.map { $0.fileURL }
+                let distinctFlaggedFiles = scannerState.scanResults.filter { $0.isFlagged && !$0.glitchSegments.isEmpty }.map { $0.fileURL }
                 if let currentFileIdx = distinctFlaggedFiles.firstIndex(of: currentURL) {
                     let nextFileIdx = (currentFileIdx + 1) % distinctFlaggedFiles.count
                     let targetURL = distinctFlaggedFiles[nextFileIdx]
@@ -2020,7 +1888,7 @@ struct ContentView: View {
     
     func jumpToPreviousGlitchFinding() {
         var allGlitches: [(url: URL, frameIndex: Int, timecode: String, label: String)] = []
-        for result in scanResults where result.isFlagged {
+        for result in scannerState.scanResults where result.isFlagged {
             for seg in result.glitchSegments {
                 allGlitches.append((
                     url: result.fileURL,
@@ -2044,7 +1912,7 @@ struct ContentView: View {
             if let behind = inCurrentFile.last(where: { $0.frameIndex < currentFrame - 1 }) {
                 prevTarget = behind
             } else {
-                let distinctFlaggedFiles = scanResults.filter { $0.isFlagged && !$0.glitchSegments.isEmpty }.map { $0.fileURL }
+                let distinctFlaggedFiles = scannerState.scanResults.filter { $0.isFlagged && !$0.glitchSegments.isEmpty }.map { $0.fileURL }
                 if let currentFileIdx = distinctFlaggedFiles.firstIndex(of: currentURL) {
                     let prevFileIdx = (currentFileIdx - 1 + distinctFlaggedFiles.count) % distinctFlaggedFiles.count
                     let targetURL = distinctFlaggedFiles[prevFileIdx]
@@ -2197,7 +2065,7 @@ struct ContentView: View {
         }
         Task { @MainActor in
             var notes = await QCNotesManager.shared.loadNotes(for: url)
-            if let result = self.scanResults.first(where: { $0.fileURL == url && $0.isFlagged && !$0.glitchSegments.isEmpty }) {
+            if let result = self.scannerState.scanResults.first(where: { $0.fileURL == url && $0.isFlagged && !$0.glitchSegments.isEmpty }) {
                 let hasQCNotes = notes.contains { $0.author == "Line QC" }
                 if !hasQCNotes {
                     for seg in result.glitchSegments {
