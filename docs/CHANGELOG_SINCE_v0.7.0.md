@@ -1,5 +1,5 @@
 # QCpie — Changelog & Refactoring Report
-> **Changes from v0.7.0 to v0.7.2 (Post-PR #1 Merge)**
+> **Changes from v0.7.0 to v0.7.3 (Post-PR #1 Merge)**
 
 ---
 
@@ -10,10 +10,31 @@
 | **v0.7.0** | UI Scaling & macOS Integration | Added "Open with QCpie" system integration, canvas resolution overlays, and UI zoom system. |
 | **v0.7.1** | Clip Info Overhaul & Dual Navigation | 5 cyclic Clip Info modes, `Option + Up/Down` for Slot B queue selection, comparison mode state preservation. |
 | **v0.7.2** | Architectural Modularization & Automated Testing | Extracted `ScannerState`, `SpecsState`, `KeyboardShortcutRouter`, split `PlayerTabView`, and added native `Swift Testing` test suite. |
+| **v0.7.3** | Footage Ingest Tab, DIT Audit & Media Inspector | Added Tab 04 // `INGEST`, DIT CSV/TSV/ALE cross-referencing, lightweight `IngestInspector`, bounded 4-worker scan concurrency, and multi-preset screenshot exporter. |
 
 ---
 
 ## 🚀 1. Feature Overhauls & User Experience Enhancements
+
+### 📦 Footage Ingest & DIT Audit System (Tab 04 // INGEST)
+- **Automated Directory Intake**: Point to any shoot or delivery folder to catalog all files recursively with bounded parallel concurrency (max 4 concurrent tasks).
+- **Heuristic File Classification**: Automatically categorizes files into Raw Footage, Transcodes (detects `TRANSCODES` or `PROXY` folder/name conventions), Camera Reports, Location Audio, Shooting LUTs, and Other.
+- **Automated Technical Details Aggregation**: Extracts dominant raw codecs, transcode codecs, shooting resolutions, main project timebase, and camera make/model from container atoms.
+- **DIT Report Cross-Referencing**: Imports CSV, TSV, or ALE reports from DITs and flags discrepancies:
+  - `Missing From Disk` (critical): Clips documented in DIT report but absent on storage.
+  - `Not Listed in DIT Report` (info): Clips found on disk but missing from DIT documentation.
+  - `FPS Mismatch`, `Resolution Mismatch`, `Codec Discrepancy` (warning): Container parameter differences.
+- **Production Intake Form**: Interactive checklist matching industry-standard intake forms (job numbers, client drives status, VFX flags, HD source return notes).
+- **Manifest Exports**: Exports complete intake manifests as RFC 4180 CSV, styled HTML reports, or clipboard summaries.
+
+### 📸 Multi-Preset Screenshot Exporter
+- **4 Presets at 100% Source Resolution**:
+  - `JPG Medium` (Default): Medium bitrate JPEG (~70% quality).
+  - `JPG High`: High bitrate JPEG (~95% quality, near-lossless).
+  - `PNG Medium`: 24-bit RGB with SUB compression filter for reduced file size without downscaling.
+  - `PNG High`: 32-bit RGBA master uncompressed PNG.
+- **Workflow Gestures**: Left-click exports directly using active preset; right-click opens preset menu.
+- **Pristine Export**: Pure deliverable frames with full comparison mode compositing (split wipes, side-by-side, difference, 50% overlay) and zero UI labels.
 
 ### 🎨 Clip Info Overlay System Overhaul
 - **5 Cyclic Display Modes**: Pressing `I` or clicking the transport aperture cycles through:
@@ -37,78 +58,50 @@
 
 ## 🏗️ 2. Architectural Refactoring & Modularization
 
-The entire codebase underwent a 4-phase architectural refactoring to decouple `ContentView`, improve state isolation, and eliminate monolithic files.
-
 ```
-                  ┌──────────────────────────────────────────────┐
-                  │                 ContentView                  │
-                  └──────┬───────────────────┬───────────────────┘
-                         │                   │
-         ┌───────────────┴──────────┐ ┌──────┴───────────────────┐
-         │       ScannerState       │ │        SpecsState        │
-         │ (18 line-finder states)  │ │  (Media Info & CSV logic)│
-         └──────────────────────────┘ └──────────────────────────┘
-                         │                   │
-         ┌───────────────┴──────────┐ ┌──────┴───────────────────┐
-         │  KeyboardShortcutRouter  │ │   PlayerQueuePanelView   │
-         │  (51 declarative rules)  │ │ (Isolated Equatable view)│
-         └──────────────────────────┘ └──────────────────────────┘
+                  ┌─────────────────────────────────────────────────────────┐
+                  │                       ContentView                       │
+                  └──────┬────────────────────┬────────────────────┬────────┘
+                         │                    │                    │
+         ┌───────────────┴──────────┐ ┌───────┴──────────┐ ┌───────┴──────────┐
+         │       ScannerState       │ │    SpecsState    │ │   IngestState    │
+         │ (18 line-finder states)  │ │   (Deliverables) │ │ (Intake & DIT)   │
+         └──────────────────────────┘ └──────────────────┘ └──────────────────┘
+                         │                    │                    │
+         ┌───────────────┴──────────┐ ┌───────┴──────────┐ ┌───────┴──────────┐
+         │  KeyboardShortcutRouter  │ │PlayerQueuePan... │ │ IngestInspector  │
+         │  (51 declarative rules)  │ │ (Equatable view) │ │(No sample decode)│
+         └──────────────────────────┘ └──────────────────┘ └──────────────────┘
 ```
 
-### Phase 1: Dead Code Removal & Duplicate Consolidation
-- Removed unused `PlayerEngine` computed properties (`showClipNamesOverlay`, `showTitleSafe`).
-- Consolidated duplicate folder tree traversal logic into `FileSystemTreeBuilder.expandAncestors(...)`.
-- Extracted `dismissFocusReset()` helper in `ContentView` to collapse 8 identical `.onChange` bodies.
+### Dedicated Ingest State & Lightweight Inspector
+- **[`IngestInspector.swift`](file:///Users/riccardofusetti/Documents/Coding/QCpie/Sources/VideoQCLib/IngestInspector.swift)**: Dedicated container-level header inspector that extracts video codec, dimensions, framerate, duration, timecode, audio tracks, and camera metadata without decoding audio samples.
+- **[`IngestState.swift`](file:///Users/riccardofusetti/Documents/Coding/QCpie/Sources/VideoQCApp/IngestState.swift)**: State controller with bounded concurrency (max 4 workers), non-isolated background file enumeration, and task cancellation on re-scan.
+- **[`IngestTabView.swift`](file:///Users/riccardofusetti/Documents/Coding/QCpie/Sources/VideoQCApp/IngestTabView.swift)**: High-performance stark B&W interface with collapsible discrepancy banner and sortable file table.
 
-### Phase 2: Interface & Type Contract Standardization
-- Created `SlotSnapshot` to enforce atomic, zero-data-loss slot swapping in `PlayerEngine.swapSlots()`.
-- Standardized `PlayerSlot` metadata updates across 5 synchronization sites, ensuring single-source-of-truth consistency.
-
-### Phase 3.1: ScannerState Extraction
-- Extracted 18 line-finder `@State` variables, target color helpers, and report generation methods into a dedicated `@MainActor final class ScannerState: ObservableObject` ([`ScannerState.swift`](file:///Users/riccardofusetti/Documents/Coding/QCpie/Sources/VideoQCApp/ScannerState.swift)).
-- Updated [`LineScannerTabView.swift`](file:///Users/riccardofusetti/Documents/Coding/QCpie/Sources/VideoQCApp/LineScannerTabView.swift) to observe `ScannerState`.
-
-### Phase 3.2: SpecsState Extraction
-- Extracted deliverable inspection, filtering, tag map states, and manifest export handlers into a dedicated `@MainActor final class SpecsState: ObservableObject` ([`SpecsState.swift`](file:///Users/riccardofusetti/Documents/Coding/QCpie/Sources/VideoQCApp/SpecsState.swift)).
-- Streamlined [`DeliverablesTabView.swift`](file:///Users/riccardofusetti/Documents/Coding/QCpie/Sources/VideoQCApp/DeliverablesTabView.swift).
-
-### Phase 3.3: Declarative Keyboard Shortcut Router
-- Replaced the 360-line event monitor closure in `ContentView` with a declarative [`KeyboardShortcutRouter.swift`](file:///Users/riccardofusetti/Documents/Coding/QCpie/Sources/VideoQCApp/KeyboardShortcutRouter.swift).
-- Encapsulates 51 keyboard shortcuts across 4 clear dispatch scopes (`.preModalGlobal`, `.global`, `.playerOrSpecs`, `.playerOnly`).
-- Handles text responder unfocusing and modal dismissal cleanly.
-
-### Phase 3.4: Focused Player Components
-Split [`PlayerTabView.swift`](file:///Users/riccardofusetti/Documents/Coding/QCpie/Sources/VideoQCApp/PlayerTabView.swift) from 2,830 lines down to 1,402 lines (~50% reduction) by extracting top-level components into dedicated files:
-- **[`PlayerQueueFileRowView.swift`](file:///Users/riccardofusetti/Documents/Coding/QCpie/Sources/VideoQCApp/PlayerQueueFileRowView.swift)** (385 lines): Isolated `Equatable` row view for queue items.
-- **[`PlayerQueuePanelView.swift`](file:///Users/riccardofusetti/Documents/Coding/QCpie/Sources/VideoQCApp/PlayerQueuePanelView.swift)** (652 lines): Isolated `Equatable` queue sidebar panel.
-- **[`ReviewFullscreenHUDView.swift`](file:///Users/riccardofusetti/Documents/Coding/QCpie/Sources/VideoQCApp/ReviewFullscreenHUDView.swift)** (405 lines): Fullscreen HUD controls & video view.
+### Memory & Concurrency Hardening
+- **Scoped Pointer Safety**: Scoped `withMemoryRebound` safely inside closure execution in `DeliverablesInspector.swift`.
+- **Clamped Conversions**: Clamped duration, framerate, and dimension calculations against NaN, infinity, and integer overflow.
+- **Safe Metadata Extraction**: Replaced raw string loading with `.load(.value) as? String` to prevent crashes on binary camera atoms.
 
 ---
 
-## 🧪 3. Automated Test Infrastructure (Phase 4.1)
+## 🧪 3. Automated Test Infrastructure
 
 - Integrated Apple's native **Swift Testing** framework (`import Testing`).
-- Added `.testTarget(name: "QCpieTests", dependencies: ["QCpie", "VideoQCLib"], path: "Tests")` to [`Package.swift`](file:///Users/riccardofusetti/Documents/Coding/QCpie/Package.swift).
-- Implemented **9 state invariant unit tests** in [`Tests/PlayerEngineTests.swift`](file:///Users/riccardofusetti/Documents/Coding/QCpie/Tests/PlayerEngineTests.swift):
-  - `initialEngineState`: Default playback state.
-  - `slotSwapPreservesAllFields`: Metadata preservation across A/B slot swaps.
-  - `clearSlotBResetsToSingle`: Wiping slot B resets comparison mode to `.single`.
-  - `compareModeRequiresMatchingAspectFlags`: Aspect ratio requirements validation.
-  - `mismatchedAspectRatioEnforcesValidMode`: Auto-redirection to `.sideBySide` on aspect ratio mismatch.
-  - `matchingAspectRatioAllowsSplitModes`: Preservation of split modes on matching aspect ratio.
-  - `loadSlotBPreservesCompareModeWhenAlreadyInAB`: Persistence of active comparison mode on new slot B load.
-  - `loadSlotBDefaultsToSingleWhenNotInAB`: Initial slot B load defaults to `.single`.
-  - `cycleClipInfoOverlayModeWraps`: Deterministic cycling across all 5 overlay modes.
-- **Test execution speed**: Runs in **0.051 seconds** via `swift test`.
+- **17 automated unit tests** across 2 test suites:
+  - **`PlayerEngineTests.swift`** (10 tests): State invariants, slot swapping, dropped frames tracking, aspect ratio enforcement, compare mode persistence.
+  - **`IngestTests.swift`** (7 tests): CSV/TSV DIT parsing, discrepancy cross-referencing, manifest CSV/HTML report generation, corrupt/missing media resilience, and sorting safety.
+- **Execution speed**: All 17 tests execute in **~0.04 seconds**.
 
 ---
 
 ## 📊 Summary Metrics
 
-| Metric | Before (v0.7.0) | After (v0.7.2) | Change |
+| Metric | Before (v0.7.0) | After (v0.7.3) | Change |
 | :--- | :--- | :--- | :--- |
-| `ContentView.swift` Lines | ~2,365 | ~1,090 | **-54%** |
+| `ContentView.swift` Lines | ~2,365 | ~1,110 | **-53%** |
 | `PlayerTabView.swift` Lines | ~2,830 | ~1,402 | **-50%** |
-| New Modular Components | 0 | 6 new files | **+6 components** |
-| Automated Unit Tests | 0 | 9 tests | **9 tests (100% pass)** |
+| New Modular Components | 0 | 9 new files | **+9 components** |
+| Automated Unit Tests | 0 | 17 tests | **17 tests (100% pass)** |
 | Swift 6 Concurrency Warnings | 0 | 0 | **0 warnings** |
