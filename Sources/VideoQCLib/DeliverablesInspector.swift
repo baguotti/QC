@@ -17,24 +17,25 @@ public struct DeliverablesInspector: Sendable {
             guard let videoTrack = videoTracks.first else { return nil }
             
             // 1. Dimensions & Transform
-            let naturalSize = try await videoTrack.load(.naturalSize)
-            let transform = try await videoTrack.load(.preferredTransform)
+            let naturalSize = (try? await videoTrack.load(.naturalSize)) ?? .zero
+            let transform = (try? await videoTrack.load(.preferredTransform)) ?? .identity
             let isTransposed = abs(transform.b) == 1.0 && abs(transform.c) == 1.0
             
-            let rawWidth = Int(naturalSize.width)
-            let rawHeight = Int(naturalSize.height)
+            let rawWidth = (naturalSize.width.isFinite && naturalSize.width > 0) ? Int(naturalSize.width) : 0
+            let rawHeight = (naturalSize.height.isFinite && naturalSize.height > 0) ? Int(naturalSize.height) : 0
             let width = isTransposed ? rawHeight : rawWidth
             let height = isTransposed ? rawWidth : rawHeight
             let resolutionString = "\(width) x \(height)"
             let aspectRatioString = calculateAspectRatio(width: width, height: height)
             
             // 2. Framerate & Duration
-            var fps = Double(try await videoTrack.load(.nominalFrameRate))
-            if fps <= 0 { fps = 25.0 }
+            let rawFPS = Double((try? await videoTrack.load(.nominalFrameRate)) ?? 25.0)
+            let fps = (rawFPS.isFinite && rawFPS > 0) ? rawFPS : 25.0
             
-            let duration = try await asset.load(.duration)
-            let durationSeconds = CMTimeGetSeconds(duration)
-            let totalFrames = Int(round(durationSeconds * fps))
+            let duration = (try? await asset.load(.duration)) ?? .zero
+            let rawDurationSeconds = CMTimeGetSeconds(duration)
+            let durationSeconds = (rawDurationSeconds.isFinite && rawDurationSeconds >= 0) ? rawDurationSeconds : 0.0
+            let totalFrames = Int(max(0.0, min(Double(Int.max - 1), round(durationSeconds * fps))))
             let timecode = TimecodeFormatter.format(frameIndex: totalFrames, fps: fps)
             let formattedDuration = String(format: "%.2fs", durationSeconds)
             
@@ -300,7 +301,7 @@ public struct DeliverablesInspector: Sendable {
         }
     }
     
-    private static func extractVideoCodec(track: AVAssetTrack) async -> String {
+    public static func extractVideoCodec(track: AVAssetTrack) async -> String {
         guard let descriptions = try? await track.load(.formatDescriptions),
               let desc = descriptions.first else {
             return "UNKNOWN"
@@ -474,11 +475,12 @@ public struct DeliverablesInspector: Sendable {
             
             if status == noErr, let ptr = dataPointer, total >= 2 {
                 let sampleCount = total / MemoryLayout<Int16>.size
-                let rawInt16 = ptr.withMemoryRebound(to: Int16.self, capacity: sampleCount) { $0 }
-                for i in 0..<sampleCount {
-                    let sampleVal = abs(Int32(rawInt16[i]))
-                    if sampleVal > maxPeak {
-                        maxPeak = sampleVal
+                ptr.withMemoryRebound(to: Int16.self, capacity: sampleCount) { rawInt16 in
+                    for i in 0..<sampleCount {
+                        let sampleVal = abs(Int32(rawInt16[i]))
+                        if sampleVal > maxPeak {
+                            maxPeak = sampleVal
+                        }
                     }
                 }
                 totalSamplesAnalyzed += Int64(sampleCount)
@@ -548,7 +550,7 @@ public struct DeliverablesInspector: Sendable {
     
     // MARK: - Creation Date Extraction
     
-    private static func extractCreationDate(url: URL, asset: AVURLAsset) async -> (Date?, String) {
+    public static func extractCreationDate(url: URL, asset: AVURLAsset) async -> (Date?, String) {
         var date: Date? = nil
         
         // 1. File system creation date
@@ -593,11 +595,13 @@ public struct DeliverablesInspector: Sendable {
             var make: String? = nil
             var model: String? = nil
             
-            if let first = makeItems.first ?? commonMake.first {
-                make = try? await first.load(.stringValue)
+            if let first = makeItems.first ?? commonMake.first,
+               let val = try? await first.load(.value) as? String {
+                make = val.trimmingCharacters(in: .whitespaces)
             }
-            if let first = modelItems.first ?? commonModel.first {
-                model = try? await first.load(.stringValue)
+            if let first = modelItems.first ?? commonModel.first,
+               let val = try? await first.load(.value) as? String {
+                model = val.trimmingCharacters(in: .whitespaces)
             }
             
             if let m = make, let mod = model {
@@ -616,7 +620,7 @@ public struct DeliverablesInspector: Sendable {
                 if let keyStr = item.key as? String {
                     let lower = keyStr.lowercased()
                     if lower.contains("camera") || lower.contains("model") || lower.contains("device") {
-                        if let val = try? await item.load(.stringValue), !val.trimmingCharacters(in: .whitespaces).isEmpty {
+                        if let val = try? await item.load(.value) as? String, !val.trimmingCharacters(in: .whitespaces).isEmpty {
                             return val.trimmingCharacters(in: .whitespaces)
                         }
                     }

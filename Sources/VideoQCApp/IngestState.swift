@@ -102,8 +102,8 @@ public final class IngestState: ObservableObject {
                     order = a.fileSizeBytes < b.fileSizeBytes ? .orderedAscending : .orderedDescending
                 }
             case .resolution:
-                let aRes = a.mediaMetadata != nil ? (a.mediaMetadata!.width * a.mediaMetadata!.height) : 0
-                let bRes = b.mediaMetadata != nil ? (b.mediaMetadata!.width * b.mediaMetadata!.height) : 0
+                let aRes = Int64(a.mediaMetadata?.width ?? 0) * Int64(a.mediaMetadata?.height ?? 0)
+                let bRes = Int64(b.mediaMetadata?.width ?? 0) * Int64(b.mediaMetadata?.height ?? 0)
                 if aRes == bRes {
                     order = a.fileName.localizedStandardCompare(b.fileName)
                 } else {
@@ -138,66 +138,30 @@ public final class IngestState: ObservableObject {
     
     // MARK: - Intake Scanning Engine
     
+    private var currentScanTask: Task<Void, Never>? = nil
+    
     public func scanIntake(urls: [URL]) {
         guard !urls.isEmpty else { return }
+        
+        currentScanTask?.cancel()
         isScanning = true
         scanProgress = 0.0
         scanStatusMessage = "Enumerating files..."
         
-        Task { [weak self] in
+        currentScanTask = Task { [weak self] in
             guard let self else { return }
             
-            // Determine root intake directory
-            let rootURL: URL
-            var isDir: ObjCBool = false
-            if urls.count == 1 && FileManager.default.fileExists(atPath: urls[0].path, isDirectory: &isDir) && isDir.boolValue {
-                rootURL = urls[0]
-            } else {
-                rootURL = urls[0].deletingLastPathComponent()
-            }
+            // 1. Offload file discovery and deduplication to background thread
+            let (rootURL, uniqueFiles) = await Task.detached(priority: .userInitiated) {
+                Self.enumerateFiles(in: urls)
+            }.value
+            
+            guard !Task.isCancelled else { return }
             
             self.intakeFolderURL = rootURL
-            
-            // Enumerate files recursively
-            var allFileURLs: [URL] = []
-            let fileManager = FileManager.default
-            
-            for url in urls {
-                var isDirectory: ObjCBool = false
-                if fileManager.fileExists(atPath: url.path, isDirectory: &isDirectory) {
-                    if isDirectory.boolValue {
-                        let enumerator = fileManager.enumerator(
-                            at: url,
-                            includingPropertiesForKeys: [.fileSizeKey, .isDirectoryKey, .creationDateKey, .contentModificationDateKey],
-                            options: [.skipsHiddenFiles, .skipsPackageDescendants]
-                        )
-                        while let file = enumerator?.nextObject() as? URL {
-                            var dirVal: AnyObject?
-                            try? (file as NSURL).getResourceValue(&dirVal, forKey: .isDirectoryKey)
-                            if (dirVal as? Bool) != true {
-                                allFileURLs.append(file)
-                            }
-                        }
-                    } else {
-                        allFileURLs.append(url)
-                    }
-                }
-            }
-            
-            // Deduplicate
-            var seen = Set<String>()
-            var uniqueFiles: [URL] = []
-            for f in allFileURLs {
-                let p = f.standardizedFileURL.path
-                if !seen.contains(p) {
-                    seen.insert(p)
-                    uniqueFiles.append(f)
-                }
-            }
-            
             self.scanStatusMessage = "Found \(uniqueFiles.count) files. Classifying & inspecting metadata..."
             
-            // Classify and inspect files
+            // 2. Classify and inspect files with bounded concurrency pool (max 4 concurrent)
             let items = await Self.classifyAndInspectFiles(
                 files: uniqueFiles,
                 rootURL: rootURL,
@@ -210,7 +174,9 @@ public final class IngestState: ObservableObject {
                 }
             )
             
-            // Update Manifest
+            guard !Task.isCancelled else { return }
+            
+            // 3. Update Manifest
             self.manifest.items = items
             
             // Auto-check elements received
@@ -233,13 +199,64 @@ public final class IngestState: ObservableObject {
         }
     }
     
-    // MARK: - File Classification & Parallel Inspection
+    // MARK: - Background File Enumeration
     
-    private static func classifyAndInspectFiles(
+    private nonisolated static func enumerateFiles(in urls: [URL]) -> (rootURL: URL, files: [URL]) {
+        let rootURL: URL
+        var isDir: ObjCBool = false
+        if urls.count == 1 && FileManager.default.fileExists(atPath: urls[0].path, isDirectory: &isDir) && isDir.boolValue {
+            rootURL = urls[0]
+        } else {
+            rootURL = urls[0].deletingLastPathComponent()
+        }
+        
+        var allFileURLs: [URL] = []
+        let fileManager = FileManager.default
+        
+        for url in urls {
+            var isDirectory: ObjCBool = false
+            if fileManager.fileExists(atPath: url.path, isDirectory: &isDirectory) {
+                if isDirectory.boolValue {
+                    guard let enumerator = fileManager.enumerator(
+                        at: url,
+                        includingPropertiesForKeys: [.fileSizeKey, .isRegularFileKey],
+                        options: [.skipsHiddenFiles, .skipsPackageDescendants]
+                    ) else { continue }
+                    
+                    for case let fileURL as URL in enumerator {
+                        if let res = try? fileURL.resourceValues(forKeys: [.isRegularFileKey]), res.isRegularFile == true {
+                            allFileURLs.append(fileURL)
+                        }
+                    }
+                } else {
+                    allFileURLs.append(url)
+                }
+            }
+        }
+        
+        var seen = Set<String>()
+        var uniqueFiles: [URL] = []
+        uniqueFiles.reserveCapacity(allFileURLs.count)
+        for f in allFileURLs {
+            let p = f.standardizedFileURL.path
+            if !seen.contains(p) {
+                seen.insert(p)
+                uniqueFiles.append(f)
+            }
+        }
+        
+        return (rootURL, uniqueFiles)
+    }
+    
+    // MARK: - File Classification & Bounded Parallel Inspection
+    
+    private nonisolated static func classifyAndInspectFiles(
         files: [URL],
         rootURL: URL,
         onProgress: @escaping @Sendable (Int, Int) -> Void
     ) async -> [IngestItem] {
+        guard !files.isEmpty else { return [] }
+        
         let rootPath = rootURL.standardizedFileURL.path
         let videoExts: Set<String> = [
             "mov", "mp4", "m4v", "mkv", "avi", "prores", "mxf", "r3d", "ari", "arx", "braw", "dpx", "crm"
@@ -254,112 +271,141 @@ public final class IngestState: ObservableObject {
             "pdf", "csv", "tsv", "txt", "html", "ale", "xml"
         ]
         
-        return await withTaskGroup(of: IngestItem.self) { group in
-            var items: [IngestItem] = []
-            items.reserveCapacity(files.count)
+        let total = files.count
+        let maxConcurrency = min(4, total)
+        
+        return await withTaskGroup(of: (Int, IngestItem).self) { group in
+            var indexedItems: [(Int, IngestItem)] = []
+            indexedItems.reserveCapacity(total)
             
-            let total = files.count
-            var inspectedCount = 0
+            var submitted = 0
+            var completedCount = 0
             
-            for file in files {
-                group.addTask {
-                    let ext = file.pathExtension.lowercased()
-                    let fullPath = file.standardizedFileURL.path
-                    let pathComponents = file.pathComponents.map { $0.uppercased() }
-                    let fileName = file.lastPathComponent
-                    let upperFileName = fileName.uppercased()
-                    
-                    // Relative Path
-                    let relativePath: String
-                    if fullPath.hasPrefix(rootPath) {
-                        let sub = String(fullPath.dropFirst(rootPath.count))
-                        relativePath = sub.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
-                    } else {
-                        relativePath = fileName
+            // Seed initial bounded pool
+            for _ in 0..<maxConcurrency {
+                if submitted < total {
+                    let idx = submitted
+                    let file = files[idx]
+                    submitted += 1
+                    group.addTask {
+                        let item = await Self.inspectSingleFile(
+                            file: file,
+                            rootPath: rootPath,
+                            videoExts: videoExts,
+                            audioExts: audioExts,
+                            lutExts: lutExts,
+                            reportExts: reportExts
+                        )
+                        return (idx, item)
                     }
-                    
-                    // File Size
-                    let resValues = try? file.resourceValues(forKeys: [.fileSizeKey])
-                    let sizeBytes = Int64(resValues?.fileSize ?? 0)
-                    let formattedSize = DeliverablesInspector.formatFileSize(bytes: sizeBytes)
-                    
-                    // Classification: Check directory and name for TRANSCODES or PROXY
-                    let isTranscodeDir = pathComponents.contains("TRANSCODES") ||
-                                         pathComponents.contains("TRANSCODE") ||
-                                         pathComponents.contains("PROXY") ||
-                                         pathComponents.contains("PROXIES")
-                    let isTranscodeName = upperFileName.contains("_PROXY") ||
-                                          upperFileName.contains("_TRANSCODE") ||
-                                          upperFileName.contains("_TC")
-                    
-                    let category: IngestFileCategory
-                    if videoExts.contains(ext) {
-                        category = (isTranscodeDir || isTranscodeName) ? .transcode : .rawFootage
-                    } else if audioExts.contains(ext) {
-                        category = .locationAudio
-                    } else if lutExts.contains(ext) {
-                        category = .lut
-                    } else if reportExts.contains(ext) {
-                        let isReportContext = pathComponents.contains("REPORT") ||
-                                              pathComponents.contains("REPORTS") ||
-                                              pathComponents.contains("DIT") ||
-                                              pathComponents.contains("ALE") ||
-                                              upperFileName.contains("REPORT") ||
-                                              upperFileName.contains("ALE") ||
-                                              upperFileName.contains("DIT") ||
-                                              ext == "pdf" || ext == "ale"
-                        category = isReportContext ? .cameraReport : .other
-                    } else {
-                        category = .other
-                    }
-                    
-                    // Inspect video metadata if video
-                    var mediaMeta: IngestMediaMetadata? = nil
-                    if videoExts.contains(ext) {
-                        let asset = AVURLAsset(url: file, options: [AVURLAssetPreferPreciseDurationAndTimingKey: true])
-                        if let deliverable = await DeliverablesInspector.inspectFile(url: file) {
-                            let camera = await DeliverablesInspector.extractCameraMakeModel(asset: asset)
-                            mediaMeta = IngestMediaMetadata(
-                                width: deliverable.width,
-                                height: deliverable.height,
-                                resolutionString: deliverable.resolutionString,
-                                aspectRatioString: deliverable.aspectRatioString,
-                                fps: deliverable.fps,
-                                durationSeconds: deliverable.durationSeconds,
-                                formattedDuration: deliverable.formattedDuration,
-                                totalFrames: deliverable.totalFrames,
-                                timecode: deliverable.timecode,
-                                videoCodec: deliverable.videoCodec,
-                                audioCodec: deliverable.audioCodec,
-                                audioConfig: deliverable.audioConfig,
-                                cameraMakeModel: camera,
-                                container: deliverable.container,
-                                creationDate: deliverable.creationDate,
-                                formattedCreationDate: deliverable.formattedCreationDate
-                            )
-                        }
-                    }
-                    
-                    return IngestItem(
-                        fileURL: file,
-                        relativePath: relativePath,
-                        fileName: fileName,
-                        fileSizeBytes: sizeBytes,
-                        formattedFileSize: formattedSize,
-                        fileCategory: category,
-                        mediaMetadata: mediaMeta
-                    )
                 }
             }
             
-            for await item in group {
-                items.append(item)
-                inspectedCount += 1
-                onProgress(inspectedCount, total)
+            // As each finishes, report progress and submit next
+            for await (idx, item) in group {
+                indexedItems.append((idx, item))
+                completedCount += 1
+                
+                if completedCount % 3 == 0 || completedCount == total {
+                    onProgress(completedCount, total)
+                }
+                
+                if submitted < total {
+                    let nextIdx = submitted
+                    let nextFile = files[nextIdx]
+                    submitted += 1
+                    group.addTask {
+                        let nextItem = await Self.inspectSingleFile(
+                            file: nextFile,
+                            rootPath: rootPath,
+                            videoExts: videoExts,
+                            audioExts: audioExts,
+                            lutExts: lutExts,
+                            reportExts: reportExts
+                        )
+                        return (nextIdx, nextItem)
+                    }
+                }
             }
             
-            return items
+            // Preserve original input order
+            return indexedItems.sorted { $0.0 < $1.0 }.map { $0.1 }
         }
+    }
+    
+    private nonisolated static func inspectSingleFile(
+        file: URL,
+        rootPath: String,
+        videoExts: Set<String>,
+        audioExts: Set<String>,
+        lutExts: Set<String>,
+        reportExts: Set<String>
+    ) async -> IngestItem {
+        let ext = file.pathExtension.lowercased()
+        let fullPath = file.standardizedFileURL.path
+        let pathComponents = file.pathComponents.map { $0.uppercased() }
+        let fileName = file.lastPathComponent
+        let upperFileName = fileName.uppercased()
+        
+        // Relative Path
+        let relativePath: String
+        if fullPath.hasPrefix(rootPath) {
+            let sub = String(fullPath.dropFirst(rootPath.count))
+            relativePath = sub.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        } else {
+            relativePath = fileName
+        }
+        
+        // File Size
+        let resValues = try? file.resourceValues(forKeys: [.fileSizeKey])
+        let sizeBytes = Int64(resValues?.fileSize ?? 0)
+        let formattedSize = DeliverablesInspector.formatFileSize(bytes: sizeBytes)
+        
+        // Classification: Check directory and name for TRANSCODES or PROXY
+        let isTranscodeDir = pathComponents.contains("TRANSCODES") ||
+                             pathComponents.contains("TRANSCODE") ||
+                             pathComponents.contains("PROXY") ||
+                             pathComponents.contains("PROXIES")
+        let isTranscodeName = upperFileName.contains("_PROXY") ||
+                              upperFileName.contains("_TRANSCODE") ||
+                              upperFileName.contains("_TC")
+        
+        let category: IngestFileCategory
+        if videoExts.contains(ext) {
+            category = (isTranscodeDir || isTranscodeName) ? .transcode : .rawFootage
+        } else if audioExts.contains(ext) {
+            category = .locationAudio
+        } else if lutExts.contains(ext) {
+            category = .lut
+        } else if reportExts.contains(ext) {
+            let isReportContext = pathComponents.contains("REPORT") ||
+                                  pathComponents.contains("REPORTS") ||
+                                  pathComponents.contains("DIT") ||
+                                  pathComponents.contains("ALE") ||
+                                  upperFileName.contains("REPORT") ||
+                                  upperFileName.contains("ALE") ||
+                                  upperFileName.contains("DIT") ||
+                                  ext == "pdf" || ext == "ale"
+            category = isReportContext ? .cameraReport : .other
+        } else {
+            category = .other
+        }
+        
+        // Inspect video metadata if video
+        var mediaMeta: IngestMediaMetadata? = nil
+        if videoExts.contains(ext) {
+            mediaMeta = await IngestInspector.inspectMedia(url: file)
+        }
+        
+        return IngestItem(
+            fileURL: file,
+            relativePath: relativePath,
+            fileName: fileName,
+            fileSizeBytes: sizeBytes,
+            formattedFileSize: formattedSize,
+            fileCategory: category,
+            mediaMetadata: mediaMeta
+        )
     }
     
     // MARK: - Technical Details Aggregation

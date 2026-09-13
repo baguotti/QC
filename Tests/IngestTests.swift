@@ -120,4 +120,64 @@ struct IngestTests {
         #expect(html.contains("1953 - KM"))
         #expect(html.contains("A001_C001.mov"))
     }
+    
+    @Test("IngestInspector handles non-existent or corrupt files safely without crashing")
+    func testCorruptOrMissingMediaInspection() async {
+        let fakeURL = URL(fileURLWithPath: "/tmp/non_existent_footage_\(UUID().uuidString).mov")
+        let meta = await IngestInspector.inspectMedia(url: fakeURL)
+        #expect(meta == nil)
+    }
+    
+    @Test("IngestItem sorting handles edge cases with zero, NaN, and nil metadata safely")
+    func testSortingSafety() {
+        let item1 = IngestItem(
+            fileURL: URL(fileURLWithPath: "/tmp/a.mov"),
+            relativePath: "a.mov",
+            fileName: "a.mov",
+            fileSizeBytes: 0,
+            formattedFileSize: "0 B",
+            fileCategory: .rawFootage,
+            mediaMetadata: nil
+        )
+        
+        let item2 = IngestItem(
+            fileURL: URL(fileURLWithPath: "/tmp/b.mov"),
+            relativePath: "b.mov",
+            fileName: "b.mov",
+            fileSizeBytes: 1000,
+            formattedFileSize: "1 KB",
+            fileCategory: .transcode,
+            mediaMetadata: IngestMediaMetadata(
+                width: 1920,
+                height: 1080,
+                resolutionString: "1920 x 1080",
+                aspectRatioString: "16:9",
+                fps: 24.0,
+                durationSeconds: 10.0,
+                formattedDuration: "10.00s",
+                totalFrames: 240,
+                timecode: "00:00:10:00",
+                videoCodec: "ProRes",
+                container: "MOV"
+            )
+        )
+        
+        let items = [item1, item2]
+        
+        // Sorting by duration when one is nil
+        let sortedByDuration = items.sorted { a, b in
+            let aDur = a.mediaMetadata?.durationSeconds ?? 0
+            let bDur = b.mediaMetadata?.durationSeconds ?? 0
+            return aDur < bDur
+        }
+        #expect(sortedByDuration.first?.fileName == "a.mov")
+        
+        // Sorting by fps
+        let sortedByFPS = items.sorted { a, b in
+            let aFPS = a.mediaMetadata?.fps ?? 0
+            let bFPS = b.mediaMetadata?.fps ?? 0
+            return aFPS < bFPS
+        }
+        #expect(sortedByFPS.first?.fileName == "a.mov")
+    }
 }

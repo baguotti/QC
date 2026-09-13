@@ -799,7 +799,7 @@ extension ContentView {
                 .frame(width: 100, alignment: .leading)
             
             // FPS
-            Text(item.mediaMetadata != nil ? String(format: "%.2f", item.mediaMetadata!.fps) : "--")
+            Text(item.mediaMetadata.map { String(format: "%.2f", $0.fps) } ?? "--")
                 .font(.system(size: 9.5, design: .monospaced))
                 .foregroundColor(textMuted)
                 .frame(width: 55, alignment: .leading)
@@ -818,7 +818,7 @@ extension ContentView {
                 .frame(width: 120, alignment: .leading)
             
             // Audio
-            Text(item.mediaMetadata != nil ? "\(item.mediaMetadata!.audioCodec) \(item.mediaMetadata!.audioConfig)" : "--")
+            Text(item.mediaMetadata.map { "\($0.audioCodec) \($0.audioConfig)" } ?? "--")
                 .font(.system(size: 9.5, design: .monospaced))
                 .foregroundColor(textMuted)
                 .lineLimit(1)

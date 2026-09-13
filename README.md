@@ -1,12 +1,12 @@
 # QCPIE
 
-**VERSION 0.7.2** | MACOS VIDEO QC, DUAL-SLOT COMPARISON & METADATA TOOLKIT
+**VERSION 0.7.3** | MACOS VIDEO QC, DUAL-SLOT COMPARISON & METADATA TOOLKIT
 
 ---
 
 ## OVERVIEW
 
-QCpie (LineFinder 5000) is a high-performance native macOS application for video post-production teams, QC engineers, colorists, and delivery editors. It combines a frame-accurate dual-slot video viewport with automated edge glitch scanning and container metadata inspection.
+QCpie is a high-performance native macOS application for video post-production teams, QC engineers, colorists, and delivery editors. It combines a frame-accurate dual-slot video viewport with automated edge glitch scanning, container metadata inspection, and a comprehensive footage intake and DIT report auditor.
 
 ---
 
@@ -74,7 +74,7 @@ QCpie (LineFinder 5000) is a high-performance native macOS application for video
 
 ### 4. FOOTAGE INGEST & DIT REPORT AUDIT (TAB 04 // INGEST)
 
-- **Automated Delivery Intake**: Point to any shoot or delivery intake folder to catalog all files recursively.
+- **Automated Delivery Intake**: Point to any shoot or delivery intake folder to catalog all files recursively with bounded parallel concurrency and lightweight container inspection.
 - **Intelligent Classification**: Separates raw footage, transcodes (detects `TRANSCODES` or `PROXY` subfolders and naming conventions), location audio, shooting LUTs, and camera reports.
 - **Metadata Auto-Aggregation**: Extracts camera make/model, dominant codecs, shooting resolution, and project timebase automatically from container atoms.
 - **DIT Report Cross-Referencing**: Imports CSV, TSV, or ALE reports from DITs and flags discrepancies:
@@ -121,12 +121,12 @@ swift build --sdk /Library/Developer/CommandLineTools/SDKs/MacOSX26.5.sdk
 
 Application Bundle (.app):
 ```bash
-./BuildApp.sh
+./scripts/BuildApp.sh
 ```
 
 Disk Image Installer (.dmg):
 ```bash
-./CreateDMG.sh
+./scripts/CreateDMG.sh
 ```
 
 ---
