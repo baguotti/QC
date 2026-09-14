@@ -80,6 +80,33 @@ public struct StudioThemeConfig: Identifiable, Codable, Equatable, Sendable {
     public var purpleNSColor: NSColor { NSColor(purpleColor) }
     public var redNSColor: NSColor { NSColor(redColor) }
     
+    public func hex(for slot: AccentSlot) -> String {
+        switch slot {
+        case .green: return greenHex
+        case .blue: return blueHex
+        case .purple: return purpleHex
+        case .red: return redHex
+        }
+    }
+    
+    public func color(for slot: AccentSlot) -> Color {
+        switch slot {
+        case .green: return greenColor
+        case .blue: return blueColor
+        case .purple: return purpleColor
+        case .red: return redColor
+        }
+    }
+    
+    public mutating func setColorHex(_ hex: String, for slot: AccentSlot) {
+        switch slot {
+        case .green: greenHex = hex
+        case .blue: blueHex = hex
+        case .purple: purpleHex = hex
+        case .red: redHex = hex
+        }
+    }
+    
     // MARK: - Built-in Factory Presets (Muted & Vivid)
     
     public static let muted = StudioThemeConfig(
@@ -151,14 +178,22 @@ public enum UIButtonZoomLevel: Int, CaseIterable, Identifiable, Codable, Sendabl
 @MainActor
 public final class ThemeManager: ObservableObject {
     public static let shared = ThemeManager()
+    public static let maxTotalPresets: Int = 10
     
     private let activeThemeKey = "QCpie_ActiveThemeID"
     private let currentThemeDataKey = "QCpie_CurrentThemeData"
+    private let userPresetsKey = "QCpie_UserThemePresets"
     private let buttonZoomKey = "QCpie_UIButtonZoomLevel"
     
     @Published public var currentTheme: StudioThemeConfig {
         didSet {
             saveCurrentTheme()
+        }
+    }
+    
+    @Published public var userPresets: [StudioThemeConfig] = [] {
+        didSet {
+            saveUserPresets()
         }
     }
     
@@ -181,16 +216,39 @@ public final class ThemeManager: ObservableObject {
     }
     
     public var allThemes: [StudioThemeConfig] {
-        StudioThemeConfig.presets
+        StudioThemeConfig.presets + userPresets
+    }
+    
+    public var canSaveMorePresets: Bool {
+        allThemes.count < Self.maxTotalPresets
     }
     
     public init() {
         let savedZoom = UserDefaults.standard.integer(forKey: buttonZoomKey)
         self.buttonZoom = UIButtonZoomLevel(rawValue: savedZoom) ?? .small
         
-        if let activeID = UserDefaults.standard.string(forKey: activeThemeKey) {
+        // Load custom user presets
+        let loadedUserPresets: [StudioThemeConfig]
+        if let data = UserDefaults.standard.data(forKey: userPresetsKey),
+           let decoded = try? JSONDecoder().decode([StudioThemeConfig].self, from: data) {
+            loadedUserPresets = decoded
+        } else {
+            loadedUserPresets = []
+        }
+        self.userPresets = loadedUserPresets
+        
+        let savedActiveID = UserDefaults.standard.string(forKey: activeThemeKey)
+        
+        if let activeID = savedActiveID {
             if activeID == "preset-vivid" || activeID == "preset-broadcast-vivid" {
                 self.currentTheme = StudioThemeConfig.vivid
+            } else if activeID == "preset-muted" || activeID == "preset-studio-teal" {
+                self.currentTheme = StudioThemeConfig.muted
+            } else if let matchedUserPreset = loadedUserPresets.first(where: { $0.id == activeID }) {
+                self.currentTheme = matchedUserPreset
+            } else if let data = UserDefaults.standard.data(forKey: currentThemeDataKey),
+                      let decoded = try? JSONDecoder().decode(StudioThemeConfig.self, from: data) {
+                self.currentTheme = decoded
             } else {
                 self.currentTheme = StudioThemeConfig.muted
             }
@@ -198,8 +256,12 @@ public final class ThemeManager: ObservableObject {
                   let decoded = try? JSONDecoder().decode(StudioThemeConfig.self, from: data) {
             if decoded.id == "preset-vivid" || decoded.id == "preset-broadcast-vivid" {
                 self.currentTheme = StudioThemeConfig.vivid
-            } else {
+            } else if decoded.id == "preset-muted" || decoded.id == "preset-studio-teal" {
                 self.currentTheme = StudioThemeConfig.muted
+            } else if let matchedUserPreset = loadedUserPresets.first(where: { $0.id == decoded.id }) {
+                self.currentTheme = matchedUserPreset
+            } else {
+                self.currentTheme = decoded
             }
         } else {
             self.currentTheme = StudioThemeConfig.muted
@@ -213,13 +275,67 @@ public final class ThemeManager: ObservableObject {
     }
     
     public func cycleAccentTheme() {
-        let presets = StudioThemeConfig.presets
-        guard !presets.isEmpty else { return }
-        if let idx = presets.firstIndex(where: { $0.id == currentTheme.id }) {
-            let nextIdx = (idx + 1) % presets.count
-            applyTheme(presets[nextIdx])
+        let themes = allThemes
+        guard !themes.isEmpty else { return }
+        if let idx = themes.firstIndex(where: { $0.id == currentTheme.id }) {
+            let nextIdx = (idx + 1) % themes.count
+            applyTheme(themes[nextIdx])
         } else {
-            applyTheme(presets[0])
+            applyTheme(themes[0])
+        }
+    }
+    
+    public func updateAccentColor(slot: AccentSlot, hex: String) {
+        var updated = currentTheme
+        // If current theme is a factory preset or matches a saved preset, detach it as an active custom theme
+        if updated.isPreset || userPresets.contains(where: { $0.id == updated.id }) {
+            updated.id = UUID().uuidString
+            updated.name = "Custom"
+            updated.isPreset = false
+        }
+        updated.setColorHex(hex, for: slot)
+        currentTheme = updated
+    }
+    
+    public func updateAccentColor(slot: AccentSlot, color: Color) {
+        let ns = NSColor(color)
+        updateAccentColor(slot: slot, hex: ns.hexString)
+    }
+    
+    @discardableResult
+    public func savePreset(name: String) -> Bool {
+        guard canSaveMorePresets else { return false }
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        let finalName = trimmed.isEmpty ? "PRESET \(userPresets.count + 1)" : trimmed
+        let newPreset = StudioThemeConfig(
+            id: UUID().uuidString,
+            name: finalName,
+            isPreset: false,
+            greenHex: currentTheme.greenHex,
+            blueHex: currentTheme.blueHex,
+            purpleHex: currentTheme.purpleHex,
+            redHex: currentTheme.redHex
+        )
+        userPresets.append(newPreset)
+        currentTheme = newPreset
+        return true
+    }
+    
+    public func deletePreset(id: String) {
+        userPresets.removeAll(where: { $0.id == id })
+        if currentTheme.id == id {
+            currentTheme = StudioThemeConfig.muted
+        }
+    }
+    
+    public func renamePreset(id: String, newName: String) {
+        let trimmed = newName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        if let idx = userPresets.firstIndex(where: { $0.id == id }) {
+            userPresets[idx].name = trimmed
+        }
+        if currentTheme.id == id {
+            currentTheme.name = trimmed
         }
     }
     
@@ -244,6 +360,12 @@ public final class ThemeManager: ObservableObject {
     
     // MARK: - Persistence
     
+    private func saveUserPresets() {
+        if let encoded = try? JSONEncoder().encode(userPresets) {
+            UserDefaults.standard.set(encoded, forKey: userPresetsKey)
+        }
+    }
+    
     private func saveCurrentTheme() {
         UserDefaults.standard.set(currentTheme.id, forKey: activeThemeKey)
         if let encoded = try? JSONEncoder().encode(currentTheme) {
@@ -264,23 +386,23 @@ public enum AccentSlot: String, CaseIterable, Identifiable {
     
     public var title: String {
         switch self {
-        case .green: return "01 // GREEN (SLOT A / PASS)"
-        case .blue: return "02 // TEAL / BLUE (INTERACTIVE / TIME)"
-        case .purple: return "03 // PURPLE (SLOT B / SPECS)"
-        case .red: return "04 // RED (GLITCHES / WARNINGS)"
+        case .green: return "01 // SLOT A / PASS"
+        case .blue: return "02 // TIMECODE / PLAYHEAD"
+        case .purple: return "03 // SLOT B / COMPARE"
+        case .red: return "04 // GLITCHES / ALERTS"
         }
     }
     
     public var roleDescription: String {
         switch self {
         case .green:
-            return "Slot A master video, pass badges, ready status."
+            return "Master video slot, pass badges, ready status."
         case .blue:
-            return "Active tab indicator, timeline playhead, timecode, scrubbers, loop."
+            return "Active tabs, playhead, timecode readouts, scrubbers."
         case .purple:
-            return "Slot B reference video, A/B split screen & difference mode, specs."
+            return "Slot B reference video, A/B split screen and diff mode."
         case .red:
-            return "Detected line glitches, failed QC checks, alert banners."
+            return "Detected line glitches, QC failures, alert banners."
         }
     }
 }

@@ -6,6 +6,9 @@ struct ThemeSettingsModalView: View {
     @ObservedObject private var themeManager = ThemeManager.shared
     @AppStorage("isLightMode") private var isLightMode: Bool = false
     
+    @State private var isSavingPreset: Bool = false
+    @State private var newPresetName: String = ""
+    
     private var palette: StudioPalette { StudioPalette(isLightMode) }
     
     var body: some View {
@@ -50,21 +53,27 @@ struct ThemeSettingsModalView: View {
                 
                 Rectangle().fill(palette.borderLine).frame(height: 1)
                 
-                // Content Body
-                VStack(alignment: .leading, spacing: 18) {
-                    // Section 1: Light / Dark Theme Mode
-                    appearanceModeSection
-                    
-                    // Section 2: Accent Palettes (Muted & Vivid)
-                    paletteSection
-                    
-                    // Section 3: Button & UI Size (Zoom)
-                    buttonZoomSection
-                    
-                    // Section 4: Live UI Element Preview
-                    previewSection
+                // Scrollable Content Body
+                ScrollView(.vertical, showsIndicators: true) {
+                    VStack(alignment: .leading, spacing: 20) {
+                        // Section 1: Light / Dark Theme Mode
+                        appearanceModeSection
+                        
+                        // Section 2: Accent Presets
+                        presetsSection
+                        
+                        // Section 3: Customize Accent Colors (Per-Slot)
+                        customColorsSection
+                        
+                        // Section 4: Button & UI Size (Zoom)
+                        buttonZoomSection
+                        
+                        // Section 5: Live UI Element Preview
+                        previewSection
+                    }
+                    .padding(20)
                 }
-                .padding(20)
+                .frame(maxHeight: 540)
                 .background(palette.bgMain)
                 
                 Rectangle().fill(palette.borderLine).frame(height: 1)
@@ -107,7 +116,7 @@ struct ThemeSettingsModalView: View {
                 .padding(.vertical, 12)
                 .background(palette.bgPanel)
             }
-            .frame(width: 600)
+            .frame(width: 640)
             .studioBox(background: palette.bgPanel, border: palette.borderStrong)
             .shadow(color: Color.black.opacity(0.45), radius: 28, x: 0, y: 14)
         }
@@ -117,6 +126,7 @@ struct ThemeSettingsModalView: View {
     private func dismissModal() {
         withAnimation(.easeInOut(duration: 0.15)) {
             isPresented = false
+            isSavingPreset = false
         }
         DispatchQueue.main.async {
             if let window = NSApp.windows.first(where: { $0.canBecomeKey }) {
@@ -221,91 +231,224 @@ struct ThemeSettingsModalView: View {
         }
     }
     
-    // MARK: - Section 2: Accent Palettes (Muted & Vivid)
+    // MARK: - Section 2: Accent Presets
     
-    private var paletteSection: some View {
+    private var presetsSection: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("02 // ACCENT PALETTE (MUTED & VIVID)")
-                .font(.system(size: 10, weight: .black, design: .monospaced))
-                .foregroundColor(palette.textMuted)
-                .tracking(0.5)
-            
-            HStack(spacing: 10) {
-                // Muted Theme Card
-                themeCard(
-                    theme: StudioThemeConfig.muted,
-                    subtitle: "Understated, eye-friendly studio tones (Default)"
-                )
-                
-                // Vivid Theme Card
-                themeCard(
-                    theme: StudioThemeConfig.vivid,
-                    subtitle: "High-contrast broadcast & punchy alerts"
-                )
-            }
-        }
-    }
-    
-    private func themeCard(theme: StudioThemeConfig, subtitle: String) -> some View {
-        let isSelected = themeManager.currentTheme.id == theme.id ||
-            (theme.id == StudioThemeConfig.muted.id && themeManager.currentTheme.id != StudioThemeConfig.vivid.id)
-        
-        return Button(action: {
-            withAnimation(.easeInOut(duration: 0.15)) {
-                themeManager.applyTheme(theme)
-            }
-        }) {
-            HStack(spacing: 10) {
-                // 4 Color Pill Dots (2x2 Grid)
-                VStack(spacing: 3) {
-                    HStack(spacing: 3) {
-                        Circle().fill(theme.greenColor).frame(width: 7, height: 7)
-                        Circle().fill(theme.blueColor).frame(width: 7, height: 7)
-                    }
-                    HStack(spacing: 3) {
-                        Circle().fill(theme.purpleColor).frame(width: 7, height: 7)
-                        Circle().fill(theme.redColor).frame(width: 7, height: 7)
-                    }
-                }
-                .frame(width: 20)
-                
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(theme.name.uppercased())
-                        .font(.system(size: 10, weight: isSelected ? .black : .bold, design: .monospaced))
-                        .foregroundColor(isSelected ? palette.textMain : palette.textMuted)
-                    
-                    Text(subtitle)
-                        .font(.system(size: 8, weight: .medium))
-                        .foregroundColor(palette.textSubtle)
-                        .lineLimit(1)
-                }
+            HStack {
+                Text("02 // ACCENT PRESETS")
+                    .font(.system(size: 10, weight: .black, design: .monospaced))
+                    .foregroundColor(palette.textMuted)
+                    .tracking(0.5)
                 
                 Spacer()
                 
-                if isSelected {
-                    Image(systemName: "checkmark")
-                        .font(.system(size: 9, weight: .black))
-                        .foregroundColor(theme.blueColor)
+                Text("(\(themeManager.allThemes.count)/\(ThemeManager.maxTotalPresets) TOTAL)")
+                    .font(.system(size: 9, weight: .bold, design: .monospaced))
+                    .foregroundColor(palette.textSubtle)
+            }
+            
+            // Preset Cards Grid (2 Columns)
+            LazyVGrid(columns: [GridItem(.flexible(), spacing: 10), GridItem(.flexible(), spacing: 10)], spacing: 8) {
+                ForEach(themeManager.allThemes) { preset in
+                    presetCard(preset: preset)
                 }
             }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 10)
-            .background(isSelected ? palette.bgSubtle : palette.bgPanel)
-            .overlay(
-                RoundedRectangle(cornerRadius: StudioTheme.cornerRadius)
-                    .stroke(isSelected ? theme.blueColor : palette.borderLine, lineWidth: isSelected ? 1.5 : 1)
-            )
-            .cornerRadius(StudioTheme.cornerRadius)
+            
+            // Save Preset Controls
+            if isSavingPreset {
+                HStack(spacing: 8) {
+                    HStack(spacing: 4) {
+                        Image(systemName: "tag.fill")
+                            .font(.system(size: 9, weight: .bold))
+                            .foregroundColor(palette.textSubtle)
+                        TextField("PRESET NAME", text: $newPresetName)
+                            .textFieldStyle(.plain)
+                            .font(.system(size: 10, weight: .bold, design: .monospaced))
+                            .foregroundColor(palette.textMain)
+                            .onSubmit {
+                                saveNewPreset()
+                            }
+                    }
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 6)
+                    .studioBox(background: palette.bgPanel, border: themeManager.currentTheme.blueColor)
+                    
+                    Button(action: {
+                        saveNewPreset()
+                    }) {
+                        Text("SAVE")
+                            .font(.system(size: 9, weight: .black, design: .monospaced))
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 6)
+                            .foregroundColor(palette.primaryBtnFg)
+                            .background(palette.primaryBtnBg)
+                            .cornerRadius(StudioTheme.cornerRadius)
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(newPresetName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    
+                    Button(action: {
+                        isSavingPreset = false
+                        newPresetName = ""
+                    }) {
+                        Text("CANCEL")
+                            .font(.system(size: 9, weight: .bold, design: .monospaced))
+                            .padding(.horizontal, 9)
+                            .padding(.vertical, 6)
+                            .foregroundColor(palette.textMuted)
+                            .studioBox(background: palette.bgSubtle, border: palette.borderLine)
+                    }
+                    .buttonStyle(.plain)
+                }
+                .padding(.top, 4)
+            } else {
+                HStack(spacing: 10) {
+                    Button(action: {
+                        newPresetName = "PRESET \(themeManager.userPresets.count + 1)"
+                        isSavingPreset = true
+                    }) {
+                        HStack(spacing: 6) {
+                            Image(systemName: "plus")
+                                .font(.system(size: 9, weight: .bold))
+                            Text("SAVE CURRENT AS PRESET")
+                                .font(.system(size: 9, weight: .bold, design: .monospaced))
+                        }
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 6)
+                        .foregroundColor(themeManager.canSaveMorePresets ? palette.textMain : palette.textMuted.opacity(0.4))
+                        .studioBox(
+                            background: palette.bgSubtle,
+                            border: themeManager.canSaveMorePresets ? palette.borderLine : palette.borderLine.opacity(0.3)
+                        )
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(!themeManager.canSaveMorePresets)
+                    
+                    if !themeManager.canSaveMorePresets {
+                        Text("PRESET LIMIT REACHED (10 TOTAL)")
+                            .font(.system(size: 8, weight: .bold, design: .monospaced))
+                            .foregroundColor(themeManager.currentTheme.redColor)
+                    }
+                    
+                    Spacer()
+                }
+                .padding(.top, 4)
+            }
         }
-        .buttonStyle(.plain)
     }
     
-    // MARK: - Section 3: Button & UI Size (Zoom)
+    private func saveNewPreset() {
+        if themeManager.savePreset(name: newPresetName) {
+            isSavingPreset = false
+            newPresetName = ""
+        }
+    }
+    
+    private func presetCard(preset: StudioThemeConfig) -> some View {
+        let isSelected = themeManager.currentTheme.id == preset.id
+        
+        return HStack(spacing: 6) {
+            Button(action: {
+                withAnimation(.easeInOut(duration: 0.15)) {
+                    themeManager.applyTheme(preset)
+                }
+            }) {
+                HStack(spacing: 8) {
+                    // 4 Color Pill Dots (2x2 Grid)
+                    VStack(spacing: 2.5) {
+                        HStack(spacing: 2.5) {
+                            Circle().fill(preset.greenColor).frame(width: 6, height: 6)
+                            Circle().fill(preset.blueColor).frame(width: 6, height: 6)
+                        }
+                        HStack(spacing: 2.5) {
+                            Circle().fill(preset.purpleColor).frame(width: 6, height: 6)
+                            Circle().fill(preset.redColor).frame(width: 6, height: 6)
+                        }
+                    }
+                    .frame(width: 15)
+                    
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(preset.name.uppercased())
+                            .font(.system(size: 9.5, weight: isSelected ? .black : .bold, design: .monospaced))
+                            .foregroundColor(isSelected ? palette.textMain : palette.textMuted)
+                            .lineLimit(1)
+                        
+                        Text(preset.isPreset ? "FACTORY PRESET" : "USER PRESET")
+                            .font(.system(size: 7, weight: .medium, design: .monospaced))
+                            .foregroundColor(palette.textSubtle)
+                    }
+                    
+                    Spacer(minLength: 4)
+                    
+                    if isSelected {
+                        Image(systemName: "checkmark")
+                            .font(.system(size: 8, weight: .black))
+                            .foregroundColor(themeManager.currentTheme.blueColor)
+                    }
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            
+            // Delete button for custom user presets
+            if !preset.isPreset {
+                Button(action: {
+                    withAnimation(.easeInOut(duration: 0.15)) {
+                        themeManager.deletePreset(id: preset.id)
+                    }
+                }) {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 8, weight: .bold))
+                        .foregroundColor(palette.textSubtle)
+                        .padding(4)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .help("Delete preset")
+            }
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 8)
+        .background(isSelected ? palette.bgSubtle : palette.bgPanel)
+        .overlay(
+            RoundedRectangle(cornerRadius: StudioTheme.cornerRadius)
+                .stroke(isSelected ? themeManager.currentTheme.blueColor : palette.borderLine, lineWidth: isSelected ? 1.5 : 1)
+        )
+        .cornerRadius(StudioTheme.cornerRadius)
+    }
+    
+    // MARK: - Section 3: Customize Accent Colors (Per-Slot)
+    
+    private var customColorsSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Text("03 // CUSTOMIZE ACCENT COLORS")
+                    .font(.system(size: 10, weight: .black, design: .monospaced))
+                    .foregroundColor(palette.textMuted)
+                    .tracking(0.5)
+                
+                Spacer()
+                
+                Text("CLICK SWATCH OR EDIT HEX")
+                    .font(.system(size: 8, weight: .bold, design: .monospaced))
+                    .foregroundColor(palette.textSubtle)
+            }
+            
+            LazyVGrid(columns: [GridItem(.flexible(), spacing: 10), GridItem(.flexible(), spacing: 10)], spacing: 8) {
+                ForEach(AccentSlot.allCases) { slot in
+                    AccentColorSlotCard(slot: slot, palette: palette, themeManager: themeManager)
+                }
+            }
+        }
+    }
+    
+    // MARK: - Section 4: Button & UI Size (Zoom)
     
     private var buttonZoomSection: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
-                Text("03 // BUTTON & UI SIZE")
+                Text("04 // BUTTON & UI SIZE")
                     .font(.system(size: 10, weight: .black, design: .monospaced))
                     .foregroundColor(palette.textMuted)
                     .tracking(0.5)
@@ -381,11 +524,11 @@ struct ThemeSettingsModalView: View {
         .buttonStyle(.plain)
     }
     
-    // MARK: - Section 4: Live UI Element Preview
+    // MARK: - Section 5: Live UI Element Preview
     
     private var previewSection: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("04 // LIVE ACCENT HARMONY PREVIEW")
+            Text("05 // LIVE ACCENT HARMONY PREVIEW")
                 .font(.system(size: 10, weight: .black, design: .monospaced))
                 .foregroundColor(palette.textMuted)
                 .tracking(0.5)
@@ -409,7 +552,6 @@ struct ThemeSettingsModalView: View {
                     Text("LINE FINDER")
                         .font(.system(size: 10, weight: .bold, design: .monospaced))
                         .foregroundColor(palette.textSubtle)
-                    
                 }
                 .padding(.horizontal, 12)
                 .padding(.top, 10)
@@ -490,5 +632,98 @@ struct ThemeSettingsModalView: View {
             .background(palette.bgPanel)
             .studioBox(background: palette.bgPanel, border: palette.borderLine)
         }
+    }
+}
+
+// MARK: - Accent Color Slot Card
+
+private struct AccentColorSlotCard: View {
+    let slot: AccentSlot
+    let palette: StudioPalette
+    @ObservedObject var themeManager: ThemeManager
+    @State private var hexInput: String = ""
+    
+    var body: some View {
+        HStack(spacing: 8) {
+            // Role info
+            VStack(alignment: .leading, spacing: 2) {
+                Text(slot.title)
+                    .font(.system(size: 9, weight: .black, design: .monospaced))
+                    .foregroundColor(palette.textMain)
+                    .lineLimit(1)
+                Text(slot.roleDescription)
+                    .font(.system(size: 7.5, weight: .medium))
+                    .foregroundColor(palette.textSubtle)
+                    .lineLimit(1)
+            }
+            
+            Spacer(minLength: 4)
+            
+            // Hex text field
+            HStack(spacing: 2) {
+                Text("#")
+                    .font(.system(size: 8.5, weight: .bold, design: .monospaced))
+                    .foregroundColor(palette.textSubtle)
+                
+                TextField("000000", text: $hexInput)
+                    .textFieldStyle(.plain)
+                    .font(.system(size: 8.5, weight: .bold, design: .monospaced))
+                    .foregroundColor(palette.textMain)
+                    .frame(width: 48)
+                    .onSubmit {
+                        applyHex()
+                    }
+            }
+            .padding(.horizontal, 5)
+            .padding(.vertical, 3)
+            .studioBox(background: palette.bgSubtle, border: palette.borderLine)
+            
+            // Native Color Picker
+            ColorPicker(
+                "",
+                selection: Binding<Color>(
+                    get: { themeManager.currentTheme.color(for: slot) },
+                    set: { newColor in
+                        themeManager.updateAccentColor(slot: slot, color: newColor)
+                        syncHex()
+                    }
+                ),
+                supportsOpacity: false
+            )
+            .labelsHidden()
+            .frame(width: 20, height: 20)
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 8)
+        .background(palette.bgPanel)
+        .overlay(
+            RoundedRectangle(cornerRadius: StudioTheme.cornerRadius)
+                .stroke(palette.borderLine, lineWidth: 1)
+        )
+        .cornerRadius(StudioTheme.cornerRadius)
+        .onAppear {
+            syncHex()
+        }
+        .onChange(of: themeManager.currentTheme) { _, _ in
+            syncHex()
+        }
+    }
+    
+    private func syncHex() {
+        let fullHex = themeManager.currentTheme.hex(for: slot)
+        let clean = fullHex.trimmingCharacters(in: CharacterSet.alphanumerics.inverted).uppercased()
+        if hexInput.uppercased() != clean {
+            hexInput = clean
+        }
+    }
+    
+    private func applyHex() {
+        let clean = hexInput.trimmingCharacters(in: CharacterSet.alphanumerics.inverted).uppercased()
+        guard clean.count == 6, clean.allSatisfy({ $0.isHexDigit }) else {
+            syncHex()
+            return
+        }
+        themeManager.updateAccentColor(slot: slot, hex: "#\(clean)")
+        hexInput = clean
     }
 }
