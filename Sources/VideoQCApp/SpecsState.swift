@@ -12,6 +12,28 @@ public final class SpecsState: ObservableObject {
     @Published public var manifestCSVURL: URL? = nil
     @Published public var manifestHTMLURL: URL? = nil
     @Published public var deliverablesCollapsedFolderIDs: Set<String> = []
+    @Published public var dismissedMismatchURLs: Set<URL> = []
+    
+    public func isMismatchDismissed(for url: URL) -> Bool {
+        dismissedMismatchURLs.contains(url.standardizedFileURL)
+    }
+    
+    public func dismissMismatch(for url: URL) {
+        dismissedMismatchURLs.insert(url.standardizedFileURL)
+    }
+    
+    public func restoreMismatch(for url: URL) {
+        dismissedMismatchURLs.remove(url.standardizedFileURL)
+    }
+    
+    public func toggleDismissMismatch(for url: URL) {
+        let key = url.standardizedFileURL
+        if dismissedMismatchURLs.contains(key) {
+            dismissedMismatchURLs.remove(key)
+        } else {
+            dismissedMismatchURLs.insert(key)
+        }
+    }
     
     // Column Width & Resizing
     @Published public var specsFileNameColumnWidth: Double {

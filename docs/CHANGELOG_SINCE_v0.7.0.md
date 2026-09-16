@@ -1,5 +1,5 @@
 # QCpie — Changelog & Refactoring Report
-> **Changes from v0.7.0 to v0.7.4 (Post-PR #1 Merge)**
+> **Changes from v0.7.0 to v0.7.5 (Post-PR #1 Merge)**
 
 ---
 
@@ -12,6 +12,7 @@
 | **v0.7.2** | Architectural Modularization & Automated Testing | Extracted `ScannerState`, `SpecsState`, `KeyboardShortcutRouter`, split `PlayerTabView`, and added native `Swift Testing` test suite. |
 | **v0.7.3** | Footage Ingest Tab, DIT Audit & Media Inspector | Added Tab 04 // `INGEST`, DIT CSV/TSV/ALE cross-referencing, lightweight `IngestInspector`, bounded 4-worker scan concurrency, and multi-preset screenshot exporter. |
 | **v0.7.4** | Custom Accent Themes & Preset Persistence | Custom per-slot accent color pickers (native `ColorPicker` + direct `#RRGGBB` hex fields), saved user presets (capped at 10 total), and 22 automated tests. |
+| **v0.7.5** | Line Audit Preserves Cancellation, Finder Tag Toggle, Specs Mismatch Dismiss, TB Size Formatting & DIT RTF/Text Parsing | Preserves scanned results on cancel in Line Audit, toggle for Finder red tagging (default off), dismiss/restore mismatch flags in Specs, format sizes in TB, and support `.rtf` / `.txt` / `.log` / `.md` DIT reports. |
 
 ---
 

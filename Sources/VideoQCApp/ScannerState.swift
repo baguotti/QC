@@ -18,6 +18,13 @@ public final class ScannerState: ObservableObject {
     @Published public var ignoreFullWhiteFrames: Bool = true
     @Published public var maxWhiteVariance: Double = 2.0
     
+    @Published public var tagInFinder: Bool {
+        didSet { UserDefaults.standard.set(tagInFinder, forKey: "tagInFinder") }
+    }
+    @Published public var lastScanTagInFinder: Bool = false
+    @Published public var wasScanCancelled: Bool = false
+    @Published public var isCancelling: Bool = false
+    
     @Published public var isScanning: Bool = false
     @Published public var isAuditBtnHovered: Bool = false
     @Published public var progressInfo: VideoScanner.ScanProgress? = nil
@@ -27,7 +34,9 @@ public final class ScannerState: ObservableObject {
     @Published public var generatedCSVURL: URL? = nil
     @Published public var scannerActor: VideoScanner? = nil
     
-    public init() {}
+    public init() {
+        self.tagInFinder = UserDefaults.standard.bool(forKey: "tagInFinder")
+    }
     
     public var isTargetBlack: Bool {
         guard let rgb = RGBColor(hex: hexCode) else { return false }
@@ -90,7 +99,10 @@ public final class ScannerState: ObservableObject {
         )
         
         isScanning = true
+        isCancelling = false
+        wasScanCancelled = false
         scanResults = []
+        lastScanTagInFinder = tagInFinder
         generatedReportURL = nil
         generatedCSVURL = nil
         
@@ -98,18 +110,33 @@ public final class ScannerState: ObservableObject {
         self.scannerActor = scanner
         
         Task {
-            let results = await scanner.scanBatch(videoURLs: videoFiles, config: config, maxConcurrentScanners: 2) { progress in
-                DispatchQueue.main.async {
-                    self.progressInfo = progress
+            let results = await scanner.scanBatch(
+                videoURLs: videoFiles,
+                config: config,
+                maxConcurrentScanners: 2,
+                progressHandler: { progress in
+                    DispatchQueue.main.async {
+                        self.progressInfo = progress
+                    }
+                },
+                onFileCompleted: { result in
+                    DispatchQueue.main.async {
+                        if !self.scanResults.contains(where: { $0.fileURL == result.fileURL }) {
+                            self.scanResults.append(result)
+                        }
+                    }
                 }
-            }
+            )
             
-            ReportWriter.tagFlaggedFilesInFinder(results: results)
+            if self.tagInFinder {
+                ReportWriter.tagFlaggedFilesInFinder(results: results)
+            }
             
             DispatchQueue.main.async {
                 self.scanResults = results
                 self.lastScanConfig = config
                 self.isScanning = false
+                self.isCancelling = false
                 self.scannerActor = nil
                 onComplete(results, config)
             }
@@ -117,9 +144,10 @@ public final class ScannerState: ObservableObject {
     }
     
     public func cancelScan() {
+        guard isScanning else { return }
+        wasScanCancelled = true
+        isCancelling = true
         scannerActor?.cancel()
-        self.isScanning = false
-        self.scannerActor = nil
     }
     
     public func exportScanHTML(folderURL: URL?, videoFiles: [URL]) {

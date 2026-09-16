@@ -100,3 +100,46 @@ struct ThemeManagerTests {
         }
     }
 }
+
+@Suite("Specs Mismatch Dismissal and Scanner Tests")
+struct SpecsAndScannerTests {
+    
+    @Test @MainActor
+    func specsMismatchDismissalToggle() {
+        let specs = SpecsState()
+        let url = URL(fileURLWithPath: "/Volumes/Deliverables/Commercial_30s_16x9.mov")
+        
+        #expect(specs.isMismatchDismissed(for: url) == false)
+        
+        specs.dismissMismatch(for: url)
+        #expect(specs.isMismatchDismissed(for: url) == true)
+        
+        specs.restoreMismatch(for: url)
+        #expect(specs.isMismatchDismissed(for: url) == false)
+        
+        specs.toggleDismissMismatch(for: url)
+        #expect(specs.isMismatchDismissed(for: url) == true)
+        
+        specs.toggleDismissMismatch(for: url)
+        #expect(specs.isMismatchDismissed(for: url) == false)
+    }
+    
+    @Test @MainActor
+    func scannerStateDefaultsAndCancel() {
+        let scanner = ScannerState()
+        #expect(scanner.tagInFinder == false)
+        #expect(scanner.wasScanCancelled == false)
+        #expect(scanner.isCancelling == false)
+        
+        // Simulating cancellation call when not scanning
+        scanner.cancelScan()
+        #expect(scanner.wasScanCancelled == false)
+        
+        // Simulating cancellation call when scanning
+        scanner.isScanning = true
+        scanner.cancelScan()
+        #expect(scanner.wasScanCancelled == true)
+        #expect(scanner.isCancelling == true)
+    }
+}
+

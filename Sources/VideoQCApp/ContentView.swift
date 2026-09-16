@@ -1149,8 +1149,10 @@ struct ContentView: View {
     func startScan() {
         scannerState.startScan(videoFiles: videoFiles) { results, config in
             self.playerEngine.setScanResults(results)
-            for res in results where res.isFlagged {
-                self.fileTagsMap[res.fileURL] = .red
+            if self.scannerState.tagInFinder {
+                for res in results where res.isFlagged {
+                    self.fileTagsMap[res.fileURL] = .red
+                }
             }
             self.syncScanResultsToNotes(results: results)
         }

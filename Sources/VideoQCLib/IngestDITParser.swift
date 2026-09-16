@@ -8,19 +8,26 @@ public struct IngestDITParser: Sendable {
     
     public static func parse(content: String) -> [IngestDITRecord] {
         let lines = splitLines(content)
-        guard let headerLine = lines.first, !headerLine.isEmpty else { return [] }
+        guard !lines.isEmpty else { return [] }
         
-        let delimiter = detectDelimiter(line: headerLine)
-        let headers = parseRow(headerLine, delimiter: delimiter)
-        guard !headers.isEmpty else { return [] }
+        guard let headerInfo = findHeaderInfo(lines: lines) else { return [] }
+        let (headerIdx, delimiter, headers) = headerInfo
         
         // Find filename column index
         let fileColIdx = findFileNameColumnIndex(headers: headers)
         
         var records: [IngestDITRecord] = []
-        for line in lines.dropFirst() {
+        for line in lines.dropFirst(headerIdx + 1) {
             let row = parseRow(line, delimiter: delimiter)
             guard !row.isEmpty else { continue }
+            
+            // Skip decorative separator lines (e.g. |---|---|)
+            if row.allSatisfy({ cell in
+                let trimmed = cell.trimmingCharacters(in: .whitespacesAndNewlines)
+                return !trimmed.isEmpty && trimmed.allSatisfy { $0 == "-" || $0 == ":" || $0 == "=" }
+            }) {
+                continue
+            }
             
             // Build dictionary
             var fields: [String: String] = [:]
@@ -49,13 +56,52 @@ public struct IngestDITParser: Sendable {
         return records
     }
     
+    private static func findHeaderInfo(lines: [String]) -> (index: Int, delimiter: Character, headers: [String])? {
+        // First pass: look for a row that has at least 2 columns and contains a recognized file/clip column
+        for (idx, line) in lines.prefix(35).enumerated() {
+            let delim = detectDelimiter(line: line)
+            let headers = parseRow(line, delimiter: delim)
+            if headers.count >= 2 && findFileNameColumnIndex(headers: headers) != nil {
+                return (idx, delim, headers)
+            }
+        }
+        
+        // Second pass: line with the highest number of delimited columns (minimum 2)
+        var bestMatch: (index: Int, delimiter: Character, headers: [String], count: Int)? = nil
+        for (idx, line) in lines.prefix(35).enumerated() {
+            let delim = detectDelimiter(line: line)
+            let headers = parseRow(line, delimiter: delim)
+            if headers.count >= 2 {
+                if bestMatch == nil || headers.count > bestMatch!.count {
+                    bestMatch = (idx, delim, headers, headers.count)
+                }
+            }
+        }
+        if let match = bestMatch {
+            return (match.index, match.delimiter, match.headers)
+        }
+        
+        // Fallback: line 0
+        if let first = lines.first {
+            let delim = detectDelimiter(line: first)
+            let headers = parseRow(first, delimiter: delim)
+            if !headers.isEmpty {
+                return (0, delim, headers)
+            }
+        }
+        return nil
+    }
+    
     private static func detectDelimiter(line: String) -> Character {
         let tabCount = line.filter { $0 == "\t" }.count
         let commaCount = line.filter { $0 == "," }.count
         let semicolonCount = line.filter { $0 == ";" }.count
+        let pipeCount = line.filter { $0 == "|" }.count
         
-        if tabCount > commaCount && tabCount > semicolonCount {
+        if tabCount > commaCount && tabCount > semicolonCount && tabCount > pipeCount {
             return "\t"
+        } else if pipeCount > commaCount && pipeCount > semicolonCount {
+            return "|"
         } else if semicolonCount > commaCount {
             return ";"
         }
@@ -63,7 +109,11 @@ public struct IngestDITParser: Sendable {
     }
     
     private static func findFileNameColumnIndex(headers: [String]) -> Int? {
-        let candidates = ["clip name", "clip", "file name", "filename", "file", "clipname", "name", "shot", "reel / clip", "reel/clip", "source file"]
+        let candidates = [
+            "clip name", "clip", "file name", "filename", "file", "clipname",
+            "name", "shot", "reel / clip", "reel/clip", "source file", "source",
+            "media", "media file", "source clip"
+        ]
         for candidate in candidates {
             if let idx = headers.firstIndex(where: { $0.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == candidate }) {
                 return idx
@@ -104,6 +154,17 @@ public struct IngestDITParser: Sendable {
             }
         }
         result.append(current.trimmingCharacters(in: .whitespaces))
+        
+        // For pipe-delimited tables (| Col 1 | Col 2 |), strip outermost empty elements
+        if delimiter == "|" {
+            if let first = result.first, first.isEmpty {
+                result.removeFirst()
+            }
+            if let last = result.last, last.isEmpty {
+                result.removeLast()
+            }
+        }
+        
         return result
     }
     

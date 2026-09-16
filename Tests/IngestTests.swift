@@ -180,4 +180,38 @@ struct IngestTests {
         }
         #expect(sortedByFPS.first?.fileName == "a.mov")
     }
+    
+    @Test("DeliverablesInspector formats file sizes >= 1000 GB in TB instead of thousands of GB")
+    func testTBFormatting() {
+        let oneGB: Int64 = 1024 * 1024 * 1024
+        let size500GB = oneGB * 500
+        let size1000GB = oneGB * 1000
+        let size1500GB = oneGB * 1536
+        
+        #expect(DeliverablesInspector.formatFileSize(bytes: size500GB) == "500.00 GB")
+        #expect(DeliverablesInspector.formatFileSize(bytes: size1000GB).contains("TB"))
+        #expect(DeliverablesInspector.formatFileSize(bytes: size1500GB) == "1.50 TB")
+    }
+    
+    @Test("IngestDITParser handles camera report metadata banners and pipe-delimited tables")
+    func testDITParserWithHeaderMetadataAndPipes() {
+        let cameraReport = """
+        CAMERA REPORT & DIT LOG
+        Project: Feature Film Alpha
+        Date: 2026-09-16
+        Camera: Alexa 35
+
+        | Clip Name | FPS | Resolution | Codec |
+        | --- | --- | --- | --- |
+        | A001_C001_0916.mov | 24.00 | 3840x2160 | ProRes 4444 |
+        | A001_C002_0916.mov | 24.00 | 3840x2160 | ProRes 4444 |
+        """
+        
+        let records = IngestDITParser.parse(content: cameraReport)
+        #expect(records.count == 2)
+        #expect(records[0].fileName == "A001_C001_0916.mov")
+        #expect(records[0].fps == "24.00")
+        #expect(records[0].resolution == "3840x2160")
+        #expect(records[1].fileName == "A001_C002_0916.mov")
+    }
 }

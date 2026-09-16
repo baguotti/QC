@@ -77,7 +77,8 @@ public actor VideoScanner {
         videoURLs: [URL],
         config: QCConfig,
         maxConcurrentScanners: Int = 2,
-        progressHandler: @escaping @Sendable (ScanProgress) -> Void
+        progressHandler: @escaping @Sendable (ScanProgress) -> Void,
+        onFileCompleted: (@Sendable (VideoQCResult) -> Void)? = nil
     ) async -> [VideoQCResult] {
         cancellationState.reset()
         
@@ -116,6 +117,7 @@ public actor VideoScanner {
             // As each video finishes, submit the next one
             for await (idx, result) in group {
                 results.append((idx, result))
+                onFileCompleted?(result)
                 if result.isFlagged {
                     flaggedCount += 1
                 }

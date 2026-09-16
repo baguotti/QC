@@ -289,8 +289,11 @@ public struct DeliverablesInspector: Sendable {
         let kb = Double(bytes) / 1024.0
         let mb = kb / 1024.0
         let gb = mb / 1024.0
+        let tb = gb / 1024.0
         
-        if gb >= 1.0 {
+        if gb >= 1000.0 || tb >= 1.0 {
+            return String(format: "%.2f TB", tb)
+        } else if gb >= 1.0 {
             return String(format: "%.2f GB", gb)
         } else if mb >= 1.0 {
             return String(format: "%.1f MB", mb)

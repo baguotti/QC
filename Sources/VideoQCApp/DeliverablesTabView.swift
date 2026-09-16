@@ -244,7 +244,7 @@ extension ContentView {
         let displayAssets = filteredDeliverableAssets
         let totalBytes = displayAssets.reduce(Int64(0)) { $0 + $1.fileSizeBytes }
         let totalSeconds = displayAssets.reduce(0.0) { $0 + $1.durationSeconds }
-        let mismatchCount = displayAssets.filter { $0.validation.hasAnyMismatch }.count
+        let mismatchCount = displayAssets.filter { $0.validation.hasAnyMismatch && !specsState.isMismatchDismissed(for: $0.fileURL) }.count
         
         return VStack(alignment: .leading, spacing: 20) {
             // Header: Clean audit status
@@ -697,7 +697,7 @@ extension ContentView {
     private func deliverablesFolderBannerRow(node: FileSystemTreeNode, assetMap: [URL: DeliverableAsset]) -> some View {
         let isCollapsed = isDeliverablesFolderRowCollapsed(node)
         let folderAssets = node.videoURLs.compactMap { assetMap[$0] }
-        let folderMismatches = folderAssets.filter { $0.validation.hasAnyMismatch }.count
+        let folderMismatches = folderAssets.filter { $0.validation.hasAnyMismatch && !specsState.isMismatchDismissed(for: $0.fileURL) }.count
         let totalBytes = folderAssets.reduce(Int64(0)) { $0 + $1.fileSizeBytes }
         let totalSeconds = folderAssets.reduce(0.0) { $0 + $1.durationSeconds }
         let formattedSize = DeliverablesInspector.formatFileSize(bytes: totalBytes)
@@ -778,7 +778,8 @@ extension ContentView {
     }
     
     private func deliverablesAssetRow(idx: Int, asset: DeliverableAsset, depth: Int = 0) -> some View {
-        let hasMismatch = asset.validation.hasAnyMismatch
+        let isDismissed = specsState.isMismatchDismissed(for: asset.fileURL)
+        let hasMismatch = asset.validation.hasAnyMismatch && !isDismissed
         let isSelected = specsState.selectedDeliverableURL?.standardizedFileURL == asset.fileURL.standardizedFileURL
         
         return HStack(spacing: 8) {
@@ -835,28 +836,39 @@ extension ContentView {
             // Timecode Cell with Warning
             VStack(alignment: .center, spacing: 3) {
                 Text(asset.timecode)
-                    .foregroundColor(asset.validation.isDurationMismatch ? alertRed : textSubtle)
-                    .fontWeight(asset.validation.isDurationMismatch ? .bold : .regular)
+                    .foregroundColor((asset.validation.isDurationMismatch && !isDismissed) ? alertRed : textSubtle)
+                    .fontWeight((asset.validation.isDurationMismatch && !isDismissed) ? .bold : .regular)
                 
                 if let detail = asset.validation.durationMismatchDetail {
                     HStack(spacing: 3) {
-                        Image(systemName: "exclamationmark.triangle.fill")
+                        Image(systemName: isDismissed ? "checkmark.circle" : "exclamationmark.triangle.fill")
                             .font(.system(size: 7, weight: .bold))
-                        Text(detail)
-                            .font(.system(size: 8, weight: .black, design: .monospaced))
+                        Text(isDismissed ? "\(detail) (DISMISSED)" : detail)
+                            .font(.system(size: 8, weight: isDismissed ? .medium : .black, design: .monospaced))
+                        
+                        Button(action: {
+                            specsState.toggleDismissMismatch(for: asset.fileURL)
+                        }) {
+                            Image(systemName: isDismissed ? "arrow.uturn.backward" : "xmark")
+                                .font(.system(size: 7, weight: .heavy))
+                                .foregroundColor(isDismissed ? textMuted : alertRed)
+                                .padding(1)
+                        }
+                        .buttonStyle(.plain)
+                        .help(isDismissed ? "Restore Mismatch Flag" : "Dismiss Mismatch Flag")
                     }
                     .padding(.horizontal, 5)
                     .padding(.vertical, 1.5)
-                    .foregroundColor(alertRed)
-                    .background(alertRed.opacity(0.12))
+                    .foregroundColor(isDismissed ? textMuted : alertRed)
+                    .background(isDismissed ? bgSubtle : alertRed.opacity(0.12))
                     .overlay(
                         RoundedRectangle(cornerRadius: 3)
-                            .stroke(alertRed.opacity(0.35), lineWidth: 0.8)
+                            .stroke(isDismissed ? borderLine : alertRed.opacity(0.35), lineWidth: 0.8)
                     )
                     .cornerRadius(3)
                     .lineLimit(1)
                     .minimumScaleFactor(0.8)
-                    .help("Duration Mismatch: \(detail) (Actual Timecode: \(asset.timecode))")
+                    .help("Duration Mismatch: \(detail) (Actual Timecode: \(asset.timecode))\(isDismissed ? " [Dismissed]" : "")")
                 }
             }
             .frame(width: 142, alignment: .center)
@@ -868,8 +880,11 @@ extension ContentView {
                         .font(.system(size: 9, weight: .bold, design: .monospaced))
                         .padding(.horizontal, 4)
                         .padding(.vertical, 2)
-                        .foregroundColor(asset.validation.isRatioMismatch ? .white : textMain)
-                        .studioBox(background: asset.validation.isRatioMismatch ? alertRed : bgSubtle, border: asset.validation.isRatioMismatch ? alertRed : borderLine)
+                        .foregroundColor((asset.validation.isRatioMismatch && !isDismissed) ? .white : textMain)
+                        .studioBox(
+                            background: (asset.validation.isRatioMismatch && !isDismissed) ? alertRed : bgSubtle,
+                            border: (asset.validation.isRatioMismatch && !isDismissed) ? alertRed : borderLine
+                        )
                     
                     Text(asset.resolutionString)
                         .foregroundColor(textSubtle)
@@ -877,23 +892,34 @@ extension ContentView {
                 
                 if let detail = asset.validation.ratioMismatchDetail {
                     HStack(spacing: 3) {
-                        Image(systemName: "exclamationmark.triangle.fill")
+                        Image(systemName: isDismissed ? "checkmark.circle" : "exclamationmark.triangle.fill")
                             .font(.system(size: 7, weight: .bold))
-                        Text(detail)
-                            .font(.system(size: 8, weight: .black, design: .monospaced))
+                        Text(isDismissed ? "\(detail) (DISMISSED)" : detail)
+                            .font(.system(size: 8, weight: isDismissed ? .medium : .black, design: .monospaced))
+                        
+                        Button(action: {
+                            specsState.toggleDismissMismatch(for: asset.fileURL)
+                        }) {
+                            Image(systemName: isDismissed ? "arrow.uturn.backward" : "xmark")
+                                .font(.system(size: 7, weight: .heavy))
+                                .foregroundColor(isDismissed ? textMuted : alertRed)
+                                .padding(1)
+                        }
+                        .buttonStyle(.plain)
+                        .help(isDismissed ? "Restore Mismatch Flag" : "Dismiss Mismatch Flag")
                     }
                     .padding(.horizontal, 5)
                     .padding(.vertical, 1.5)
-                    .foregroundColor(alertRed)
-                    .background(alertRed.opacity(0.12))
+                    .foregroundColor(isDismissed ? textMuted : alertRed)
+                    .background(isDismissed ? bgSubtle : alertRed.opacity(0.12))
                     .overlay(
                         RoundedRectangle(cornerRadius: 3)
-                            .stroke(alertRed.opacity(0.35), lineWidth: 0.8)
+                            .stroke(isDismissed ? borderLine : alertRed.opacity(0.35), lineWidth: 0.8)
                     )
                     .cornerRadius(3)
                     .lineLimit(1)
                     .minimumScaleFactor(0.8)
-                    .help("Aspect Ratio Mismatch: \(detail) (Actual Resolution: \(asset.resolutionString))")
+                    .help("Aspect Ratio Mismatch: \(detail) (Actual Resolution: \(asset.resolutionString))\(isDismissed ? " [Dismissed]" : "")")
                 }
             }
             .frame(width: 152, alignment: .center)
@@ -1028,6 +1054,18 @@ extension ContentView {
             }
             Button("Reveal in Finder") {
                 NSWorkspace.shared.activateFileViewerSelecting([asset.fileURL])
+            }
+            if asset.validation.hasAnyMismatch {
+                Divider()
+                Button(action: {
+                    specsState.toggleDismissMismatch(for: asset.fileURL)
+                }) {
+                    if isDismissed {
+                        Label("Restore Mismatch Flag", systemImage: "arrow.uturn.backward.circle")
+                    } else {
+                        Label("Dismiss Mismatch Flag", systemImage: "xmark.circle")
+                    }
+                }
             }
             Divider()
             Menu("Tags") {

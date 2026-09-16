@@ -485,12 +485,18 @@ public final class IngestState: ObservableObject {
             UTType.commaSeparatedText,
             UTType.tabSeparatedText,
             UTType.plainText,
+            UTType.rtf,
+            UTType.text,
             UTType(filenameExtension: "csv") ?? .plainText,
             UTType(filenameExtension: "tsv") ?? .plainText,
-            UTType(filenameExtension: "ale") ?? .plainText
+            UTType(filenameExtension: "ale") ?? .plainText,
+            UTType(filenameExtension: "rtf") ?? .plainText,
+            UTType(filenameExtension: "txt") ?? .plainText,
+            UTType(filenameExtension: "log") ?? .plainText,
+            UTType(filenameExtension: "md") ?? .plainText
         ]
         panel.prompt = "Import DIT Report"
-        panel.message = "Select a CSV, TSV, or ALE report provided by the DIT"
+        panel.message = "Select a CSV, TSV, ALE, RTF, or text report provided by the DIT"
         
         if panel.runModal() == .OK, let url = panel.url {
             importDITReport(url: url)
@@ -499,7 +505,31 @@ public final class IngestState: ObservableObject {
     
     public func importDITReport(url: URL) {
         do {
-            let content = try String(contentsOf: url, encoding: .utf8)
+            let content: String
+            let ext = url.pathExtension.lowercased()
+            if ext == "rtf" {
+                if let attrStr = try? NSAttributedString(url: url, options: [.documentType: NSAttributedString.DocumentType.rtf], documentAttributes: nil) {
+                    content = attrStr.string
+                } else if let data = try? Data(contentsOf: url),
+                          let attrStr = try? NSAttributedString(data: data, options: [.documentType: NSAttributedString.DocumentType.rtf], documentAttributes: nil) {
+                    content = attrStr.string
+                } else {
+                    content = try String(contentsOf: url, encoding: .utf8)
+                }
+            } else {
+                if let utf8 = try? String(contentsOf: url, encoding: .utf8) {
+                    content = utf8
+                } else if let ascii = try? String(contentsOf: url, encoding: .ascii) {
+                    content = ascii
+                } else if let latin1 = try? String(contentsOf: url, encoding: .isoLatin1) {
+                    content = latin1
+                } else if let win = try? String(contentsOf: url, encoding: .windowsCP1252) {
+                    content = win
+                } else {
+                    content = try String(contentsOf: url)
+                }
+            }
+            
             let records = IngestDITParser.parse(content: content)
             self.ditRecords = records
             self.ditReportURL = url

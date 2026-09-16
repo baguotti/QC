@@ -215,6 +215,13 @@ extension ContentView {
                 .foregroundColor(textMain)
                 .disabled(scannerState.isScanning)
                 .explain("Inspects the entire frame for internal dividing line artifacts and split-screen seams.", binding: $hoverExplanation)
+            
+            Toggle("MARK FLAGGED IN FINDER", isOn: $scannerState.tagInFinder)
+                .toggleStyle(StudioToggleStyle(isLight: isLightMode))
+                .font(.system(size: 10, weight: .bold, design: .monospaced))
+                .foregroundColor(textMain)
+                .disabled(scannerState.isScanning)
+                .explain("Applies a red Finder tag/label to any video file flagged with edge line artifacts.", binding: $hoverExplanation)
         }
     }
     
@@ -228,7 +235,7 @@ extension ContentView {
                         Image(systemName: "stop.fill")
                             .font(.system(size: 10, weight: .bold))
                         SlotText(
-                            "CANCEL AUDIT",
+                            scannerState.isCancelling ? "STOPPING..." : "CANCEL AUDIT",
                             mode: .character,
                             direction: .down,
                             font: .system(size: 11, weight: .heavy, design: .monospaced),
@@ -394,11 +401,11 @@ extension ContentView {
         return VStack(alignment: .leading, spacing: 20) {
             HStack(alignment: .center) {
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("AUDIT COMPLETE")
+                    Text(scannerState.wasScanCancelled ? "AUDIT STOPPED" : "AUDIT COMPLETE")
                         .font(.system(size: 28, weight: .black, design: .default))
                         .foregroundColor(textMain)
                         .tracking(1.0)
-                    Text("\(scannerState.scanResults.count) ASSETS ANALYZED")
+                    Text("\(scannerState.scanResults.count) ASSETS ANALYZED\(scannerState.wasScanCancelled ? " (PARTIAL)" : "")")
                         .font(.system(size: 11, weight: .bold, design: .monospaced))
                         .foregroundColor(textMuted)
                 }
@@ -612,9 +619,11 @@ extension ContentView {
                 Text("[\(segmentsCount) OCCURRENCE(S) // \(result.errorFrames.count) FRAMES]")
                     .font(.system(size: 10, weight: .bold, design: .monospaced))
                     .foregroundColor(alertRed)
-                Text("FINDER RED TAG APPLIED")
-                    .font(.system(size: 8, weight: .bold, design: .monospaced))
-                    .foregroundColor(textMuted)
+                if scannerState.lastScanTagInFinder {
+                    Text("FINDER RED TAG APPLIED")
+                        .font(.system(size: 8, weight: .bold, design: .monospaced))
+                        .foregroundColor(textMuted)
+                }
             }
         }
         .padding(14)

@@ -386,7 +386,7 @@ extension ContentView {
                         HStack(spacing: 5) {
                             Image(systemName: "square.and.arrow.down")
                                 .font(.system(size: 9, weight: .bold))
-                            Text("CROSS-REFERENCE DIT REPORT (CSV)")
+                            Text("CROSS-REFERENCE DIT REPORT (CSV / RTF / TXT)")
                                 .font(.system(size: 9, weight: .bold, design: .monospaced))
                                 .lineLimit(1)
                         }
@@ -396,7 +396,7 @@ extension ContentView {
                         .studioBox(background: bgSubtle, border: borderLine)
                     }
                     .buttonStyle(.plain)
-                    .explain("Import a DIT report (CSV, TSV, ALE) to verify files and flag missing or mismatched clips", binding: $hoverExplanation)
+                    .explain("Import a DIT report (CSV, TSV, ALE, RTF, TXT) to verify files and flag missing or mismatched clips", binding: $hoverExplanation)
                 }
                 
                 // Export Buttons Row
