@@ -30,6 +30,7 @@ public struct PlayerQueuePanelView: View, Equatable {
     public var slotBCodec: String
     
     public var activeTarget: SlotTarget
+    public var activeNotesURL: URL? = nil
     public var activeNotesCount: Int = 0
     
     @Binding public var queueScrollTarget: URL?
@@ -76,6 +77,7 @@ public struct PlayerQueuePanelView: View, Equatable {
             lhs.slotBFps == rhs.slotBFps &&
             lhs.slotBCodec == rhs.slotBCodec &&
             lhs.activeTarget == rhs.activeTarget &&
+            isSameURL(lhs.activeNotesURL, rhs.activeNotesURL) &&
             lhs.activeNotesCount == rhs.activeNotesCount &&
             lhs.queueScrollTarget == rhs.queueScrollTarget
         }
@@ -294,16 +296,18 @@ public struct PlayerQueuePanelView: View, Equatable {
                                         } else {
                                             let isSelA = isSameURL(slotAURL, node.url)
                                             let isSelB = isSameURL(slotBURL, node.url)
-                                            makeFileRow(url: node.url, depth: node.depth, isSlotA: isSelA, isSlotB: isSelB)
-                                                .id("\(node.url.path)_\(isSelA ? "A" : "_")_\(isSelB ? "B" : "_")_\(queueDisplayMode)_\(Int(playerThumbnailSize))_\(themeId)")
+                                            let count = fileNotesCount(url: node.url)
+                                            makeFileRow(url: node.url, depth: node.depth, isSlotA: isSelA, isSlotB: isSelB, notesCount: count)
+                                                .id("\(node.url.path)_\(isSelA ? "A" : "_")_\(isSelB ? "B" : "_")_\(count)_\(queueDisplayMode)_\(themeId)")
                                         }
                                     }
                                 } else {
                                     ForEach(filteredFiles, id: \.self) { url in
                                         let isSelA = isSameURL(slotAURL, url)
                                         let isSelB = isSameURL(slotBURL, url)
-                                        makeFileRow(url: url, depth: 0, isSlotA: isSelA, isSlotB: isSelB)
-                                            .id("\(url.path)_\(isSelA ? "A" : "_")_\(isSelB ? "B" : "_")_\(queueDisplayMode)_\(Int(playerThumbnailSize))_\(themeId)")
+                                        let count = fileNotesCount(url: url)
+                                        makeFileRow(url: url, depth: 0, isSlotA: isSelA, isSlotB: isSelB, notesCount: count)
+                                            .id("\(url.path)_\(isSelA ? "A" : "_")_\(isSelB ? "B" : "_")_\(count)_\(queueDisplayMode)_\(themeId)")
                                     }
                                 }
                             }
@@ -529,24 +533,21 @@ public struct PlayerQueuePanelView: View, Equatable {
         }
     }
     
-    private func makeFileRow(url: URL, depth: Int = 0, isSlotA: Bool, isSlotB: Bool) -> some View {
-        let hasNotes: Bool = {
-            if isSlotA {
-                return activeNotesCount > 0
-            } else if isSlotB && activeTarget == .slotB {
-                return activeNotesCount > 0
-            } else {
-                return QCNotesManager.hasNotes(for: url)
-            }
-        }()
-        
-        return PlayerQueueFileRowView(
+    private func fileNotesCount(url: URL) -> Int {
+        if let notesURL = activeNotesURL, isSameURL(url, notesURL) {
+            return activeNotesCount
+        }
+        return QCNotesManager.notesCount(for: url)
+    }
+    
+    private func makeFileRow(url: URL, depth: Int = 0, isSlotA: Bool, isSlotB: Bool, notesCount: Int) -> some View {
+        PlayerQueueFileRowView(
             url: url,
             depth: depth,
             isSlotA: isSlotA,
             isSlotB: isSlotB,
             hasSlotB: slotBURL != nil,
-            hasNotes: hasNotes,
+            notesCount: notesCount,
             currentTag: fileTagsMap[url],
             slotAResolution: slotAResolution,
             slotAFps: slotAFps,

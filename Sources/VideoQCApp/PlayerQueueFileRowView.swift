@@ -9,7 +9,8 @@ public struct PlayerQueueFileRowView: View, Equatable {
     public let isSlotA: Bool
     public let isSlotB: Bool
     public let hasSlotB: Bool
-    public let hasNotes: Bool
+    public let notesCount: Int
+    public var hasNotes: Bool { notesCount > 0 }
     public let currentTag: FinderTagColor?
     public let slotAResolution: String
     public let slotAFps: Double
@@ -40,7 +41,7 @@ public struct PlayerQueueFileRowView: View, Equatable {
             lhs.isSlotA == rhs.isSlotA &&
             lhs.isSlotB == rhs.isSlotB &&
             lhs.hasSlotB == rhs.hasSlotB &&
-            lhs.hasNotes == rhs.hasNotes &&
+            lhs.notesCount == rhs.notesCount &&
             lhs.currentTag == rhs.currentTag &&
             lhs.slotAResolution == rhs.slotAResolution &&
             lhs.slotAFps == rhs.slotAFps &&
@@ -65,6 +66,7 @@ public struct PlayerQueueFileRowView: View, Equatable {
     private var accentPositive: Color { StudioTheme.positive }
     private var accentSlotB: Color { StudioTheme.slotBAccent }
     private var playheadColor: Color { StudioTheme.accentBlue(isLightMode) }
+    private var bgPanel: Color { StudioTheme.bgPanel(isLightMode) }
     
     public var body: some View {
         let isSelected = isSlotA || isSlotB
@@ -173,6 +175,41 @@ public struct PlayerQueueFileRowView: View, Equatable {
     }
     
     @ViewBuilder
+    private var notesBadge: some View {
+        if notesCount > 0 {
+            let badgeColor: Color = isLightMode ? Color.black : Color.white
+            Text("\(notesCount)")
+                .font(.system(size: 8, weight: .bold, design: .monospaced))
+                .foregroundColor(badgeColor)
+                .padding(.horizontal, notesCount > 9 ? 3.5 : 0)
+                .frame(height: 13)
+                .frame(minWidth: 13)
+                .background(
+                    Capsule()
+                        .fill(isLightMode ? Color.white : bgPanel)
+                )
+                .overlay(
+                    Capsule()
+                        .stroke(badgeColor.opacity(isLightMode ? 0.75 : 0.8), lineWidth: 0.8)
+                )
+        }
+    }
+    
+    @ViewBuilder
+    private func fileNameLabel(fontSize: CGFloat, isSelected: Bool) -> some View {
+        HStack(spacing: 5) {
+            Text(url.lastPathComponent)
+                .font(.system(size: fontSize, weight: isSelected ? .bold : .medium, design: .monospaced))
+                .foregroundColor(isSelected ? textMain : textSubtle)
+                .lineLimit(1)
+            
+            if notesCount > 0 {
+                notesBadge
+            }
+        }
+    }
+    
+    @ViewBuilder
     private func inlineRowContent(isSelected: Bool) -> some View {
         HStack(spacing: 6) {
             Rectangle()
@@ -189,17 +226,7 @@ public struct PlayerQueueFileRowView: View, Equatable {
                     .frame(width: 6, height: 6)
             }
             
-            Text(url.lastPathComponent)
-                .font(.system(size: 10.5, weight: isSelected ? .bold : .medium, design: .monospaced))
-                .foregroundColor(isSelected ? textMain : textSubtle)
-                .lineLimit(1)
-            
-            if hasNotes {
-                Image(systemName: "bubble.left.fill")
-                    .font(.system(size: 8, weight: .semibold))
-                    .foregroundColor(playheadColor.opacity(isSelected ? 0.95 : 0.85))
-                    .help("Contains review notes")
-            }
+            fileNameLabel(fontSize: 10.5, isSelected: isSelected)
             
             if isSlotA && !slotAResolution.isEmpty {
                 Text("• \(slotAResolution) \(slotACodec)")
@@ -248,17 +275,7 @@ public struct PlayerQueueFileRowView: View, Equatable {
                             .fill(tag.color)
                             .frame(width: 6, height: 6)
                     }
-                    Text(url.lastPathComponent)
-                        .font(.system(size: isLarge ? 11 : 10.5, weight: isSelected ? .bold : .medium, design: .monospaced))
-                        .foregroundColor(isSelected ? textMain : textSubtle)
-                        .lineLimit(1)
-                    
-                    if hasNotes {
-                        Image(systemName: "bubble.left.fill")
-                            .font(.system(size: isLarge ? 8.5 : 8, weight: .semibold))
-                            .foregroundColor(playheadColor.opacity(isSelected ? 0.95 : 0.85))
-                            .help("Contains review notes")
-                    }
+                    fileNameLabel(fontSize: isLarge ? 11 : 10.5, isSelected: isSelected)
                 }
                 
                 if isSlotA && !slotAResolution.isEmpty {
@@ -311,17 +328,7 @@ public struct PlayerQueueFileRowView: View, Equatable {
                             .fill(tag.color)
                             .frame(width: 6, height: 6)
                     }
-                    Text(url.lastPathComponent)
-                        .font(.system(size: 11, weight: isSelected ? .bold : .medium, design: .monospaced))
-                        .foregroundColor(isSelected ? textMain : textSubtle)
-                        .lineLimit(1)
-                    
-                    if hasNotes {
-                        Image(systemName: "bubble.left.fill")
-                            .font(.system(size: 8.5, weight: .semibold))
-                            .foregroundColor(playheadColor.opacity(isSelected ? 0.95 : 0.85))
-                            .help("Contains review notes")
-                    }
+                    fileNameLabel(fontSize: 11, isSelected: isSelected)
                 }
                 
                 if isSlotA && !slotAResolution.isEmpty {

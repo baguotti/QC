@@ -157,6 +157,7 @@ extension ContentView {
             slotBFps: playerEngine.slotB.fps,
             slotBCodec: playerEngine.slotB.codec,
             activeTarget: playerEngine.activeTarget,
+            activeNotesURL: playerEngine.activeNotesURL,
             activeNotesCount: playerEngine.activeNotes.count,
             queueScrollTarget: $queueScrollTarget,
             hoverExplanation: $hoverExplanation,

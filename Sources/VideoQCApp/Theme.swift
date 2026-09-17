@@ -21,7 +21,7 @@ enum AppTab: Int, CaseIterable, Identifiable {
     
     var iconName: String {
         switch self {
-        case .player: return "film"
+        case .player: return "play.fill"
         case .specs: return "doc.text"
         case .lineFinder: return "viewfinder"
         case .ingest: return "tray.and.arrow.down"

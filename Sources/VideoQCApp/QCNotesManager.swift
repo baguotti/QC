@@ -38,6 +38,17 @@ public actor QCNotesManager {
         return FileManager.default.fileExists(atPath: visible.path)
     }
     
+    /// Returns the number of notes recorded in the companion sidecar file.
+    public nonisolated static func notesCount(for mediaURL: URL) -> Int {
+        let hidden = sidecarURL(for: mediaURL)
+        let visible = visibleSidecarURL(for: mediaURL)
+        let targetURL: URL? = FileManager.default.fileExists(atPath: hidden.path) ? hidden : (FileManager.default.fileExists(atPath: visible.path) ? visible : nil)
+        guard let url = targetURL, let data = try? Data(contentsOf: url) else { return 0 }
+        let dec = JSONDecoder()
+        dec.dateDecodingStrategy = .iso8601
+        return (try? dec.decode(QCNotesDocument.self, from: data))?.notes.count ?? 0
+    }
+    
     /// Loads notes from the companion sidecar file if present (checks hidden file first, falls back to visible).
     public func loadNotes(for mediaURL: URL) -> [QCFileNote] {
         let hiddenURL = QCNotesManager.sidecarURL(for: mediaURL)

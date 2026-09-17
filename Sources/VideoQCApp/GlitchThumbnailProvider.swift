@@ -19,7 +19,7 @@ public actor GlitchThumbnailProvider {
         for url: URL,
         frameIndex: Int,
         fps: Double,
-        targetSize: CGSize = CGSize(width: 320, height: 180)
+        targetSize: CGSize = CGSize(width: 200, height: 112)
     ) -> CGImage? {
         let key = "\(url.standardizedFileURL.path)_\(frameIndex)_\(Int(targetSize.width))x\(Int(targetSize.height))"
         if let cached = cache[key] {
@@ -31,11 +31,9 @@ public actor GlitchThumbnailProvider {
         if let existing = generators[stdURL] {
             gen = existing
         } else {
-            let asset = AVURLAsset(url: stdURL)
+            let asset = AVURLAsset(url: stdURL, options: [AVURLAssetPreferPreciseDurationAndTimingKey: false])
             let newGen = AVAssetImageGenerator(asset: asset)
             newGen.appliesPreferredTrackTransform = true
-            newGen.requestedTimeToleranceBefore = .zero
-            newGen.requestedTimeToleranceAfter = .zero
             generators[stdURL] = newGen
             gen = newGen
         }
@@ -43,9 +41,23 @@ public actor GlitchThumbnailProvider {
         gen.maximumSize = targetSize
         
         let safeFps = fps > 0 ? fps : 25.0
-        // Exact frame center PTS so zero tolerance lands squarely inside target frame
         let seconds = (Double(frameIndex) + 0.5) / safeFps
         let time = CMTime(seconds: seconds, preferredTimescale: 60000)
+        
+        // For general asset thumbnail (frame 0), allow keyframe tolerance for near-instant decoding
+        if frameIndex == 0 {
+            let keyframeTol = CMTime(seconds: 0.5, preferredTimescale: 60000)
+            gen.requestedTimeToleranceBefore = keyframeTol
+            gen.requestedTimeToleranceAfter = keyframeTol
+            if let cgImage = try? gen.copyCGImage(at: time, actualTime: nil) {
+                storeInCache(key: key, image: cgImage)
+                return cgImage
+            }
+        }
+        
+        // Accurate seek for frame-specific glitch reviews
+        gen.requestedTimeToleranceBefore = .zero
+        gen.requestedTimeToleranceAfter = .zero
         
         do {
             var actual = CMTime.zero
@@ -53,14 +65,9 @@ public actor GlitchThumbnailProvider {
             storeInCache(key: key, image: cgImage)
             return cgImage
         } catch {
-            // Fallback with 0.02s tolerance if PTS truncation occurs at file boundary
-            let fallbackTol = CMTime(seconds: 0.02, preferredTimescale: 60000)
+            let fallbackTol = CMTime(seconds: 0.1, preferredTimescale: 60000)
             gen.requestedTimeToleranceBefore = fallbackTol
             gen.requestedTimeToleranceAfter = fallbackTol
-            defer {
-                gen.requestedTimeToleranceBefore = .zero
-                gen.requestedTimeToleranceAfter = .zero
-            }
             if let fallbackImage = try? gen.copyCGImage(at: time, actualTime: nil) {
                 storeInCache(key: key, image: fallbackImage)
                 return fallbackImage
@@ -339,15 +346,38 @@ public struct AssetThumbnailView: View {
     }
     
     public var body: some View {
-        ZStack(alignment: .topLeading) {
-            Rectangle()
-                .fill(Color.black)
-            
+        ZStack(alignment: .center) {
             if let img = image {
-                Image(decorative: img, scale: 1.0, orientation: .up)
-                    .resizable()
-                    .aspectRatio(contentMode: .fit)
-                    .frame(width: width, height: height)
+                let imgW = CGFloat(img.width)
+                let imgH = CGFloat(max(1, img.height))
+                let aspect = imgW / imgH
+                let slotAspect = width / max(1, height)
+                
+                let fitWidth: CGFloat = aspect > slotAspect ? width : max(1, round(height * aspect))
+                let fitHeight: CGFloat = aspect > slotAspect ? max(1, round(width / aspect)) : height
+                
+                ZStack(alignment: .topLeading) {
+                    Image(decorative: img, scale: 1.0, orientation: .up)
+                        .resizable()
+                        .frame(width: fitWidth, height: fitHeight)
+                    
+                    if let badge = badgeText {
+                        Text(badge)
+                            .font(.system(size: 7.5, weight: .black, design: .monospaced))
+                            .foregroundColor(.white)
+                            .padding(.horizontal, 3)
+                            .padding(.vertical, 1)
+                            .background(badgeColor)
+                            .clipShape(RoundedRectangle(cornerRadius: 1.5))
+                            .padding(2)
+                    }
+                }
+                .frame(width: fitWidth, height: fitHeight)
+                .clipShape(RoundedRectangle(cornerRadius: cornerRadius))
+                .overlay(
+                    RoundedRectangle(cornerRadius: cornerRadius)
+                        .stroke(Color(white: 0.22), lineWidth: 1)
+                )
             } else {
                 ZStack {
                     Color(white: 0.12)
@@ -360,28 +390,18 @@ public struct AssetThumbnailView: View {
                             .foregroundColor(Color(white: 0.35))
                     }
                 }
-            }
-            
-            if let badge = badgeText {
-                Text(badge)
-                    .font(.system(size: 7.5, weight: .black, design: .monospaced))
-                    .foregroundColor(.white)
-                    .padding(.horizontal, 3)
-                    .padding(.vertical, 1)
-                    .background(badgeColor)
-                    .clipShape(RoundedRectangle(cornerRadius: 1.5))
-                    .padding(2)
+                .frame(width: width, height: height)
+                .clipShape(RoundedRectangle(cornerRadius: cornerRadius))
+                .overlay(
+                    RoundedRectangle(cornerRadius: cornerRadius)
+                        .stroke(Color(white: 0.22), lineWidth: 1)
+                )
             }
         }
-        .frame(width: width, height: height)
-        .clipShape(RoundedRectangle(cornerRadius: cornerRadius))
-        .overlay(
-            RoundedRectangle(cornerRadius: cornerRadius)
-                .stroke(Color(white: 0.22), lineWidth: 1)
-        )
+        .frame(width: width, height: height, alignment: .center)
         .task(id: fileURL.path) {
-            isLoading = true
-            let targetSize = CGSize(width: max(140, width * 2.5), height: max(80, height * 2.5))
+            // Check cache synchronously if available to avoid loader flash
+            let targetSize = CGSize(width: 160, height: 90)
             if let img = await GlitchThumbnailProvider.shared.getThumbnail(
                 for: fileURL,
                 frameIndex: 0,

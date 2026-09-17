@@ -208,6 +208,10 @@ final class KeyboardShortcutRouter {
 
 @MainActor
 struct KeyboardShortcutActions {
+    // Thumbnail Size / Queue View Mode
+    var onIncreaseThumbnailSize: () -> Void
+    var onDecreaseThumbnailSize: () -> Void
+    
     // Zoom
     var onZoomIn: () -> Void
     var onZoomOut: () -> Void
@@ -259,6 +263,8 @@ struct KeyboardShortcutActions {
     var onToggleProperties: () -> Void
     
     init(
+        onIncreaseThumbnailSize: @escaping () -> Void,
+        onDecreaseThumbnailSize: @escaping () -> Void,
         onZoomIn: @escaping () -> Void,
         onZoomOut: @escaping () -> Void,
         onSelectPlayerTab: @escaping () -> Void,
@@ -296,6 +302,8 @@ struct KeyboardShortcutActions {
         onCycleClipInfo: @escaping () -> Void,
         onToggleProperties: @escaping () -> Void
     ) {
+        self.onIncreaseThumbnailSize = onIncreaseThumbnailSize
+        self.onDecreaseThumbnailSize = onDecreaseThumbnailSize
         self.onZoomIn = onZoomIn
         self.onZoomOut = onZoomOut
         self.onSelectPlayerTab = onSelectPlayerTab
@@ -355,6 +363,24 @@ extension KeyboardShortcutRouter {
                 scope: .preModalGlobal
             ) {
                 actions.onZoomOut()
+                return true
+            },
+            
+            // Queue Thumbnail Sizing (+ / -)
+            Rule(
+                id: "increaseThumbnailSize",
+                trigger: ShortcutTrigger(keyCodes: [24, 69], characters: ["=", "+"], modifiers: [], allowShift: true),
+                scope: .playerOrSpecs
+            ) {
+                actions.onIncreaseThumbnailSize()
+                return true
+            },
+            Rule(
+                id: "decreaseThumbnailSize",
+                trigger: ShortcutTrigger(keyCodes: [27, 78], characters: ["-", "_"], modifiers: [], allowShift: true),
+                scope: .playerOrSpecs
+            ) {
+                actions.onDecreaseThumbnailSize()
                 return true
             },
             

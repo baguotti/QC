@@ -17,6 +17,8 @@ struct ContentView: View {
     @State var showAddNoteModal: Bool = false
     @State var showNotesDrawer: Bool = false
     @AppStorage("reviewerName") var reviewerName: String = ""
+    @AppStorage("queueDisplayMode") var queueDisplayMode: String = "inline"
+    @AppStorage("playerThumbnailSize") var playerThumbnailSize: Double = 52.0
     @AppStorage("specsDisplayMode") var specsDisplayMode: String = "inline"
     @AppStorage("specsThumbnailSize") var specsThumbnailSize: Double = 50.0
     @State var showSpecsViewOptionsPopover: Bool = false
@@ -132,7 +134,17 @@ struct ContentView: View {
         .onChange(of: showPropertiesModal) { _, newValue in if !newValue { dismissFocusReset() } }
         .onChange(of: showAddNoteModal) { _, newValue in if !newValue { dismissFocusReset() } }
         .onChange(of: playerEngine.slotA.url) { _, newURL in
-            loadNotesForActiveURL(newURL)
+            let targetURL = (playerEngine.activeTarget == .slotB && playerEngine.slotB.url != nil) ? playerEngine.slotB.url : newURL
+            loadNotesForActiveURL(targetURL)
+        }
+        .onChange(of: playerEngine.slotB.url) { _, newURL in
+            if playerEngine.activeTarget == .slotB {
+                loadNotesForActiveURL(newURL)
+            }
+        }
+        .onChange(of: playerEngine.activeTarget) { _, newTarget in
+            let targetURL = (newTarget == .slotB && playerEngine.slotB.url != nil) ? playerEngine.slotB.url : playerEngine.slotA.url
+            loadNotesForActiveURL(targetURL)
         }
         .onChange(of: showThemeModal) { _, newValue in if !newValue { dismissFocusReset() } }
         .onChange(of: showUserGuide) { _, newValue in if !newValue { dismissFocusReset() } }
@@ -615,8 +627,16 @@ struct ContentView: View {
                             }
                         }) {
                             HStack(spacing: 6) {
-                                Image(systemName: tab.iconName)
-                                    .font(.system(size: StudioTheme.scaleFont(11), weight: isActive ? .bold : .medium))
+                                if tab == .player, let playImg = PlayAnimationAssets.shared.frame(at: 0) {
+                                    Image(nsImage: playImg)
+                                        .renderingMode(.template)
+                                        .resizable()
+                                        .aspectRatio(contentMode: .fit)
+                                        .frame(width: StudioTheme.scaleFont(12), height: StudioTheme.scaleFont(12))
+                                } else {
+                                    Image(systemName: tab.iconName)
+                                        .font(.system(size: StudioTheme.scaleFont(11), weight: isActive ? .bold : .medium))
+                                }
                                 
                                 Text(tab.title)
                                     .font(.system(size: StudioTheme.scaleFont(11), weight: isActive ? .bold : .medium, design: .monospaced))
@@ -1472,6 +1492,12 @@ struct ContentView: View {
     
     private func buildKeyboardShortcutActions() -> KeyboardShortcutActions {
         KeyboardShortcutActions(
+            onIncreaseThumbnailSize: {
+                self.increaseThumbnailSize()
+            },
+            onDecreaseThumbnailSize: {
+                self.decreaseThumbnailSize()
+            },
             onZoomIn: {
                 withAnimation(.easeInOut(duration: 0.15)) {
                     _ = self.themeManager.increaseButtonZoom()
@@ -1598,6 +1624,70 @@ struct ContentView: View {
             onCycleClipInfo: { self.playerEngine.cycleClipInfoOverlayMode() },
             onToggleProperties: { self.togglePropertiesModalForActiveOrSelected() }
         )
+    }
+    
+    func increaseThumbnailSize() {
+        if selectedTab == .specs {
+            if specsDisplayMode == "inline" {
+                withAnimation(.easeInOut(duration: 0.15)) {
+                    specsDisplayMode = "thumbnail"
+                    specsThumbnailSize = 36.0
+                }
+            } else {
+                withAnimation(.easeInOut(duration: 0.15)) {
+                    specsThumbnailSize = min(110.0, specsThumbnailSize + 10.0)
+                }
+            }
+        } else {
+            if queueDisplayMode == "inline" {
+                withAnimation(.easeInOut(duration: 0.15)) {
+                    queueDisplayMode = "thumbnail"
+                    playerThumbnailSize = 36.0
+                }
+            } else {
+                withAnimation(.easeInOut(duration: 0.15)) {
+                    playerThumbnailSize = min(110.0, playerThumbnailSize + 10.0)
+                }
+            }
+        }
+    }
+    
+    func decreaseThumbnailSize() {
+        if selectedTab == .specs {
+            if specsDisplayMode == "thumbnail" {
+                if specsThumbnailSize <= 36.0 {
+                    withAnimation(.easeInOut(duration: 0.15)) {
+                        specsDisplayMode = "inline"
+                    }
+                } else {
+                    withAnimation(.easeInOut(duration: 0.15)) {
+                        let nextSize = specsThumbnailSize - 10.0
+                        if nextSize < 36.0 {
+                            specsDisplayMode = "inline"
+                        } else {
+                            specsThumbnailSize = nextSize
+                        }
+                    }
+                }
+            }
+        } else {
+            if queueDisplayMode == "thumbnail" {
+                if playerThumbnailSize <= 36.0 {
+                    withAnimation(.easeInOut(duration: 0.15)) {
+                        queueDisplayMode = "inline"
+                    }
+                } else {
+                    withAnimation(.easeInOut(duration: 0.15)) {
+                        let nextSize = playerThumbnailSize - 10.0
+                        if nextSize < 36.0 {
+                            queueDisplayMode = "inline"
+                        } else {
+                            playerThumbnailSize = nextSize
+                        }
+                    }
+                }
+            }
+        }
     }
     
     func playerSelectPreviousFile(target: SlotTarget = .slotA) {
@@ -1864,6 +1954,7 @@ struct ContentView: View {
     func loadNotesForActiveURL(_ url: URL?) {
         guard let url = url else {
             playerEngine.activeNotes = []
+            playerEngine.activeNotesURL = nil
             return
         }
         Task { @MainActor in
@@ -1888,8 +1979,10 @@ struct ContentView: View {
                     notes.sort { $0.frameIndex < $1.frameIndex }
                 }
             }
-            if self.playerEngine.activeURL == url {
+            let targetURL = (self.playerEngine.activeTarget == .slotB && self.playerEngine.slotB.url != nil) ? self.playerEngine.slotB.url : self.playerEngine.activeURL
+            if targetURL == url {
                 self.playerEngine.activeNotes = notes
+                self.playerEngine.activeNotesURL = url
             }
         }
     }
@@ -1909,6 +2002,7 @@ struct ContentView: View {
         currentNotes.sort { $0.frameIndex < $1.frameIndex }
         withAnimation(.spring(response: 0.32, dampingFraction: 0.78)) {
             playerEngine.activeNotes = currentNotes
+            playerEngine.activeNotesURL = url
             showNotesDrawer = true
         }
         saveNotes(currentNotes, for: url)
@@ -1919,6 +2013,7 @@ struct ContentView: View {
         guard let url = playerEngine.activeURL else { return }
         guard let index = playerEngine.activeNotes.firstIndex(where: { $0.id == id }) else { return }
         playerEngine.activeNotes[index].isResolved.toggle()
+        playerEngine.activeNotesURL = url
         saveNotes(playerEngine.activeNotes, for: url)
     }
     
@@ -1926,6 +2021,7 @@ struct ContentView: View {
         guard let url = playerEngine.activeURL else { return }
         withAnimation(.easeInOut(duration: 0.2)) {
             playerEngine.activeNotes.removeAll(where: { $0.id == id })
+            playerEngine.activeNotesURL = url
         }
         saveNotes(playerEngine.activeNotes, for: url)
         showToast("Note deleted")
@@ -1935,6 +2031,7 @@ struct ContentView: View {
         guard let url = playerEngine.activeURL else { return }
         withAnimation(.easeInOut(duration: 0.2)) {
             playerEngine.activeNotes.removeAll()
+            playerEngine.activeNotesURL = url
         }
         saveNotes([], for: url)
         showToast("All markers cleared for \(url.lastPathComponent)")

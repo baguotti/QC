@@ -155,6 +155,7 @@ struct UserGuideView: View {
             guideRow(name: "TIMELINE SCRUBBING", desc: "Drag the playhead or click anywhere on the SMPTE ruler to scrub frame-accurately.")
             guideRow(name: "SCROLL ZOOM & HAND-PAN", desc: "Scroll your mouse wheel up or down directly to zoom into or out of the canvas (10% to 400%). Pinch on trackpad to zoom. Click and drag across the canvas with the hand tool to pan around.")
             guideRow(name: "QUEUE NAVIGATION (↑ / ↓, ⌥↑ / ⌥↓)", desc: "Up and down arrow keys navigate the queue for Slot A. Option + Up/Down (⌥↑ / ⌥↓) navigates the queue for Slot B.")
+            guideRow(name: "THUMBNAIL SIZE / VIEW (+ / -)", desc: "Press + (=) to increase thumbnail size (or enter Thumbnail view from List). Press - to decrease thumbnail size down to List view.")
             guideRow(name: "AUTOPLAY (A / AUTO)", desc: "When enabled, selecting a video or navigating with ↑/↓ automatically plays the deliverable from the very beginning. Toggled via the 'A' key or the [AUTO] badge in the queue header.")
             guideRow(name: "CENTER CROSSHAIR OVERLAY", desc: "Toggles top-to-bottom and left-to-right crosshair guide lines with a center precision reticle to inspect if elements, logos, and lower-thirds are perfectly centered.")
             guideRow(name: "CLIP INFO OVERLAY (I)", desc: "Cycles through 5 levels of canvas header info: 1) Off, 2) A/B Only, 3) Resolution, 4) File Name, 5) Full Details (Name, Resolution, Codec, Size, Length). Right-click the info icon to choose a specific mode.")

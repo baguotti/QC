@@ -507,6 +507,7 @@ public final class PlayerEngine: ObservableObject {
     
     // Review Notes from Companion Sidecar (.qcnotes)
     @Published public var activeNotes: [QCFileNote] = []
+    @Published public var activeNotesURL: URL? = nil
     private var pendingInitialSeekFrame: Int? = nil
     private var pendingAutoplay: Bool = false
     private var pendingAutoplayB: Bool = false
@@ -640,6 +641,8 @@ public final class PlayerEngine: ObservableObject {
         self.objectWillChange.send()
         slotA.url = stdURL
         slotA.fileName = stdURL.lastPathComponent
+        self.activeNotes = []
+        self.activeNotesURL = nil
         self.currentTime = .zero
         self.currentProgress = 0.0
         self.currentTimecode = "00:00:00:00"
@@ -725,6 +728,10 @@ public final class PlayerEngine: ObservableObject {
         slotB.url = stdURL
         slotB.fileName = stdURL.lastPathComponent
         slotB.slipOffsetFrames = 0
+        if activeTarget == .slotB {
+            self.activeNotes = []
+            self.activeNotesURL = nil
+        }
         
         let asset = AVURLAsset(url: stdURL)
         Task { [slotB] in
