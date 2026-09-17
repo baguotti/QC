@@ -30,6 +30,14 @@ public actor QCNotesManager {
         mediaURL.appendingPathExtension("qcnotes")
     }
     
+    /// Checks whether notes companion sidecar file exists on disk for a media file.
+    public nonisolated static func hasNotes(for mediaURL: URL) -> Bool {
+        let hidden = sidecarURL(for: mediaURL)
+        if FileManager.default.fileExists(atPath: hidden.path) { return true }
+        let visible = visibleSidecarURL(for: mediaURL)
+        return FileManager.default.fileExists(atPath: visible.path)
+    }
+    
     /// Loads notes from the companion sidecar file if present (checks hidden file first, falls back to visible).
     public func loadNotes(for mediaURL: URL) -> [QCFileNote] {
         let hiddenURL = QCNotesManager.sidecarURL(for: mediaURL)

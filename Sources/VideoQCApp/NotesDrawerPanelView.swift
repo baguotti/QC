@@ -15,11 +15,13 @@ struct NotesDrawerPanelView: View {
     var onSaveNote: (QCFileNote) -> Void
     var onToggleResolved: (UUID) -> Void
     var onDeleteNote: (UUID) -> Void
+    var onClearAllNotes: () -> Void
     var onToast: (String) -> Void
     
     @AppStorage("reviewerName") private var storedReviewerName: String = ""
     @State private var inlineNoteText: String = ""
     @State private var inlineSelectedColor: String = "cyan"
+    @State private var showClearConfirmation: Bool = false
     @FocusState private var isInlineInputFocused: Bool
     
     private var palette: StudioPalette { StudioPalette(isLightMode) }
@@ -27,8 +29,8 @@ struct NotesDrawerPanelView: View {
     var body: some View {
         VStack(spacing: 0) {
             // Header Bar
-            HStack(spacing: 8) {
-                Image(systemName: "text.bubble.fill")
+            HStack(spacing: 6) {
+                Image(systemName: "bubble.left.fill")
                     .font(.system(size: 11, weight: .bold))
                     .foregroundColor(palette.textMain)
                 
@@ -46,18 +48,41 @@ struct NotesDrawerPanelView: View {
                 }
                 .font(.system(size: 11, weight: .black, design: .monospaced))
                 .foregroundColor(palette.textMain)
+                .lineLimit(1)
+                .fixedSize(horizontal: true, vertical: false)
                 
-                Spacer()
+                Spacer(minLength: 4)
+                
+                if !notes.isEmpty {
+                    Button(action: { showClearConfirmation = true }) {
+                        HStack(spacing: 3) {
+                            Image(systemName: "trash")
+                                .font(.system(size: 7.5, weight: .bold))
+                            Text("CLEAR ALL")
+                                .font(.system(size: 8, weight: .bold, design: .monospaced))
+                                .lineLimit(1)
+                                .fixedSize(horizontal: true, vertical: false)
+                        }
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 3.5)
+                        .foregroundColor(palette.alertRed.opacity(0.85))
+                        .studioBox(background: palette.alertRed.opacity(0.12), border: palette.alertRed.opacity(0.45))
+                    }
+                    .buttonStyle(.plain)
+                    .help("Clear all markers and review notes for this clip")
+                }
                 
                 Button(action: onAddNote) {
-                    HStack(spacing: 4) {
+                    HStack(spacing: 3) {
                         Image(systemName: "plus")
-                            .font(.system(size: 8, weight: .bold))
+                            .font(.system(size: 7.5, weight: .bold))
                         Text("ADD (N)")
-                            .font(.system(size: 9, weight: .bold, design: .monospaced))
+                            .font(.system(size: 8, weight: .bold, design: .monospaced))
+                            .lineLimit(1)
+                            .fixedSize(horizontal: true, vertical: false)
                     }
-                    .padding(.horizontal, 7)
-                    .padding(.vertical, 4)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 3.5)
                     .foregroundColor(palette.accentPositive)
                     .studioBox(background: palette.accentPositive.opacity(0.14), border: palette.accentPositive.opacity(0.6))
                 }
@@ -70,7 +95,7 @@ struct NotesDrawerPanelView: View {
                 }
                 .buttonStyle(.plain)
             }
-            .padding(.horizontal, 14)
+            .padding(.horizontal, 10)
             .frame(height: 40)
             .background(palette.bgPanel)
             
@@ -182,7 +207,7 @@ struct NotesDrawerPanelView: View {
             .padding(.vertical, 8)
             .background(palette.bgPanel)
         }
-        .frame(width: 320)
+        .frame(width: 326)
         .studioBox(background: palette.bgPanel, border: palette.borderLine)
         .onAppear {
             if storedReviewerName.isEmpty {
@@ -267,6 +292,14 @@ struct NotesDrawerPanelView: View {
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
         .background(palette.bgPanel)
+        .alert("Clear All Markers for This Clip?", isPresented: $showClearConfirmation) {
+            Button("Clear All", role: .destructive) {
+                onClearAllNotes()
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("This will permanently remove all \(notes.count) review notes and markers for \(mediaName). This cannot be undone.")
+        }
     }
     
     private func submitInlineNote() {
@@ -299,7 +332,15 @@ struct NotesDrawerPanelView: View {
     // MARK: - Note Card Row
     
     private func noteCard(note: QCFileNote) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
+        let (attributedText, detectedLinks) = NoteLinkParser.buildAttributedString(
+            text: note.text,
+            isResolved: note.isResolved,
+            accentColor: palette.accentBlue,
+            textMuted: palette.textMuted,
+            textMain: palette.textMain
+        )
+        
+        return VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 6) {
                 // Clickable Timecode Seek Badge
                 Button(action: { onSeekToFrame(note.frameIndex) }) {
@@ -351,16 +392,60 @@ struct NotesDrawerPanelView: View {
                 .help("Delete note")
             }
             
-            // Note Text
-            Text(note.text)
+            // Note Text with Clickable Links and File Paths
+            Text(attributedText)
                 .font(.system(size: 10, design: .monospaced))
-                .foregroundColor(note.isResolved ? palette.textMuted : palette.textMain)
                 .strikethrough(note.isResolved, color: palette.textMuted)
                 .textSelection(.enabled)
                 .lineSpacing(2)
+                .environment(\.openURL, OpenURLAction { url in
+                    handleNoteURL(url)
+                    return .handled
+                })
+            
+            // Clickable Quick Action Badges for Detected Links & File Paths
+            if !detectedLinks.isEmpty && !note.isResolved {
+                HStack(spacing: 5) {
+                    ForEach(detectedLinks) { item in
+                        Button(action: { item.open() }) {
+                            HStack(spacing: 4) {
+                                Image(systemName: item.iconName)
+                                    .font(.system(size: 8, weight: .bold))
+                                Text(item.label)
+                                    .font(.system(size: 8.5, weight: .bold, design: .monospaced))
+                                    .lineLimit(1)
+                            }
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 3)
+                            .foregroundColor(palette.accentBlue)
+                            .studioBox(
+                                background: palette.accentBlue.opacity(0.12),
+                                border: palette.accentBlue.opacity(0.4),
+                                radius: 3
+                            )
+                        }
+                        .buttonStyle(.plain)
+                        .help(item.isWeb ? "Open \(item.displayString) in browser" : "Reveal \(item.displayString) in Finder")
+                    }
+                }
+                .padding(.top, 2)
+            }
         }
         .padding(9)
         .studioBox(background: palette.bgCardSubtle, border: palette.borderLine)
+    }
+    
+    private func handleNoteURL(_ url: URL) {
+        if url.scheme == "qcpie-reveal" {
+            if let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
+               let pathItem = components.queryItems?.first(where: { $0.name == "path" })?.value {
+                DetectedNoteLink.revealInFinder(path: pathItem)
+            }
+        } else if url.isFileURL {
+            DetectedNoteLink.revealInFinder(path: url.path)
+        } else {
+            NSWorkspace.shared.open(url)
+        }
     }
     
     private func colorForTag(_ tag: String) -> Color {

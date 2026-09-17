@@ -30,6 +30,7 @@ public struct PlayerQueuePanelView: View, Equatable {
     public var slotBCodec: String
     
     public var activeTarget: SlotTarget
+    public var activeNotesCount: Int = 0
     
     @Binding public var queueScrollTarget: URL?
     public var hoverExplanation: Binding<String>?
@@ -75,6 +76,7 @@ public struct PlayerQueuePanelView: View, Equatable {
             lhs.slotBFps == rhs.slotBFps &&
             lhs.slotBCodec == rhs.slotBCodec &&
             lhs.activeTarget == rhs.activeTarget &&
+            lhs.activeNotesCount == rhs.activeNotesCount &&
             lhs.queueScrollTarget == rhs.queueScrollTarget
         }
     }
@@ -528,12 +530,23 @@ public struct PlayerQueuePanelView: View, Equatable {
     }
     
     private func makeFileRow(url: URL, depth: Int = 0, isSlotA: Bool, isSlotB: Bool) -> some View {
-        PlayerQueueFileRowView(
+        let hasNotes: Bool = {
+            if isSlotA {
+                return activeNotesCount > 0
+            } else if isSlotB && activeTarget == .slotB {
+                return activeNotesCount > 0
+            } else {
+                return QCNotesManager.hasNotes(for: url)
+            }
+        }()
+        
+        return PlayerQueueFileRowView(
             url: url,
             depth: depth,
             isSlotA: isSlotA,
             isSlotB: isSlotB,
             hasSlotB: slotBURL != nil,
+            hasNotes: hasNotes,
             currentTag: fileTagsMap[url],
             slotAResolution: slotAResolution,
             slotAFps: slotAFps,

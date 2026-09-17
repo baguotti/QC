@@ -1909,6 +1909,7 @@ struct ContentView: View {
         currentNotes.sort { $0.frameIndex < $1.frameIndex }
         withAnimation(.spring(response: 0.32, dampingFraction: 0.78)) {
             playerEngine.activeNotes = currentNotes
+            showNotesDrawer = true
         }
         saveNotes(currentNotes, for: url)
         showToast("Note logged at \(note.timecode)")
@@ -1928,6 +1929,15 @@ struct ContentView: View {
         }
         saveNotes(playerEngine.activeNotes, for: url)
         showToast("Note deleted")
+    }
+    
+    func clearAllNotes() {
+        guard let url = playerEngine.activeURL else { return }
+        withAnimation(.easeInOut(duration: 0.2)) {
+            playerEngine.activeNotes.removeAll()
+        }
+        saveNotes([], for: url)
+        showToast("All markers cleared for \(url.lastPathComponent)")
     }
     
     func saveNotes(_ notes: [QCFileNote], for url: URL) {

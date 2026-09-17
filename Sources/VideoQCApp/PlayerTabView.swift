@@ -157,6 +157,7 @@ extension ContentView {
             slotBFps: playerEngine.slotB.fps,
             slotBCodec: playerEngine.slotB.codec,
             activeTarget: playerEngine.activeTarget,
+            activeNotesCount: playerEngine.activeNotes.count,
             queueScrollTarget: $queueScrollTarget,
             hoverExplanation: $hoverExplanation,
             onSelectAssets: { append in
@@ -301,6 +302,9 @@ extension ContentView {
                 onDeleteNote: { id in
                     deleteNote(id: id)
                 },
+                onClearAllNotes: {
+                    clearAllNotes()
+                },
                 onToast: { msg in
                     showToast(msg)
                 }
@@ -425,7 +429,7 @@ extension ContentView {
                     }
                 }) {
                     HStack(spacing: 3) {
-                        Image(systemName: showNotesDrawer ? "text.bubble.fill" : "text.bubble")
+                        Image(systemName: showNotesDrawer ? "bubble.left.fill" : "bubble.left")
                             .font(.system(size: StudioTheme.scaleFont(9), weight: .semibold))
                         SlotText(
                             hasNotes ? "\(notesCount)" : "NOTES",

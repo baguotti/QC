@@ -8,6 +8,7 @@ struct ThemeSettingsModalView: View {
     
     @State private var isSavingPreset: Bool = false
     @State private var newPresetName: String = ""
+    @State private var showUpdatedNotice: Bool = false
     
     private var palette: StudioPalette { StudioPalette(isLightMode) }
     
@@ -255,7 +256,7 @@ struct ThemeSettingsModalView: View {
                 }
             }
             
-            // Save Preset Controls
+            // Save & Update Preset Controls
             if isSavingPreset {
                 HStack(spacing: 8) {
                     HStack(spacing: 4) {
@@ -300,6 +301,82 @@ struct ThemeSettingsModalView: View {
                             .studioBox(background: palette.bgSubtle, border: palette.borderLine)
                     }
                     .buttonStyle(.plain)
+                }
+                .padding(.top, 4)
+            } else if themeManager.isCurrentThemeUserPreset && themeManager.hasUnsavedChangesForCurrentPreset {
+                HStack(spacing: 8) {
+                    // Option 1: Update current custom theme in-place
+                    Button(action: {
+                        themeManager.updateCurrentPreset()
+                        withAnimation(.easeInOut(duration: 0.15)) {
+                            showUpdatedNotice = true
+                        }
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+                            withAnimation(.easeInOut(duration: 0.15)) {
+                                showUpdatedNotice = false
+                            }
+                        }
+                    }) {
+                        HStack(spacing: 6) {
+                            Image(systemName: showUpdatedNotice ? "checkmark.circle.fill" : "arrow.triangle.2.circlepath")
+                                .font(.system(size: 9, weight: .bold))
+                            Text(showUpdatedNotice ? "UPDATED!" : "UPDATE '\(themeManager.currentTheme.name.uppercased())'")
+                                .font(.system(size: 9, weight: .black, design: .monospaced))
+                        }
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 6)
+                        .foregroundColor(showUpdatedNotice ? palette.primaryBtnFg : palette.textMain)
+                        .background(showUpdatedNotice ? themeManager.currentTheme.greenColor : palette.bgSubtle)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: StudioTheme.cornerRadius)
+                                .stroke(themeManager.currentTheme.blueColor, lineWidth: 1.2)
+                        )
+                        .cornerRadius(StudioTheme.cornerRadius)
+                    }
+                    .buttonStyle(.plain)
+                    
+                    // Option 2: Save as a brand new preset
+                    Button(action: {
+                        newPresetName = "\(themeManager.currentTheme.name) COPY"
+                        isSavingPreset = true
+                    }) {
+                        HStack(spacing: 6) {
+                            Image(systemName: "plus")
+                                .font(.system(size: 9, weight: .bold))
+                            Text("SAVE AS NEW")
+                                .font(.system(size: 9, weight: .bold, design: .monospaced))
+                        }
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 6)
+                        .foregroundColor(themeManager.canSaveMorePresets ? palette.textMain : palette.textMuted.opacity(0.4))
+                        .studioBox(
+                            background: palette.bgSubtle,
+                            border: themeManager.canSaveMorePresets ? palette.borderLine : palette.borderLine.opacity(0.3)
+                        )
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(!themeManager.canSaveMorePresets)
+                    
+                    // Option 3: Revert modifications back to saved state
+                    Button(action: {
+                        withAnimation(.easeInOut(duration: 0.15)) {
+                            themeManager.revertCurrentPreset()
+                        }
+                    }) {
+                        HStack(spacing: 5) {
+                            Image(systemName: "arrow.counterclockwise")
+                                .font(.system(size: 8, weight: .bold))
+                            Text("REVERT")
+                                .font(.system(size: 9, weight: .bold, design: .monospaced))
+                        }
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 6)
+                        .foregroundColor(palette.textMuted)
+                        .studioBox(background: palette.bgSubtle, border: palette.borderLine)
+                    }
+                    .buttonStyle(.plain)
+                    
+                    Spacer()
                 }
                 .padding(.top, 4)
             } else {
@@ -347,6 +424,7 @@ struct ThemeSettingsModalView: View {
     
     private func presetCard(preset: StudioThemeConfig) -> some View {
         let isSelected = themeManager.currentTheme.id == preset.id
+        let isModified = isSelected && !preset.isPreset && themeManager.hasUnsavedChangesForCurrentPreset
         
         return HStack(spacing: 6) {
             Button(action: {
@@ -369,14 +447,22 @@ struct ThemeSettingsModalView: View {
                     .frame(width: 15)
                     
                     VStack(alignment: .leading, spacing: 1) {
-                        Text(preset.name.uppercased())
-                            .font(.system(size: 9.5, weight: isSelected ? .black : .bold, design: .monospaced))
-                            .foregroundColor(isSelected ? palette.textMain : palette.textMuted)
-                            .lineLimit(1)
+                        HStack(spacing: 4) {
+                            Text(preset.name.uppercased())
+                                .font(.system(size: 9.5, weight: isSelected ? .black : .bold, design: .monospaced))
+                                .foregroundColor(isSelected ? palette.textMain : palette.textMuted)
+                                .lineLimit(1)
+                            
+                            if isModified {
+                                Circle()
+                                    .fill(themeManager.currentTheme.blueColor)
+                                    .frame(width: 5, height: 5)
+                            }
+                        }
                         
-                        Text(preset.isPreset ? "FACTORY PRESET" : "USER PRESET")
+                        Text(preset.isPreset ? "FACTORY PRESET" : (isModified ? "USER PRESET (MODIFIED)" : "USER PRESET"))
                             .font(.system(size: 7, weight: .medium, design: .monospaced))
-                            .foregroundColor(palette.textSubtle)
+                            .foregroundColor(isModified ? themeManager.currentTheme.blueColor : palette.textSubtle)
                     }
                     
                     Spacer(minLength: 4)
@@ -391,7 +477,7 @@ struct ThemeSettingsModalView: View {
             }
             .buttonStyle(.plain)
             
-            // Delete button for custom user presets
+            // Delete button for custom user presets (factory presets Muted/Vivid never have delete)
             if !preset.isPreset {
                 Button(action: {
                     withAnimation(.easeInOut(duration: 0.15)) {
@@ -533,43 +619,189 @@ struct ThemeSettingsModalView: View {
                 .foregroundColor(palette.textMuted)
                 .tracking(0.5)
             
-            VStack(spacing: 8) {
-                // Mock Navigation Bar / Active Tab Line
-                HStack(spacing: 16) {
-                    VStack(alignment: .leading, spacing: 4) {
+            VStack(spacing: 0) {
+                // Mock Navigation Tabs Bar (Matching QCpie App Tabs)
+                HStack(spacing: 4) {
+                    // Active Tab: PLAYER (with film icon & active indicator)
+                    HStack(spacing: 5) {
+                        Image(systemName: "film")
+                            .font(.system(size: 9, weight: .bold))
+                            .foregroundColor(themeManager.currentTheme.blueColor)
                         Text("PLAYER")
-                            .font(.system(size: 10, weight: .black, design: .monospaced))
+                            .font(.system(size: 9.5, weight: .black, design: .monospaced))
                             .foregroundColor(palette.textMain)
-                        Rectangle()
-                            .fill(themeManager.currentTheme.blueColor)
-                            .frame(width: 52, height: 2)
                     }
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 6)
+                    .background(palette.bgPanel)
+                    .overlay(
+                        VStack {
+                            Rectangle()
+                                .fill(themeManager.currentTheme.blueColor)
+                                .frame(height: 2)
+                            Spacer()
+                        }
+                    )
                     
-                    Text("SPECS")
-                        .font(.system(size: 10, weight: .bold, design: .monospaced))
-                        .foregroundColor(palette.textSubtle)
+                    // Inactive Tab: SPECS
+                    HStack(spacing: 5) {
+                        Image(systemName: "doc.text")
+                            .font(.system(size: 8.5, weight: .medium))
+                        Text("SPECS")
+                            .font(.system(size: 9, weight: .bold, design: .monospaced))
+                    }
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 6)
+                    .foregroundColor(palette.textMuted.opacity(0.7))
                     
-                    Text("LINE FINDER")
-                        .font(.system(size: 10, weight: .bold, design: .monospaced))
-                        .foregroundColor(palette.textSubtle)
+                    // Inactive Tab: LINE FINDER
+                    HStack(spacing: 5) {
+                        Image(systemName: "viewfinder")
+                            .font(.system(size: 8.5, weight: .medium))
+                        Text("LINE FINDER")
+                            .font(.system(size: 9, weight: .bold, design: .monospaced))
+                    }
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 6)
+                    .foregroundColor(palette.textMuted.opacity(0.7))
+                    
+                    // Inactive Tab: INGEST
+                    HStack(spacing: 5) {
+                        Image(systemName: "tray.and.arrow.down")
+                            .font(.system(size: 8.5, weight: .medium))
+                        Text("INGEST")
+                            .font(.system(size: 9, weight: .bold, design: .monospaced))
+                    }
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 6)
+                    .foregroundColor(palette.textMuted.opacity(0.7))
+                    
+                    Spacer()
+                    
+                    // Mock Ready/Status Indicator
+                    HStack(spacing: 4) {
+                        Circle()
+                            .fill(themeManager.currentTheme.greenColor)
+                            .frame(width: 5, height: 5)
+                        Text("READY")
+                            .font(.system(size: 7.5, weight: .bold, design: .monospaced))
+                            .foregroundColor(themeManager.currentTheme.greenColor)
+                    }
+                    .padding(.trailing, 10)
                 }
-                .padding(.horizontal, 12)
-                .padding(.top, 10)
+                .padding(.top, 4)
+                .background(palette.bgSubtle.opacity(0.5))
                 
                 Rectangle().fill(palette.borderLine).frame(height: 1)
                 
-                // Mock Player / QC Badges Row
+                // Mock Timeline Scrubber Bar
+                VStack(spacing: 2) {
+                    // Ruler ticks & Time markers
+                    HStack {
+                        Text("00:00:00:00")
+                            .font(.system(size: 7, weight: .medium, design: .monospaced))
+                            .foregroundColor(palette.textSubtle)
+                        Spacer()
+                        Text("00:01:00:00")
+                            .font(.system(size: 7, weight: .medium, design: .monospaced))
+                            .foregroundColor(palette.textSubtle)
+                        Spacer()
+                        Text("00:02:00:00")
+                            .font(.system(size: 7, weight: .medium, design: .monospaced))
+                            .foregroundColor(palette.textSubtle)
+                    }
+                    .padding(.horizontal, 8)
+                    .padding(.top, 4)
+                    
+                    // Track with Playhead & Glitch Markers
+                    GeometryReader { geo in
+                        let playheadX = geo.size.width * 0.42
+                        let glitchX1 = geo.size.width * 0.28
+                        let glitchX2 = geo.size.width * 0.76
+                        
+                        ZStack(alignment: .leading) {
+                            // Scrubber Track Background
+                            RoundedRectangle(cornerRadius: 2)
+                                .fill(palette.bgSubtle)
+                                .frame(height: 8)
+                            
+                            // Progress Played Fill (Blue)
+                            RoundedRectangle(cornerRadius: 2)
+                                .fill(themeManager.currentTheme.blueColor.opacity(0.35))
+                                .frame(width: playheadX, height: 8)
+                            
+                            // Red Glitch Markers on Timeline
+                            Rectangle()
+                                .fill(themeManager.currentTheme.redColor)
+                                .frame(width: 2, height: 8)
+                                .offset(x: glitchX1)
+                            
+                            Rectangle()
+                                .fill(themeManager.currentTheme.redColor)
+                                .frame(width: 2, height: 8)
+                                .offset(x: glitchX2)
+                            
+                            // Playhead Line & Downward Indicator (Blue)
+                            VStack(spacing: 0) {
+                                Image(systemName: "arrowtriangle.down.fill")
+                                    .font(.system(size: 7))
+                                    .foregroundColor(themeManager.currentTheme.blueColor)
+                                Rectangle()
+                                    .fill(themeManager.currentTheme.blueColor)
+                                    .frame(width: 1.5, height: 8)
+                            }
+                            .offset(x: playheadX - 3.5, y: -2)
+                        }
+                    }
+                    .frame(height: 12)
+                    .padding(.horizontal, 8)
+                    .padding(.bottom, 6)
+                }
+                .background(palette.bgPanel.opacity(0.8))
+                
+                Rectangle().fill(palette.borderLine).frame(height: 1)
+                
+                // Mock Player Transport & QC Status Deck Row
                 HStack(spacing: 8) {
-                    // Slot A Pill (Green)
-                    HStack(spacing: 5) {
-                        Circle()
-                            .fill(themeManager.currentTheme.greenColor)
-                            .frame(width: 7, height: 7)
-                        Text("SLOT A: MASTER")
-                            .font(.system(size: 8, weight: .bold, design: .monospaced))
-                            .foregroundColor(themeManager.currentTheme.greenColor)
+                    // Transport Controls
+                    HStack(spacing: 6) {
+                        Image(systemName: "backward.fill")
+                            .font(.system(size: 9, weight: .bold))
+                            .foregroundColor(palette.textMain)
+                        Image(systemName: "play.fill")
+                            .font(.system(size: 11, weight: .bold))
+                            .foregroundColor(palette.textMain)
+                        Image(systemName: "forward.fill")
+                            .font(.system(size: 9, weight: .bold))
+                            .foregroundColor(palette.textMain)
                     }
                     .padding(.horizontal, 7)
+                    .padding(.vertical, 4)
+                    .studioBox(background: palette.bgSubtle, border: palette.borderLine)
+                    
+                    // Timecode Readout (Blue)
+                    HStack(spacing: 4) {
+                        Image(systemName: "clock")
+                            .font(.system(size: 8, weight: .bold))
+                            .foregroundColor(themeManager.currentTheme.blueColor)
+                        Text("00:00:50:10")
+                            .font(.system(size: 9.5, weight: .bold, design: .monospaced))
+                            .foregroundColor(themeManager.currentTheme.blueColor)
+                    }
+                    .padding(.horizontal, 7)
+                    .padding(.vertical, 4)
+                    .studioBox(background: palette.bgSubtle, border: palette.borderLine)
+                    
+                    // Slot A Pill (Green)
+                    HStack(spacing: 4) {
+                        Circle()
+                            .fill(themeManager.currentTheme.greenColor)
+                            .frame(width: 6, height: 6)
+                        Text("A: MASTER")
+                            .font(.system(size: 8, weight: .black, design: .monospaced))
+                            .foregroundColor(themeManager.currentTheme.greenColor)
+                    }
+                    .padding(.horizontal, 6)
                     .padding(.vertical, 4)
                     .background(themeManager.currentTheme.greenColor.opacity(0.12))
                     .overlay(
@@ -578,15 +810,15 @@ struct ThemeSettingsModalView: View {
                     )
                     
                     // Slot B Pill (Purple)
-                    HStack(spacing: 5) {
+                    HStack(spacing: 4) {
                         Circle()
                             .fill(themeManager.currentTheme.purpleColor)
-                            .frame(width: 7, height: 7)
-                        Text("SLOT B: REFERENCE")
-                            .font(.system(size: 8, weight: .bold, design: .monospaced))
+                            .frame(width: 6, height: 6)
+                        Text("B: REF")
+                            .font(.system(size: 8, weight: .black, design: .monospaced))
                             .foregroundColor(themeManager.currentTheme.purpleColor)
                     }
-                    .padding(.horizontal, 7)
+                    .padding(.horizontal, 6)
                     .padding(.vertical, 4)
                     .background(themeManager.currentTheme.purpleColor.opacity(0.12))
                     .overlay(
@@ -596,40 +828,44 @@ struct ThemeSettingsModalView: View {
                     
                     Spacer()
                     
-                    // Timecode Display (Blue/Teal)
-                    HStack(spacing: 5) {
-                        Image(systemName: "clock")
-                            .font(.system(size: 8, weight: .bold))
-                            .foregroundColor(themeManager.currentTheme.blueColor)
-                        Text("01:23:45:18")
-                            .font(.system(size: 10, weight: .bold, design: .monospaced))
-                            .foregroundColor(themeManager.currentTheme.blueColor)
-                    }
-                    .padding(.horizontal, 7)
-                    .padding(.vertical, 4)
-                    .studioBox(background: palette.bgSubtle, border: palette.borderLine)
-                    
                     // Glitch Alert Pill (Red)
-                    HStack(spacing: 5) {
+                    HStack(spacing: 4) {
                         Image(systemName: "exclamationmark.triangle.fill")
                             .font(.system(size: 8, weight: .bold))
                             .foregroundColor(themeManager.currentTheme.redColor)
-                        Text("3 GLITCHES")
-                            .font(.system(size: 8, weight: .bold, design: .monospaced))
+                        Text("2 GLITCHES")
+                            .font(.system(size: 8, weight: .black, design: .monospaced))
                             .foregroundColor(themeManager.currentTheme.redColor)
                     }
-                    .padding(.horizontal, 7)
+                    .padding(.horizontal, 6)
                     .padding(.vertical, 4)
                     .background(themeManager.currentTheme.redColor.opacity(0.12))
                     .overlay(
                         RoundedRectangle(cornerRadius: StudioTheme.cornerRadius)
                             .stroke(themeManager.currentTheme.redColor.opacity(0.4), lineWidth: 1)
                     )
+                    
+                    // QC Pass Badge (Green)
+                    HStack(spacing: 4) {
+                        Image(systemName: "checkmark.circle.fill")
+                            .font(.system(size: 8, weight: .bold))
+                            .foregroundColor(themeManager.currentTheme.greenColor)
+                        Text("QC PASS")
+                            .font(.system(size: 8, weight: .black, design: .monospaced))
+                            .foregroundColor(themeManager.currentTheme.greenColor)
+                    }
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 4)
+                    .background(themeManager.currentTheme.greenColor.opacity(0.12))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: StudioTheme.cornerRadius)
+                            .stroke(themeManager.currentTheme.greenColor.opacity(0.4), lineWidth: 1)
+                    )
                 }
-                .padding(.horizontal, 12)
-                .padding(.bottom, 10)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 8)
+                .background(palette.bgPanel)
             }
-            .background(palette.bgPanel)
             .studioBox(background: palette.bgPanel, border: palette.borderLine)
         }
     }
@@ -656,8 +892,7 @@ private struct AccentColorSlotCard: View {
                     .foregroundColor(palette.textSubtle)
                     .lineLimit(1)
             }
-            
-            Spacer(minLength: 4)
+            .frame(maxWidth: .infinity, alignment: .leading)
             
             // Hex text field
             HStack(spacing: 2) {
@@ -678,7 +913,7 @@ private struct AccentColorSlotCard: View {
             .padding(.vertical, 3)
             .studioBox(background: palette.bgSubtle, border: palette.borderLine)
             
-            // Native Color Picker
+            // Native Color Picker (Swatch) - 44pt width prevents NSColorWell clipping
             ColorPicker(
                 "",
                 selection: Binding<Color>(
@@ -691,7 +926,7 @@ private struct AccentColorSlotCard: View {
                 supportsOpacity: false
             )
             .labelsHidden()
-            .frame(width: 20, height: 20)
+            .frame(width: 44, height: 22)
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 8)

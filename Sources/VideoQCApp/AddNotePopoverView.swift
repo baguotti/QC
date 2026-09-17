@@ -1,7 +1,9 @@
 import SwiftUI
 import AppKit
+import Foundation
 import VideoQCLib
 
+@MainActor
 struct AddNotePopoverView: View {
     @Binding var isPresented: Bool
     var timecode: String
@@ -35,7 +37,7 @@ struct AddNotePopoverView: View {
             VStack(spacing: 0) {
                 // Header Bar
                 HStack(spacing: 8) {
-                    Image(systemName: "text.bubble.fill")
+                    Image(systemName: "bubble.left.fill")
                         .font(.system(size: 13, weight: .bold))
                         .foregroundColor(palette.textMain)
                     
@@ -86,7 +88,7 @@ struct AddNotePopoverView: View {
                                 .textFieldStyle(.plain)
                                 .foregroundColor(isLightMode ? Color.black : Color.white)
                                 .onChange(of: author) { _, newName in
-                                    storedReviewerName = newName.trimmingCharacters(in: .whitespacesAndNewlines)
+                                    storedReviewerName = newName.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines)
                                 }
                         }
                         .padding(.horizontal, 10)

@@ -309,7 +309,7 @@ struct PlayerTransportDeckView: View {
                         if let onToggle = onToggleNotesDrawer {
                             Button(action: onToggle) {
                                 HStack(spacing: 3) {
-                                    Image(systemName: isNotesDrawerOpen ? "text.bubble.fill" : "text.bubble")
+                                    Image(systemName: isNotesDrawerOpen ? "bubble.left.fill" : "bubble.left")
                                         .font(.system(size: iconSize(9), weight: .semibold))
                                     SlotText(
                                         hasNotes ? "\(notesCount)" : "NOTES",

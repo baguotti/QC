@@ -17,7 +17,7 @@ struct QCpieApp: App {
     
     init() {
         NSApplication.shared.setActivationPolicy(.regular)
-        NSApplication.shared.activate()
+        NSApplication.shared.activate(ignoringOtherApps: true)
 
         NSColorPanel.setPickerMask(.wheelModeMask)
         NSColorPanel.setPickerMode(.wheel)

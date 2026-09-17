@@ -9,6 +9,7 @@ public struct PlayerQueueFileRowView: View, Equatable {
     public let isSlotA: Bool
     public let isSlotB: Bool
     public let hasSlotB: Bool
+    public let hasNotes: Bool
     public let currentTag: FinderTagColor?
     public let slotAResolution: String
     public let slotAFps: Double
@@ -39,6 +40,7 @@ public struct PlayerQueueFileRowView: View, Equatable {
             lhs.isSlotA == rhs.isSlotA &&
             lhs.isSlotB == rhs.isSlotB &&
             lhs.hasSlotB == rhs.hasSlotB &&
+            lhs.hasNotes == rhs.hasNotes &&
             lhs.currentTag == rhs.currentTag &&
             lhs.slotAResolution == rhs.slotAResolution &&
             lhs.slotAFps == rhs.slotAFps &&
@@ -62,6 +64,7 @@ public struct PlayerQueueFileRowView: View, Equatable {
     private var textSubtle: Color { StudioTheme.textSubtle(isLightMode) }
     private var accentPositive: Color { StudioTheme.positive }
     private var accentSlotB: Color { StudioTheme.slotBAccent }
+    private var playheadColor: Color { StudioTheme.accentBlue(isLightMode) }
     
     public var body: some View {
         let isSelected = isSlotA || isSlotB
@@ -191,6 +194,13 @@ public struct PlayerQueueFileRowView: View, Equatable {
                 .foregroundColor(isSelected ? textMain : textSubtle)
                 .lineLimit(1)
             
+            if hasNotes {
+                Image(systemName: "bubble.left.fill")
+                    .font(.system(size: 8, weight: .semibold))
+                    .foregroundColor(playheadColor.opacity(isSelected ? 0.95 : 0.85))
+                    .help("Contains review notes")
+            }
+            
             if isSlotA && !slotAResolution.isEmpty {
                 Text("• \(slotAResolution) \(slotACodec)")
                     .font(.system(size: 8, weight: .bold, design: .monospaced))
@@ -242,6 +252,13 @@ public struct PlayerQueueFileRowView: View, Equatable {
                         .font(.system(size: isLarge ? 11 : 10.5, weight: isSelected ? .bold : .medium, design: .monospaced))
                         .foregroundColor(isSelected ? textMain : textSubtle)
                         .lineLimit(1)
+                    
+                    if hasNotes {
+                        Image(systemName: "bubble.left.fill")
+                            .font(.system(size: isLarge ? 8.5 : 8, weight: .semibold))
+                            .foregroundColor(playheadColor.opacity(isSelected ? 0.95 : 0.85))
+                            .help("Contains review notes")
+                    }
                 }
                 
                 if isSlotA && !slotAResolution.isEmpty {
@@ -298,6 +315,13 @@ public struct PlayerQueueFileRowView: View, Equatable {
                         .font(.system(size: 11, weight: isSelected ? .bold : .medium, design: .monospaced))
                         .foregroundColor(isSelected ? textMain : textSubtle)
                         .lineLimit(1)
+                    
+                    if hasNotes {
+                        Image(systemName: "bubble.left.fill")
+                            .font(.system(size: 8.5, weight: .semibold))
+                            .foregroundColor(playheadColor.opacity(isSelected ? 0.95 : 0.85))
+                            .help("Contains review notes")
+                    }
                 }
                 
                 if isSlotA && !slotAResolution.isEmpty {

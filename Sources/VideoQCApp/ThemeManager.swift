@@ -287,12 +287,13 @@ public final class ThemeManager: ObservableObject {
     
     public func updateAccentColor(slot: AccentSlot, hex: String) {
         var updated = currentTheme
-        // If current theme is a factory preset or matches a saved preset, detach it as an active custom theme
-        if updated.isPreset || userPresets.contains(where: { $0.id == updated.id }) {
+        // If current theme is a factory preset, detach it as an active custom theme
+        if updated.isPreset {
             updated.id = UUID().uuidString
             updated.name = "Custom"
             updated.isPreset = false
         }
+        // If it is an existing user preset, retain its ID and name so the user can update it in-place
         updated.setColorHex(hex, for: slot)
         currentTheme = updated
     }
@@ -300,6 +301,43 @@ public final class ThemeManager: ObservableObject {
     public func updateAccentColor(slot: AccentSlot, color: Color) {
         let ns = NSColor(color)
         updateAccentColor(slot: slot, hex: ns.hexString)
+    }
+    
+    /// Returns true if the active theme is a saved user preset.
+    public var isCurrentThemeUserPreset: Bool {
+        !currentTheme.isPreset && userPresets.contains(where: { $0.id == currentTheme.id })
+    }
+    
+    /// Returns true if the active user preset has modified colors compared to its saved state.
+    public var hasUnsavedChangesForCurrentPreset: Bool {
+        guard let saved = userPresets.first(where: { $0.id == currentTheme.id }) else {
+            return false
+        }
+        return saved.greenHex.uppercased() != currentTheme.greenHex.uppercased() ||
+               saved.blueHex.uppercased() != currentTheme.blueHex.uppercased() ||
+               saved.purpleHex.uppercased() != currentTheme.purpleHex.uppercased() ||
+               saved.redHex.uppercased() != currentTheme.redHex.uppercased()
+    }
+    
+    /// Updates the active user preset in-place with current colors.
+    @discardableResult
+    public func updateCurrentPreset() -> Bool {
+        guard let idx = userPresets.firstIndex(where: { $0.id == currentTheme.id }) else {
+            return false
+        }
+        userPresets[idx].greenHex = currentTheme.greenHex
+        userPresets[idx].blueHex = currentTheme.blueHex
+        userPresets[idx].purpleHex = currentTheme.purpleHex
+        userPresets[idx].redHex = currentTheme.redHex
+        saveUserPresets()
+        saveCurrentTheme()
+        return true
+    }
+    
+    /// Discards unsaved color tweaks and restores the saved user preset.
+    public func revertCurrentPreset() {
+        guard let saved = userPresets.first(where: { $0.id == currentTheme.id }) else { return }
+        currentTheme = saved
     }
     
     @discardableResult
