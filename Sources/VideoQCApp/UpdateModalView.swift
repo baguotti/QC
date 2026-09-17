@@ -29,9 +29,11 @@ struct UpdateModalView: View {
                 .edgesIgnoringSafeArea(.all)
                 .allowsHitTesting(isPresented)
                 .onTapGesture {
-                    if case .downloading = updateManager.state {
-                        // Prevent accidental dismiss while downloading
-                    } else {
+                    switch updateManager.state {
+                    case .downloading, .installing:
+                        // Prevent accidental dismiss while downloading or installing
+                        break
+                    default:
                         dismissModal()
                     }
                 }
@@ -68,6 +70,8 @@ struct UpdateModalView: View {
                     }
                     .buttonStyle(.plain)
                     .keyboardShortcut(.escape, modifiers: [])
+                    .disabled(isBusyInstalling)
+                    .opacity(isBusyInstalling ? 0.4 : 1.0)
                 }
                 .padding(.horizontal, 18)
                 .padding(.vertical, 10)
@@ -86,6 +90,8 @@ struct UpdateModalView: View {
                         updateAvailableView(version: version, dmgURL: dmgURL, webURL: webURL)
                     case .downloading(let progress, let bytesWritten, let totalBytes):
                         downloadingView(progress: progress, bytesWritten: bytesWritten, totalBytes: totalBytes)
+                    case .installing(let status):
+                        installingView(status: status)
                     case .readyToInstall(let fileURL):
                         readyToInstallView(fileURL: fileURL)
                     case .failed(let message):
@@ -102,7 +108,15 @@ struct UpdateModalView: View {
         .allowsHitTesting(isPresented)
     }
     
+    private var isBusyInstalling: Bool {
+        if case .installing = updateManager.state {
+            return true
+        }
+        return false
+    }
+    
     private func dismissModal() {
+        if isBusyInstalling { return }
         withAnimation(.easeInOut(duration: 0.15)) {
             isPresented = false
         }
@@ -194,11 +208,11 @@ struct UpdateModalView: View {
             Rectangle().fill(borderLine).frame(height: 1)
             
             VStack(alignment: .leading, spacing: 6) {
-                Text("AUTOMATIC INSTALLER FETCH")
+                Text("ONE-CLICK AUTOMATIC UPDATE")
                     .font(.system(size: 10, weight: .bold, design: .monospaced))
                     .foregroundColor(textMuted)
                 
-                Text("Clicking Update will automatically download the installer disk image (.dmg) to your Downloads folder and open it in Finder so you can replace the app in Applications.")
+                Text("Clicking Update & Restart will automatically download, stage, and swap the application in /Applications, then restart QCpie seamlessly.")
                     .font(.system(size: 11, design: .monospaced))
                     .foregroundColor(textMain)
                     .lineSpacing(4)
@@ -206,24 +220,56 @@ struct UpdateModalView: View {
             .padding(12)
             .studioBox(background: bgCardBody, border: borderLine)
             
-            HStack(spacing: 12) {
-                Button(action: { updateManager.startDownload() }) {
-                    HStack(spacing: 6) {
-                        Image(systemName: "arrow.down.circle.fill")
-                            .font(.system(size: 11))
-                        Text(dmgURL != nil ? "UPDATE NOW (.DMG)" : "OPEN GITHUB RELEASE")
-                            .font(.system(size: 11, weight: .black, design: .monospaced))
+            HStack(spacing: 10) {
+                if dmgURL != nil {
+                    Button(action: { updateManager.startOneClickUpdate() }) {
+                        HStack(spacing: 6) {
+                            Image(systemName: "bolt.fill")
+                                .font(.system(size: 11))
+                            Text("UPDATE & RESTART")
+                                .font(.system(size: 11, weight: .black, design: .monospaced))
+                        }
+                        .frame(maxWidth: .infinity, minHeight: 34)
+                        .foregroundColor(.white)
+                        .studioBox(background: accentPositive, border: borderStrong)
                     }
-                    .frame(maxWidth: .infinity, minHeight: 34)
-                    .foregroundColor(.white)
-                    .studioBox(background: accentPositive, border: borderStrong)
+                    .buttonStyle(.plain)
+                    
+                    Button(action: { updateManager.downloadDMGManually() }) {
+                        HStack(spacing: 4) {
+                            Image(systemName: "arrow.down.circle")
+                                .font(.system(size: 10))
+                            Text("MANUAL DMG")
+                                .font(.system(size: 10, weight: .bold, design: .monospaced))
+                        }
+                        .frame(width: 105, height: 34)
+                        .foregroundColor(textMain)
+                        .studioBox(background: bgSubtle, border: borderLine)
+                    }
+                    .buttonStyle(.plain)
+                } else {
+                    Button(action: {
+                        if let webURL = updateManager.remoteWebURL {
+                            NSWorkspace.shared.open(webURL)
+                        }
+                    }) {
+                        HStack(spacing: 6) {
+                            Image(systemName: "arrow.up.right.square")
+                                .font(.system(size: 11))
+                            Text("VIEW GITHUB RELEASE")
+                                .font(.system(size: 11, weight: .black, design: .monospaced))
+                        }
+                        .frame(maxWidth: .infinity, minHeight: 34)
+                        .foregroundColor(primaryBtnFg)
+                        .studioBox(background: primaryBtnBg, border: borderStrong)
+                    }
+                    .buttonStyle(.plain)
                 }
-                .buttonStyle(.plain)
                 
                 Button(action: { isPresented = false }) {
                     Text("LATER")
                         .font(.system(size: 11, weight: .bold, design: .monospaced))
-                        .frame(width: 100, height: 34)
+                        .frame(width: 75, height: 34)
                         .foregroundColor(textMain)
                         .studioBox(background: bgSubtle, border: borderLine)
                 }
@@ -280,6 +326,30 @@ struct UpdateModalView: View {
             }
         }
         .padding(.vertical, 10)
+    }
+    
+    private func installingView(status: String) -> some View {
+        VStack(alignment: .center, spacing: 14) {
+            ProgressView()
+                .scaleEffect(1.0)
+                .padding(.top, 8)
+            
+            VStack(spacing: 6) {
+                Text("INSTALLING UPDATE & RESTARTING...")
+                    .font(.system(size: 12, weight: .black, design: .monospaced))
+                    .foregroundColor(textMain)
+                
+                Text(status.isEmpty ? "Preparing application bundle..." : status.uppercased())
+                    .font(.system(size: 11, design: .monospaced))
+                    .foregroundColor(accentPositive)
+            }
+            
+            Text("QCpie will close and relaunch automatically in a moment.")
+                .font(.system(size: 10, design: .monospaced))
+                .foregroundColor(textMuted)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 20)
     }
     
     private func readyToInstallView(fileURL: URL) -> some View {
