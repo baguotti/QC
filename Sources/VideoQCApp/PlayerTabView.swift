@@ -136,7 +136,7 @@ extension ContentView {
     private var playerQueuePanel: some View {
         PlayerQueuePanelView(
             isLightMode: isLightMode,
-            themeId: themeManager.currentTheme.id,
+            themeId: "\(themeManager.currentTheme.id)_\(themeManager.currentTheme.blueHex)",
             buttonZoom: themeManager.buttonZoom,
             folderURL: folderURL,
             videoFiles: videoFiles,

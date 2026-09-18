@@ -174,30 +174,49 @@ public struct PlayerQueueFileRowView: View, Equatable {
         }
     }
     
+    private var badgeTextColor: Color {
+        let hex = themeManager.currentTheme.blueHex.trimmingCharacters(in: CharacterSet.alphanumerics.inverted)
+        var int: UInt64 = 0
+        Scanner(string: hex).scanHexInt64(&int)
+        let r, g, b: Double
+        if hex.count == 6 {
+            r = Double((int >> 16) & 0xFF) / 255.0
+            g = Double((int >> 8) & 0xFF) / 255.0
+            b = Double(int & 0xFF) / 255.0
+        } else {
+            r = 0.3; g = 0.5; b = 0.6
+        }
+        let lum = 0.2126 * r + 0.7152 * g + 0.0722 * b
+        return lum > 0.65 ? Color.black : Color.white
+    }
+    
     @ViewBuilder
     private var notesBadge: some View {
         if notesCount > 0 {
-            let badgeColor: Color = isLightMode ? Color.black : Color.white
-            Text("\(notesCount)")
-                .font(.system(size: 8, weight: .bold, design: .monospaced))
-                .foregroundColor(badgeColor)
-                .padding(.horizontal, notesCount > 9 ? 3.5 : 0)
-                .frame(height: 13)
-                .frame(minWidth: 13)
-                .background(
-                    Capsule()
-                        .fill(isLightMode ? Color.white : bgPanel)
-                )
-                .overlay(
-                    Capsule()
-                        .stroke(badgeColor.opacity(isLightMode ? 0.75 : 0.8), lineWidth: 0.8)
-                )
+            HStack(spacing: 3.5) {
+                Image(systemName: "bubble.left.fill")
+                    .font(.system(size: 7.5, weight: .bold))
+                Text("\(notesCount)")
+                    .font(.system(size: 8.5, weight: .bold, design: .monospaced))
+            }
+            .foregroundColor(badgeTextColor)
+            .padding(.horizontal, 5)
+            .frame(height: 15.5)
+            .background(
+                RoundedRectangle(cornerRadius: 3.5)
+                    .fill(playheadColor)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 3.5)
+                    .stroke(playheadColor.opacity(0.85), lineWidth: 0.6)
+            )
+            .help("\(notesCount) \(notesCount == 1 ? "review note" : "review notes")")
         }
     }
     
     @ViewBuilder
     private func fileNameLabel(fontSize: CGFloat, isSelected: Bool) -> some View {
-        HStack(spacing: 5) {
+        HStack(spacing: 6) {
             Text(url.lastPathComponent)
                 .font(.system(size: fontSize, weight: isSelected ? .bold : .medium, design: .monospaced))
                 .foregroundColor(isSelected ? textMain : textSubtle)
