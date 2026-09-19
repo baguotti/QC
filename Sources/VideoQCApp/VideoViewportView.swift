@@ -98,6 +98,18 @@ public final class PlayerContainerNSView: NSView {
         let labelHeight: CGFloat = isThreeLine ? 42 : Self.resolutionLabelHeight
         return labelHeight + Self.resolutionLabelGap * 2 + 4
     }
+
+    private var resolutionLabelRequiredTopMargin: CGFloat {
+        guard let engine = engine,
+              engine.showResolutionLabels,
+              engine.clipInfoOverlayMode != .off,
+              engine.slotA.url != nil || engine.slotB.url != nil else {
+            return 0
+        }
+        let isThreeLine = engine.clipInfoOverlayMode == .fullDetails
+        let labelHeight: CGFloat = isThreeLine ? 42 : Self.resolutionLabelHeight
+        return labelHeight + Self.resolutionLabelGap + 4
+    }
     
     private var displayLink: CADisplayLink?
     private weak var engine: PlayerEngine?
@@ -758,7 +770,7 @@ public final class PlayerContainerNSView: NSView {
         
         let (numA, denA) = getRationalAspect(width: Int(rawWA), height: Int(rawHA))
         let availW = max(1.0, bounds.width)
-        let availH = max(1.0, bounds.height)
+        let availH = max(1.0, bounds.height - (resolutionLabelRequiredTopMargin * 2.0))
         
         if !isVertical {
             // Horizontal Side-by-Side: [ Video A ] [gap] [ Video B ]
@@ -880,8 +892,9 @@ public final class PlayerContainerNSView: NSView {
                 return bounds.size
             }
             let (num, den) = getRationalAspect(width: Int(round(pSize.width)), height: Int(round(pSize.height)))
+            let availH = max(1.0, bounds.height - (resolutionLabelRequiredTopMargin * 2.0))
             let maxPixelW = floor(bounds.width * scale)
-            let maxPixelH = floor(bounds.height * scale)
+            let maxPixelH = floor(availH * scale)
             let stepW = maxPixelW / CGFloat(num)
             let stepH = maxPixelH / CGFloat(den)
             let rawSteps = min(stepW, stepH)
@@ -1350,9 +1363,9 @@ public final class PlayerContainerNSView: NSView {
         label.borderWidth = 0
         label.zPosition = 1_000
         label.shadowColor = NSColor.black.cgColor
-        label.shadowOpacity = 0.85
-        label.shadowRadius = 2.0
-        label.shadowOffset = CGSize(width: 0, height: -1)
+        label.shadowOpacity = 0.0
+        label.shadowRadius = 1.0
+        label.shadowOffset = CGSize(width: 0, height: -0.5)
         label.contentsScale = currentBackingScale()
         label.isHidden = true
         label.actions = [
@@ -1364,7 +1377,11 @@ public final class PlayerContainerNSView: NSView {
             "contents": NSNull(),
             "foregroundColor": NSNull(),
             "alignmentMode": NSNull(),
-            "opacity": NSNull()
+            "opacity": NSNull(),
+            "shadowOpacity": NSNull(),
+            "shadowRadius": NSNull(),
+            "shadowOffset": NSNull(),
+            "shadowColor": NSNull()
         ]
     }
 
@@ -1450,12 +1467,14 @@ public final class PlayerContainerNSView: NSView {
         let centerGap: CGFloat = 8
         let centerX = frameA.midX
 
-        // Check if there is enough room in the black bar above canvasLayer in fit zoom
-        let spaceAboveCanvas = bounds.height - (canvasLayer.position.y + (canvasLayer.bounds.height / 2.0))
-        let needsTuckInside = engine.isFitZoom && (spaceAboveCanvas < labelHeight + labelYGap)
-        let labelYA = needsTuckInside
-            ? snapToPixel(frameA.maxY - labelHeight - labelYGap, scale: scale)
-            : snapToPixel(frameA.maxY + labelYGap, scale: scale)
+        let labelYA = snapToPixel(frameA.maxY + labelYGap, scale: scale)
+
+        if resolutionLabelLayerA.shadowOpacity != 0.0 {
+            resolutionLabelLayerA.shadowOpacity = 0.0
+        }
+        if resolutionLabelLayerB.shadowOpacity != 0.0 {
+            resolutionLabelLayerB.shadowOpacity = 0.0
+        }
 
         if showA {
             if isSharedSplit && showB {
@@ -1496,14 +1515,9 @@ public final class PlayerContainerNSView: NSView {
                 resolutionLabelLayerB.alignmentMode = .left
                 let labelFrame = (usesSeparateCanvases || isBlink) ? frameB : frameA
                 let sharedCanvasOffset = (!usesSeparateCanvases && !isBlink && showA) ? resolutionLabelWidthA + 12 : 0
-                let labelY: CGFloat
-                if isSideBySideV {
-                    labelY = snapToPixel(frameB.maxY + labelYGap, scale: scale)
-                } else if needsTuckInside {
-                    labelY = snapToPixel(labelFrame.maxY - labelHeight - labelYGap, scale: scale)
-                } else {
-                    labelY = snapToPixel(labelFrame.maxY + labelYGap, scale: scale)
-                }
+                let labelY: CGFloat = isSideBySideV
+                    ? snapToPixel(frameB.maxY + labelYGap, scale: scale)
+                    : snapToPixel(labelFrame.maxY + labelYGap, scale: scale)
 
                 let maxWB = usesSeparateCanvases ? max(40, frameB.width - 8) : labelFrame.width
                 let wB = min(resolutionLabelWidthB, maxWB)

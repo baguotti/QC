@@ -35,13 +35,24 @@ public final class SpecsState: ObservableObject {
         }
     }
     
-    // Column Width & Resizing
-    @Published public var specsFileNameColumnWidth: Double {
-        didSet { UserDefaults.standard.set(specsFileNameColumnWidth, forKey: "specsFileNameColumnWidth") }
+    // Universal Column Width & Resizing
+    @Published public var columnWidths: [SpecsSortColumn: Double] = [:]
+    @Published public var liveDraggingColumn: SpecsSortColumn? = nil
+    @Published public var liveDraggingWidth: Double = 0.0
+    private var dragStartWidth: Double? = nil
+    
+    // Backwards-compatible legacy properties for fileName column
+    public var specsFileNameColumnWidth: Double {
+        get { columnWidths[.name] ?? SpecsSortColumn.name.defaultWidth }
+        set { setColumnWidth(newValue, for: .name) }
     }
-    @Published public var liveFileNameColumnWidth: Double = 220.0
-    @Published public var isDraggingFileNameColumn: Bool = false
-    @Published public var dragStartFileNameWidth: Double? = nil
+    public var liveFileNameColumnWidth: Double {
+        get { liveDraggingColumn == .name ? liveDraggingWidth : specsFileNameColumnWidth }
+        set { if liveDraggingColumn == .name { liveDraggingWidth = newValue } }
+    }
+    public var isDraggingFileNameColumn: Bool {
+        liveDraggingColumn == .name
+    }
     
     // Sorting
     @Published public var specsSortColumnRaw: String {
@@ -57,7 +68,7 @@ public final class SpecsState: ObservableObject {
     }
     
     public var effectiveFileNameColumnWidth: Double {
-        isDraggingFileNameColumn ? liveFileNameColumnWidth : specsFileNameColumnWidth
+        columnWidth(for: .name)
     }
     
     public var isFileNameExpanded: Bool {
@@ -65,43 +76,78 @@ public final class SpecsState: ObservableObject {
     }
     
     public init() {
-        let savedWidth = UserDefaults.standard.object(forKey: "specsFileNameColumnWidth") as? Double ?? 220.0
-        self.specsFileNameColumnWidth = savedWidth
-        self.liveFileNameColumnWidth = savedWidth
+        var widths: [SpecsSortColumn: Double] = [:]
+        for col in SpecsSortColumn.allCases {
+            let key = col == .name ? "specsFileNameColumnWidth" : "specsColumnWidth_\(col.rawValue)"
+            if let saved = UserDefaults.standard.object(forKey: key) as? Double {
+                widths[col] = max(col.minWidth, min(col.maxWidth, saved))
+            } else {
+                widths[col] = col.defaultWidth
+            }
+        }
+        self.columnWidths = widths
         self.specsSortColumnRaw = UserDefaults.standard.string(forKey: "specsSortColumn") ?? SpecsSortColumn.name.rawValue
         self.specsSortAscending = UserDefaults.standard.object(forKey: "specsSortAscending") as? Bool ?? true
     }
     
-    public func onFileNameDragChanged(translationWidth: Double) {
-        if dragStartFileNameWidth == nil {
-            dragStartFileNameWidth = specsFileNameColumnWidth
-            isDraggingFileNameColumn = true
+    public func columnWidth(for column: SpecsSortColumn) -> Double {
+        if liveDraggingColumn == column {
+            return liveDraggingWidth
         }
-        let start = dragStartFileNameWidth ?? specsFileNameColumnWidth
-        let newWidth = max(140.0, min(1200.0, start + translationWidth))
-        liveFileNameColumnWidth = newWidth
+        return columnWidths[column] ?? column.defaultWidth
+    }
+    
+    public func isDragging(column: SpecsSortColumn) -> Bool {
+        liveDraggingColumn == column
+    }
+    
+    public func setColumnWidth(_ width: Double, for column: SpecsSortColumn) {
+        let clamped = max(column.minWidth, min(column.maxWidth, width))
+        columnWidths[column] = clamped
+        let key = column == .name ? "specsFileNameColumnWidth" : "specsColumnWidth_\(column.rawValue)"
+        UserDefaults.standard.set(clamped, forKey: key)
+    }
+    
+    public func resetColumnWidth(for column: SpecsSortColumn) {
+        setColumnWidth(column.defaultWidth, for: column)
+    }
+    
+    public func onColumnDragChanged(column: SpecsSortColumn, translationWidth: Double) {
+        if dragStartWidth == nil || liveDraggingColumn != column {
+            dragStartWidth = columnWidth(for: column)
+            liveDraggingColumn = column
+        }
+        let start = dragStartWidth ?? columnWidth(for: column)
+        let newWidth = max(column.minWidth, min(column.maxWidth, start + translationWidth))
+        liveDraggingWidth = newWidth
+    }
+    
+    public func onColumnDragEnded(column: SpecsSortColumn, translationWidth: Double) {
+        if let start = dragStartWidth {
+            let finalWidth = max(column.minWidth, min(column.maxWidth, start + translationWidth))
+            setColumnWidth(finalWidth, for: column)
+        }
+        dragStartWidth = nil
+        liveDraggingColumn = nil
+    }
+    
+    // Legacy fileName helpers routed to universal implementation
+    public func onFileNameDragChanged(translationWidth: Double) {
+        onColumnDragChanged(column: .name, translationWidth: translationWidth)
     }
     
     public func onFileNameDragEnded(translationWidth: Double) {
-        if let start = dragStartFileNameWidth {
-            let finalWidth = max(140.0, min(1200.0, start + translationWidth))
-            specsFileNameColumnWidth = finalWidth
-            liveFileNameColumnWidth = finalWidth
-        }
-        dragStartFileNameWidth = nil
-        isDraggingFileNameColumn = false
+        onColumnDragEnded(column: .name, translationWidth: translationWidth)
     }
     
     public func autoFitFileNameColumnWidth(filteredAssets: [DeliverableAsset]) {
         if isFileNameExpanded {
-            specsFileNameColumnWidth = 220.0
-            liveFileNameColumnWidth = 220.0
+            setColumnWidth(SpecsSortColumn.name.defaultWidth, for: .name)
         } else {
             let longestName = filteredAssets.map { $0.fileName }.max(by: { $0.count < $1.count }) ?? ""
             let estWidth = Double(longestName.count) * 7.5 + 40.0
             let targetWidth = max(260.0, min(1000.0, estWidth))
-            specsFileNameColumnWidth = targetWidth
-            liveFileNameColumnWidth = targetWidth
+            setColumnWidth(targetWidth, for: .name)
         }
     }
     

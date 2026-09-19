@@ -74,6 +74,48 @@ public enum SpecsSortColumn: String, CaseIterable, Equatable, Sendable {
         case .path: return "File Path"
         }
     }
+    
+    public var defaultWidth: Double {
+        switch self {
+        case .name: return 220.0
+        case .timecode: return 142.0
+        case .ratio: return 152.0
+        case .fps: return 60.0
+        case .size: return 75.0
+        case .date: return 110.0
+        case .videoCodec: return 140.0
+        case .audioCodec: return 145.0
+        case .path: return 160.0
+        }
+    }
+    
+    public var minWidth: Double {
+        switch self {
+        case .name: return 140.0
+        case .timecode: return 80.0
+        case .ratio: return 90.0
+        case .fps: return 45.0
+        case .size: return 50.0
+        case .date: return 70.0
+        case .videoCodec: return 80.0
+        case .audioCodec: return 80.0
+        case .path: return 100.0
+        }
+    }
+    
+    public var maxWidth: Double {
+        switch self {
+        case .name: return 1200.0
+        case .timecode: return 300.0
+        case .ratio: return 350.0
+        case .fps: return 150.0
+        case .size: return 200.0
+        case .date: return 250.0
+        case .videoCodec: return 400.0
+        case .audioCodec: return 400.0
+        case .path: return 2000.0
+        }
+    }
 }
 
 public struct DeliverableAsset: Identifiable, Sendable {

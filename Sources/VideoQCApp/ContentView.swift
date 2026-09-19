@@ -616,6 +616,8 @@ struct ContentView: View {
                     ForEach(AppTab.allCases) { tab in
                         let isActive = (selectedTab == tab)
                         let isHovered = (hoveredTab == tab)
+                        let iconColor = isActive ? accentBlue : (isHovered ? textMain : textMuted.opacity(0.72))
+                        let textColor = isActive ? (isLightMode ? Color.black : Color.white) : (isHovered ? textMain : textMuted.opacity(0.72))
                         
                         Button(action: {
                             selectedTab = tab
@@ -632,22 +634,20 @@ struct ContentView: View {
                                         .resizable()
                                         .aspectRatio(contentMode: .fit)
                                         .frame(width: StudioTheme.scaleFont(12), height: StudioTheme.scaleFont(12))
+                                        .foregroundColor(iconColor)
                                 } else {
                                     Image(systemName: tab.iconName)
                                         .font(.system(size: StudioTheme.scaleFont(11), weight: isActive ? .bold : .medium))
+                                        .foregroundColor(iconColor)
                                 }
                                 
                                 Text(tab.title)
                                     .font(.system(size: StudioTheme.scaleFont(11), weight: isActive ? .bold : .medium, design: .monospaced))
                                     .tracking(0.5)
                                     .lineLimit(1)
+                                    .foregroundColor(textColor)
                             }
                             .frame(width: tabLength * StudioTheme.buttonScale, height: StudioTheme.scale(29))
-                            .foregroundColor(
-                                isActive
-                                    ? (isLightMode ? Color.black : Color.white)
-                                    : (isHovered ? textMain : textMuted.opacity(0.72))
-                            )
                             .background(
                                 Group {
                                     if isActive {

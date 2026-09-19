@@ -403,68 +403,15 @@ extension ContentView {
                             Text("PREVIEW").frame(width: CGFloat(specsThumbnailWidth), alignment: .center)
                         }
                         
-                        // Resizable & Sortable File Name Column Header
-                        HStack(spacing: 0) {
-                            Button(action: { toggleSpecsSort(.name) }) {
-                                HStack(spacing: 3) {
-                                    Text("FILE NAME")
-                                        .lineLimit(1)
-                                        .foregroundColor(specsState.specsSortColumn == .name ? textMain : textMuted)
-                                    
-                                    if specsState.specsSortColumn == .name {
-                                        Image(systemName: specsState.specsSortAscending ? "chevron.up" : "chevron.down")
-                                            .font(.system(size: 7, weight: .black))
-                                            .foregroundColor(accentBlue)
-                                    }
-                                }
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                .contentShape(Rectangle())
-                            }
-                            .buttonStyle(.plain)
-                            
-                            // Drag Resize Handle Divider (16px hit target zone)
-                            ZStack {
-                                Rectangle()
-                                    .fill(Color.clear)
-                                    .frame(width: 16, height: 24)
-                                    .contentShape(Rectangle())
-                                
-                                Rectangle()
-                                    .fill(specsState.isDraggingFileNameColumn ? accentBlue : borderLine.opacity(0.85))
-                                    .frame(width: specsState.isDraggingFileNameColumn ? 2 : 1, height: 12)
-                            }
-                            .frame(width: 16)
-                            .onTapGesture(count: 2) {
-                                autoFitFileNameColumnWidth()
-                            }
-                            .onHover { isHovered in
-                                if isHovered {
-                                    NSCursor.resizeLeftRight.push()
-                                } else {
-                                    NSCursor.pop()
-                                }
-                            }
-                            .gesture(
-                                DragGesture(minimumDistance: 1, coordinateSpace: .global)
-                                    .onChanged { value in
-                                        specsState.onFileNameDragChanged(translationWidth: Double(value.translation.width))
-                                    }
-                                    .onEnded { value in
-                                        specsState.onFileNameDragEnded(translationWidth: Double(value.translation.width))
-                                    }
-                            )
-                        }
-                        .frame(width: CGFloat(effectiveFileNameColumnWidth), alignment: .leading)
-                        .explain("Click to sort by filename (\(specsState.specsSortColumn == .name ? (specsState.specsSortAscending ? "A-Z" : "Z-A") : "click to sort")). Drag divider to resize.")
-                        
-                        sortableHeaderCell("TIMECODE (TC)", column: .timecode, width: 142)
-                        sortableHeaderCell("RATIO & SIZE", column: .ratio, width: 152)
-                        sortableHeaderCell("FPS", column: .fps, width: 60)
-                        sortableHeaderCell("FILE SIZE", column: .size, width: 75)
-                        sortableHeaderCell("CREATED", column: .date, width: 110)
-                        sortableHeaderCell("VIDEO", column: .videoCodec, width: 85)
-                        sortableHeaderCell("AUDIO SPEC", column: .audioCodec, width: 145)
-                        sortableHeaderCell("PATH", column: .path, minWidth: 160, maxWidth: .infinity, alignment: .leading)
+                        sortableHeaderCell("FILE NAME", column: .name, alignment: .leading)
+                        sortableHeaderCell("TIMECODE (TC)", column: .timecode)
+                        sortableHeaderCell("RATIO & SIZE", column: .ratio)
+                        sortableHeaderCell("FPS", column: .fps)
+                        sortableHeaderCell("FILE SIZE", column: .size)
+                        sortableHeaderCell("CREATED", column: .date)
+                        sortableHeaderCell("VIDEO", column: .videoCodec)
+                        sortableHeaderCell("AUDIO SPEC", column: .audioCodec)
+                        sortableHeaderCell("PATH", column: .path, alignment: .leading, isResizable: false)
                     }
                     .font(.system(size: 9, weight: .bold, design: .monospaced))
                     .foregroundColor(textMuted)
@@ -580,11 +527,20 @@ extension ContentView {
     
     var specsTableMinWidth: CGFloat {
         let previewWidth: CGFloat = CGFloat(specsThumbnailWidth)
-        let otherColumnsWidth: CGFloat = 25 + previewWidth + 142 + 152 + 60 + 75 + 110 + 85 + 145 + 160 + (8 * 11) + 28
+        let otherColumnsWidth: CGFloat = 25 + previewWidth +
+            CGFloat(specsState.columnWidth(for: .timecode)) +
+            CGFloat(specsState.columnWidth(for: .ratio)) +
+            CGFloat(specsState.columnWidth(for: .fps)) +
+            CGFloat(specsState.columnWidth(for: .size)) +
+            CGFloat(specsState.columnWidth(for: .date)) +
+            CGFloat(specsState.columnWidth(for: .videoCodec)) +
+            CGFloat(specsState.columnWidth(for: .audioCodec)) +
+            CGFloat(specsState.columnWidth(for: .path)) +
+            (8 * 11) + 28
         return CGFloat(effectiveFileNameColumnWidth) + otherColumnsWidth
     }
     
-    // MARK: - Finder-Style Column Sorting Helpers
+    // MARK: - Finder-Style Column Sorting & Resizing Helpers
     
     func toggleSpecsSort(_ column: SpecsSortColumn) {
         withAnimation(.easeInOut(duration: 0.15)) {
@@ -595,34 +551,76 @@ extension ContentView {
     private func sortableHeaderCell(
         _ title: String,
         column: SpecsSortColumn,
-        width: CGFloat? = nil,
-        minWidth: CGFloat? = nil,
-        maxWidth: CGFloat? = nil,
-        alignment: Alignment = .center
+        alignment: Alignment = .center,
+        isResizable: Bool = true
     ) -> some View {
         let isCurrent = specsState.specsSortColumn == column
-        return Button(action: { toggleSpecsSort(column) }) {
-            HStack(spacing: 3) {
-                Text(title)
-                    .lineLimit(1)
-                    .foregroundColor(isCurrent ? textMain : textMuted)
-                
-                if isCurrent {
-                    Image(systemName: specsState.specsSortAscending ? "chevron.up" : "chevron.down")
-                        .font(.system(size: 7, weight: .black))
-                        .foregroundColor(accentBlue)
+        let colWidth = CGFloat(specsState.columnWidth(for: column))
+        let isDraggingThis = specsState.isDragging(column: column)
+        
+        return HStack(spacing: 0) {
+            Button(action: { toggleSpecsSort(column) }) {
+                HStack(spacing: 3) {
+                    Text(title)
+                        .lineLimit(1)
+                        .foregroundColor(isCurrent ? textMain : textMuted)
+                    
+                    if isCurrent {
+                        Image(systemName: specsState.specsSortAscending ? "chevron.up" : "chevron.down")
+                            .font(.system(size: 7, weight: .black))
+                            .foregroundColor(accentBlue)
+                    }
                 }
+                .frame(maxWidth: .infinity, alignment: alignment)
+                .contentShape(Rectangle())
             }
-            .frame(
-                minWidth: minWidth,
-                idealWidth: width,
-                maxWidth: maxWidth ?? width,
-                alignment: alignment
-            )
-            .contentShape(Rectangle())
+            .buttonStyle(.plain)
+            
+            if isResizable {
+                // Drag Resize Handle Divider (14px hit target zone)
+                ZStack {
+                    Rectangle()
+                        .fill(Color.clear)
+                        .frame(width: 14, height: 24)
+                        .contentShape(Rectangle())
+                    
+                    Rectangle()
+                        .fill(isDraggingThis ? accentBlue : borderLine.opacity(0.85))
+                        .frame(width: isDraggingThis ? 2 : 1, height: 12)
+                }
+                .frame(width: 14)
+                .onTapGesture(count: 2) {
+                    if column == .name {
+                        autoFitFileNameColumnWidth()
+                    } else {
+                        specsState.resetColumnWidth(for: column)
+                    }
+                }
+                .onHover { isHovered in
+                    if isHovered {
+                        NSCursor.resizeLeftRight.push()
+                    } else {
+                        NSCursor.pop()
+                    }
+                }
+                .gesture(
+                    DragGesture(minimumDistance: 1, coordinateSpace: .global)
+                        .onChanged { value in
+                            specsState.onColumnDragChanged(column: column, translationWidth: Double(value.translation.width))
+                        }
+                        .onEnded { value in
+                            specsState.onColumnDragEnded(column: column, translationWidth: Double(value.translation.width))
+                        }
+                )
+            }
         }
-        .buttonStyle(.plain)
-        .explain("Sort by \(title.lowercased()) (\(isCurrent ? (specsState.specsSortAscending ? "ascending" : "descending") : "click to sort")).")
+        .frame(
+            minWidth: column == .path ? colWidth : nil,
+            idealWidth: colWidth,
+            maxWidth: column == .path ? .infinity : colWidth,
+            alignment: alignment
+        )
+        .explain("Sort by \(title.lowercased()) (\(isCurrent ? (specsState.specsSortAscending ? "ascending" : "descending") : "click to sort"))." + (isResizable ? " Drag divider to resize." : ""))
     }
     
     func sortDeliverableAssets(_ assets: [DeliverableAsset]) -> [DeliverableAsset] {
@@ -871,7 +869,7 @@ extension ContentView {
                     .help("Duration Mismatch: \(detail) (Actual Timecode: \(asset.timecode))\(isDismissed ? " [Dismissed]" : "")")
                 }
             }
-            .frame(width: 142, alignment: .center)
+            .frame(width: CGFloat(specsState.columnWidth(for: .timecode)), alignment: .center)
             
             // Ratio Cell with Warning
             VStack(alignment: .center, spacing: 3) {
@@ -922,33 +920,35 @@ extension ContentView {
                     .help("Aspect Ratio Mismatch: \(detail) (Actual Resolution: \(asset.resolutionString))\(isDismissed ? " [Dismissed]" : "")")
                 }
             }
-            .frame(width: 152, alignment: .center)
+            .frame(width: CGFloat(specsState.columnWidth(for: .ratio)), alignment: .center)
             
             Text(String(format: "%.2f", asset.fps))
-                .frame(width: 60, alignment: .center)
+                .frame(width: CGFloat(specsState.columnWidth(for: .fps)), alignment: .center)
                 .foregroundColor(textSubtle)
             
             Text(asset.formattedFileSize)
-                .frame(width: 75, alignment: .center)
+                .frame(width: CGFloat(specsState.columnWidth(for: .size)), alignment: .center)
                 .fontWeight(.semibold)
             
             // Creation Date Column
             Text(asset.formattedCreationDate)
                 .font(.system(size: 9, design: .monospaced))
                 .foregroundColor(textSubtle)
-                .frame(width: 110, alignment: .center)
+                .frame(width: CGFloat(specsState.columnWidth(for: .date)), alignment: .center)
             
             Text(asset.videoCodec)
-                .frame(width: 85, alignment: .center)
+                .frame(width: CGFloat(specsState.columnWidth(for: .videoCodec)), alignment: .center)
                 .foregroundColor(textMuted)
                 .lineLimit(1)
+                .minimumScaleFactor(0.8)
+                .help(asset.videoCodec)
             
             // Audio Column
             if !asset.hasAudio {
                 Text("NONE")
                     .font(.system(size: 9, weight: .bold, design: .monospaced))
                     .foregroundColor(textMuted)
-                    .frame(width: 145, alignment: .center)
+                    .frame(width: CGFloat(specsState.columnWidth(for: .audioCodec)), alignment: .center)
             } else {
                 VStack(alignment: .center, spacing: 3) {
                     HStack(spacing: 4) {
@@ -1000,14 +1000,14 @@ extension ContentView {
                         }
                     }
                 }
-                .frame(width: 145, alignment: .center)
+                .frame(width: CGFloat(specsState.columnWidth(for: .audioCodec)), alignment: .center)
                 .help(asset.audioConfig + (asset.audioLevelString.isEmpty ? "" : "\nPeak Level: \(asset.audioLevelString)"))
             }
             
             Text(asset.fileURL.path)
                 .font(.system(size: 10, design: .monospaced))
                 .foregroundColor(textSubtle)
-                .frame(minWidth: 160, maxWidth: .infinity, alignment: .leading)
+                .frame(minWidth: CGFloat(specsState.columnWidth(for: .path)), maxWidth: .infinity, alignment: .leading)
                 .lineLimit(1)
                 .truncationMode(.middle)
         }

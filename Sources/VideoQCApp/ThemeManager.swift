@@ -142,10 +142,10 @@ public struct StudioThemeConfig: Identifiable, Codable, Equatable, Sendable {
         id: "preset-vivid",
         name: "Vivid",
         isPreset: true,
-        greenHex: "#00C853",
-        blueHex: "#0084FF",
-        purpleHex: "#9A42E6",
-        redHex: "#E62E2E"
+        greenHex: "#00ee9b",
+        blueHex: "#6b91ff",
+        purpleHex: "#a96bff",
+        redHex: "#ff4365"
     )
     
     // Backwards-compatible aliases
