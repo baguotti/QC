@@ -1,5 +1,5 @@
 # QCpie — Changelog & Refactoring Report
-> **Changes from v0.7.0 to v0.7.7**
+> **Changes from v0.7.0 to v0.7.8**
 
 ---
 
@@ -15,6 +15,7 @@
 | **v0.7.5** | Line Audit Preserves Cancellation, Finder Tag Toggle, Specs Mismatch Dismiss, TB Size Formatting & DIT RTF/Text Parsing | Preserves scanned results on cancel in Line Audit, toggle for Finder red tagging (default off), dismiss/restore mismatch flags in Specs, format sizes in TB, and support `.rtf` / `.txt` / `.log` / `.md` DIT reports. |
 | **v0.7.6** | Note Link Path Parsing, Minimal Speech Bubble Icon & Per-Clip Clear All Markers | Fix unquoted paths with spaces/hyphens, URLComponents path encoding, minimal `bubble.left.fill` icon matching playhead color, per-clip Clear All Markers with confirmation alert. |
 | **v0.7.7** | Dynamic Thumbnail Sizing (+/-), Smooth List/Thumb Transitions, Player Tab Play Icon & Hardened Overlay Typography | Added `+`/`-` shortcuts for dynamic thumbnail scaling, seamless List View / Thumbnail mode threshold transitions, custom Play icon on PLAYER tab, 3-line consistent clip info layout, collision-free slot label width clamping, and dynamic side-by-side vertical spacing. |
+| **v0.7.8** | Queue Notes Notification Badge & Playhead Theme Alignment | Dynamic queue notes notification badge styling aligned with theme playhead color. |
 
 ---
 
