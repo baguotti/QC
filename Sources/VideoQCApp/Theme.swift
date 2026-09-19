@@ -274,7 +274,7 @@ struct StudioExplanationModifier: ViewModifier {
 }
 
 extension View {
-    func explain(_ text: String, binding: Binding<String>? = nil) -> some View {
+    func explain(_ text: String) -> some View {
         self.modifier(StudioExplanationModifier(explanation: text))
     }
     

@@ -23,7 +23,6 @@ public struct PlayerQueueFileRowView: View, Equatable {
     public let thumbnailSize: Double
     public let themeId: String
     public var buttonZoom: UIButtonZoomLevel = ThemeManager.shared.buttonZoom
-    public var hoverExplanation: Binding<String>?
     
     // Callbacks
     public let onLoadVideo: (_ url: URL, _ target: SlotTarget) -> Void
@@ -117,7 +116,7 @@ public struct PlayerQueueFileRowView: View, Equatable {
         .frame(height: rowHeight)
         .studioBox(background: rowBg, border: rowBorder)
         .contentShape(Rectangle())
-        .explain(url.path, binding: hoverExplanation)
+        .explain(url.path)
         .help(url.lastPathComponent)
         .contextMenu {
             Button(action: {
@@ -175,19 +174,7 @@ public struct PlayerQueueFileRowView: View, Equatable {
     }
     
     private var badgeTextColor: Color {
-        let hex = themeManager.currentTheme.blueHex.trimmingCharacters(in: CharacterSet.alphanumerics.inverted)
-        var int: UInt64 = 0
-        Scanner(string: hex).scanHexInt64(&int)
-        let r, g, b: Double
-        if hex.count == 6 {
-            r = Double((int >> 16) & 0xFF) / 255.0
-            g = Double((int >> 8) & 0xFF) / 255.0
-            b = Double(int & 0xFF) / 255.0
-        } else {
-            r = 0.3; g = 0.5; b = 0.6
-        }
-        let lum = 0.2126 * r + 0.7152 * g + 0.0722 * b
-        return lum > 0.65 ? Color.black : Color.white
+        themeManager.currentTheme.contrastTextColor(for: .blue)
     }
     
     @ViewBuilder
@@ -395,7 +382,7 @@ public struct PlayerQueueFileRowView: View, Equatable {
                         .studioBox(background: bgSubtle, border: borderLine)
                 }
                 .buttonStyle(.plain)
-                .explain("Load as Slot A (Master)", binding: hoverExplanation)
+                .explain("Load as Slot A (Master)")
             }
             
             if isSlotB {
@@ -414,7 +401,7 @@ public struct PlayerQueueFileRowView: View, Equatable {
                             .foregroundColor(textMuted)
                     }
                     .buttonStyle(.plain)
-                    .explain("Clear Slot B", binding: hoverExplanation)
+                    .explain("Clear Slot B")
                 }
             } else {
                 Button(action: { onLoadVideo(url, .slotB) }) {
@@ -426,7 +413,7 @@ public struct PlayerQueueFileRowView: View, Equatable {
                         .studioBox(background: bgSubtle, border: borderLine)
                 }
                 .buttonStyle(.plain)
-                .explain("Load as Slot B (Compare / ⌥+Click)", binding: hoverExplanation)
+                .explain("Load as Slot B (Compare / ⌥+Click)")
             }
         }
         .padding(.trailing, StudioTheme.scale(6))

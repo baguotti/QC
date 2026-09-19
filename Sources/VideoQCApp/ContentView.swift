@@ -28,7 +28,6 @@ struct ContentView: View {
     @ObservedObject private var updateManager = UpdateManager.shared
     @ObservedObject var themeManager = ThemeManager.shared
     @ObservedObject private var fileOpenManager = FileOpenManager.shared
-    @State var hoverExplanation: String = ""
     @State private var hoveredTab: AppTab? = nil
     
     // Shared Folder & Video Files
@@ -390,7 +389,7 @@ struct ContentView: View {
                     .studioBox(background: accentPositive, border: borderStrong)
                 }
                 .buttonStyle(.plain)
-                .explain("New update v\(updateManager.latestVersion) available! Click to update.", binding: $hoverExplanation)
+                .explain("New update v\(updateManager.latestVersion) available! Click to update.")
             }
             
             // Theme Toggle (Square button with Sun / Moon icon)
@@ -402,7 +401,7 @@ struct ContentView: View {
                     .studioBox(background: bgSubtle, border: borderLine)
             }
             .buttonStyle(.plain)
-            .explain("Switch to \(isLightMode ? "Dark" : "Light") mode (T). ⇧T cycles accent theme.", binding: $hoverExplanation)
+            .explain("Switch to \(isLightMode ? "Dark" : "Light") mode (T). ⇧T cycles accent theme.")
             
             // Settings Menu Button (Clean square gear button with zero chevron)
             Button(action: { showSettingsPopover.toggle() }) {
@@ -422,7 +421,7 @@ struct ContentView: View {
                 }
             }
             .buttonStyle(.plain)
-            .explain("Settings: Software Update, Theme, Shortcuts, Info & Guide, and Feedback.", binding: $hoverExplanation)
+            .explain("Settings: Software Update, Theme, Shortcuts, Info & Guide, and Feedback.")
             .popover(isPresented: $showSettingsPopover, arrowEdge: .bottom) {
                 VStack(alignment: .leading, spacing: 4) {
                     Button(action: {
@@ -690,8 +689,7 @@ struct ContentView: View {
                             tab == .player ? "PLAYER: High-performance delivery playback with J-K-L shuttle, timeline scrubbing, and zoom." :
                             (tab == .specs ? "SPECS: Reads container resolution, timecode, audio, and codecs." :
                              (tab == .lineFinder ? "LINE FINDER: Scans video frames for edge line glitches and blanking errors." :
-                              "INGEST: Intake checklist, automatic metadata aggregation, and DIT cross-referencing.")),
-                            binding: $hoverExplanation
+                              "INGEST: Intake checklist, automatic metadata aggregation, and DIT cross-referencing."))
                         )
                     }
                 }
@@ -735,7 +733,7 @@ struct ContentView: View {
                     }
                     .buttonStyle(.plain)
                     .disabled(scannerState.isScanning)
-                    .explain(isSelectEmpty ? "Opens file picker to select video files or a folder to inspect." : "Replaces currently loaded assets with a new folder or file selection.", binding: $hoverExplanation)
+                    .explain(isSelectEmpty ? "Opens file picker to select video files or a folder to inspect." : "Replaces currently loaded assets with a new folder or file selection.")
                     
                     Button(action: { selectAssets(forTab: forTab, append: true) }) {
                         HStack(spacing: 4) {
@@ -752,7 +750,7 @@ struct ContentView: View {
                     }
                     .buttonStyle(.plain)
                     .disabled(scannerState.isScanning)
-                    .explain("Opens file picker to add more video files or folders to current list without losing existing assets.", binding: $hoverExplanation)
+                    .explain("Opens file picker to add more video files or folders to current list without losing existing assets.")
                     
                     let canRefresh = (folderURL != nil || !videoFiles.isEmpty)
                     Button(action: { refreshPlayerAssets() }) {
@@ -770,7 +768,7 @@ struct ContentView: View {
                     }
                     .buttonStyle(.plain)
                     .disabled(scannerState.isScanning || !canRefresh)
-                    .explain("Rescans loaded folders and files to detect added, removed, or modified videos.", binding: $hoverExplanation)
+                    .explain("Rescans loaded folders and files to detect added, removed, or modified videos.")
                     
                     Spacer(minLength: 4)
                     
@@ -803,7 +801,7 @@ struct ContentView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .studioBox(background: bgCardSubtle, border: borderLine)
                     .contentShape(Rectangle())
-                    .explain(folder.path, binding: $hoverExplanation)
+                    .explain(folder.path)
                     .contextMenu {
                         Button("Copy Path") {
                             NSPasteboard.general.clearContents()
@@ -836,7 +834,7 @@ struct ContentView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .studioBox(background: bgCardSubtle, border: borderLine)
                     .contentShape(Rectangle())
-                    .explain(videoFiles.count == 1 ? (videoFiles.first?.path ?? "") : (videoFiles.first?.deletingLastPathComponent().path ?? ""), binding: $hoverExplanation)
+                    .explain(videoFiles.count == 1 ? (videoFiles.first?.path ?? "") : (videoFiles.first?.deletingLastPathComponent().path ?? ""))
                     .contextMenu {
                         if videoFiles.count == 1, let first = videoFiles.first {
                             Button("Copy Path") {
@@ -869,7 +867,7 @@ struct ContentView: View {
                         .frame(maxWidth: .infinity, alignment: .center)
                         .padding(.vertical, 14)
                         .studioBox(background: bgCardSubtle, border: borderLine)
-                        .explain("Drag and drop video files or folders directly into the app.", binding: $hoverExplanation)
+                        .explain("Drag and drop video files or folders directly into the app.")
                 }
             }
         }
@@ -1276,31 +1274,6 @@ struct ContentView: View {
     }
     
     // MARK: - Deliverables Specs Execution
-    
-    func rescanDeliverables() {
-        if let folder = folderURL {
-            let inFolder = VideoScanner.findVideoFiles(in: folder)
-            var merged = inFolder
-            var seen = Set(inFolder.map { $0.standardizedFileURL.path })
-            for v in videoFiles {
-                let std = v.standardizedFileURL.path
-                if !seen.contains(std) && FileManager.default.fileExists(atPath: v.path) {
-                    seen.insert(std)
-                    merged.append(v)
-                }
-            }
-            self.videoFiles = merged
-            specsState.inspectDeliverablesBatch(urls: merged, append: false)
-        } else if !videoFiles.isEmpty {
-            let valid = videoFiles.filter { FileManager.default.fileExists(atPath: $0.path) }
-            self.videoFiles = valid
-            specsState.inspectDeliverablesBatch(urls: valid, append: false)
-        }
-    }
-    
-    func inspectDeliverablesBatch(urls: [URL], append: Bool = false) {
-        specsState.inspectDeliverablesBatch(urls: urls, append: append)
-    }
     
     func playDeliverableInPlayer(url: URL) {
         withAnimation(.spring(response: 0.22, dampingFraction: 0.85)) {

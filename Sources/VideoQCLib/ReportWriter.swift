@@ -4,11 +4,6 @@ public struct ReportWriter: Sendable {
     
     // MARK: - Finder Tagging (Red Label for Flagged Files)
     
-    /// Marks a single video file in macOS Finder with a Red label/tag
-    public static func setRedTag(for url: URL) {
-        FinderTagManager.setTag(.red, for: url)
-    }
-    
     /// Marks all flagged video files in macOS Finder with a Red label/tag
     public static func tagFlaggedFilesInFinder(results: [VideoQCResult]) {
         for result in results {

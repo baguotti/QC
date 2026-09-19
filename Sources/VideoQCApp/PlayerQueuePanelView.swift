@@ -34,7 +34,6 @@ public struct PlayerQueuePanelView: View, Equatable {
     public var activeNotesCount: Int = 0
     
     @Binding public var queueScrollTarget: URL?
-    public var hoverExplanation: Binding<String>?
     
     // Action Callbacks:
     public var onSelectAssets: (_ append: Bool) -> Void
@@ -181,7 +180,7 @@ public struct PlayerQueuePanelView: View, Equatable {
                                 .foregroundColor(textMuted)
                         }
                         .buttonStyle(.plain)
-                        .explain(playerCollapsedFolderIDs.isEmpty ? "Collapse all folders in playback queue." : "Expand all folders in playback queue.", binding: hoverExplanation)
+                        .explain(playerCollapsedFolderIDs.isEmpty ? "Collapse all folders in playback queue." : "Expand all folders in playback queue.")
                     }
                     
                     Spacer()
@@ -203,7 +202,7 @@ public struct PlayerQueuePanelView: View, Equatable {
                         )
                     }
                     .buttonStyle(.plain)
-                    .explain("Queue display options: Switch between List and Thumbnail view, and adjust thumbnail size.", binding: hoverExplanation)
+                    .explain("Queue display options: Switch between List and Thumbnail view, and adjust thumbnail size.")
                     .popover(isPresented: $showViewOptionsPopover, arrowEdge: .bottom) {
                         viewOptionsPopoverContent
                     }
@@ -237,7 +236,7 @@ public struct PlayerQueuePanelView: View, Equatable {
                     }
                     .buttonStyle(.plain)
                     .disabled(isScanning || !canToggle)
-                    .explain(isHidden ? "Show all folder headers in asset lists." : "Hide folder headers and display assets in a flat list.", binding: hoverExplanation)
+                    .explain(isHidden ? "Show all folder headers in asset lists." : "Hide folder headers and display assets in a flat list.")
                     
                     // Autoplay Toggle Button
                     Button(action: onToggleAutoplay) {
@@ -263,7 +262,7 @@ public struct PlayerQueuePanelView: View, Equatable {
                                    border: isAutoplayEnabled ? accentPositive : borderLine)
                     }
                     .buttonStyle(.plain)
-                    .explain(isAutoplayEnabled ? "Autoplay: ON (Videos play from start when clicked or navigating with ↑/↓) [A]" : "Autoplay: OFF (Videos load paused at frame 0) [A]", binding: hoverExplanation)
+                    .explain(isAutoplayEnabled ? "Autoplay: ON (Videos play from start when clicked or navigating with ↑/↓) [A]" : "Autoplay: OFF (Videos load paused at frame 0) [A]")
                 }
                 
                 if videoFiles.isEmpty {
@@ -381,7 +380,7 @@ public struct PlayerQueuePanelView: View, Equatable {
                     }
                     .buttonStyle(.plain)
                     .disabled(isScanning)
-                    .explain(isSelectEmpty ? "Opens file picker to select video files or a folder to inspect." : "Replaces currently loaded assets with a new folder or file selection.", binding: hoverExplanation)
+                    .explain(isSelectEmpty ? "Opens file picker to select video files or a folder to inspect." : "Replaces currently loaded assets with a new folder or file selection.")
                     
                     Button(action: { onSelectAssets(true) }) {
                         HStack(spacing: StudioTheme.scale(4)) {
@@ -398,7 +397,7 @@ public struct PlayerQueuePanelView: View, Equatable {
                     }
                     .buttonStyle(.plain)
                     .disabled(isScanning)
-                    .explain("Opens file picker to add more video files or folders to current list without losing existing assets.", binding: hoverExplanation)
+                    .explain("Opens file picker to add more video files or folders to current list without losing existing assets.")
                     
                     let canRefresh = (folderURL != nil || !videoFiles.isEmpty)
                     Button(action: onRefreshAssets) {
@@ -416,7 +415,7 @@ public struct PlayerQueuePanelView: View, Equatable {
                     }
                     .buttonStyle(.plain)
                     .disabled(isScanning || !canRefresh)
-                    .explain("Rescans loaded folders and files to detect added, removed, or modified videos.", binding: hoverExplanation)
+                    .explain("Rescans loaded folders and files to detect added, removed, or modified videos.")
                     
                     Spacer(minLength: 4)
                     
@@ -449,7 +448,7 @@ public struct PlayerQueuePanelView: View, Equatable {
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .studioBox(background: bgCardSubtle, border: borderLine)
                     .contentShape(Rectangle())
-                    .explain(folder.path, binding: hoverExplanation)
+                    .explain(folder.path)
                     .contextMenu {
                         Button("Copy Path") {
                             NSPasteboard.general.clearContents()
@@ -513,7 +512,7 @@ public struct PlayerQueuePanelView: View, Equatable {
         .onTapGesture {
             onToggleFolderCollapse(node.id)
         }
-        .explain(node.url.path, binding: hoverExplanation)
+        .explain(node.url.path)
         .help(node.name)
         .contextMenu {
             Button("Hide Folder") {
@@ -560,7 +559,6 @@ public struct PlayerQueuePanelView: View, Equatable {
             thumbnailSize: playerThumbnailSize,
             themeId: themeId,
             buttonZoom: buttonZoom,
-            hoverExplanation: hoverExplanation,
             onLoadVideo: onLoadVideo,
             onClearSlotB: onClearSlotB,
             onSwapSlots: onSwapSlots,

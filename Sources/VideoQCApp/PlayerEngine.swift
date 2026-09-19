@@ -2181,18 +2181,6 @@ public final class PlayerEngine: ObservableObject {
             return data
         }
     }
-    
-    /// Exports the current video frame as a medium-quality JPEG (backward compatible)
-    public func exportCurrentFrameAsJPEG(for slot: SlotTarget = .slotA, to destinationURL: URL, quality: CGFloat = 0.65) async throws {
-        guard let composited = await captureCompositedScreenshotImage() else {
-            throw NSError(domain: "PlayerEngine", code: -1, userInfo: [NSLocalizedDescriptionKey: "Failed to capture video frame at current playhead."])
-        }
-        let bitmapRep = NSBitmapImageRep(cgImage: composited)
-        guard let jpegData = bitmapRep.representation(using: .jpeg, properties: [.compressionFactor: quality]) else {
-            throw NSError(domain: "PlayerEngine", code: -2, userInfo: [NSLocalizedDescriptionKey: "Failed to encode image to JPEG format."])
-        }
-        try jpegData.write(to: destinationURL, options: .atomic)
-    }
 }
 
 #if DEBUG

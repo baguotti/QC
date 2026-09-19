@@ -9,7 +9,6 @@ struct PlayerTransportDeckView: View {
     @ObservedObject var engine: PlayerEngine
     let scanResults: [VideoQCResult]
     var isLightMode: Bool
-    var hoverExplanation: Binding<String>?
     var hideGlitchNavWhenEmpty: Bool
     let onJumpPrevGlitch: () -> Void
     let onJumpNextGlitch: () -> Void
@@ -25,7 +24,6 @@ struct PlayerTransportDeckView: View {
         engine: PlayerEngine,
         scanResults: [VideoQCResult] = [],
         isLightMode: Bool = false,
-        hoverExplanation: Binding<String>? = nil,
         hideGlitchNavWhenEmpty: Bool = false,
         onJumpPrevGlitch: @escaping () -> Void = {},
         onJumpNextGlitch: @escaping () -> Void = {},
@@ -40,7 +38,6 @@ struct PlayerTransportDeckView: View {
         self.engine = engine
         self.scanResults = scanResults
         self.isLightMode = isLightMode
-        self.hoverExplanation = hoverExplanation
         self.hideGlitchNavWhenEmpty = hideGlitchNavWhenEmpty
         self.onJumpPrevGlitch = onJumpPrevGlitch
         self.onJumpNextGlitch = onJumpNextGlitch
@@ -91,7 +88,7 @@ struct PlayerTransportDeckView: View {
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(TransportIconButtonStyle())
-                .explain("Shuttle Reverse (J: -1x, -2x, -4x, -8x)", binding: hoverExplanation)
+                .explain("Shuttle Reverse (J: -1x, -2x, -4x, -8x)")
                 
                 // Play / Pause (Space / K)
                 Button(action: { engine.togglePlayPause() }) {
@@ -104,7 +101,7 @@ struct PlayerTransportDeckView: View {
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(TransportIconButtonStyle())
-                .explain("Play / Pause (Spacebar / K)", binding: hoverExplanation)
+                .explain("Play / Pause (Spacebar / K)")
                 
                 // Shuttle Forward (L)
                 Button(action: { engine.pressL() }) {
@@ -115,7 +112,7 @@ struct PlayerTransportDeckView: View {
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(TransportIconButtonStyle())
-                .explain("Shuttle Forward (L: 1x, 2x, 4x, 8x)", binding: hoverExplanation)
+                .explain("Shuttle Forward (L: 1x, 2x, 4x, 8x)")
                 
                 // Step Forward 1 Frame (Right Arrow)
                 transportBtn(icon: "forward.frame.fill", tooltip: "Step Forward 1 Frame (Right Arrow)", size: 13, width: 26) {
@@ -227,8 +224,7 @@ struct PlayerTransportDeckView: View {
                 
                 ExposureScrubberView(
                     engine: engine,
-                    isLightMode: isLightMode,
-                    hoverExplanation: hoverExplanation
+                    isLightMode: isLightMode
                 )
                 
                 // Screenshot / Screengrab Button (Camera next to EV)
@@ -287,7 +283,7 @@ struct PlayerTransportDeckView: View {
                         }
                         .buttonStyle(TransportIconButtonStyle())
                         .disabled(engine.activeURL == nil)
-                        .explain("Add review note at playhead (M).", binding: hoverExplanation)
+                        .explain("Add review note at playhead (M).")
                     }
                     
                     // Compact Note Navigator: < 💬 count >
@@ -304,7 +300,7 @@ struct PlayerTransportDeckView: View {
                         }
                         .buttonStyle(TransportIconButtonStyle())
                         .disabled(!hasNotes || onJumpPrevNote == nil)
-                        .explain(hasNotes ? "Jump to previous note" : "No notes logged", binding: hoverExplanation)
+                        .explain(hasNotes ? "Jump to previous note" : "No notes logged")
                         
                         if let onToggle = onToggleNotesDrawer {
                             Button(action: onToggle) {
@@ -326,7 +322,7 @@ struct PlayerTransportDeckView: View {
                             }
                             .buttonStyle(TransportIconButtonStyle())
                             .disabled(engine.activeURL == nil)
-                            .explain(hasNotes ? "Toggle Review Notes drawer (\(notesCount) notes)." : "Toggle Review Notes drawer.", binding: hoverExplanation)
+                            .explain(hasNotes ? "Toggle Review Notes drawer (\(notesCount) notes)." : "Toggle Review Notes drawer.")
                         } else {
                             SlotText(
                                 hasNotes ? "\(notesCount)" : "NOTE",
@@ -347,7 +343,7 @@ struct PlayerTransportDeckView: View {
                         }
                         .buttonStyle(TransportIconButtonStyle())
                         .disabled(!hasNotes || onJumpNextNote == nil)
-                        .explain(hasNotes ? "Jump to next note" : "No notes logged", binding: hoverExplanation)
+                        .explain(hasNotes ? "Jump to next note" : "No notes logged")
                     }
                 }
             }
@@ -372,8 +368,7 @@ struct PlayerTransportDeckView: View {
                         .buttonStyle(TransportIconButtonStyle())
                         .disabled(!hasGlitches)
                         .explain(
-                            hasGlitches ? "Jump to previous line glitch (⇧N / cycles backwards through findings of Tab 3)." : "No line glitches found in Tab 3 to cycle through.",
-                            binding: hoverExplanation
+                            hasGlitches ? "Jump to previous line glitch (⇧N / cycles backwards through findings of Tab 3)." : "No line glitches found in Tab 3 to cycle through."
                         )
                         
                         Text("LINE")
@@ -391,8 +386,7 @@ struct PlayerTransportDeckView: View {
                         .buttonStyle(TransportIconButtonStyle())
                         .disabled(!hasGlitches)
                         .explain(
-                            hasGlitches ? "Jump to next line glitch (N / cycles forwards through findings of Tab 3)." : "No line glitches found in Tab 3 to cycle through.",
-                            binding: hoverExplanation
+                            hasGlitches ? "Jump to next line glitch (N / cycles forwards through findings of Tab 3)." : "No line glitches found in Tab 3 to cycle through."
                         )
                     }
                 }
@@ -418,7 +412,7 @@ struct PlayerTransportDeckView: View {
                 .contentShape(Rectangle())
         }
         .buttonStyle(TransportIconButtonStyle())
-        .explain(tooltip, binding: hoverExplanation)
+        .explain(tooltip)
     }
     
     private func customTransportBtn<Content: View>(
@@ -437,7 +431,7 @@ struct PlayerTransportDeckView: View {
                 .contentShape(Rectangle())
         }
         .buttonStyle(TransportIconButtonStyle())
-        .explain(tooltip, binding: hoverExplanation)
+        .explain(tooltip)
     }
     
     // MARK: - Dropped Frame Indicator (Premiere Pro-style QC Monitor)
@@ -466,8 +460,7 @@ struct PlayerTransportDeckView: View {
         .explain(
             engine.droppedFramesCount > 0
                 ? "Dropped Frames: \(engine.droppedFramesCount) during playback (Click to reset)"
-                : "Dropped Frames: 0 (Smooth real-time playback)",
-            binding: hoverExplanation
+                : "Dropped Frames: 0 (Smooth real-time playback)"
         )
     }
 }

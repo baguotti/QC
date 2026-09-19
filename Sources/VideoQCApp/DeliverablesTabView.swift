@@ -118,7 +118,7 @@ extension ContentView {
                     }
                     .buttonStyle(.plain)
                     .disabled(specsState.deliverableAssets.isEmpty)
-                    .explain("Copies specs as spreadsheet data and opens Google Sheets ready to paste (⌘V).", binding: $hoverExplanation)
+                    .explain("Copies specs as spreadsheet data and opens Google Sheets ready to paste (⌘V).")
                     
                     // Save CSV
                     Button(action: {
@@ -141,7 +141,7 @@ extension ContentView {
                     }
                     .buttonStyle(.plain)
                     .disabled(specsState.deliverableAssets.isEmpty)
-                    .explain("Saves the deliverables metadata table to a local CSV file.", binding: $hoverExplanation)
+                    .explain("Saves the deliverables metadata table to a local CSV file.")
                     
                     // Open HTML
                     Button(action: {
@@ -164,7 +164,7 @@ extension ContentView {
                     }
                     .buttonStyle(.plain)
                     .disabled(specsState.deliverableAssets.isEmpty)
-                    .explain("Generates and opens a formatted HTML delivery specs sheet in browser.", binding: $hoverExplanation)
+                    .explain("Generates and opens a formatted HTML delivery specs sheet in browser.")
                 }
                 
                 // Reveal in Finder
@@ -184,7 +184,7 @@ extension ContentView {
                         .studioBox(background: bgSubtle, border: borderLine)
                     }
                     .buttonStyle(.plain)
-                    .explain("Locates and highlights the selected or first asset in macOS Finder.", binding: $hoverExplanation)
+                    .explain("Locates and highlights the selected or first asset in macOS Finder.")
                 }
             }
             
@@ -205,7 +205,7 @@ extension ContentView {
                     .padding(.top, 4)
                 }
                 .buttonStyle(.plain)
-                .explain("Removes all video assets from the inspection table.", binding: $hoverExplanation)
+                .explain("Removes all video assets from the inspection table.")
             }
         }
     }
@@ -298,7 +298,7 @@ extension ContentView {
                         background: isFileNameExpanded ? (isLightMode ? Color.white : bgCardHeader) : bgSubtle,
                         border: isFileNameExpanded ? borderStrong : borderLine
                     )
-                    .explain(isFileNameExpanded ? "Reset File Name column width back to default (220px)." : "Auto-fit File Name column to fit longest filename without truncation.", binding: $hoverExplanation)
+                    .explain(isFileNameExpanded ? "Reset File Name column width back to default (220px)." : "Auto-fit File Name column to fit longest filename without truncation.")
                     
                     // Button 2: Folders (Hide/Show like Tab 1)
                     let isFoldersHidden = hideAllFolders || !hiddenFolderIDs.isEmpty
@@ -344,7 +344,7 @@ extension ContentView {
                             }
                         }
                     }
-                    .explain(isFoldersHidden ? "Show all folder headers in asset lists." : "Hide folder headers and display assets in a flat list.", binding: $hoverExplanation)
+                    .explain(isFoldersHidden ? "Show all folder headers in asset lists." : "Hide folder headers and display assets in a flat list.")
                     
                     // Button 3: List / Thumbs (Direct Toggle + Chevron Popover)
                     HStack(spacing: 0) {
@@ -365,7 +365,7 @@ extension ContentView {
                             .foregroundColor(textMain)
                         }
                         .buttonStyle(.plain)
-                        .explain("Click to toggle between List and Thumbnail view.", binding: $hoverExplanation)
+                        .explain("Click to toggle between List and Thumbnail view.")
                         
                         Rectangle()
                             .fill(borderLine)
@@ -379,7 +379,7 @@ extension ContentView {
                                 .foregroundColor(textMuted)
                         }
                         .buttonStyle(.plain)
-                        .explain("Open view options and adjust thumbnail size.", binding: $hoverExplanation)
+                        .explain("Open view options and adjust thumbnail size.")
                         .popover(isPresented: $showSpecsViewOptionsPopover, arrowEdge: .bottom) {
                             specsViewOptionsPopoverContent
                         }
@@ -455,7 +455,7 @@ extension ContentView {
                             )
                         }
                         .frame(width: CGFloat(effectiveFileNameColumnWidth), alignment: .leading)
-                        .explain("Click to sort by filename (\(specsState.specsSortColumn == .name ? (specsState.specsSortAscending ? "A-Z" : "Z-A") : "click to sort")). Drag divider to resize.", binding: $hoverExplanation)
+                        .explain("Click to sort by filename (\(specsState.specsSortColumn == .name ? (specsState.specsSortAscending ? "A-Z" : "Z-A") : "click to sort")). Drag divider to resize.")
                         
                         sortableHeaderCell("TIMECODE (TC)", column: .timecode, width: 142)
                         sortableHeaderCell("RATIO & SIZE", column: .ratio, width: 152)
@@ -622,7 +622,7 @@ extension ContentView {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .explain("Sort by \(title.lowercased()) (\(isCurrent ? (specsState.specsSortAscending ? "ascending" : "descending") : "click to sort")).", binding: $hoverExplanation)
+        .explain("Sort by \(title.lowercased()) (\(isCurrent ? (specsState.specsSortAscending ? "ascending" : "descending") : "click to sort")).")
     }
     
     func sortDeliverableAssets(_ assets: [DeliverableAsset]) -> [DeliverableAsset] {
@@ -758,7 +758,7 @@ extension ContentView {
                 specsState.deliverablesCollapsedFolderIDs.insert(node.id)
             }
         }
-        .explain(node.url.path, binding: $hoverExplanation)
+        .explain(node.url.path)
         .contextMenu {
             Button("Hide Folder") {
                 hideSpecificFolder(id: node.id)
@@ -1031,7 +1031,7 @@ extension ContentView {
                 playDeliverableInPlayer(url: asset.fileURL)
             }
         )
-        .explain(asset.fileURL.path, binding: $hoverExplanation)
+        .explain(asset.fileURL.path)
         .contextMenu {
             Button(action: {
                 specsState.selectedDeliverableURL = asset.fileURL

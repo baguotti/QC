@@ -107,6 +107,25 @@ public struct StudioThemeConfig: Identifiable, Codable, Equatable, Sendable {
         }
     }
     
+    public func luminance(for slot: AccentSlot) -> Double {
+        let cleanHex = hex(for: slot).trimmingCharacters(in: CharacterSet.alphanumerics.inverted)
+        var int: UInt64 = 0
+        Scanner(string: cleanHex).scanHexInt64(&int)
+        let r, g, b: Double
+        if cleanHex.count == 6 {
+            r = Double((int >> 16) & 0xFF) / 255.0
+            g = Double((int >> 8) & 0xFF) / 255.0
+            b = Double(int & 0xFF) / 255.0
+        } else {
+            r = 0.3; g = 0.5; b = 0.6
+        }
+        return 0.2126 * r + 0.7152 * g + 0.0722 * b
+    }
+    
+    public func contrastTextColor(for slot: AccentSlot) -> Color {
+        luminance(for: slot) > 0.65 ? Color.black : Color.white
+    }
+    
     // MARK: - Built-in Factory Presets (Muted & Vivid)
     
     public static let muted = StudioThemeConfig(

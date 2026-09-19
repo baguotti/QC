@@ -85,7 +85,7 @@ extension ContentView {
                                 .studioBox(background: bgSubtle, border: borderLine)
                         }
                         .buttonStyle(.plain)
-                        .explain("Rescan current intake folder", binding: $hoverExplanation)
+                        .explain("Rescan current intake folder")
                     }
                 }
                 
@@ -396,7 +396,7 @@ extension ContentView {
                         .studioBox(background: bgSubtle, border: borderLine)
                     }
                     .buttonStyle(.plain)
-                    .explain("Import a DIT report (CSV, TSV, ALE, RTF, TXT) to verify files and flag missing or mismatched clips", binding: $hoverExplanation)
+                    .explain("Import a DIT report (CSV, TSV, ALE, RTF, TXT) to verify files and flag missing or mismatched clips")
                 }
                 
                 // Export Buttons Row

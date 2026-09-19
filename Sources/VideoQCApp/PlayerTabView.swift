@@ -10,7 +10,6 @@ import VideoQCLib
 struct ExposureScrubberView: View {
     @ObservedObject var engine: PlayerEngine
     var isLightMode: Bool = false
-    var hoverExplanation: Binding<String>? = nil
     
     @State private var isDragging: Bool = false
     @State private var dragStartEV: Double = 0.0
@@ -53,7 +52,7 @@ struct ExposureScrubberView: View {
                     .contentShape(Rectangle())
             }
             .buttonStyle(TransportIconButtonStyle())
-            .explain("Reset Exposure to +0.0 EV", binding: hoverExplanation)
+            .explain("Reset Exposure to +0.0 EV")
             
             // Drag-Scrub Number
             Text(formattedEV)
@@ -101,7 +100,7 @@ struct ExposureScrubberView: View {
                         NSCursor.pop()
                     }
                 }
-                .explain("Change Exposure (EV): Drag left/right to adjust, click aperture to reset (Current: \(formattedEV))", binding: hoverExplanation)
+                .explain("Change Exposure (EV): Drag left/right to adjust, click aperture to reset (Current: \(formattedEV))")
         }
     }
 }
@@ -160,7 +159,6 @@ extension ContentView {
             activeNotesURL: playerEngine.activeNotesURL,
             activeNotesCount: playerEngine.activeNotes.count,
             queueScrollTarget: $queueScrollTarget,
-            hoverExplanation: $hoverExplanation,
             onSelectAssets: { append in
                 selectAssets(forTab: .player, append: append)
             },
@@ -326,8 +324,7 @@ extension ContentView {
                 // Centered Comparison Controls Toolbar
                 PlayerComparisonBar(
                     engine: playerEngine,
-                    isLightMode: isLightMode,
-                    hoverExplanation: $hoverExplanation
+                    isLightMode: isLightMode
                 )
                 
                 Spacer()
@@ -361,7 +358,7 @@ extension ContentView {
                 }
                 .buttonStyle(TransportIconButtonStyle())
                 .disabled(playerEngine.activeURL == nil)
-                .explain("Review Fullscreen with HUD & timeline controls (⇧F).", binding: $hoverExplanation)
+                .explain("Review Fullscreen with HUD & timeline controls (⇧F).")
                 
                 // Clean Video Fullscreen Button
                 Button(action: { enterFullscreen(mode: .videoOnly) }) {
@@ -373,7 +370,7 @@ extension ContentView {
                 }
                 .buttonStyle(TransportIconButtonStyle())
                 .disabled(playerEngine.activeURL == nil)
-                .explain("Clean Video Fullscreen with zero UI (F). Press ESC to exit.", binding: $hoverExplanation)
+                .explain("Clean Video Fullscreen with zero UI (F). Press ESC to exit.")
             }
             .frame(width: StudioTheme.scale(60), alignment: .trailing)
         }
@@ -407,7 +404,7 @@ extension ContentView {
             }
             .buttonStyle(TransportIconButtonStyle())
             .disabled(playerEngine.activeURL == nil)
-            .explain("Add review note at playhead (N).", binding: $hoverExplanation)
+            .explain("Add review note at playhead (N).")
             
             let notesCount = playerEngine.activeNotes.count
             let hasNotes = notesCount > 0
@@ -422,7 +419,7 @@ extension ContentView {
                 }
                 .buttonStyle(TransportIconButtonStyle())
                 .disabled(!hasNotes)
-                .explain(hasNotes ? "Jump to previous note ([)." : "No notes logged", binding: $hoverExplanation)
+                .explain(hasNotes ? "Jump to previous note ([)." : "No notes logged")
                 
                 Button(action: {
                     withAnimation(.easeInOut(duration: 0.15)) {
@@ -447,7 +444,7 @@ extension ContentView {
                 }
                 .buttonStyle(TransportIconButtonStyle())
                 .disabled(playerEngine.activeURL == nil)
-                .explain(hasNotes ? "Toggle Review Notes drawer (\(notesCount) notes)." : "Toggle Review Notes drawer.", binding: $hoverExplanation)
+                .explain(hasNotes ? "Toggle Review Notes drawer (\(notesCount) notes)." : "Toggle Review Notes drawer.")
                 
                 Button(action: { playerEngine.jumpToNextNote() }) {
                     Image(systemName: "chevron.right.to.line")
@@ -458,7 +455,7 @@ extension ContentView {
                 }
                 .buttonStyle(TransportIconButtonStyle())
                 .disabled(!hasNotes)
-                .explain(hasNotes ? "Jump to next note (])." : "No notes logged", binding: $hoverExplanation)
+                .explain(hasNotes ? "Jump to next note (])." : "No notes logged")
             }
         }
     }
@@ -515,8 +512,7 @@ extension ContentView {
             .buttonStyle(TransportIconButtonStyle())
             .disabled(!hasGlitches)
             .explain(
-                hasGlitches ? "Jump to previous line glitch (⇧M / cycles backwards through findings of Tab 3)." : "No line glitches found in Tab 3 to cycle through.",
-                binding: $hoverExplanation
+                hasGlitches ? "Jump to previous line glitch (⇧M / cycles backwards through findings of Tab 3)." : "No line glitches found in Tab 3 to cycle through."
             )
             
             Text("LINE")
@@ -534,8 +530,7 @@ extension ContentView {
             .buttonStyle(TransportIconButtonStyle())
             .disabled(!hasGlitches)
             .explain(
-                hasGlitches ? "Jump to next line glitch (M / cycles forwards through findings of Tab 3)." : "No line glitches found in Tab 3 to cycle through.",
-                binding: $hoverExplanation
+                hasGlitches ? "Jump to next line glitch (M / cycles forwards through findings of Tab 3)." : "No line glitches found in Tab 3 to cycle through."
             )
         }
     }
@@ -566,7 +561,7 @@ extension ContentView {
         }
         .buttonStyle(TransportIconButtonStyle())
         .disabled(activeURL == nil)
-        .explain(activeURL != nil ? "Tag current file with native macOS Finder color tags (1-7: Red, Green, Blue, Yellow, Orange, Purple, Gray; 0: Clear)." : "Load a file to apply Finder tags.", binding: $hoverExplanation)
+        .explain(activeURL != nil ? "Tag current file with native macOS Finder color tags (1-7: Red, Green, Blue, Yellow, Orange, Purple, Gray; 0: Clear)." : "Load a file to apply Finder tags.")
         .popover(isPresented: $showTagPickerPopover, arrowEdge: .top) {
             tagPickerPopoverView(for: activeURL)
         }
@@ -670,7 +665,7 @@ extension ContentView {
                 }
                 .buttonStyle(TransportIconButtonStyle())
                 .frame(width: StudioTheme.scale(18), height: StudioTheme.scale(18))
-                .explain(playerEngine.isMuted ? "Unmute audio" : "Mute audio", binding: $hoverExplanation)
+                .explain(playerEngine.isMuted ? "Unmute audio" : "Mute audio")
                 
                 Slider(value: Binding(
                     get: { Double(playerEngine.volume) },
@@ -689,7 +684,6 @@ extension ContentView {
                 engine: playerEngine,
                 scanResults: scannerState.scanResults,
                 isLightMode: isLightMode,
-                hoverExplanation: $hoverExplanation,
                 onExportScreenshot: { preset in exportCurrentFrameScreenshot(preset: preset) },
                 showNotesAndGlitches: false
             )
@@ -941,7 +935,7 @@ extension ContentView {
                     .contentShape(Circle())
                 }
                 .buttonStyle(.plain)
-                .explain("Finder Tag: \(tag.rawValue)", binding: $hoverExplanation)
+                .explain("Finder Tag: \(tag.rawValue)")
             }
             
             Divider()
@@ -959,7 +953,7 @@ extension ContentView {
             }
             .buttonStyle(.plain)
             .disabled(currentTag == nil)
-            .explain("Remove Finder tag", binding: $hoverExplanation)
+            .explain("Remove Finder tag")
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 10)
@@ -997,7 +991,6 @@ struct PlayerComparisonBar: View {
     @ObservedObject var engine: PlayerEngine
     @ObservedObject private var themeManager = ThemeManager.shared
     var isLightMode: Bool = false
-    var hoverExplanation: Binding<String>? = nil
     var onInteraction: (() -> Void)? = nil
     
     private var textMain: Color { StudioTheme.textMain(isLightMode) }
@@ -1040,7 +1033,7 @@ struct PlayerComparisonBar: View {
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(TransportIconButtonStyle())
-                .explain("Gang Playhead Link: Lock transport controls and scrubbers between Slot A and Slot B (Currently: \(engine.isLinked ? "ON" : "OFF")).", binding: hoverExplanation)
+                .explain("Gang Playhead Link: Lock transport controls and scrubbers between Slot A and Slot B (Currently: \(engine.isLinked ? "ON" : "OFF")).")
                 
                 // Audio Solo Selector
                 Button(action: {
@@ -1059,7 +1052,7 @@ struct PlayerComparisonBar: View {
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(TransportIconButtonStyle())
-                .explain("Solo Audio Output: Playing audio from Slot \(engine.audioSlot == .slotA ? "A (Master)" : "B (Compare)"). Click to switch.", binding: hoverExplanation)
+                .explain("Solo Audio Output: Playing audio from Slot \(engine.audioSlot == .slotA ? "A (Master)" : "B (Compare)"). Click to switch.")
             }
             
             Rectangle()
@@ -1081,7 +1074,7 @@ struct PlayerComparisonBar: View {
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(TransportIconButtonStyle())
-                .explain("Swap Slots (X): Swap Slot A (Master) and Slot B (Compare).", binding: hoverExplanation)
+                .explain("Swap Slots (X): Swap Slot A (Master) and Slot B (Compare).")
                 
                 // Clear B Button
                 Button(action: {
@@ -1100,7 +1093,7 @@ struct PlayerComparisonBar: View {
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(TransportIconButtonStyle())
-                .explain("Clear Slot B: Close comparison video and return to single-video mode.", binding: hoverExplanation)
+                .explain("Clear Slot B: Close comparison video and return to single-video mode.")
             }
         }
     }
@@ -1170,7 +1163,7 @@ struct PlayerComparisonBar: View {
             }
         }
         .buttonStyle(TransportIconButtonStyle())
-        .explain(explanationText, binding: hoverExplanation)
+        .explain(explanationText)
     }
     
     @ViewBuilder

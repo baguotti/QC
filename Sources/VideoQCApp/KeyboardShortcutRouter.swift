@@ -347,7 +347,7 @@ struct KeyboardShortcutActions {
 
 extension KeyboardShortcutRouter {
     static func standardRouter(actions: KeyboardShortcutActions) -> KeyboardShortcutRouter {
-        let rules: [Rule] = [
+        var rules: [Rule] = [
             // Pre-Modal Global (Zoom)
             Rule(
                 id: "zoomIn",
@@ -426,64 +426,6 @@ extension KeyboardShortcutRouter {
             ) {
                 actions.onToggleLightMode()
                 return true
-            },
-            
-            // Finder Tags (Player & Specs Tabs)
-            Rule(
-                id: "tagRed",
-                trigger: ShortcutTrigger(keyCodes: [18], characters: ["1"], modifiers: []),
-                scope: .playerOrSpecs
-            ) {
-                actions.onToggleFinderTag(.red)
-            },
-            Rule(
-                id: "tagGreen",
-                trigger: ShortcutTrigger(keyCodes: [19], characters: ["2"], modifiers: []),
-                scope: .playerOrSpecs
-            ) {
-                actions.onToggleFinderTag(.green)
-            },
-            Rule(
-                id: "tagBlue",
-                trigger: ShortcutTrigger(keyCodes: [20], characters: ["3"], modifiers: []),
-                scope: .playerOrSpecs
-            ) {
-                actions.onToggleFinderTag(.blue)
-            },
-            Rule(
-                id: "tagYellow",
-                trigger: ShortcutTrigger(keyCodes: [21], characters: ["4"], modifiers: []),
-                scope: .playerOrSpecs
-            ) {
-                actions.onToggleFinderTag(.yellow)
-            },
-            Rule(
-                id: "tagOrange",
-                trigger: ShortcutTrigger(keyCodes: [23], characters: ["5"], modifiers: []),
-                scope: .playerOrSpecs
-            ) {
-                actions.onToggleFinderTag(.orange)
-            },
-            Rule(
-                id: "tagPurple",
-                trigger: ShortcutTrigger(keyCodes: [22], characters: ["6"], modifiers: []),
-                scope: .playerOrSpecs
-            ) {
-                actions.onToggleFinderTag(.purple)
-            },
-            Rule(
-                id: "tagGray",
-                trigger: ShortcutTrigger(keyCodes: [26], characters: ["7"], modifiers: []),
-                scope: .playerOrSpecs
-            ) {
-                actions.onToggleFinderTag(.gray)
-            },
-            Rule(
-                id: "tagClear",
-                trigger: ShortcutTrigger(keyCodes: [29], characters: ["0"], modifiers: []),
-                scope: .playerOrSpecs
-            ) {
-                actions.onClearFinderTag()
             },
             
             // Player: Shuttle & Playback
@@ -797,6 +739,33 @@ extension KeyboardShortcutRouter {
             }
         ]
         
+        rules.append(contentsOf: makeFinderTagRules(actions: actions))
         return KeyboardShortcutRouter(rules: rules)
+    }
+    
+    private static func makeFinderTagRules(actions: KeyboardShortcutActions) -> [Rule] {
+        let tagKeyCodes: [FinderTagColor: UInt16] = [
+            .red: 18, .green: 19, .blue: 20, .yellow: 21, .orange: 23, .purple: 22, .gray: 26
+        ]
+        var tagRules = FinderTagColor.allCases.compactMap { tag -> Rule? in
+            guard let keyCode = tagKeyCodes[tag] else { return nil }
+            return Rule(
+                id: "tag\(tag.rawValue)",
+                trigger: ShortcutTrigger(keyCodes: [keyCode], characters: ["\(tag.shortcutNumber)"], modifiers: []),
+                scope: .playerOrSpecs
+            ) {
+                actions.onToggleFinderTag(tag)
+            }
+        }
+        tagRules.append(
+            Rule(
+                id: "tagClear",
+                trigger: ShortcutTrigger(keyCodes: [29], characters: ["0"], modifiers: []),
+                scope: .playerOrSpecs
+            ) {
+                actions.onClearFinderTag()
+            }
+        )
+        return tagRules
     }
 }

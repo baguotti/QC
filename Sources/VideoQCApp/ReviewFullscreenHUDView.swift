@@ -297,7 +297,6 @@ struct FullscreenPlayerView: View {
                     engine: engine,
                     scanResults: scanResults,
                     isLightMode: isLightMode,
-                    hoverExplanation: nil,
                     hideGlitchNavWhenEmpty: true,
                     onJumpPrevGlitch: onJumpPrev,
                     onJumpNextGlitch: onJumpNext,

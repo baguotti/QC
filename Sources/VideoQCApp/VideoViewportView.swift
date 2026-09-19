@@ -728,14 +728,6 @@ public final class PlayerContainerNSView: NSView {
         return round(value * scale) / scale
     }
     
-    /// Snaps a dimension to even physical display pixels ((Int(round(val * scale)) / 2) * 2 / scale)
-    /// to guarantee that bounds and half-dimensions (w/2, h/2) never land on a 0.5 fractional subpixel.
-    private func snapToEvenPixels(_ value: CGFloat, scale: CGFloat) -> CGFloat {
-        let pixels = round(value * scale)
-        let evenPixels = (Int(pixels) / 2) * 2
-        return CGFloat(evenPixels) / scale
-    }
-    
     private struct SideBySideLayout {
         let canvasSize: CGSize
         let frameA: CGRect

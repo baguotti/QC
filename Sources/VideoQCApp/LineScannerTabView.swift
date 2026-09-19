@@ -53,7 +53,7 @@ extension ContentView {
                 }
                 .buttonStyle(.plain)
                 .disabled(scannerState.isScanning)
-                .explain("Interactive color swatch: click to open macOS color wheel.", binding: $hoverExplanation)
+                .explain("Interactive color swatch: click to open macOS color wheel.")
                 
                 TextField("#HEX", text: $scannerState.hexCode)
                     .textFieldStyle(.plain)
@@ -64,7 +64,7 @@ extension ContentView {
                     .studioBox(background: bgSubtle, border: borderLine)
                     .frame(width: 95)
                     .disabled(scannerState.isScanning)
-                    .explain("Hex color value to search for on frame boundaries. Can be edited at all times.", binding: $hoverExplanation)
+                    .explain("Hex color value to search for on frame boundaries. Can be edited at all times.")
                 
                 // Custom Color Button
                 Button(action: { scannerState.openColorPanel() }) {
@@ -81,7 +81,7 @@ extension ContentView {
                 }
                 .buttonStyle(.plain)
                 .disabled(scannerState.isScanning)
-                .explain("Opens macOS color wheel / palette to choose any custom color.", binding: $hoverExplanation)
+                .explain("Opens macOS color wheel / palette to choose any custom color.")
                 
                 Spacer()
                 
@@ -111,7 +111,7 @@ extension ContentView {
                     }
                     .buttonStyle(.plain)
                     .disabled(scannerState.isScanning)
-                    .explain("Sets target color to \(name) (\(code)) with \(Int(defaultTol))% tolerance.", binding: $hoverExplanation)
+                    .explain("Sets target color to \(name) (\(code)) with \(Int(defaultTol))% tolerance.")
                 }
             }
             
@@ -128,7 +128,7 @@ extension ContentView {
                 Slider(value: $scannerState.tolerancePercentage, in: (scannerState.isTargetBlack || scannerState.isTargetWhite) ? 1...15 : 5...50, step: 1)
                     .tint(primaryBtnBg)
                     .disabled(scannerState.isScanning)
-                    .explain("Color match sensitivity. Lower values match strictly; higher values match broader shades.", binding: $hoverExplanation)
+                    .explain("Color match sensitivity. Lower values match strictly; higher values match broader shades.")
             }
         }
     }
@@ -150,13 +150,13 @@ extension ContentView {
                 .font(.system(size: 10, weight: .bold, design: .monospaced))
                 .toggleStyle(StudioToggleStyle(isLight: isLightMode))
                 .disabled(scannerState.isScanning)
-                .explain("Amplifies shadow levels 10X to avoid false flags on naturally dark scenes.", binding: $hoverExplanation)
+                .explain("Amplifies shadow levels 10X to avoid false flags on naturally dark scenes.")
             
             Toggle("IGNORE FULL-FRAME BLACK SLATES", isOn: $scannerState.ignoreFullBlackFrames)
                 .font(.system(size: 10, weight: .bold, design: .monospaced))
                 .toggleStyle(StudioToggleStyle(isLight: isLightMode))
                 .disabled(scannerState.isScanning)
-                .explain("Skips solid black frames such as slates, head countdowns, and scene fades.", binding: $hoverExplanation)
+                .explain("Skips solid black frames such as slates, head countdowns, and scene fades.")
         }
         .padding(10)
         .studioBox(background: bgCardSubtle, border: borderStrong)
@@ -179,13 +179,13 @@ extension ContentView {
                 .font(.system(size: 10, weight: .bold, design: .monospaced))
                 .toggleStyle(StudioToggleStyle(isLight: isLightMode))
                 .disabled(scannerState.isScanning)
-                .explain("Amplifies highlight separation so natural white cove backdrops and studio lighting are not flagged.", binding: $hoverExplanation)
+                .explain("Amplifies highlight separation so natural white cove backdrops and studio lighting are not flagged.")
             
             Toggle("IGNORE FULL-FRAME WHITE SLATES", isOn: $scannerState.ignoreFullWhiteFrames)
                 .font(.system(size: 10, weight: .bold, design: .monospaced))
                 .toggleStyle(StudioToggleStyle(isLight: isLightMode))
                 .disabled(scannerState.isScanning)
-                .explain("Skips solid white logo cards, slates, and white flash transitions.", binding: $hoverExplanation)
+                .explain("Skips solid white logo cards, slates, and white flash transitions.")
         }
         .padding(10)
         .studioBox(background: bgCardSubtle, border: borderStrong)
@@ -206,7 +206,7 @@ extension ContentView {
                 Stepper("", value: $scannerState.edgeDepth, in: 2...40)
                     .labelsHidden()
                     .disabled(scannerState.isScanning)
-                    .explain("Depth in pixels from outer frame boundaries to inspect for colored edge lines (all borders).", binding: $hoverExplanation)
+                    .explain("Depth in pixels from outer frame boundaries to inspect for colored edge lines (all borders).")
             }
             
             Toggle("SCAN FULL SCREEN (SPLIT SCREENS)", isOn: $scannerState.scanFullScreen)
@@ -214,14 +214,14 @@ extension ContentView {
                 .font(.system(size: 10, weight: .bold, design: .monospaced))
                 .foregroundColor(textMain)
                 .disabled(scannerState.isScanning)
-                .explain("Inspects the entire frame for internal dividing line artifacts and split-screen seams.", binding: $hoverExplanation)
+                .explain("Inspects the entire frame for internal dividing line artifacts and split-screen seams.")
             
             Toggle("MARK FLAGGED IN FINDER", isOn: $scannerState.tagInFinder)
                 .toggleStyle(StudioToggleStyle(isLight: isLightMode))
                 .font(.system(size: 10, weight: .bold, design: .monospaced))
                 .foregroundColor(textMain)
                 .disabled(scannerState.isScanning)
-                .explain("Applies a red Finder tag/label to any video file flagged with edge line artifacts.", binding: $hoverExplanation)
+                .explain("Applies a red Finder tag/label to any video file flagged with edge line artifacts.")
         }
     }
     
@@ -259,7 +259,7 @@ extension ContentView {
                     )
                 }
                 .buttonStyle(.plain)
-                .explain("Aborts the active video scan in progress.", binding: $hoverExplanation)
+                .explain("Aborts the active video scan in progress.")
             } else {
                 let isReady = !videoFiles.isEmpty && RGBColor(hex: scannerState.hexCode) != nil
                 Button(action: startScan) {
@@ -331,7 +331,7 @@ extension ContentView {
                 .onHover { hovering in
                     scannerState.isAuditBtnHovered = hovering
                 }
-                .explain("Starts frame-by-frame edge analysis across all files in the batch.", binding: $hoverExplanation)
+                .explain("Starts frame-by-frame edge analysis across all files in the batch.")
             }
         }
     }
@@ -426,7 +426,7 @@ extension ContentView {
                         .studioBox(background: primaryBtnBg, border: primaryBtnBg)
                     }
                     .buttonStyle(.plain)
-                    .explain("Copies glitch report as spreadsheet data and opens Google Sheets ready to paste (⌘V).", binding: $hoverExplanation)
+                    .explain("Copies glitch report as spreadsheet data and opens Google Sheets ready to paste (⌘V).")
                     
                     // Consolidated Export Dropdown
                     Menu {
@@ -453,7 +453,7 @@ extension ContentView {
                     .menuStyle(.borderlessButton)
                     .foregroundColor(isLightMode ? Color.black : Color.white)
                     .fixedSize()
-                    .explain("Export options: Save interactive HTML glitch report or CSV spreadsheet.", binding: $hoverExplanation)
+                    .explain("Export options: Save interactive HTML glitch report or CSV spreadsheet.")
                 }
             }
             
@@ -600,7 +600,7 @@ extension ContentView {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .explain("Click to jump immediately to \(seg.startTimecode) in the Player tab to inspect this glitch frame.", binding: $hoverExplanation)
+        .explain("Click to jump immediately to \(seg.startTimecode) in the Player tab to inspect this glitch frame.")
     }
     
     private func flaggedResultHeader(result: VideoQCResult, segmentsCount: Int) -> some View {
@@ -629,7 +629,7 @@ extension ContentView {
         .padding(14)
         .background(bgCardHeader)
         .contentShape(Rectangle())
-        .explain(result.fileURL.path, binding: $hoverExplanation)
+        .explain(result.fileURL.path)
         .contextMenu {
             Button("Copy Path") {
                 NSPasteboard.general.clearContents()
