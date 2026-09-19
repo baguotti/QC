@@ -113,7 +113,10 @@ extension ContentView {
     var playerTabView: some View {
         HStack(spacing: 0) {
             HSplitView {
-                playerQueuePanel
+                if showPlayerQueue {
+                    playerQueuePanel
+                        .transition(.move(edge: .leading).combined(with: .opacity))
+                }
                 playerProgramMonitorPanel
             }
             if showNotesDrawer {
@@ -197,7 +200,11 @@ extension ContentView {
                 playerEngine.clearSlotB()
             },
             onOpenProperties: { url in
-                openProperties(for: url)
+                openProperties(for: url, showModal: false)
+                playerDrawerTab = .mediaInfo
+                withAnimation(.spring(response: 0.32, dampingFraction: 0.78)) {
+                    showNotesDrawer = true
+                }
             },
             onToggleTag: { tag, url in
                 toggleFinderTag(tag, for: url)
@@ -276,48 +283,87 @@ extension ContentView {
             }
     }
     
-    // MARK: - Notes Drawer Panel (Right Side)
+    // MARK: - Review & Media Info Drawer Panel
+    @ViewBuilder
     private var playerNotesDrawerPanel: some View {
+        let activeURL = (playerEngine.activeTarget == .slotB && playerEngine.slotB.url != nil) ? playerEngine.slotB.url : (playerEngine.activeURL ?? playerEngine.slotA.url)
+        let activeName = (playerEngine.activeTarget == .slotB && playerEngine.slotB.url != nil) ? (playerEngine.slotB.url?.lastPathComponent ?? "Deliverable") : playerEngine.activeFileName
+        let matchedAsset = specsState.deliverableAssets.first { $0.fileURL.standardizedFileURL == activeURL?.standardizedFileURL } ?? propertiesAsset
+        
         NotesDrawerPanelView(
-                isPresented: $showNotesDrawer,
-                notes: playerEngine.activeNotes,
-                mediaName: playerEngine.activeURL?.lastPathComponent ?? "Deliverable",
-                currentTimecode: playerEngine.currentTimecode,
-                currentFrame: playerEngine.currentFrame,
-                isLightMode: isLightMode,
-                onSeekToFrame: { frame in
-                    playerEngine.seek(toFrame: frame)
-                    playerEngine.pause()
-                },
-                onAddNote: {
-                    openAddNoteModal()
-                },
-                onSaveNote: { note in
-                    addNote(note)
-                },
-                onToggleResolved: { id in
-                    toggleNoteResolved(id: id)
-                },
-                onDeleteNote: { id in
-                    deleteNote(id: id)
-                },
-                onClearAllNotes: {
-                    clearAllNotes()
-                },
-                onToast: { msg in
-                    showToast(msg)
-                }
-            )
-            .transition(.move(edge: .trailing).combined(with: .opacity))
+            isPresented: $showNotesDrawer,
+            selectedDrawerTab: $playerDrawerTab,
+            notes: playerEngine.activeNotes,
+            mediaName: activeName.isEmpty ? (activeURL?.lastPathComponent ?? "Deliverable") : activeName,
+            mediaURL: activeURL,
+            mediaAsset: matchedAsset,
+            currentTimecode: playerEngine.currentTimecode,
+            currentFrame: playerEngine.currentFrame,
+            isLightMode: isLightMode,
+            onSeekToFrame: { frame in
+                playerEngine.seek(toFrame: frame)
+                playerEngine.pause()
+            },
+            onAddNote: {
+                openAddNoteModal()
+            },
+            onSaveNote: { note in
+                addNote(note)
+            },
+            onToggleResolved: { id in
+                toggleNoteResolved(id: id)
+            },
+            onDeleteNote: { id in
+                deleteNote(id: id)
+            },
+            onClearAllNotes: {
+                clearAllNotes()
+            },
+            onToast: { msg in
+                showToast(msg)
+            },
+            onCopySpecs: { specsText in
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString(specsText, forType: .string)
+                showToast("Media specs copied to clipboard")
+            },
+            onRevealInFinder: { url in
+                NSWorkspace.shared.activateFileViewerSelecting([url])
+            },
+            onLoadSlotA: { url in
+                playerEngine.loadVideo(url: url, into: .slotA, autoplay: false)
+                showToast("Loaded into A: \(url.lastPathComponent)")
+            },
+            onLoadSlotB: { url in
+                playerEngine.loadVideo(url: url, into: .slotB, autoplay: false)
+                showToast("Loaded into B: \(url.lastPathComponent)")
+            }
+        )
+        .transition(.move(edge: .trailing).combined(with: .opacity))
     }
     
     // MARK: - Monitor Header
     
     private var playerMonitorHeader: some View {
         HStack(spacing: 12) {
+            // Left sleeve toggle button (Hide / Reveal Assets & Queue)
+            Button(action: {
+                withAnimation(.spring(response: 0.32, dampingFraction: 0.78)) {
+                    showPlayerQueue.toggle()
+                }
+            }) {
+                Image(systemName: showPlayerQueue ? "chevron.left" : "chevron.right")
+                    .font(.system(size: StudioTheme.scaleFont(11), weight: .bold))
+                    .frame(width: StudioTheme.scale(24), height: StudioTheme.scale(26))
+                    .foregroundColor(showPlayerQueue ? textMain : accentBlue)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(TransportIconButtonStyle())
+            .explain(showPlayerQueue ? "Hide Assets & Queue panel." : "Reveal Assets & Queue panel.")
+
             if playerEngine.slotB.url != nil {
                 Color.clear
-                    .frame(width: StudioTheme.scale(60), height: StudioTheme.scale(26))
+                    .frame(width: StudioTheme.scale(56), height: StudioTheme.scale(26))
                 
                 Spacer()
                 
@@ -346,7 +392,7 @@ extension ContentView {
                 Spacer()
             }
             
-            // Trailing: Fullscreen Controls (Visible in both Single & A/B mode)
+            // Trailing: Fullscreen Controls & Review Sleeve Toggle
             HStack(spacing: 4) {
                 // Review Fullscreen Button
                 Button(action: { enterFullscreen(mode: .review) }) {
@@ -371,8 +417,27 @@ extension ContentView {
                 .buttonStyle(TransportIconButtonStyle())
                 .disabled(playerEngine.activeURL == nil)
                 .explain("Clean Video Fullscreen with zero UI (F). Press ESC to exit.")
+                
+                // Review Sleeve Toggle Arrow Button
+                Button(action: {
+                    withAnimation(.spring(response: 0.32, dampingFraction: 0.78)) {
+                        if !showNotesDrawer {
+                            playerDrawerTab = .mediaInfo
+                        }
+                        showNotesDrawer.toggle()
+                    }
+                }) {
+                    Image(systemName: showNotesDrawer ? "chevron.right" : "chevron.left")
+                        .font(.system(size: StudioTheme.scaleFont(11), weight: .bold))
+                        .frame(width: StudioTheme.scale(24), height: StudioTheme.scale(26))
+                        .foregroundColor(showNotesDrawer ? accentBlue : (playerEngine.activeURL == nil ? textMuted : textMain))
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(TransportIconButtonStyle())
+                .disabled(playerEngine.activeURL == nil)
+                .explain(showNotesDrawer ? "Collapse review sleeve." : "Bring out review sleeve (Media Info & Notes).")
             }
-            .frame(width: StudioTheme.scale(60), alignment: .trailing)
+            .frame(width: StudioTheme.scale(92), alignment: .trailing)
         }
     }
     
@@ -423,23 +488,29 @@ extension ContentView {
                 
                 Button(action: {
                     withAnimation(.easeInOut(duration: 0.15)) {
-                        showNotesDrawer.toggle()
+                        if showNotesDrawer && playerDrawerTab == .notes {
+                            showNotesDrawer = false
+                        } else {
+                            playerDrawerTab = .notes
+                            showNotesDrawer = true
+                        }
                     }
                 }) {
+                    let isNotesActive = showNotesDrawer && playerDrawerTab == .notes
                     HStack(spacing: 3) {
-                        Image(systemName: showNotesDrawer ? "bubble.left.fill" : "bubble.left")
+                        Image(systemName: isNotesActive ? "bubble.left.fill" : "bubble.left")
                             .font(.system(size: StudioTheme.scaleFont(9), weight: .semibold))
                         SlotText(
                             hasNotes ? "\(notesCount)" : "NOTES",
                             mode: hasNotes ? .character : .word,
                             direction: .up,
                             font: .system(size: StudioTheme.scaleFont(9), weight: .bold, design: .monospaced),
-                            foregroundColor: showNotesDrawer ? accentBlue : (hasNotes ? textMain : textMuted)
+                            foregroundColor: isNotesActive ? accentBlue : (hasNotes ? textMain : textMuted)
                         )
                     }
                     .frame(height: StudioTheme.scale(24))
                     .padding(.horizontal, 4)
-                    .foregroundColor(showNotesDrawer ? accentBlue : (hasNotes ? textMain : textMuted))
+                    .foregroundColor(isNotesActive ? accentBlue : (hasNotes ? textMain : textMuted))
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(TransportIconButtonStyle())

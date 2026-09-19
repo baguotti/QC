@@ -1,11 +1,27 @@
 import SwiftUI
 import AppKit
+import AVFoundation
+import CoreMedia
 import VideoQCLib
+
+// MARK: - Player Drawer Tabs
+
+public enum PlayerDrawerTab: String, CaseIterable, Identifiable, Sendable {
+    case mediaInfo = "Media Info"
+    case notes = "Notes"
+    
+    public var id: String { rawValue }
+}
+
+// MARK: - Notes & Media Info Drawer Panel View
 
 struct NotesDrawerPanelView: View {
     @Binding var isPresented: Bool
+    @Binding var selectedDrawerTab: PlayerDrawerTab
     var notes: [QCFileNote]
     var mediaName: String
+    var mediaURL: URL?
+    var mediaAsset: DeliverableAsset?
     var currentTimecode: String
     var currentFrame: Int
     var isLightMode: Bool
@@ -17,39 +33,181 @@ struct NotesDrawerPanelView: View {
     var onDeleteNote: (UUID) -> Void
     var onClearAllNotes: () -> Void
     var onToast: (String) -> Void
+    var onCopySpecs: ((String) -> Void)? = nil
+    var onRevealInFinder: ((URL) -> Void)? = nil
+    var onLoadSlotA: ((URL) -> Void)? = nil
+    var onLoadSlotB: ((URL) -> Void)? = nil
     
+    // Notes tab state
     @AppStorage("reviewerName") private var storedReviewerName: String = ""
     @State private var inlineNoteText: String = ""
     @State private var inlineSelectedColor: String = "cyan"
     @State private var showClearConfirmation: Bool = false
     @FocusState private var isInlineInputFocused: Bool
     
+    // Media Info tab state
+    @State private var extendedInfo: ExtendedMediaInfo? = nil
+    @State private var isExtractingExtended: Bool = false
+    @State private var internalAsset: DeliverableAsset? = nil
+    
     private var palette: StudioPalette { StudioPalette(isLightMode) }
+    
+    private var effectiveURL: URL? {
+        mediaAsset?.fileURL ?? mediaURL
+    }
+    
+    private var effectiveAsset: DeliverableAsset? {
+        mediaAsset ?? internalAsset
+    }
     
     var body: some View {
         VStack(spacing: 0) {
-            // Header Bar
+            // Frame.io Style Segmented Tab Header Bar
+            topSegmentedHeader
+            
+            Rectangle().fill(palette.borderLine).frame(height: 1)
+            
+            ZStack(alignment: .top) {
+                if selectedDrawerTab == .mediaInfo {
+                    mediaInfoContentView
+                        .transition(.asymmetric(
+                            insertion: .move(edge: .leading).combined(with: .opacity),
+                            removal: .move(edge: .leading).combined(with: .opacity)
+                        ))
+                }
+                if selectedDrawerTab == .notes {
+                    notesContentView
+                        .transition(.asymmetric(
+                            insertion: .move(edge: .trailing).combined(with: .opacity),
+                            removal: .move(edge: .trailing).combined(with: .opacity)
+                        ))
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .clipped()
+        }
+        .frame(width: 340)
+        .studioBox(background: palette.bgPanel, border: palette.borderLine)
+        .onAppear {
+            if storedReviewerName.isEmpty {
+                let systemName = NSFullUserName()
+                storedReviewerName = systemName.isEmpty ? NSUserName() : systemName
+            }
+        }
+        .task(id: effectiveURL) {
+            guard let url = effectiveURL else {
+                extendedInfo = nil
+                return
+            }
+            isExtractingExtended = true
+            if effectiveAsset == nil {
+                internalAsset = await DeliverablesInspector.inspectFile(url: url)
+            }
+            extendedInfo = await ExtendedMediaInfo.extract(url: url, baseAsset: effectiveAsset)
+            isExtractingExtended = false
+        }
+    }
+    
+    // MARK: - Frame.io Segmented Header Bar
+    
+    private var topSegmentedHeader: some View {
+        HStack(spacing: 8) {
+            // Rounded Pill Switcher
+            HStack(spacing: 4) {
+                ForEach(PlayerDrawerTab.allCases) { tab in
+                    let isSelected = (selectedDrawerTab == tab)
+                    Button(action: {
+                        withAnimation(.spring(response: 0.32, dampingFraction: 0.84)) {
+                            selectedDrawerTab = tab
+                        }
+                    }) {
+                        HStack(spacing: 5) {
+                            Text(tab.rawValue)
+                                .font(.system(size: 11, weight: isSelected ? .bold : .medium, design: .monospaced))
+                                .lineLimit(1)
+                            
+                            if tab == .notes && !notes.isEmpty {
+                                Text("\(notes.count)")
+                                    .font(.system(size: 9, weight: .bold, design: .monospaced))
+                                    .padding(.horizontal, 4)
+                                    .padding(.vertical, 1)
+                                    .background(
+                                        Capsule()
+                                            .fill(isSelected ? palette.accentBlue.opacity(0.25) : palette.bgSubtle)
+                                    )
+                                    .foregroundColor(isSelected ? palette.accentBlue : palette.textMuted)
+                            }
+                        }
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 25)
+                        .foregroundColor(isSelected ? (isLightMode ? Color.black : Color.white) : palette.textMuted)
+                        .background(
+                            Group {
+                                if isSelected {
+                                    RoundedRectangle(cornerRadius: 6)
+                                        .fill(isLightMode ? Color.white : Color(white: 0.22))
+                                        .overlay(
+                                            RoundedRectangle(cornerRadius: 6)
+                                                .stroke(isLightMode ? palette.borderStrong : Color.white.opacity(0.18), lineWidth: 1)
+                                        )
+                                        .shadow(color: Color.black.opacity(isLightMode ? 0.08 : 0.25), radius: 2, y: 1)
+                                } else {
+                                    Color.clear
+                                }
+                            }
+                        )
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(3)
+            .background(
+                RoundedRectangle(cornerRadius: 8)
+                    .fill(palette.bgSubtle)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 8)
+                            .stroke(palette.borderLine, lineWidth: 1)
+                    )
+            )
+            
+            // Close 'X' Button
+            Button(action: { withAnimation(.easeInOut(duration: 0.15)) { isPresented = false } }) {
+                Image(systemName: "xmark")
+                    .font(.system(size: 10, weight: .bold))
+                    .foregroundColor(palette.textMuted)
+                    .padding(6)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .help("Close Side Panel")
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 8)
+        .background(palette.bgPanel)
+    }
+    
+    // MARK: - Tab 1: Notes Content View
+    
+    private var notesContentView: some View {
+        VStack(spacing: 0) {
+            // Notes Subheader (Clear All + Add Note)
             HStack(spacing: 6) {
-                Image(systemName: "bubble.left.fill")
-                    .font(.system(size: 11, weight: .bold))
-                    .foregroundColor(palette.textMain)
-                
                 HStack(spacing: 0) {
-                    Text("NOTES (")
+                    Text("ALL NOTES (")
                     SlotText(
                         "\(notes.count)",
                         mode: .character,
                         direction: .up,
-                        font: .system(size: 11, weight: .black, design: .monospaced),
+                        font: .system(size: 10, weight: .bold, design: .monospaced),
                         foregroundColor: palette.textMain,
                         tracking: 0.5
                     )
                     Text(")")
                 }
-                .font(.system(size: 11, weight: .black, design: .monospaced))
+                .font(.system(size: 10, weight: .bold, design: .monospaced))
                 .foregroundColor(palette.textMain)
                 .lineLimit(1)
-                .fixedSize(horizontal: true, vertical: false)
                 
                 Spacer(minLength: 4)
                 
@@ -61,7 +219,6 @@ struct NotesDrawerPanelView: View {
                             Text("CLEAR ALL")
                                 .font(.system(size: 8, weight: .bold, design: .monospaced))
                                 .lineLimit(1)
-                                .fixedSize(horizontal: true, vertical: false)
                         }
                         .padding(.horizontal, 6)
                         .padding(.vertical, 3.5)
@@ -79,7 +236,6 @@ struct NotesDrawerPanelView: View {
                         Text("ADD (N)")
                             .font(.system(size: 8, weight: .bold, design: .monospaced))
                             .lineLimit(1)
-                            .fixedSize(horizontal: true, vertical: false)
                     }
                     .padding(.horizontal, 6)
                     .padding(.vertical, 3.5)
@@ -87,16 +243,9 @@ struct NotesDrawerPanelView: View {
                     .studioBox(background: palette.accentPositive.opacity(0.14), border: palette.accentPositive.opacity(0.6))
                 }
                 .buttonStyle(.plain)
-                
-                Button(action: { withAnimation(.easeInOut(duration: 0.15)) { isPresented = false } }) {
-                    Image(systemName: "xmark")
-                        .font(.system(size: 10, weight: .bold))
-                        .foregroundColor(palette.textMuted)
-                }
-                .buttonStyle(.plain)
             }
             .padding(.horizontal, 10)
-            .frame(height: 40)
+            .frame(height: 34)
             .background(palette.bgPanel)
             
             Rectangle().fill(palette.borderLine).frame(height: 1)
@@ -207,14 +356,444 @@ struct NotesDrawerPanelView: View {
             .padding(.vertical, 8)
             .background(palette.bgPanel)
         }
-        .frame(width: 326)
-        .studioBox(background: palette.bgPanel, border: palette.borderLine)
-        .onAppear {
-            if storedReviewerName.isEmpty {
-                let systemName = NSFullUserName()
-                storedReviewerName = systemName.isEmpty ? NSUserName() : systemName
+    }
+    
+    // MARK: - Tab 2: Media Info Content View
+    
+    private var mediaInfoContentView: some View {
+        VStack(spacing: 0) {
+            if isExtractingExtended && extendedInfo == nil {
+                VStack(spacing: 12) {
+                    Spacer()
+                    ProgressView()
+                        .scaleEffect(0.9)
+                    Text("READING MEDIA INFO...")
+                        .font(.system(size: 10, weight: .bold, design: .monospaced))
+                        .foregroundColor(palette.textMuted)
+                    Spacer()
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .background(palette.bgPanel)
+            } else if let info = extendedInfo {
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 14) {
+                        drawerFileView(info: info)
+                        drawerTracksView(info: info)
+                    }
+                    .padding(12)
+                }
+                .background(palette.bgMain)
+                
+                Rectangle().fill(palette.borderLine).frame(height: 1)
+                
+                drawerMediaInfoFooter(info: info)
+            } else {
+                VStack(spacing: 10) {
+                    Spacer()
+                    Image(systemName: "info.circle")
+                        .font(.system(size: 26))
+                        .foregroundColor(palette.textMuted.opacity(0.4))
+                    Text("NO MEDIA LOADED")
+                        .font(.system(size: 11, weight: .bold, design: .monospaced))
+                        .foregroundColor(palette.textMain)
+                    Text("Load a deliverable in Slot A or B to inspect container tracks and metadata.")
+                        .font(.system(size: 10, design: .monospaced))
+                        .foregroundColor(palette.textSubtle)
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal, 24)
+                    Spacer()
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .background(palette.bgPanel)
             }
         }
+    }
+    
+    // MARK: - Drawer Tracks View
+    
+    private func drawerTracksView(info: ExtendedMediaInfo) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("TRACK INVENTORY (\(info.tracks.count))")
+                .font(.system(size: 10, weight: .bold, design: .monospaced))
+                .foregroundColor(palette.textMain)
+                .tracking(0.8)
+            
+            ForEach(info.tracks) { track in
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack {
+                        Text(track.typeName)
+                            .font(.system(size: 9.5, weight: .bold, design: .monospaced))
+                            .foregroundColor(track.typeName.contains("VIDEO") ? palette.accentPositive : (track.typeName.contains("AUDIO") ? palette.accentSlotB : palette.textMain))
+                        Spacer()
+                        Text(track.format.uppercased())
+                            .font(.system(size: 8.5, weight: .bold, design: .monospaced))
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 2)
+                            .foregroundColor(palette.textMain)
+                            .studioBox(background: palette.bgSubtle, border: palette.borderLine)
+                    }
+                    
+                    VStack(alignment: .leading, spacing: 4) {
+                        if track.typeName.contains("VIDEO") {
+                            drawerInfoRow(label: "Format:", value: info.videoFormat)
+                            drawerInfoRow(label: "Codec:", value: track.codec)
+                            if let asset = effectiveAsset {
+                                drawerInfoRow(label: "Size:", value: "\(asset.width)×\(asset.height) (\(asset.aspectRatioString))")
+                            }
+                            drawerInfoRow(label: "FPS:", value: info.formattedFPS)
+                            if info.videoBitrate != "--" {
+                                drawerInfoRow(label: "Bit Rate:", value: info.videoBitrate)
+                            }
+                            drawerInfoRow(label: "Colorspace:", value: info.colorspace)
+                            drawerInfoRow(label: "Primaries:", value: info.primaries)
+                            drawerInfoRow(label: "Pixel Format:", value: info.pixelFormat)
+                            drawerInfoRow(label: "Decoder:", value: info.hwDecoder)
+                        } else if track.typeName.contains("AUDIO") {
+                            drawerInfoRow(label: "Format:", value: info.audioFormat)
+                            drawerInfoRow(label: "Codec:", value: track.codec)
+                            drawerInfoRow(label: "Channels:", value: info.audioChannels)
+                            drawerInfoRow(label: "Sample Rate:", value: info.audioSampleRate != "--" ? "\(info.audioSampleRate) Hz" : "--")
+                            if info.audioBitrate != "--" {
+                                drawerInfoRow(label: "Bit Rate:", value: info.audioBitrate)
+                            }
+                            
+                            let levelStr = (effectiveAsset?.audioLevelString.isEmpty == false && effectiveAsset?.audioLevelString != "--") ? (effectiveAsset?.audioLevelString ?? info.audioLevelString) : info.audioLevelString
+                            let isMute = effectiveAsset?.isAudioMute ?? info.isAudioMute
+                            if !levelStr.isEmpty && levelStr != "--" {
+                                drawerAudioLevelRow(levelString: levelStr, isMute: isMute)
+                            }
+                            
+                            if track.language != "Undetermined" {
+                                drawerInfoRow(label: "Language:", value: track.language)
+                            }
+                        } else {
+                            drawerInfoRow(label: "Format:", value: track.format)
+                            drawerInfoRow(label: "Codec:", value: track.codec)
+                            drawerInfoRow(label: "Details:", value: track.details)
+                            if track.language != "Undetermined" {
+                                drawerInfoRow(label: "Language:", value: track.language)
+                            }
+                        }
+                    }
+                }
+                .padding(10)
+                .studioBox(background: palette.bgCardSubtle, border: palette.borderLine)
+            }
+        }
+    }
+    
+    // MARK: - Drawer File View
+    
+    private func drawerFileView(info: ExtendedMediaInfo) -> some View {
+        VStack(alignment: .leading, spacing: 14) {
+            VStack(alignment: .leading, spacing: 6) {
+                Text("FILE SYSTEM")
+                    .font(.system(size: 10, weight: .bold, design: .monospaced))
+                    .foregroundColor(palette.textMain)
+                    .tracking(0.8)
+                
+                VStack(alignment: .leading, spacing: 5) {
+                    // File Name Row
+                    let fileName = effectiveAsset?.fileName ?? effectiveURL?.lastPathComponent ?? "UNKNOWN"
+                    HStack(alignment: .top, spacing: 6) {
+                        Text("File Name:")
+                            .font(.system(size: 10, weight: .bold, design: .monospaced))
+                            .foregroundColor(palette.textMuted)
+                            .frame(width: 84, alignment: .leading)
+                        
+                        if let url = effectiveURL {
+                            Button(action: { revealInFinder(url) }) {
+                                Text(fileName)
+                                    .font(.system(size: 10, weight: .bold, design: .monospaced))
+                                    .foregroundColor(palette.textMain)
+                                    .multilineTextAlignment(.leading)
+                                    .fixedSize(horizontal: false, vertical: true)
+                            }
+                            .buttonStyle(.plain)
+                            .onHover { hovering in
+                                if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
+                            }
+                            .help("Left click to reveal in Finder")
+                        } else {
+                            Text(fileName)
+                                .font(.system(size: 10, weight: .bold, design: .monospaced))
+                                .foregroundColor(palette.textMain)
+                                .multilineTextAlignment(.leading)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                        
+                        Spacer(minLength: 2)
+                        
+                        Button(action: {
+                            copyToClipboard(fileName)
+                            onToast("Copied file name")
+                        }) {
+                            Image(systemName: "doc.on.doc")
+                                .font(.system(size: 8.5, weight: .bold))
+                                .foregroundColor(palette.textSubtle)
+                        }
+                        .buttonStyle(.plain)
+                        .help("Copy file name")
+                    }
+                    .padding(.vertical, 1)
+                    
+                    // Path with left-click to reveal in Finder
+                    VStack(alignment: .leading, spacing: 3) {
+                        HStack {
+                            Text("Path:")
+                                .font(.system(size: 10, weight: .bold, design: .monospaced))
+                                .foregroundColor(palette.textMuted)
+                            
+                            Spacer()
+                            
+                            if let path = effectiveURL?.path {
+                                Button(action: {
+                                    copyToClipboard(path)
+                                    onToast("Copied path")
+                                }) {
+                                    HStack(spacing: 3) {
+                                        Image(systemName: "doc.on.doc")
+                                            .font(.system(size: 8))
+                                        Text("COPY")
+                                            .font(.system(size: 8, weight: .bold, design: .monospaced))
+                                    }
+                                    .foregroundColor(palette.textMuted)
+                                    .padding(.horizontal, 4)
+                                    .padding(.vertical, 2)
+                                    .background(palette.bgSubtle)
+                                    .cornerRadius(3)
+                                }
+                                .buttonStyle(.plain)
+                                .help("Copy full path")
+                            }
+                        }
+                        
+                        if let url = effectiveURL {
+                            Button(action: { revealInFinder(url) }) {
+                                HStack(alignment: .center, spacing: 6) {
+                                    Image(systemName: "folder.fill")
+                                        .font(.system(size: 9.5))
+                                        .foregroundColor(palette.accentBlue)
+                                    
+                                    Text(url.path)
+                                        .font(.system(size: 9.5, weight: .medium, design: .monospaced))
+                                        .foregroundColor(palette.textMain)
+                                        .lineLimit(3)
+                                        .truncationMode(.middle)
+                                        .multilineTextAlignment(.leading)
+                                        .fixedSize(horizontal: false, vertical: true)
+                                    
+                                    Spacer(minLength: 4)
+                                    
+                                    Image(systemName: "arrow.up.right")
+                                        .font(.system(size: 8, weight: .bold))
+                                        .foregroundColor(palette.textMuted)
+                                }
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 5)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .background(
+                                    RoundedRectangle(cornerRadius: 4)
+                                        .fill(palette.bgSubtle.opacity(0.8))
+                                        .overlay(
+                                            RoundedRectangle(cornerRadius: 4)
+                                                .stroke(palette.borderLine, lineWidth: 0.8)
+                                        )
+                                )
+                            }
+                            .buttonStyle(.plain)
+                            .onHover { hovering in
+                                if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
+                            }
+                            .help("Left click to reveal in Finder")
+                        }
+                    }
+                    .padding(.vertical, 2)
+                    
+                    drawerInfoRow(label: "Container:", value: ExtendedMediaInfo.containerType(for: effectiveURL))
+                    if let asset = effectiveAsset {
+                        drawerInfoRow(label: "File Size:", value: "\(asset.formattedFileSize) (\(ExtendedMediaInfo.formattedByteString(asset.fileSizeBytes)))")
+                        drawerInfoRow(label: "Created:", value: asset.formattedCreationDate)
+                    }
+                    drawerInfoRow(label: "Modified:", value: info.fileModifiedDate)
+                }
+                .padding(10)
+                .studioBox(background: palette.bgCardSubtle, border: palette.borderLine)
+            }
+            
+            if let asset = effectiveAsset {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("TIMING & RASTER")
+                        .font(.system(size: 10, weight: .bold, design: .monospaced))
+                        .foregroundColor(palette.textMain)
+                        .tracking(0.8)
+                    
+                    VStack(alignment: .leading, spacing: 4) {
+                        drawerInfoRow(label: "Duration:", value: "\(asset.timecode) (\(asset.formattedDuration))")
+                        drawerInfoRow(label: "Frames:", value: "\(asset.totalFrames) frames")
+                        drawerInfoRow(label: "Aspect:", value: asset.aspectRatioString)
+                        drawerInfoRow(label: "Pixel Aspect:", value: "1.0 (Square)")
+                        if asset.validation.hasAnyMismatch {
+                            drawerInfoRow(label: "QC Alert:", value: asset.validation.summaryString)
+                        } else {
+                            drawerInfoRow(label: "Naming QC:", value: "All Tags Validated")
+                        }
+                    }
+                    .padding(10)
+                    .studioBox(background: palette.bgCardSubtle, border: palette.borderLine)
+                }
+            }
+        }
+    }
+    
+    // MARK: - Drawer Info Row
+    
+    private func drawerInfoRow(label: String, value: String, copyable: Bool = false) -> some View {
+        HStack(alignment: .top, spacing: 6) {
+            Text(label)
+                .font(.system(size: 10, weight: .bold, design: .monospaced))
+                .foregroundColor(palette.textMuted)
+                .frame(width: 84, alignment: .leading)
+            
+            Text(value)
+                .font(.system(size: 10, weight: .medium, design: .monospaced))
+                .foregroundColor(palette.textMain)
+                .multilineTextAlignment(.leading)
+                .fixedSize(horizontal: false, vertical: true)
+            
+            Spacer(minLength: 2)
+            
+            if copyable {
+                Button(action: {
+                    copyToClipboard(value)
+                    onToast("Copied \(label.replacingOccurrences(of: ":", with: ""))")
+                }) {
+                    Image(systemName: "doc.on.doc")
+                        .font(.system(size: 8.5, weight: .bold))
+                        .foregroundColor(palette.textSubtle)
+                }
+                .buttonStyle(.plain)
+                .help("Copy \(label)")
+            }
+        }
+        .padding(.vertical, 1.5)
+    }
+    
+    private func drawerAudioLevelRow(levelString: String, isMute: Bool) -> some View {
+        HStack(alignment: .center, spacing: 6) {
+            Text("Levels:")
+                .font(.system(size: 10, weight: .bold, design: .monospaced))
+                .foregroundColor(palette.textMuted)
+                .frame(width: 84, alignment: .leading)
+            
+            HStack(spacing: 5) {
+                Text(levelString.isEmpty ? (isMute ? "MUTE" : "--") : levelString)
+                    .font(.system(size: 9.5, weight: .bold, design: .monospaced))
+                    .foregroundColor(isMute ? palette.alertRed : palette.accentPositive)
+                    .padding(.horizontal, 5)
+                    .padding(.vertical, 1.5)
+                    .background(
+                        (isMute ? palette.alertRed : palette.accentPositive).opacity(0.12)
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 3)
+                            .stroke((isMute ? palette.alertRed : palette.accentPositive).opacity(0.35), lineWidth: 0.8)
+                    )
+                    .cornerRadius(3)
+                
+                if isMute {
+                    Text("SILENT")
+                        .font(.system(size: 8.5, weight: .bold, design: .monospaced))
+                        .foregroundColor(palette.alertRed)
+                } else {
+                    Text("Peak")
+                        .font(.system(size: 8.5, weight: .medium, design: .monospaced))
+                        .foregroundColor(palette.textMuted)
+                }
+            }
+            
+            Spacer()
+        }
+        .padding(.vertical, 1.5)
+    }
+    
+    private func revealInFinder(_ url: URL) {
+        if let onReveal = onRevealInFinder {
+            onReveal(url)
+        } else {
+            NSWorkspace.shared.activateFileViewerSelecting([url])
+        }
+    }
+    
+    // MARK: - Drawer Media Info Footer
+    
+    private func drawerMediaInfoFooter(info: ExtendedMediaInfo) -> some View {
+        HStack(spacing: 6) {
+            if let asset = effectiveAsset {
+                Button(action: {
+                    let text = ExtendedMediaInfo.buildSpecsText(asset: asset, info: info)
+                    copyToClipboard(text)
+                    onCopySpecs?(text)
+                    onToast("Copied specs to clipboard")
+                }) {
+                    HStack(spacing: 3) {
+                        Image(systemName: "doc.on.doc")
+                            .font(.system(size: 8.5, weight: .bold))
+                        Text("SPECS")
+                            .font(.system(size: 8.5, weight: .bold, design: .monospaced))
+                    }
+                    .padding(.horizontal, 7)
+                    .padding(.vertical, 5)
+                    .foregroundColor(palette.textMain)
+                    .studioBox(background: palette.bgSubtle, border: palette.borderLine)
+                }
+                .buttonStyle(.plain)
+                .help("Copy formatted technical specifications")
+            }
+            
+            if let url = effectiveURL {
+                Button(action: {
+                    onRevealInFinder?(url) ?? NSWorkspace.shared.activateFileViewerSelecting([url])
+                }) {
+                    HStack(spacing: 3) {
+                        Image(systemName: "folder")
+                            .font(.system(size: 8.5, weight: .bold))
+                        Text("REVEAL")
+                            .font(.system(size: 8.5, weight: .bold, design: .monospaced))
+                    }
+                    .padding(.horizontal, 7)
+                    .padding(.vertical, 5)
+                    .foregroundColor(palette.textMain)
+                    .studioBox(background: palette.bgSubtle, border: palette.borderLine)
+                }
+                .buttonStyle(.plain)
+                .help("Reveal file in Finder")
+            }
+            
+            Spacer()
+            
+            if let url = effectiveURL {
+                Button(action: {
+                    onLoadSlotB?(url)
+                }) {
+                    HStack(spacing: 2) {
+                        Text("+B")
+                            .font(.system(size: 8.5, weight: .bold, design: .monospaced))
+                        Text("COMPARE")
+                            .font(.system(size: 8.5, weight: .bold, design: .monospaced))
+                    }
+                    .padding(.horizontal, 7)
+                    .padding(.vertical, 5)
+                    .foregroundColor(palette.accentSlotB)
+                    .studioBox(background: palette.accentSlotB.opacity(0.14), border: palette.accentSlotB.opacity(0.6))
+                }
+                .buttonStyle(.plain)
+                .help("Load reference video into Slot B for compare mode")
+            }
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 7)
+        .background(palette.bgPanel)
     }
     
     // MARK: - Inline Quick Note Input Box (Bottom)
@@ -418,17 +997,12 @@ struct NotesDrawerPanelView: View {
                             .padding(.horizontal, 6)
                             .padding(.vertical, 3)
                             .foregroundColor(palette.accentBlue)
-                            .studioBox(
-                                background: palette.accentBlue.opacity(0.12),
-                                border: palette.accentBlue.opacity(0.4),
-                                radius: 3
-                            )
+                            .studioBox(background: palette.accentBlue.opacity(0.12), border: palette.accentBlue.opacity(0.45), radius: 3)
                         }
                         .buttonStyle(.plain)
-                        .help(item.isWeb ? "Open \(item.displayString) in browser" : "Reveal \(item.displayString) in Finder")
+                        .help(item.displayString)
                     }
                 }
-                .padding(.top, 2)
             }
         }
         .padding(9)

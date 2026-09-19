@@ -62,6 +62,8 @@ public struct ExtendedMediaInfo: Sendable {
     public var audioChannels: String = "stereo"
     public var audioBitrate: String = "--"
     public var audioSampleRate: String = "48000"
+    public var audioLevelString: String = "--"
+    public var isAudioMute: Bool = false
     
     public var fileModifiedDate: String = "--"
     public var tracks: [MediaTrackItem] = []
@@ -261,6 +263,15 @@ public struct ExtendedMediaInfo: Sendable {
             } else {
                 info.audioBitrate = "320.00 Kbps"
             }
+            
+            if let base = baseAsset, !base.audioLevelString.isEmpty, base.audioLevelString != "--" {
+                info.audioLevelString = base.audioLevelString
+                info.isAudioMute = base.isAudioMute
+            } else {
+                let levels = await DeliverablesInspector.extractAudioLevels(asset: avAsset, tracks: audioTracks)
+                info.audioLevelString = levels.levelString
+                info.isAudioMute = levels.isMute
+            }
         } else {
             info.hasAudio = false
             info.audioFormat = "none"
@@ -333,6 +344,67 @@ public struct ExtendedMediaInfo: Sendable {
         
         info.tracks = trackItems
         return info
+    }
+    
+    public static func containerType(for url: URL?) -> String {
+        let ext = url?.pathExtension.uppercased() ?? "FILE"
+        switch ext {
+        case "MOV": return "QuickTime Movie (.MOV)"
+        case "MP4": return "MPEG-4 Movie (.MP4)"
+        case "M4V": return "Apple MPEG-4 Video (.M4V)"
+        case "MXF": return "Material Exchange Format (.MXF)"
+        case "AVI": return "Audio Video Interleave (.AVI)"
+        default: return "\(ext) Media File"
+        }
+    }
+    
+    public static func formattedByteString(_ bytes: Int64) -> String {
+        let formatter = NumberFormatter()
+        formatter.numberStyle = .decimal
+        let numStr = formatter.string(from: NSNumber(value: bytes)) ?? "\(bytes)"
+        return "\(numStr) bytes"
+    }
+    
+    public static func buildSpecsText(asset: DeliverableAsset, info: ExtendedMediaInfo?) -> String {
+        var lines: [String] = []
+        lines.append("MEDIA INFO // \(asset.fileName)")
+        lines.append("File Path: \(asset.fileURL.path)")
+        lines.append("Container: \(containerType(for: asset.fileURL))")
+        lines.append("File Size: \(asset.formattedFileSize) (\(formattedByteString(asset.fileSizeBytes)))")
+        lines.append("Resolution: \(asset.width) x \(asset.height) (\(asset.aspectRatioString))")
+        lines.append("Frame Rate: \(info?.formattedFPS ?? String(format: "%.3f fps", asset.fps))")
+        lines.append("Video Format: \(info?.videoFormat ?? asset.videoCodec)")
+        lines.append("Video Codec: \(info?.videoCodecLong ?? asset.videoCodec)")
+        if let info = info {
+            lines.append("Colorspace: \(info.colorspace)")
+            lines.append("Primaries: \(info.primaries)")
+            lines.append("Pixel Format: \(info.pixelFormat)")
+            if info.videoBitrate != "--" {
+                lines.append("Video Bit Rate: \(info.videoBitrate)")
+            }
+        }
+        lines.append("Duration: \(asset.timecode) (\(asset.formattedDuration)) - \(asset.totalFrames) frames")
+        if asset.hasAudio {
+            lines.append("Audio Codec: \(info?.audioCodecLong ?? asset.audioCodec)")
+            lines.append("Audio Configuration: \(info?.audioChannels ?? asset.audioConfig)")
+            if let info = info, info.audioSampleRate != "--" {
+                lines.append("Audio Sample Rate: \(info.audioSampleRate) Hz")
+            }
+            if let info = info, info.audioBitrate != "--" {
+                lines.append("Audio Bit Rate: \(info.audioBitrate)")
+            }
+            let lvl = (info?.audioLevelString.isEmpty == false && info?.audioLevelString != "--") ? info!.audioLevelString : asset.audioLevelString
+            if !lvl.isEmpty && lvl != "--" {
+                lines.append("Audio Peak Level: \(lvl)")
+            }
+        } else {
+            lines.append("Audio: No Audio Streams")
+        }
+        lines.append("Created: \(asset.formattedCreationDate)")
+        if let info = info, info.fileModifiedDate != "--" {
+            lines.append("Modified: \(info.fileModifiedDate)")
+        }
+        return lines.joined(separator: "\n")
     }
 }
 
@@ -587,6 +659,10 @@ public struct PropertiesModalView: View {
                             infoRow(label: "Sample Rate:", value: info.audioSampleRate != "--" ? "\(info.audioSampleRate) Hz" : "--")
                             if info.audioBitrate != "--" {
                                 infoRow(label: "Bit Rate:", value: info.audioBitrate)
+                            }
+                            let lvl = !info.audioLevelString.isEmpty && info.audioLevelString != "--" ? info.audioLevelString : asset.audioLevelString
+                            if lvl != "--" && !lvl.isEmpty {
+                                infoRow(label: "Levels:", value: (info.isAudioMute || asset.isAudioMute) ? "\(lvl) (MUTE)" : lvl)
                             }
                             infoRow(label: "Language:", value: track.language)
                         } else {

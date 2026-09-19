@@ -16,6 +16,9 @@ struct ContentView: View {
     @State var showPropertiesModal: Bool = false
     @State var showAddNoteModal: Bool = false
     @State var showNotesDrawer: Bool = false
+    @State var playerDrawerTab: PlayerDrawerTab = .mediaInfo
+    @State var showPlayerQueue: Bool = true
+    @State var showSpecsControlPanel: Bool = true
     @AppStorage("reviewerName") var reviewerName: String = ""
     @AppStorage("queueDisplayMode") var queueDisplayMode: String = "inline"
     @AppStorage("playerThumbnailSize") var playerThumbnailSize: Double = 52.0
@@ -128,6 +131,8 @@ struct ContentView: View {
         .animation(.easeInOut(duration: 0.15), value: showPropertiesModal)
         .animation(.easeInOut(duration: 0.15), value: showAddNoteModal)
         .animation(.easeInOut(duration: 0.15), value: showNotesDrawer)
+        .animation(.easeInOut(duration: 0.15), value: showPlayerQueue)
+        .animation(.easeInOut(duration: 0.15), value: showSpecsControlPanel)
         .animation(.easeInOut(duration: 0.15), value: fullscreenMode)
         .animation(.spring(response: 0.3, dampingFraction: 0.7), value: toastMessage)
         .onChange(of: showPropertiesModal) { _, newValue in if !newValue { dismissFocusReset() } }
@@ -184,7 +189,8 @@ struct ContentView: View {
         }
         .onReceive(fileOpenManager.$pendingURLs) { urls in
             guard !urls.isEmpty else { return }
-            handleIncomingOpenFiles(urls)
+            let isInitial = fileOpenManager.isInitialLaunchBatch
+            handleIncomingOpenFiles(urls, isInitialLaunch: isInitial)
             fileOpenManager.pendingURLs = []
         }
         .onAppear {
@@ -194,8 +200,12 @@ struct ContentView: View {
             updateManager.checkForUpdates(userInitiated: false)
             if !fileOpenManager.pendingURLs.isEmpty {
                 let urls = fileOpenManager.pendingURLs
+                let isInitial = fileOpenManager.isInitialLaunchBatch
                 fileOpenManager.pendingURLs = []
-                handleIncomingOpenFiles(urls)
+                handleIncomingOpenFiles(urls, isInitialLaunch: isInitial)
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                fileOpenManager.isAppAlreadyRunning = true
             }
         }
         .onDisappear {
@@ -1095,8 +1105,15 @@ struct ContentView: View {
         return true
     }
     
-    func handleIncomingOpenFiles(_ urls: [URL]) {
+    func handleIncomingOpenFiles(_ urls: [URL], isInitialLaunch: Bool = false) {
         self.selectedTab = .player
+        if isInitialLaunch {
+            withAnimation(.easeInOut(duration: 0.15)) {
+                self.showPlayerQueue = false
+            }
+            self.playerEngine.clipInfoOverlayMode = .off
+            self.playerEngine.showResolutionLabels = false
+        }
         self.addAssets(urls: urls, forceLoad: true, forceAutoplay: true)
     }
     
@@ -1833,19 +1850,23 @@ struct ContentView: View {
     
     // MARK: - File Properties Modal (Premiere Pro Style)
     
-    func openProperties(for url: URL) {
+    func openProperties(for url: URL, showModal: Bool = true) {
         propertiesURL = url
         if let existing = specsState.deliverableAssets.first(where: { $0.fileURL.standardizedFileURL == url.standardizedFileURL }) {
             propertiesAsset = existing
             isInspectingProperties = false
-            withAnimation(.easeInOut(duration: 0.15)) {
-                showPropertiesModal = true
+            if showModal {
+                withAnimation(.easeInOut(duration: 0.15)) {
+                    showPropertiesModal = true
+                }
             }
         } else {
             propertiesAsset = nil
             isInspectingProperties = true
-            withAnimation(.easeInOut(duration: 0.15)) {
-                showPropertiesModal = true
+            if showModal {
+                withAnimation(.easeInOut(duration: 0.15)) {
+                    showPropertiesModal = true
+                }
             }
             
             Task { @MainActor in
@@ -1861,6 +1882,32 @@ struct ContentView: View {
     }
     
     func togglePropertiesModalForActiveOrSelected() {
+        if selectedTab == .player {
+            if showPropertiesModal {
+                withAnimation(.easeInOut(duration: 0.15)) {
+                    showPropertiesModal = false
+                }
+                return
+            }
+            
+            if showNotesDrawer && playerDrawerTab == .mediaInfo {
+                withAnimation(.easeInOut(duration: 0.15)) {
+                    showNotesDrawer = false
+                }
+                return
+            }
+            
+            let targetURL = (playerEngine.activeTarget == .slotB && playerEngine.slotB.url != nil) ? playerEngine.slotB.url : (playerEngine.activeURL ?? playerEngine.slotA.url ?? filteredPlayerFiles.first)
+            if let url = targetURL {
+                openProperties(for: url, showModal: false)
+            }
+            playerDrawerTab = .mediaInfo
+            withAnimation(.spring(response: 0.32, dampingFraction: 0.78)) {
+                showNotesDrawer = true
+            }
+            return
+        }
+        
         if showPropertiesModal {
             withAnimation(.easeInOut(duration: 0.15)) {
                 showPropertiesModal = false
@@ -1871,14 +1918,14 @@ struct ContentView: View {
         if selectedTab == .specs {
             let targetURL = specsState.selectedDeliverableURL ?? specsState.deliverableAssets.first?.fileURL
             if let url = targetURL {
-                openProperties(for: url)
+                openProperties(for: url, showModal: true)
             }
             return
         }
         
         let targetURL = (playerEngine.activeTarget == .slotB && playerEngine.slotB.url != nil) ? playerEngine.slotB.url : (playerEngine.activeURL ?? playerEngine.slotA.url ?? filteredPlayerFiles.first)
         if let url = targetURL {
-            openProperties(for: url)
+            openProperties(for: url, showModal: true)
         }
     }
     
@@ -1976,6 +2023,7 @@ struct ContentView: View {
         withAnimation(.spring(response: 0.32, dampingFraction: 0.78)) {
             playerEngine.activeNotes = currentNotes
             playerEngine.activeNotesURL = url
+            playerDrawerTab = .notes
             showNotesDrawer = true
         }
         saveNotes(currentNotes, for: url)

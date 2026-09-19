@@ -2,8 +2,28 @@ import SwiftUI
 import AppKit
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
+    private var didFinishInitialLaunch: Bool = false
+    
     func application(_ application: NSApplication, open urls: [URL]) {
-        FileOpenManager.shared.handleOpenedFiles(urls)
+        let isInitial = !didFinishInitialLaunch
+        FileOpenManager.shared.handleOpenedFiles(urls, isInitialLaunch: isInitial)
+    }
+    
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        let args = CommandLine.arguments.dropFirst()
+        let urls = args.compactMap { arg -> URL? in
+            guard !arg.starts(with: "-") else { return nil }
+            let url = URL(fileURLWithPath: arg)
+            return FileManager.default.fileExists(atPath: url.path) ? url : nil
+        }
+        if !urls.isEmpty {
+            FileOpenManager.shared.handleOpenedFiles(urls, isInitialLaunch: true)
+        }
+        
+        DispatchQueue.main.async {
+            self.didFinishInitialLaunch = true
+            FileOpenManager.shared.isAppAlreadyRunning = true
+        }
     }
     
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {

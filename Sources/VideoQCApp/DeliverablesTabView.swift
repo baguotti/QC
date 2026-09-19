@@ -8,26 +8,55 @@ extension ContentView {
     var deliverablesTabView: some View {
         HSplitView {
             // Left Control Panel
-            VStack(alignment: .leading, spacing: 18) {
-                // Unified Asset Picker
-                deliveryAssetsSection(forTab: .specs)
-                
-                // Search Filter (like in Tab 1)
-                if !specsState.deliverableAssets.isEmpty {
-                    specsSearchFilterBar
+            if showSpecsControlPanel {
+                VStack(alignment: .leading, spacing: 18) {
+                    // Unified Asset Picker
+                    deliveryAssetsSection(forTab: .specs)
+                    
+                    // Search Filter (like in Tab 1)
+                    if !specsState.deliverableAssets.isEmpty {
+                        specsSearchFilterBar
+                    }
+                    
+                    // 02 SPECS ACTIONS: View controls, Audit & Exports
+                    specsActionsSection
+                    
+                    Spacer(minLength: 0)
                 }
-                
-                // 02 SPECS ACTIONS: View controls, Audit & Exports
-                specsActionsSection
-                
-                Spacer(minLength: 0)
+                .padding(22)
+                .frame(minWidth: 360, idealWidth: 400, maxWidth: 440)
+                .background(bgPanel)
+                .transition(.move(edge: .leading).combined(with: .opacity))
             }
-            .padding(22)
-            .frame(minWidth: 360, idealWidth: 400, maxWidth: 440)
-            .background(bgPanel)
             
             // Right Panel: Specs Table / Stats
             VStack(alignment: .leading, spacing: 0) {
+                // Specs Header Bar with Sleeve Toggle
+                HStack(spacing: 12) {
+                    Button(action: {
+                        withAnimation(.spring(response: 0.32, dampingFraction: 0.78)) {
+                            showSpecsControlPanel.toggle()
+                        }
+                    }) {
+                        Image(systemName: showSpecsControlPanel ? "chevron.left" : "chevron.right")
+                            .font(.system(size: StudioTheme.scaleFont(11), weight: .bold))
+                            .frame(width: StudioTheme.scale(24), height: StudioTheme.scale(26))
+                            .foregroundColor(showSpecsControlPanel ? textMain : accentBlue)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(TransportIconButtonStyle())
+                    .explain(showSpecsControlPanel ? "Hide Specs Control Panel." : "Reveal Specs Control Panel.")
+                    
+                    Text("SPECS AUDIT")
+                        .font(.system(size: 11, weight: .black, design: .monospaced))
+                        .foregroundColor(textMuted)
+                    
+                    Spacer()
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 10)
+                .studioBox(background: bgCardHeader, border: borderLine)
+                
                 if specsState.isInspectingDeliverables {
                     VStack(alignment: .center, spacing: 12) {
                         Spacer()
