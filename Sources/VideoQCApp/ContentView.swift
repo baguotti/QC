@@ -251,7 +251,7 @@ struct ContentView: View {
             .padding(.vertical, 7)
             .background(bgPanel)
         }
-        .frame(minWidth: 1000, minHeight: 720)
+        .frame(minWidth: 1080, minHeight: 720)
         .background(bgMain)
         .foregroundColor(textMain)
     }
@@ -469,7 +469,7 @@ struct ContentView: View {
                         HStack(spacing: 8) {
                             Image(systemName: "paintpalette.fill")
                                 .font(.system(size: 11, weight: .bold))
-                                .foregroundColor(themeManager.currentTheme.blueColor)
+                                .foregroundColor(themeManager.currentTheme.playColor)
                                 .frame(width: 16)
                             VStack(alignment: .leading, spacing: 1) {
                                 Text("Theme & Accents")
@@ -477,15 +477,15 @@ struct ContentView: View {
                                     .foregroundColor(textMain)
                                 Text(themeManager.currentTheme.name)
                                     .font(.system(size: 9, weight: .medium, design: .monospaced))
-                                    .foregroundColor(themeManager.currentTheme.blueColor)
+                                    .foregroundColor(themeManager.currentTheme.playColor)
                                     .lineLimit(1)
                             }
                             Spacer()
                             HStack(spacing: 3) {
-                                Circle().fill(themeManager.currentTheme.greenColor).frame(width: 5, height: 5)
-                                Circle().fill(themeManager.currentTheme.blueColor).frame(width: 5, height: 5)
-                                Circle().fill(themeManager.currentTheme.purpleColor).frame(width: 5, height: 5)
-                                Circle().fill(themeManager.currentTheme.redColor).frame(width: 5, height: 5)
+                                Circle().fill(themeManager.currentTheme.slotaColor).frame(width: 5, height: 5)
+                                Circle().fill(themeManager.currentTheme.playColor).frame(width: 5, height: 5)
+                                Circle().fill(themeManager.currentTheme.slotBColor).frame(width: 5, height: 5)
+                                Circle().fill(themeManager.currentTheme.warnColor).frame(width: 5, height: 5)
                             }
                         }
                         .padding(.horizontal, 10)
@@ -1518,6 +1518,11 @@ struct ContentView: View {
                     self.selectedTab = .lineFinder
                 }
             },
+            onSelectIngestTab: {
+                withAnimation(.spring(response: 0.22, dampingFraction: 0.85)) {
+                    self.selectedTab = .ingest
+                }
+            },
             onToggleLightMode: {
                 withAnimation(.easeInOut(duration: 0.15)) {
                     self.isLightMode.toggle()
@@ -1612,7 +1617,28 @@ struct ContentView: View {
             },
             onToggleUserGuide: { self.showUserGuide.toggle() },
             onCycleClipInfo: { self.playerEngine.cycleClipInfoOverlayMode() },
-            onToggleProperties: { self.togglePropertiesModalForActiveOrSelected() }
+            onToggleProperties: { self.togglePropertiesModalForActiveOrSelected() },
+            onToggleLeftSleeve: {
+                if self.selectedTab == .player {
+                    withAnimation(.spring(response: 0.32, dampingFraction: 0.78)) {
+                        self.showPlayerQueue.toggle()
+                    }
+                } else if self.selectedTab == .specs {
+                    withAnimation(.spring(response: 0.32, dampingFraction: 0.78)) {
+                        self.showSpecsControlPanel.toggle()
+                    }
+                }
+            },
+            onToggleRightSleeve: {
+                if self.selectedTab == .player {
+                    withAnimation(.spring(response: 0.32, dampingFraction: 0.78)) {
+                        if !self.showNotesDrawer {
+                            self.playerDrawerTab = self.currentFileHasNotes ? .notes : .mediaInfo
+                        }
+                        self.showNotesDrawer.toggle()
+                    }
+                }
+            }
         )
     }
     
@@ -1969,6 +1995,22 @@ struct ContentView: View {
                 }
             }
         }
+    }
+    
+    var currentFileHasNotes: Bool {
+        if !playerEngine.activeNotes.isEmpty {
+            return true
+        }
+        let targetURL = (playerEngine.activeTarget == .slotB && playerEngine.slotB.url != nil) ? playerEngine.slotB.url : (playerEngine.activeURL ?? playerEngine.slotA.url)
+        if let url = targetURL {
+            if QCNotesManager.hasNotes(for: url) {
+                return true
+            }
+            if scannerState.scanResults.contains(where: { $0.fileURL == url && $0.isFlagged && !$0.glitchSegments.isEmpty }) {
+                return true
+            }
+        }
+        return false
     }
     
     func loadNotesForActiveURL(_ url: URL?) {

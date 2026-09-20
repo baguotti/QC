@@ -101,6 +101,102 @@ struct ExposureScrubberView: View {
                     }
                 }
                 .explain("Change Exposure (EV): Drag left/right to adjust, click aperture to reset (Current: \(formattedEV))")
+    }
+}
+}
+
+// MARK: - Subtle Studio Volume Slider
+
+struct StudioVolumeSlider: View {
+    @Binding var volume: Float
+    @Binding var isMuted: Bool
+    var accentColor: Color
+    var textMuted: Color
+    var isLightMode: Bool
+    
+    @State private var isDragging: Bool = false
+    @State private var isHovered: Bool = false
+    
+    private var sliderWidth: CGFloat { StudioTheme.scale(70) }
+    private var trackHeight: CGFloat { StudioTheme.scale(3) }
+    private var thumbDiameter: CGFloat { StudioTheme.scale(8) }
+    
+    private var currentThumbDiameter: CGFloat {
+        (isHovered || isDragging) ? StudioTheme.scale(9) : thumbDiameter
+    }
+    
+    private var thumbColor: Color {
+        if isMuted {
+            return textMuted.opacity(0.6)
+        }
+        return isLightMode ? Color(white: 0.22) : Color.white
+    }
+    
+    var body: some View {
+        GeometryReader { geo in
+            let width = geo.size.width
+            let usableWidth = max(1, width - thumbDiameter)
+            let clampedVal = CGFloat(max(0, min(1, volume)))
+            let thumbCenter = (thumbDiameter / 2) + clampedVal * usableWidth
+            let fillWidth = (clampedVal <= 0.001) ? 0 : min(width, thumbCenter + (thumbDiameter / 2) * clampedVal)
+            
+            ZStack(alignment: .leading) {
+                // Background Track & Active Fill, clipped to capsule shape
+                ZStack(alignment: .leading) {
+                    Capsule()
+                        .fill(isLightMode ? Color.black.opacity(0.12) : Color.white.opacity(0.16))
+                        .frame(width: width, height: trackHeight)
+                    
+                    if fillWidth > 0 {
+                        Rectangle()
+                            .fill(isMuted ? textMuted.opacity(0.4) : accentColor)
+                            .frame(width: fillWidth, height: trackHeight)
+                    }
+                }
+                .clipShape(Capsule())
+                .frame(width: width, height: trackHeight)
+                .position(x: width / 2, y: geo.size.height / 2)
+                
+                // Subtle Knob / Ball
+                Circle()
+                    .fill(thumbColor)
+                    .frame(width: currentThumbDiameter, height: currentThumbDiameter)
+                    .overlay(
+                        Circle()
+                            .strokeBorder(isLightMode ? Color.black.opacity(0.15) : Color.white.opacity(0.25), lineWidth: 0.5)
+                    )
+                    .shadow(color: Color.black.opacity(isLightMode ? 0.2 : 0.4), radius: 1, x: 0, y: 0.5)
+                    .position(x: thumbCenter, y: geo.size.height / 2)
+                    .animation(.easeInOut(duration: 0.12), value: isHovered)
+                    .animation(.easeInOut(duration: 0.12), value: isDragging)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+            .contentShape(Rectangle())
+            .gesture(
+                DragGesture(minimumDistance: 0)
+                    .onChanged { gesture in
+                        isDragging = true
+                        updateVolume(location: gesture.location.x, width: width)
+                    }
+                    .onEnded { gesture in
+                        updateVolume(location: gesture.location.x, width: width)
+                        isDragging = false
+                    }
+            )
+        }
+        .frame(width: sliderWidth, height: StudioTheme.scale(18))
+        .onHover { hovering in
+            isHovered = hovering
+        }
+    }
+    
+    private func updateVolume(location: CGFloat, width: CGFloat) {
+        let usableWidth = max(1, width - thumbDiameter)
+        let localX = location - (thumbDiameter / 2)
+        let fraction = max(0, min(1, localX / usableWidth))
+        volume = Float(fraction)
+        if isMuted && volume > 0 {
+            isMuted = false
         }
     }
 }
@@ -112,17 +208,26 @@ extension ContentView {
     @ViewBuilder
     var playerTabView: some View {
         HStack(spacing: 0) {
-            HSplitView {
-                if showPlayerQueue {
-                    playerQueuePanel
-                        .transition(.move(edge: .leading).combined(with: .opacity))
-                }
-                playerProgramMonitorPanel
+            if showPlayerQueue {
+                playerQueuePanel
+                    .frame(width: 360)
+                    .overlay(
+                        Rectangle()
+                            .fill(borderLine)
+                            .frame(width: 1),
+                        alignment: .trailing
+                    )
+                    .transition(.move(edge: .leading).combined(with: .opacity))
+                    .layoutPriority(1)
             }
+            playerProgramMonitorPanel
+                .layoutPriority(0)
             if showNotesDrawer {
                 playerNotesDrawerPanel
+                    .layoutPriority(1)
             }
         }
+        .clipped()
         .onDrop(of: [UTType.fileURL.identifier], isTargeted: nil) { providers in
             handleDrop(providers: providers, forTab: .player)
         }
@@ -276,8 +381,10 @@ extension ContentView {
                 .padding(.horizontal, 16)
                 .padding(.vertical, 12)
                 .studioBox(background: bgCardHeader, border: borderLine)
+                .clipped()
             }
-            .frame(minWidth: 500, maxWidth: .infinity, maxHeight: .infinity)
+            .frame(minWidth: 400, maxWidth: .infinity, maxHeight: .infinity)
+            .clipped()
             .onDrop(of: [UTType.fileURL.identifier], isTargeted: nil) { providers in
                 handleDrop(providers: providers, forTab: .player)
             }
@@ -355,11 +462,11 @@ extension ContentView {
                 Image(systemName: showPlayerQueue ? "chevron.left" : "chevron.right")
                     .font(.system(size: StudioTheme.scaleFont(11), weight: .bold))
                     .frame(width: StudioTheme.scale(24), height: StudioTheme.scale(26))
-                    .foregroundColor(showPlayerQueue ? textMain : accentBlue)
+                    .foregroundColor(textMain)
                     .contentShape(Rectangle())
             }
             .buttonStyle(TransportIconButtonStyle())
-            .explain(showPlayerQueue ? "Hide Assets & Queue panel." : "Reveal Assets & Queue panel.")
+            .explain(showPlayerQueue ? "Hide Assets & Queue panel (⌘⇧←)." : "Reveal Assets & Queue panel (⌘⇧←).")
 
             if playerEngine.slotB.url != nil {
                 Color.clear
@@ -422,7 +529,7 @@ extension ContentView {
                 Button(action: {
                     withAnimation(.spring(response: 0.32, dampingFraction: 0.78)) {
                         if !showNotesDrawer {
-                            playerDrawerTab = .mediaInfo
+                            playerDrawerTab = currentFileHasNotes ? .notes : .mediaInfo
                         }
                         showNotesDrawer.toggle()
                     }
@@ -430,12 +537,12 @@ extension ContentView {
                     Image(systemName: showNotesDrawer ? "chevron.right" : "chevron.left")
                         .font(.system(size: StudioTheme.scaleFont(11), weight: .bold))
                         .frame(width: StudioTheme.scale(24), height: StudioTheme.scale(26))
-                        .foregroundColor(showNotesDrawer ? accentBlue : (playerEngine.activeURL == nil ? textMuted : textMain))
+                        .foregroundColor(playerEngine.activeURL == nil ? textMuted : textMain)
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(TransportIconButtonStyle())
                 .disabled(playerEngine.activeURL == nil)
-                .explain(showNotesDrawer ? "Collapse review sleeve." : "Bring out review sleeve (Media Info & Notes).")
+                .explain(showNotesDrawer ? "Collapse review sleeve (⌘⇧→)." : "Bring out review sleeve (Media Info & Notes) (⌘⇧→).")
             }
             .frame(width: StudioTheme.scale(92), alignment: .trailing)
         }
@@ -676,20 +783,20 @@ extension ContentView {
                     playerTimecodeMenu
                     playerZoomMenu
                 }
-                .frame(minWidth: 160, alignment: .leading)
+                .frame(minWidth: 100, alignment: .leading)
                 
-                Spacer()
+                Spacer(minLength: 4)
                 
                 // Left-Center: Compact Review Notes Controls: [+ NOTE] and < 💬 count >
                 playerNotesGroup
                 
-                Spacer()
+                Spacer(minLength: 4)
                 
                 // Center Clearance Area for Shuttle Badge (ensures no collision when badge is visible)
-                Color.clear.frame(width: 64, height: 24)
+                Color.clear.frame(width: 48, height: 24)
                     .allowsHitTesting(false)
                 
-                Spacer()
+                Spacer(minLength: 4)
                 
                 // Right-Center: Compact Line Finding Navigation & Tags
                 HStack(spacing: 6) {
@@ -700,11 +807,11 @@ extension ContentView {
                     playerTagsButton
                 }
                 
-                Spacer()
+                Spacer(minLength: 4)
                 
                 // Right: Duration Timecode / Total Frames
                 playerDurationLabel
-                    .frame(minWidth: 160, alignment: .trailing)
+                    .frame(minWidth: 80, alignment: .trailing)
             }
         }
         .frame(height: 24)
@@ -714,17 +821,19 @@ extension ContentView {
     
     private var playerTransportBar: some View {
         HStack(spacing: 0) {
-            // Left: Audio Volume & Mute (Fixed proportional width - matches right)
+            // Left: Audio Volume & Mute (Flexible proportional width - matches right to keep center dead-centered)
             HStack(spacing: 8) {
                 let speakerIcon: String = {
-                    if playerEngine.isMuted || playerEngine.volume <= 0.001 {
+                    if playerEngine.isMuted {
                         return "speaker.slash.fill"
                     } else if playerEngine.volume > 0.66 {
                         return "speaker.wave.3.fill"
                     } else if playerEngine.volume > 0.33 {
                         return "speaker.wave.2.fill"
-                    } else {
+                    } else if playerEngine.volume > 0.001 {
                         return "speaker.wave.1.fill"
+                    } else {
+                        return "speaker.fill"
                     }
                 }()
                 
@@ -732,23 +841,25 @@ extension ContentView {
                     Image(systemName: speakerIcon)
                         .font(.system(size: StudioTheme.scaleFont(11)))
                         .foregroundColor(playerEngine.isMuted ? alertRed : textMain)
-                        .frame(width: StudioTheme.scale(18), height: StudioTheme.scale(18), alignment: .center)
+                        .frame(width: StudioTheme.scale(18), height: StudioTheme.scale(18), alignment: .leading)
                 }
                 .buttonStyle(TransportIconButtonStyle())
                 .frame(width: StudioTheme.scale(18), height: StudioTheme.scale(18))
+                .transaction { transaction in
+                    transaction.animation = nil
+                }
                 .explain(playerEngine.isMuted ? "Unmute audio" : "Mute audio")
                 
-                Slider(value: Binding(
-                    get: { Double(playerEngine.volume) },
-                    set: { playerEngine.volume = Float($0) }
-                ), in: 0...1)
-                .frame(width: StudioTheme.scale(70))
-                .tint(accentBlue)
-                .disabled(playerEngine.isMuted)
+                StudioVolumeSlider(
+                    volume: $playerEngine.volume,
+                    isMuted: $playerEngine.isMuted,
+                    accentColor: accentBlue,
+                    textMuted: textMuted,
+                    isLightMode: isLightMode
+                )
+                .explain(playerEngine.isMuted ? "Volume: Muted (\(Int((playerEngine.volume * 100).rounded()))%)" : "Volume: \(Int((playerEngine.volume * 100).rounded()))%")
             }
-            .frame(width: StudioTheme.scale(210), alignment: .leading)
-            
-            Spacer()
+            .frame(maxWidth: .infinity, alignment: .leading)
             
             // Center: Playback, Shuttle & Frame Controls (Camera screengrab moved next to Exposure)
             PlayerTransportDeckView(
@@ -758,12 +869,11 @@ extension ContentView {
                 onExportScreenshot: { preset in exportCurrentFrameScreenshot(preset: preset) },
                 showNotesAndGlitches: false
             )
+            .layoutPriority(1)
             
-            Spacer()
-            
-            // Right: Balanced spacer to keep center transport deck dead-centered
-            Spacer()
-                .frame(width: StudioTheme.scale(210))
+            // Right: Balanced spacer matching left width to keep center transport deck dead-centered
+            Color.clear
+                .frame(maxWidth: .infinity, alignment: .trailing)
         }
         .frame(height: StudioTheme.scale(28))
     }

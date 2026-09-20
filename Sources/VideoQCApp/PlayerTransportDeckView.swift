@@ -442,13 +442,13 @@ struct PlayerTransportDeckView: View {
         }) {
             HStack(spacing: themeManager.scale(3)) {
                 Circle()
-                    .fill(engine.droppedFramesCount > 0 ? alertRed : palette.positive)
+                    .fill(engine.droppedFramesCount > 0 ? palette.droppedFrameRed : palette.droppedFrameGreen)
                     .frame(width: themeManager.scale(7), height: themeManager.scale(7))
                 
                 if engine.droppedFramesCount > 0 {
                     Text("\(engine.droppedFramesCount)")
                         .font(.system(size: themeManager.scaleFont(10), weight: .bold, design: .monospaced))
-                        .foregroundColor(alertRed)
+                        .foregroundColor(palette.droppedFrameRed)
                 }
             }
             .padding(.horizontal, engine.droppedFramesCount > 0 ? themeManager.scale(4) : 0)

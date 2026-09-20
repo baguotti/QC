@@ -6,7 +6,7 @@ extension ContentView {
     // MARK: ==================== TAB 2: SPECS ====================
     
     var deliverablesTabView: some View {
-        HSplitView {
+        HStack(spacing: 0) {
             // Left Control Panel
             if showSpecsControlPanel {
                 VStack(alignment: .leading, spacing: 18) {
@@ -24,8 +24,14 @@ extension ContentView {
                     Spacer(minLength: 0)
                 }
                 .padding(22)
-                .frame(minWidth: 360, idealWidth: 400, maxWidth: 440)
+                .frame(width: 380)
                 .background(bgPanel)
+                .overlay(
+                    Rectangle()
+                        .fill(borderLine)
+                        .frame(width: 1),
+                    alignment: .trailing
+                )
                 .transition(.move(edge: .leading).combined(with: .opacity))
             }
             
@@ -41,11 +47,11 @@ extension ContentView {
                         Image(systemName: showSpecsControlPanel ? "chevron.left" : "chevron.right")
                             .font(.system(size: StudioTheme.scaleFont(11), weight: .bold))
                             .frame(width: StudioTheme.scale(24), height: StudioTheme.scale(26))
-                            .foregroundColor(showSpecsControlPanel ? textMain : accentBlue)
+                            .foregroundColor(textMain)
                             .contentShape(Rectangle())
                     }
                     .buttonStyle(TransportIconButtonStyle())
-                    .explain(showSpecsControlPanel ? "Hide Specs Control Panel." : "Reveal Specs Control Panel.")
+                    .explain(showSpecsControlPanel ? "Hide Specs Control Panel (⌘⇧←)." : "Reveal Specs Control Panel (⌘⇧←).")
                     
                     Text("SPECS AUDIT")
                         .font(.system(size: 11, weight: .black, design: .monospaced))

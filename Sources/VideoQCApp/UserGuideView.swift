@@ -165,6 +165,8 @@ struct UserGuideView: View {
             guideRow(name: "FRAME SCREENSHOT (CAMERA ICON)", desc: "Left-click the camera button to export the current frame or active A/B comparison view directly using the active preset (default: JPG Medium). Right-click to choose from 4 presets: JPG Medium, JPG High, PNG Medium, or PNG High (all at full source resolution).")
             guideRow(name: "SEAMLESS LOOP (⌘L)", desc: "Toggles automatic looping. Reaching the end seamlessly restarts from the beginning without stopping.")
             guideRow(name: "AUDIO & MUTE", desc: "Master playback volume slider and instant audio mute button.")
+            guideRow(name: "TOGGLE SLEEVES & PANELS (⌘⇧← / ⌘⇧→)", desc: "Press ⌘⇧← to show or hide the Assets & Queue panel. Press ⌘⇧→ to show or hide the Review sleeve (Media Info & Notes). ⌘I inspects Media Info directly.")
+            guideRow(name: "WORKSPACE NAVIGATION (⇧1, ⇧2, ⇧3, ⇧4)", desc: "Jump directly to any workspace: ⇧1 for Player, ⇧2 for Specs, ⇧3 for Line Finder, and ⇧4 for Ingest.")
         }
     }
     
@@ -172,6 +174,7 @@ struct UserGuideView: View {
     
     private var deliverablesGuide: some View {
         VStack(alignment: .leading, spacing: 10) {
+            guideRow(name: "TOGGLE CONTROL PANEL (⌘⇧←)", desc: "Press ⌘⇧← to show or hide the Specs control panel.")
             guideRow(name: "LOAD ASSETS", desc: "Loads files or folders to read metadata without decoding video frames.")
             guideRow(name: "VIEW MODES", desc: "Segmented switcher for List (compact), Thumbnails (standard), or Large previews.")
             guideRow(name: "FOLDERS MENU", desc: "Toggle between folder hierarchy and flat list, collapse or expand all subfolders.")

@@ -83,16 +83,36 @@ struct StudioTheme {
     }
     
     // MARK: - Dynamic Core Accents (Customizable via ThemeManager)
-    // Positive Accent: Green (Pass / Slot A / Ready)
-    static var positive: Color { ThemeManager.shared.currentTheme.greenColor }
-    // Negative Accent: Red (Glitches / Warnings)
-    static var negative: Color { ThemeManager.shared.currentTheme.redColor }
-    // Slot B Accent: Purple (Reference Video / AB Compare)
-    static var slotBAccent: Color { ThemeManager.shared.currentTheme.purpleColor }
-    // Neutral Interactive Accent: Teal / Blue (Playhead / Timecode / Scrubber)
-    static var accentBlue: Color { ThemeManager.shared.currentTheme.blueColor }
+    // Slot A Master / Pass / Ready Accent
+    static func positive(_ isLight: Bool) -> Color {
+        ThemeManager.shared.currentTheme.slotaColor(isLight: isLight)
+    }
+    static var positive: Color {
+        positive(UserDefaults.standard.bool(forKey: "isLightMode"))
+    }
+    
+    // Warnings / Alerts Accent
+    static func negative(_ isLight: Bool) -> Color {
+        ThemeManager.shared.currentTheme.warnColor(isLight: isLight)
+    }
+    static var negative: Color {
+        negative(UserDefaults.standard.bool(forKey: "isLightMode"))
+    }
+    
+    // Slot B Accent (Reference Video / AB Compare)
+    static func slotBAccent(_ isLight: Bool) -> Color {
+        ThemeManager.shared.currentTheme.slotBColor(isLight: isLight)
+    }
+    static var slotBAccent: Color {
+        slotBAccent(UserDefaults.standard.bool(forKey: "isLightMode"))
+    }
+    
+    // Neutral Interactive Accent (Playhead / Timecode / Scrubber)
     static func accentBlue(_ isLight: Bool) -> Color {
-        accentBlue
+        ThemeManager.shared.currentTheme.playColor(isLight: isLight)
+    }
+    static var accentBlue: Color {
+        accentBlue(UserDefaults.standard.bool(forKey: "isLightMode"))
     }
     
     // Crosshair Cyan Accent (#1AF2D9 - identical to AB split screen divider)
@@ -101,6 +121,9 @@ struct StudioTheme {
     static var alertRed: Color { negative }
     static var alertPositive: Color { positive }
 
+    // Fixed Hardware / Status Indicators (Independent of active accent theme)
+    static let droppedFrameGreen = Color(hex: "#00EE9B")
+    static let droppedFrameRed = Color(hex: "#FF4365")
     
     static func primaryBtnBg(_ isLight: Bool) -> Color {
         isLight ? Color.black : Color.white
@@ -162,15 +185,17 @@ public struct StudioPalette {
     public var textSubtle: Color { StudioTheme.textSubtle(isLight) }
     public var primaryBtnBg: Color { StudioTheme.primaryBtnBg(isLight) }
     public var primaryBtnFg: Color { StudioTheme.primaryBtnFg(isLight) }
-    public var positive: Color { StudioTheme.positive }
-    public var negative: Color { StudioTheme.negative }
-    public var alertRed: Color { StudioTheme.negative }
-    public var alertPositive: Color { StudioTheme.positive }
-    public var accentPositive: Color { StudioTheme.positive }
-    public var accentNegative: Color { StudioTheme.negative }
-    public var accentSlotB: Color { StudioTheme.slotBAccent }
+    public var positive: Color { StudioTheme.positive(isLight) }
+    public var negative: Color { StudioTheme.negative(isLight) }
+    public var alertRed: Color { StudioTheme.negative(isLight) }
+    public var alertPositive: Color { StudioTheme.positive(isLight) }
+    public var accentPositive: Color { StudioTheme.positive(isLight) }
+    public var accentNegative: Color { StudioTheme.negative(isLight) }
+    public var accentSlotB: Color { StudioTheme.slotBAccent(isLight) }
     public var accentBlue: Color { StudioTheme.accentBlue(isLight) }
     public var crosshairCyan: Color { StudioTheme.crosshairCyan }
+    public var droppedFrameGreen: Color { StudioTheme.droppedFrameGreen }
+    public var droppedFrameRed: Color { StudioTheme.droppedFrameRed }
 }
 
 @MainActor

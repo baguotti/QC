@@ -121,7 +121,8 @@ final class KeyboardShortcutRouter {
         onEscape: () -> Bool
     ) -> NSEvent? {
         // 1. Text Field Responder Check (ESC or Return unfocuses)
-        if let window = NSApp.keyWindow,
+        if let app = NSApp,
+           let window = app.keyWindow,
            let firstResponder = window.firstResponder,
            firstResponder is NSTextView {
             if event.keyCode == 53 || event.keyCode == 36 { // ESC or Return
@@ -181,7 +182,8 @@ final class KeyboardShortcutRouter {
     // MARK: - Click-Away Responder Helper
     
     static func dismissTextFieldFocusIfClickedOutside(event: NSEvent) -> NSEvent {
-        if let window = NSApp.keyWindow,
+        if let app = NSApp,
+           let window = app.keyWindow,
            let firstResponder = window.firstResponder,
            firstResponder is NSTextView {
             let clickLoc = event.locationInWindow
@@ -220,6 +222,7 @@ struct KeyboardShortcutActions {
     var onSelectPlayerTab: () -> Void
     var onSelectSpecsTab: () -> Void
     var onSelectLineFinderTab: () -> Void
+    var onSelectIngestTab: () -> Void
     
     // Theme
     var onToggleLightMode: () -> Void
@@ -261,46 +264,51 @@ struct KeyboardShortcutActions {
     var onToggleUserGuide: () -> Void
     var onCycleClipInfo: () -> Void
     var onToggleProperties: () -> Void
+    var onToggleLeftSleeve: () -> Void
+    var onToggleRightSleeve: () -> Void
     
     init(
-        onIncreaseThumbnailSize: @escaping () -> Void,
-        onDecreaseThumbnailSize: @escaping () -> Void,
-        onZoomIn: @escaping () -> Void,
-        onZoomOut: @escaping () -> Void,
-        onSelectPlayerTab: @escaping () -> Void,
-        onSelectSpecsTab: @escaping () -> Void,
-        onSelectLineFinderTab: @escaping () -> Void,
-        onToggleLightMode: @escaping () -> Void,
-        onCycleAccentTheme: @escaping () -> Void,
-        onToggleFinderTag: @escaping (FinderTagColor) -> Bool,
-        onClearFinderTag: @escaping () -> Bool,
-        onPressJ: @escaping () -> Void,
-        onPressSlowJ: @escaping () -> Void,
-        onPressK: @escaping () -> Void,
-        onPressL: @escaping () -> Void,
-        onPressSlowL: @escaping () -> Void,
-        onToggleLooping: @escaping () -> Void,
-        onToggleAutoplay: @escaping () -> Void,
-        onTogglePlayPause: @escaping () -> Void,
-        onStepFrame: @escaping (Bool) -> Void,
-        onStepFrames: @escaping (Int, Bool) -> Void,
-        onJumpToBeginning: @escaping () -> Void,
-        onJumpToEnd: @escaping () -> Void,
-        onSelectPreviousFile: @escaping (SlotTarget) -> Void,
-        onSelectNextFile: @escaping (SlotTarget) -> Void,
-        onToggleFullscreenVideo: @escaping () -> Bool,
-        onToggleFullscreenReview: @escaping () -> Bool,
-        onOpenAddNote: @escaping () -> Bool,
-        onJumpToNextNote: @escaping () -> Void,
-        onJumpToPreviousNote: @escaping () -> Void,
-        onJumpToNextFinding: @escaping () -> Void,
-        onJumpToPreviousFinding: @escaping () -> Void,
-        onSwapSlots: @escaping () -> Bool,
-        onCycleCompareMode: @escaping () -> Bool,
-        onToggleBlinkCompare: @escaping () -> Bool,
-        onToggleUserGuide: @escaping () -> Void,
-        onCycleClipInfo: @escaping () -> Void,
-        onToggleProperties: @escaping () -> Void
+        onIncreaseThumbnailSize: @escaping () -> Void = {},
+        onDecreaseThumbnailSize: @escaping () -> Void = {},
+        onZoomIn: @escaping () -> Void = {},
+        onZoomOut: @escaping () -> Void = {},
+        onSelectPlayerTab: @escaping () -> Void = {},
+        onSelectSpecsTab: @escaping () -> Void = {},
+        onSelectLineFinderTab: @escaping () -> Void = {},
+        onSelectIngestTab: @escaping () -> Void = {},
+        onToggleLightMode: @escaping () -> Void = {},
+        onCycleAccentTheme: @escaping () -> Void = {},
+        onToggleFinderTag: @escaping (FinderTagColor) -> Bool = { _ in false },
+        onClearFinderTag: @escaping () -> Bool = { false },
+        onPressJ: @escaping () -> Void = {},
+        onPressSlowJ: @escaping () -> Void = {},
+        onPressK: @escaping () -> Void = {},
+        onPressL: @escaping () -> Void = {},
+        onPressSlowL: @escaping () -> Void = {},
+        onToggleLooping: @escaping () -> Void = {},
+        onToggleAutoplay: @escaping () -> Void = {},
+        onTogglePlayPause: @escaping () -> Void = {},
+        onStepFrame: @escaping (Bool) -> Void = { _ in },
+        onStepFrames: @escaping (Int, Bool) -> Void = { _, _ in },
+        onJumpToBeginning: @escaping () -> Void = {},
+        onJumpToEnd: @escaping () -> Void = {},
+        onSelectPreviousFile: @escaping (SlotTarget) -> Void = { _ in },
+        onSelectNextFile: @escaping (SlotTarget) -> Void = { _ in },
+        onToggleFullscreenVideo: @escaping () -> Bool = { false },
+        onToggleFullscreenReview: @escaping () -> Bool = { false },
+        onOpenAddNote: @escaping () -> Bool = { false },
+        onJumpToNextNote: @escaping () -> Void = {},
+        onJumpToPreviousNote: @escaping () -> Void = {},
+        onJumpToNextFinding: @escaping () -> Void = {},
+        onJumpToPreviousFinding: @escaping () -> Void = {},
+        onSwapSlots: @escaping () -> Bool = { false },
+        onCycleCompareMode: @escaping () -> Bool = { false },
+        onToggleBlinkCompare: @escaping () -> Bool = { false },
+        onToggleUserGuide: @escaping () -> Void = {},
+        onCycleClipInfo: @escaping () -> Void = {},
+        onToggleProperties: @escaping () -> Void = {},
+        onToggleLeftSleeve: @escaping () -> Void = {},
+        onToggleRightSleeve: @escaping () -> Void = {}
     ) {
         self.onIncreaseThumbnailSize = onIncreaseThumbnailSize
         self.onDecreaseThumbnailSize = onDecreaseThumbnailSize
@@ -309,6 +317,7 @@ struct KeyboardShortcutActions {
         self.onSelectPlayerTab = onSelectPlayerTab
         self.onSelectSpecsTab = onSelectSpecsTab
         self.onSelectLineFinderTab = onSelectLineFinderTab
+        self.onSelectIngestTab = onSelectIngestTab
         self.onToggleLightMode = onToggleLightMode
         self.onCycleAccentTheme = onCycleAccentTheme
         self.onToggleFinderTag = onToggleFinderTag
@@ -340,6 +349,8 @@ struct KeyboardShortcutActions {
         self.onToggleUserGuide = onToggleUserGuide
         self.onCycleClipInfo = onCycleClipInfo
         self.onToggleProperties = onToggleProperties
+        self.onToggleLeftSleeve = onToggleLeftSleeve
+        self.onToggleRightSleeve = onToggleRightSleeve
     }
 }
 
@@ -407,6 +418,14 @@ extension KeyboardShortcutRouter {
                 scope: .global
             ) {
                 actions.onSelectLineFinderTab()
+                return true
+            },
+            Rule(
+                id: "tabIngest",
+                trigger: ShortcutTrigger(keyCodes: [21], characters: ["4", "$"], modifiers: [.shift]),
+                scope: .global
+            ) {
+                actions.onSelectIngestTab()
                 return true
             },
             
@@ -618,11 +637,11 @@ extension KeyboardShortcutRouter {
                 return true
             },
             
-            // Player: Media Info / Properties
+            // Player & Specs: Media Info / Properties
             Rule(
                 id: "propertiesCmdI",
                 trigger: ShortcutTrigger(characters: ["i"], modifiers: [.command]),
-                scope: .playerOnly
+                scope: .playerOrSpecs
             ) {
                 actions.onToggleProperties()
                 return true
@@ -630,7 +649,7 @@ extension KeyboardShortcutRouter {
             Rule(
                 id: "propertiesCtrlI",
                 trigger: ShortcutTrigger(characters: ["i"], modifiers: [.control]),
-                scope: .playerOnly
+                scope: .playerOrSpecs
             ) {
                 actions.onToggleProperties()
                 return true
@@ -638,7 +657,7 @@ extension KeyboardShortcutRouter {
             Rule(
                 id: "propertiesCmdP",
                 trigger: ShortcutTrigger(characters: ["p"], modifiers: [.command]),
-                scope: .playerOnly
+                scope: .playerOrSpecs
             ) {
                 actions.onToggleProperties()
                 return true
@@ -675,6 +694,24 @@ extension KeyboardShortcutRouter {
                 scope: .playerOnly
             ) {
                 actions.onSelectNextFile(.slotA)
+                return true
+            },
+            
+            // Sleeves / Columns Toggle (Cmd+Shift+Left / Right)
+            Rule(
+                id: "toggleLeftSleeve",
+                trigger: ShortcutTrigger(keyCodes: [123], modifiers: [.command, .shift]),
+                scope: .playerOrSpecs
+            ) {
+                actions.onToggleLeftSleeve()
+                return true
+            },
+            Rule(
+                id: "toggleRightSleeve",
+                trigger: ShortcutTrigger(keyCodes: [124], modifiers: [.command, .shift]),
+                scope: .playerOnly
+            ) {
+                actions.onToggleRightSleeve()
                 return true
             },
             

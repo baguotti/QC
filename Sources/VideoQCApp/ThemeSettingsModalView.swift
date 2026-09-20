@@ -29,7 +29,7 @@ struct ThemeSettingsModalView: View {
                     HStack(spacing: 8) {
                         Image(systemName: "paintpalette.fill")
                             .font(.system(size: 13, weight: .bold))
-                            .foregroundColor(themeManager.currentTheme.blueColor)
+                            .foregroundColor(themeManager.currentTheme.playColor)
                         Text("APPEARANCE & THEME // QCpie")
                             .font(.system(size: 12, weight: .black, design: .monospaced))
                             .foregroundColor(palette.textMain)
@@ -156,7 +156,7 @@ struct ThemeSettingsModalView: View {
                     HStack(spacing: 10) {
                         Image(systemName: "moon.stars.fill")
                             .font(.system(size: 13, weight: .bold))
-                            .foregroundColor(!isLightMode ? themeManager.currentTheme.blueColor : palette.textMuted)
+                            .foregroundColor(!isLightMode ? themeManager.currentTheme.playColor : palette.textMuted)
                             .frame(width: 20)
                         
                         VStack(alignment: .leading, spacing: 2) {
@@ -174,7 +174,7 @@ struct ThemeSettingsModalView: View {
                         if !isLightMode {
                             Image(systemName: "checkmark")
                                 .font(.system(size: 9, weight: .black))
-                                .foregroundColor(themeManager.currentTheme.blueColor)
+                                .foregroundColor(themeManager.currentTheme.playColor)
                         }
                     }
                     .padding(.horizontal, 12)
@@ -182,7 +182,7 @@ struct ThemeSettingsModalView: View {
                     .background(!isLightMode ? palette.bgSubtle : palette.bgPanel)
                     .overlay(
                         RoundedRectangle(cornerRadius: StudioTheme.cornerRadius)
-                            .stroke(!isLightMode ? themeManager.currentTheme.blueColor : palette.borderLine, lineWidth: !isLightMode ? 1.5 : 1)
+                            .stroke(!isLightMode ? themeManager.currentTheme.playColor : palette.borderLine, lineWidth: !isLightMode ? 1.5 : 1)
                     )
                     .cornerRadius(StudioTheme.cornerRadius)
                 }
@@ -197,7 +197,7 @@ struct ThemeSettingsModalView: View {
                     HStack(spacing: 10) {
                         Image(systemName: "sun.max.fill")
                             .font(.system(size: 13, weight: .bold))
-                            .foregroundColor(isLightMode ? themeManager.currentTheme.blueColor : palette.textMuted)
+                            .foregroundColor(isLightMode ? themeManager.currentTheme.playColor : palette.textMuted)
                             .frame(width: 20)
                         
                         VStack(alignment: .leading, spacing: 2) {
@@ -215,7 +215,7 @@ struct ThemeSettingsModalView: View {
                         if isLightMode {
                             Image(systemName: "checkmark")
                                 .font(.system(size: 9, weight: .black))
-                                .foregroundColor(themeManager.currentTheme.blueColor)
+                                .foregroundColor(themeManager.currentTheme.playColor)
                         }
                     }
                     .padding(.horizontal, 12)
@@ -223,7 +223,7 @@ struct ThemeSettingsModalView: View {
                     .background(isLightMode ? palette.bgSubtle : palette.bgPanel)
                     .overlay(
                         RoundedRectangle(cornerRadius: StudioTheme.cornerRadius)
-                            .stroke(isLightMode ? themeManager.currentTheme.blueColor : palette.borderLine, lineWidth: isLightMode ? 1.5 : 1)
+                            .stroke(isLightMode ? themeManager.currentTheme.playColor : palette.borderLine, lineWidth: isLightMode ? 1.5 : 1)
                     )
                     .cornerRadius(StudioTheme.cornerRadius)
                 }
@@ -273,7 +273,7 @@ struct ThemeSettingsModalView: View {
                     }
                     .padding(.horizontal, 8)
                     .padding(.vertical, 6)
-                    .studioBox(background: palette.bgPanel, border: themeManager.currentTheme.blueColor)
+                    .studioBox(background: palette.bgPanel, border: themeManager.currentTheme.playColor)
                     
                     Button(action: {
                         saveNewPreset()
@@ -326,10 +326,10 @@ struct ThemeSettingsModalView: View {
                         .padding(.horizontal, 10)
                         .padding(.vertical, 6)
                         .foregroundColor(showUpdatedNotice ? palette.primaryBtnFg : palette.textMain)
-                        .background(showUpdatedNotice ? themeManager.currentTheme.greenColor : palette.bgSubtle)
+                        .background(showUpdatedNotice ? themeManager.currentTheme.slotaColor : palette.bgSubtle)
                         .overlay(
                             RoundedRectangle(cornerRadius: StudioTheme.cornerRadius)
-                                .stroke(themeManager.currentTheme.blueColor, lineWidth: 1.2)
+                                .stroke(themeManager.currentTheme.playColor, lineWidth: 1.2)
                         )
                         .cornerRadius(StudioTheme.cornerRadius)
                     }
@@ -403,9 +403,9 @@ struct ThemeSettingsModalView: View {
                     .disabled(!themeManager.canSaveMorePresets)
                     
                     if !themeManager.canSaveMorePresets {
-                        Text("PRESET LIMIT REACHED (10 TOTAL)")
+                        Text("PRESET LIMIT REACHED (\(ThemeManager.maxTotalPresets) TOTAL)")
                             .font(.system(size: 8, weight: .bold, design: .monospaced))
-                            .foregroundColor(themeManager.currentTheme.redColor)
+                            .foregroundColor(themeManager.currentTheme.warnColor)
                     }
                     
                     Spacer()
@@ -436,12 +436,12 @@ struct ThemeSettingsModalView: View {
                     // 4 Color Pill Dots (2x2 Grid)
                     VStack(spacing: 2.5) {
                         HStack(spacing: 2.5) {
-                            Circle().fill(preset.greenColor).frame(width: 6, height: 6)
-                            Circle().fill(preset.blueColor).frame(width: 6, height: 6)
+                            Circle().fill(preset.slotaColor(isLight: isLightMode)).frame(width: 6, height: 6)
+                            Circle().fill(preset.playColor(isLight: isLightMode)).frame(width: 6, height: 6)
                         }
                         HStack(spacing: 2.5) {
-                            Circle().fill(preset.purpleColor).frame(width: 6, height: 6)
-                            Circle().fill(preset.redColor).frame(width: 6, height: 6)
+                            Circle().fill(preset.slotBColor(isLight: isLightMode)).frame(width: 6, height: 6)
+                            Circle().fill(preset.warnColor(isLight: isLightMode)).frame(width: 6, height: 6)
                         }
                     }
                     .frame(width: 15)
@@ -455,14 +455,14 @@ struct ThemeSettingsModalView: View {
                             
                             if isModified {
                                 Circle()
-                                    .fill(themeManager.currentTheme.blueColor)
+                                    .fill(themeManager.currentTheme.playColor)
                                     .frame(width: 5, height: 5)
                             }
                         }
                         
                         Text(preset.isPreset ? "FACTORY PRESET" : (isModified ? "USER PRESET (MODIFIED)" : "USER PRESET"))
                             .font(.system(size: 7, weight: .medium, design: .monospaced))
-                            .foregroundColor(isModified ? themeManager.currentTheme.blueColor : palette.textSubtle)
+                            .foregroundColor(isModified ? themeManager.currentTheme.playColor : palette.textSubtle)
                     }
                     
                     Spacer(minLength: 4)
@@ -470,7 +470,7 @@ struct ThemeSettingsModalView: View {
                     if isSelected {
                         Image(systemName: "checkmark")
                             .font(.system(size: 8, weight: .black))
-                            .foregroundColor(themeManager.currentTheme.blueColor)
+                            .foregroundColor(themeManager.currentTheme.playColor)
                     }
                 }
                 .contentShape(Rectangle())
@@ -485,21 +485,19 @@ struct ThemeSettingsModalView: View {
                     }
                 }) {
                     Image(systemName: "xmark")
-                        .font(.system(size: 8, weight: .bold))
+                        .font(.system(size: 8, weight: .black))
                         .foregroundColor(palette.textSubtle)
-                        .padding(4)
-                        .contentShape(Rectangle())
+                        .padding(5)
                 }
                 .buttonStyle(.plain)
-                .help("Delete preset")
             }
         }
-        .padding(.horizontal, 10)
+        .padding(.horizontal, 9)
         .padding(.vertical, 8)
         .background(isSelected ? palette.bgSubtle : palette.bgPanel)
         .overlay(
             RoundedRectangle(cornerRadius: StudioTheme.cornerRadius)
-                .stroke(isSelected ? themeManager.currentTheme.blueColor : palette.borderLine, lineWidth: isSelected ? 1.5 : 1)
+                .stroke(isSelected ? themeManager.currentTheme.playColor : palette.borderLine, lineWidth: isSelected ? 1.5 : 1)
         )
         .cornerRadius(StudioTheme.cornerRadius)
     }
@@ -566,7 +564,7 @@ struct ThemeSettingsModalView: View {
                 // Size Icon Indicator
                 ZStack {
                     RoundedRectangle(cornerRadius: 3)
-                        .stroke(isSelected ? themeManager.currentTheme.blueColor : palette.borderLine, lineWidth: 1.2)
+                        .stroke(isSelected ? themeManager.currentTheme.playColor : palette.borderLine, lineWidth: 1.2)
                         .frame(
                             width: 14 * (level.scaleFactor == 1.0 ? 0.8 : (level.scaleFactor == 1.2 ? 1.0 : 1.25)),
                             height: 14 * (level.scaleFactor == 1.0 ? 0.8 : (level.scaleFactor == 1.2 ? 1.0 : 1.25))
@@ -581,7 +579,7 @@ struct ThemeSettingsModalView: View {
                             .foregroundColor(isSelected ? palette.textMain : palette.textMuted)
                         Text("(\(String(format: "%.1fx", level.scaleFactor)))")
                             .font(.system(size: 8, weight: .bold, design: .monospaced))
-                            .foregroundColor(isSelected ? themeManager.currentTheme.blueColor : palette.textSubtle)
+                            .foregroundColor(isSelected ? themeManager.currentTheme.playColor : palette.textSubtle)
                     }
                     
                     Text(level.subtitle)
@@ -595,7 +593,7 @@ struct ThemeSettingsModalView: View {
                 if isSelected {
                     Image(systemName: "checkmark")
                         .font(.system(size: 9, weight: .black))
-                        .foregroundColor(themeManager.currentTheme.blueColor)
+                        .foregroundColor(themeManager.currentTheme.playColor)
                 }
             }
             .padding(.horizontal, 10)
@@ -603,7 +601,7 @@ struct ThemeSettingsModalView: View {
             .background(isSelected ? palette.bgSubtle : palette.bgPanel)
             .overlay(
                 RoundedRectangle(cornerRadius: StudioTheme.cornerRadius)
-                    .stroke(isSelected ? themeManager.currentTheme.blueColor : palette.borderLine, lineWidth: isSelected ? 1.5 : 1)
+                    .stroke(isSelected ? themeManager.currentTheme.playColor : palette.borderLine, lineWidth: isSelected ? 1.5 : 1)
             )
             .cornerRadius(StudioTheme.cornerRadius)
         }
@@ -626,7 +624,7 @@ struct ThemeSettingsModalView: View {
                     HStack(spacing: 5) {
                         Image(systemName: "film")
                             .font(.system(size: 9, weight: .bold))
-                            .foregroundColor(themeManager.currentTheme.blueColor)
+                            .foregroundColor(themeManager.currentTheme.playColor)
                         Text("PLAYER")
                             .font(.system(size: 9.5, weight: .black, design: .monospaced))
                             .foregroundColor(palette.textMain)
@@ -637,7 +635,7 @@ struct ThemeSettingsModalView: View {
                     .overlay(
                         VStack {
                             Rectangle()
-                                .fill(themeManager.currentTheme.blueColor)
+                                .fill(themeManager.currentTheme.playColor)
                                 .frame(height: 2)
                             Spacer()
                         }
@@ -681,11 +679,11 @@ struct ThemeSettingsModalView: View {
                     // Mock Ready/Status Indicator
                     HStack(spacing: 4) {
                         Circle()
-                            .fill(themeManager.currentTheme.greenColor)
+                            .fill(themeManager.currentTheme.slotaColor)
                             .frame(width: 5, height: 5)
                         Text("READY")
                             .font(.system(size: 7.5, weight: .bold, design: .monospaced))
-                            .foregroundColor(themeManager.currentTheme.greenColor)
+                            .foregroundColor(themeManager.currentTheme.slotaColor)
                     }
                     .padding(.trailing, 10)
                 }
@@ -725,29 +723,29 @@ struct ThemeSettingsModalView: View {
                                 .fill(palette.bgSubtle)
                                 .frame(height: 8)
                             
-                            // Progress Played Fill (Blue)
+                            // Progress Played Fill (Playhead Accent)
                             RoundedRectangle(cornerRadius: 2)
-                                .fill(themeManager.currentTheme.blueColor.opacity(0.35))
+                                .fill(themeManager.currentTheme.playColor.opacity(0.35))
                                 .frame(width: playheadX, height: 8)
                             
-                            // Red Glitch Markers on Timeline
+                            // Warning Glitch Markers on Timeline
                             Rectangle()
-                                .fill(themeManager.currentTheme.redColor)
+                                .fill(themeManager.currentTheme.warnColor)
                                 .frame(width: 2, height: 8)
                                 .offset(x: glitchX1)
                             
                             Rectangle()
-                                .fill(themeManager.currentTheme.redColor)
+                                .fill(themeManager.currentTheme.warnColor)
                                 .frame(width: 2, height: 8)
                                 .offset(x: glitchX2)
                             
-                            // Playhead Line & Downward Indicator (Blue)
+                            // Playhead Line & Downward Indicator
                             VStack(spacing: 0) {
                                 Image(systemName: "arrowtriangle.down.fill")
                                     .font(.system(size: 7))
-                                    .foregroundColor(themeManager.currentTheme.blueColor)
+                                    .foregroundColor(themeManager.currentTheme.playColor)
                                 Rectangle()
-                                    .fill(themeManager.currentTheme.blueColor)
+                                    .fill(themeManager.currentTheme.playColor)
                                     .frame(width: 1.5, height: 8)
                             }
                             .offset(x: playheadX - 3.5, y: -2)
@@ -779,87 +777,87 @@ struct ThemeSettingsModalView: View {
                     .padding(.vertical, 4)
                     .studioBox(background: palette.bgSubtle, border: palette.borderLine)
                     
-                    // Timecode Readout (Blue)
+                    // Timecode Readout (Playhead Accent)
                     HStack(spacing: 4) {
                         Image(systemName: "clock")
                             .font(.system(size: 8, weight: .bold))
-                            .foregroundColor(themeManager.currentTheme.blueColor)
+                            .foregroundColor(themeManager.currentTheme.playColor)
                         Text("00:00:50:10")
                             .font(.system(size: 9.5, weight: .bold, design: .monospaced))
-                            .foregroundColor(themeManager.currentTheme.blueColor)
+                            .foregroundColor(themeManager.currentTheme.playColor)
                     }
                     .padding(.horizontal, 7)
                     .padding(.vertical, 4)
                     .studioBox(background: palette.bgSubtle, border: palette.borderLine)
                     
-                    // Slot A Pill (Green)
+                    // Slot A Pill
                     HStack(spacing: 4) {
                         Circle()
-                            .fill(themeManager.currentTheme.greenColor)
+                            .fill(themeManager.currentTheme.slotaColor)
                             .frame(width: 6, height: 6)
                         Text("A: MASTER")
                             .font(.system(size: 8, weight: .black, design: .monospaced))
-                            .foregroundColor(themeManager.currentTheme.greenColor)
+                            .foregroundColor(themeManager.currentTheme.slotaColor)
                     }
                     .padding(.horizontal, 6)
                     .padding(.vertical, 4)
-                    .background(themeManager.currentTheme.greenColor.opacity(0.12))
+                    .background(themeManager.currentTheme.slotaColor.opacity(0.12))
                     .overlay(
                         RoundedRectangle(cornerRadius: StudioTheme.cornerRadius)
-                            .stroke(themeManager.currentTheme.greenColor.opacity(0.4), lineWidth: 1)
+                            .stroke(themeManager.currentTheme.slotaColor.opacity(0.4), lineWidth: 1)
                     )
                     
-                    // Slot B Pill (Purple)
+                    // Slot B Pill
                     HStack(spacing: 4) {
                         Circle()
-                            .fill(themeManager.currentTheme.purpleColor)
+                            .fill(themeManager.currentTheme.slotBColor)
                             .frame(width: 6, height: 6)
                         Text("B: REF")
                             .font(.system(size: 8, weight: .black, design: .monospaced))
-                            .foregroundColor(themeManager.currentTheme.purpleColor)
+                            .foregroundColor(themeManager.currentTheme.slotBColor)
                     }
                     .padding(.horizontal, 6)
                     .padding(.vertical, 4)
-                    .background(themeManager.currentTheme.purpleColor.opacity(0.12))
+                    .background(themeManager.currentTheme.slotBColor.opacity(0.12))
                     .overlay(
                         RoundedRectangle(cornerRadius: StudioTheme.cornerRadius)
-                            .stroke(themeManager.currentTheme.purpleColor.opacity(0.4), lineWidth: 1)
+                            .stroke(themeManager.currentTheme.slotBColor.opacity(0.4), lineWidth: 1)
                     )
                     
                     Spacer()
                     
-                    // Glitch Alert Pill (Red)
+                    // Glitch Alert Pill
                     HStack(spacing: 4) {
                         Image(systemName: "exclamationmark.triangle.fill")
                             .font(.system(size: 8, weight: .bold))
-                            .foregroundColor(themeManager.currentTheme.redColor)
+                            .foregroundColor(themeManager.currentTheme.warnColor)
                         Text("2 GLITCHES")
                             .font(.system(size: 8, weight: .black, design: .monospaced))
-                            .foregroundColor(themeManager.currentTheme.redColor)
+                            .foregroundColor(themeManager.currentTheme.warnColor)
                     }
                     .padding(.horizontal, 6)
                     .padding(.vertical, 4)
-                    .background(themeManager.currentTheme.redColor.opacity(0.12))
+                    .background(themeManager.currentTheme.warnColor.opacity(0.12))
                     .overlay(
                         RoundedRectangle(cornerRadius: StudioTheme.cornerRadius)
-                            .stroke(themeManager.currentTheme.redColor.opacity(0.4), lineWidth: 1)
+                            .stroke(themeManager.currentTheme.warnColor.opacity(0.4), lineWidth: 1)
                     )
                     
-                    // QC Pass Badge (Green)
+                    // QC Pass Badge
                     HStack(spacing: 4) {
                         Image(systemName: "checkmark.circle.fill")
                             .font(.system(size: 8, weight: .bold))
-                            .foregroundColor(themeManager.currentTheme.greenColor)
+                            .foregroundColor(themeManager.currentTheme.slotaColor)
                         Text("QC PASS")
                             .font(.system(size: 8, weight: .black, design: .monospaced))
-                            .foregroundColor(themeManager.currentTheme.greenColor)
+                            .foregroundColor(themeManager.currentTheme.slotaColor)
                     }
                     .padding(.horizontal, 6)
                     .padding(.vertical, 4)
-                    .background(themeManager.currentTheme.greenColor.opacity(0.12))
+                    .background(themeManager.currentTheme.slotaColor.opacity(0.12))
                     .overlay(
                         RoundedRectangle(cornerRadius: StudioTheme.cornerRadius)
-                            .stroke(themeManager.currentTheme.greenColor.opacity(0.4), lineWidth: 1)
+                            .stroke(themeManager.currentTheme.slotaColor.opacity(0.4), lineWidth: 1)
                     )
                 }
                 .padding(.horizontal, 10)

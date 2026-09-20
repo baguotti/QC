@@ -172,7 +172,7 @@ struct NotesDrawerPanelView: View {
             )
             
             // Close 'X' Button
-            Button(action: { withAnimation(.easeInOut(duration: 0.15)) { isPresented = false } }) {
+            Button(action: { withAnimation(.spring(response: 0.32, dampingFraction: 0.78)) { isPresented = false } }) {
                 Image(systemName: "xmark")
                     .font(.system(size: 10, weight: .bold))
                     .foregroundColor(palette.textMuted)
@@ -771,25 +771,6 @@ struct NotesDrawerPanelView: View {
             }
             
             Spacer()
-            
-            if let url = effectiveURL {
-                Button(action: {
-                    onLoadSlotB?(url)
-                }) {
-                    HStack(spacing: 2) {
-                        Text("+B")
-                            .font(.system(size: 8.5, weight: .bold, design: .monospaced))
-                        Text("COMPARE")
-                            .font(.system(size: 8.5, weight: .bold, design: .monospaced))
-                    }
-                    .padding(.horizontal, 7)
-                    .padding(.vertical, 5)
-                    .foregroundColor(palette.accentSlotB)
-                    .studioBox(background: palette.accentSlotB.opacity(0.14), border: palette.accentSlotB.opacity(0.6))
-                }
-                .buttonStyle(.plain)
-                .help("Load reference video into Slot B for compare mode")
-            }
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 7)
