@@ -1,5 +1,5 @@
 # QCpie — Changelog & Refactoring Report
-> **Changes from v0.7.0 to v0.7.9**
+> **Changes from v0.7.0 to v0.7.10**
 
 ---
 
@@ -17,6 +17,7 @@
 | **v0.7.7** | Dynamic Thumbnail Sizing (+/-), Smooth List/Thumb Transitions, Player Tab Play Icon & Hardened Overlay Typography | Added `+`/`-` shortcuts for dynamic thumbnail scaling, seamless List View / Thumbnail mode threshold transitions, custom Play icon on PLAYER tab, 3-line consistent clip info layout, collision-free slot label width clamping, and dynamic side-by-side vertical spacing. |
 | **v0.7.8** | Queue Notes Notification Badge & Playhead Theme Alignment | Dynamic queue notes notification badge styling aligned with theme playhead color. |
 | **v0.7.9** | Media Info Drawer Default, Sleeve Hide/Reveal Controls & Clean Direct Player Launch | Media Info first in segmented review sleeve, audio peak level badges, one-click left sidebar collapse/reveal in Player & Specs tabs, and automatic clean player mode (collapsed queue + Clip Info OFF) on direct file launch. |
+| **v0.7.10** | App Icon V3, Unscaled Side-by-Side Screenshots & Viewport Frame Caching | Updated application icon to V3, preserved 1:1 pixel pitch and unscaled aspect ratios with black padding for side-by-side exports, and added decoded frame caching for zero-latency screenshot captures. |
 
 ---
 
