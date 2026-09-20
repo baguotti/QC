@@ -406,6 +406,8 @@ public final class PlayerContainerNSView: NSView {
             rawStillFrameA = nil
             lastCapturedTimeB = nil
             rawStillFrameB = nil
+            engine.slotA.lastDecodedFrame = nil
+            engine.slotB.lastDecodedFrame = nil
             
             CATransaction.begin()
             CATransaction.setDisableActions(true)
@@ -466,6 +468,7 @@ public final class PlayerContainerNSView: NSView {
                 if let img = cgImageA {
                     self.lastCapturedTimeA = time
                     self.rawStillFrameA = img
+                    self.engine?.slotA.lastDecodedFrame = img
                     imgToDisplay = (engine.exposureEV != 0.0) ? ExposureAdjuster.shared.applyExposure(to: img, ev: engine.exposureEV) : img
                     targetLayer = stillFrameLayerA
                 }
@@ -482,6 +485,7 @@ public final class PlayerContainerNSView: NSView {
                 if let imgB = cgImageB {
                     self.lastCapturedTimeB = time
                     self.rawStillFrameB = imgB
+                    self.engine?.slotB.lastDecodedFrame = imgB
                     imgToDisplay = (engine.exposureEV != 0.0) ? ExposureAdjuster.shared.applyExposure(to: imgB, ev: engine.exposureEV) : imgB
                     targetLayer = stillFrameLayerB
                 }
@@ -543,8 +547,10 @@ public final class PlayerContainerNSView: NSView {
         
         var newImgA: CGImage? = nil
         var newTimeA: CMTime? = nil
+        var rawA: CGImage? = nil
         var newImgB: CGImage? = nil
         var newTimeB: CMTime? = nil
+        var rawB: CGImage? = nil
         
         let masterTime = engine.slotA.player.currentTime()
         
@@ -582,6 +588,7 @@ public final class PlayerContainerNSView: NSView {
                 var cgImageA: CGImage?
                 VTCreateCGImageFromCVPixelBuffer(pb, options: nil, imageOut: &cgImageA)
                 if let img = cgImageA {
+                    rawA = img
                     newImgA = (engine.exposureEV != 0.0) ? ExposureAdjuster.shared.applyExposure(to: img, ev: engine.exposureEV) : img
                     newTimeA = masterTime
                 }
@@ -605,6 +612,7 @@ public final class PlayerContainerNSView: NSView {
                 var cgImageB: CGImage?
                 VTCreateCGImageFromCVPixelBuffer(pb, options: nil, imageOut: &cgImageB)
                 if let imgB = cgImageB {
+                    rawB = imgB
                     newImgB = (engine.exposureEV != 0.0) ? ExposureAdjuster.shared.applyExposure(to: imgB, ev: engine.exposureEV) : imgB
                     newTimeB = targetTimeB
                 }
@@ -617,12 +625,16 @@ public final class PlayerContainerNSView: NSView {
             CATransaction.setDisableActions(true)
             if let imgA = newImgA {
                 self.lastCapturedTimeA = newTimeA
-                self.rawStillFrameA = imgA
+                let unexposedA = rawA ?? imgA
+                self.rawStillFrameA = unexposedA
+                self.engine?.slotA.lastDecodedFrame = unexposedA
                 self.stillFrameLayerA.contents = imgA
             }
             if let imgB = newImgB {
                 self.lastCapturedTimeB = newTimeB
-                self.rawStillFrameB = imgB
+                let unexposedB = rawB ?? imgB
+                self.rawStillFrameB = unexposedB
+                self.engine?.slotB.lastDecodedFrame = unexposedB
                 self.stillFrameLayerB.contents = imgB
             }
             self.updateLayerVisibility()
@@ -1687,6 +1699,7 @@ public final class PlayerContainerNSView: NSView {
                 if let img = cgImageA {
                     self.lastCapturedTimeA = timeA
                     self.rawStillFrameA = img
+                    self.engine?.slotA.lastDecodedFrame = img
                     let exposedImg = (engine.exposureEV != 0.0) ? ExposureAdjuster.shared.applyExposure(to: img, ev: engine.exposureEV) : img
                     CATransaction.begin()
                     CATransaction.setDisableActions(true)
@@ -1712,6 +1725,7 @@ public final class PlayerContainerNSView: NSView {
                             if let img = img {
                                 self.lastCapturedTimeA = timeA
                                 self.rawStillFrameA = img
+                                self.engine?.slotA.lastDecodedFrame = img
                                 let exposedImg = (curEngine.exposureEV != 0.0) ? ExposureAdjuster.shared.applyExposure(to: img, ev: curEngine.exposureEV) : img
                                 CATransaction.begin()
                                 CATransaction.setDisableActions(true)
@@ -1765,6 +1779,7 @@ public final class PlayerContainerNSView: NSView {
                         if let imgB = cgImageB {
                             self.lastCapturedTimeB = timeB
                             self.rawStillFrameB = imgB
+                            self.engine?.slotB.lastDecodedFrame = imgB
                             let exposedImgB = (engine.exposureEV != 0.0) ? ExposureAdjuster.shared.applyExposure(to: imgB, ev: engine.exposureEV) : imgB
                             CATransaction.begin()
                             CATransaction.setDisableActions(true)
@@ -1790,6 +1805,7 @@ public final class PlayerContainerNSView: NSView {
                                 if let imgB = imgB {
                                     self.lastCapturedTimeB = timeB
                                     self.rawStillFrameB = imgB
+                                    self.engine?.slotB.lastDecodedFrame = imgB
                                     let exposedImgB = (curEngine.exposureEV != 0.0) ? ExposureAdjuster.shared.applyExposure(to: imgB, ev: curEngine.exposureEV) : imgB
                                     CATransaction.begin()
                                     CATransaction.setDisableActions(true)

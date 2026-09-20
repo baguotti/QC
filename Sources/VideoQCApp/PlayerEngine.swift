@@ -185,6 +185,7 @@ public final class PlayerSlot: ObservableObject {
     @Published public var videoSize: CGSize = CGSize(width: 1920, height: 1080)
     @Published public var totalFrames: Int = 0
     @Published public var slipOffsetFrames: Int = 0
+    public var lastDecodedFrame: CGImage? = nil
     
     public let frameExtractor = FrameExtractor()
     public let player = AVPlayer()
@@ -907,6 +908,7 @@ public final class PlayerEngine: ObservableObject {
         let videoSize: CGSize
         let totalFrames: Int
         let currentTime: CMTime
+        let lastDecodedFrame: CGImage?
         
         init(from slot: PlayerSlot) {
             self.url = slot.url
@@ -918,6 +920,7 @@ public final class PlayerEngine: ObservableObject {
             self.videoSize = slot.videoSize
             self.totalFrames = slot.totalFrames
             self.currentTime = slot.player.currentTime()
+            self.lastDecodedFrame = slot.lastDecodedFrame
         }
         
         func apply(to slot: PlayerSlot) {
@@ -929,6 +932,7 @@ public final class PlayerEngine: ObservableObject {
             slot.duration = duration
             slot.videoSize = videoSize
             slot.totalFrames = totalFrames
+            slot.lastDecodedFrame = lastDecodedFrame
         }
     }
     
@@ -1071,6 +1075,7 @@ public final class PlayerEngine: ObservableObject {
         slotB.duration = .zero
         slotB.totalFrames = 0
         slotB.slipOffsetFrames = 0
+        slotB.lastDecodedFrame = nil
         Task { [slotB] in
             await slotB.frameExtractor.setURL(nil)
         }
@@ -1099,6 +1104,7 @@ public final class PlayerEngine: ObservableObject {
         slotA.codec = ""
         slotA.duration = .zero
         slotA.totalFrames = 0
+        slotA.lastDecodedFrame = nil
         Task { [slotA] in
             await slotA.frameExtractor.setURL(nil)
         }
@@ -1962,17 +1968,62 @@ public final class PlayerEngine: ObservableObject {
     
     public func captureCurrentFrame(for slot: SlotTarget = .slotA, at time: CMTime? = nil) async -> CGImage? {
         let currentSlot = (slot == .slotA) ? slotA : slotB
-        guard let url = currentSlot.url else { return nil }
-        let rawTime = time ?? currentSlot.player.currentTime()
-        guard rawTime.isValid && rawTime.isNumeric else { return nil }
+        guard let url = currentSlot.url else { return currentSlot.lastDecodedFrame }
+        
+        let targetTime: CMTime
+        if let explicitTime = time, explicitTime.isValid, explicitTime.isNumeric {
+            targetTime = explicitTime
+        } else {
+            if slot == .slotA {
+                targetTime = (currentSlot.currentTime.isValid && currentSlot.currentTime.isNumeric) ? currentSlot.currentTime : currentSlot.player.currentTime()
+            } else {
+                if isLinked {
+                    let timeA = (slotA.currentTime.isValid && slotA.currentTime.isNumeric) ? slotA.currentTime : slotA.player.currentTime()
+                    let offsetSecs = Double(slotB.slipOffsetFrames) / max(1.0, slotB.fps)
+                    let masterSecs = CMTimeGetSeconds(timeA)
+                    let targetSecsB = max(0.0, (masterSecs.isFinite && !masterSecs.isNaN ? masterSecs : 0.0) + offsetSecs)
+                    targetTime = CMTime(seconds: targetSecsB, preferredTimescale: 60000)
+                } else {
+                    targetTime = (currentSlot.currentTime.isValid && currentSlot.currentTime.isNumeric) ? currentSlot.currentTime : currentSlot.player.currentTime()
+                }
+            }
+        }
+        
+        guard targetTime.isValid && targetTime.isNumeric else { return currentSlot.lastDecodedFrame }
         let fps = max(1.0, currentSlot.fps)
-        let rawSecs = CMTimeGetSeconds(rawTime)
-        guard rawSecs.isFinite && !rawSecs.isNaN else { return nil }
+        let rawSecs = CMTimeGetSeconds(targetTime)
+        guard rawSecs.isFinite && !rawSecs.isNaN else { return currentSlot.lastDecodedFrame }
+        
         // Snap to exact frame-center PTS so AVAssetImageGenerator zero tolerance lands squarely inside target frame
         let frameIdx = max(0, Int(floor(rawSecs * fps + 1e-4)))
         let targetSecs = (Double(frameIdx) + 0.5) / fps
-        let targetTime = CMTime(seconds: targetSecs, preferredTimescale: 60000)
-        return await currentSlot.frameExtractor.capture(at: targetTime, fallbackURL: url)
+        let centerTime = CMTime(seconds: targetSecs, preferredTimescale: 60000)
+        
+        // 1. Try frame extractor
+        if let extracted = await currentSlot.frameExtractor.capture(at: centerTime, fallbackURL: url) {
+            currentSlot.lastDecodedFrame = extracted
+            return extracted
+        }
+        
+        // 2. Try video output pixel buffer
+        if let output = currentSlot.videoOutput {
+            var displayTime = CMTime.zero
+            var pb = output.copyPixelBuffer(forItemTime: centerTime, itemTimeForDisplay: &displayTime)
+            if pb == nil {
+                pb = output.copyPixelBuffer(forItemTime: currentSlot.player.currentTime(), itemTimeForDisplay: &displayTime)
+            }
+            if let pb = pb {
+                var cg: CGImage?
+                VTCreateCGImageFromCVPixelBuffer(pb, options: nil, imageOut: &cg)
+                if let cg = cg {
+                    currentSlot.lastDecodedFrame = cg
+                    return cg
+                }
+            }
+        }
+        
+        // 3. Fallback to cached frame from viewport
+        return currentSlot.lastDecodedFrame
     }
     
     // MARK: - Pixel-Perfect Frame & Compare Screenshot Export
@@ -1982,34 +2033,58 @@ public final class PlayerEngine: ObservableObject {
     public func captureCompositedScreenshotImage() async -> CGImage? {
         let isABActive = slotB.url != nil && (compareMode != .single || isBlinkCompareB)
         
-        // Single slot / Blink slot capture
-        if !isABActive || compareMode == .single {
-            let targetSlot: SlotTarget
-            if isBlinkCompareB && slotB.url != nil {
-                targetSlot = .slotB
-            } else if activeTarget == .slotB && slotB.url != nil {
-                targetSlot = .slotB
+        // 1. Blink compare: user is viewing 100% Slot B directly
+        if isBlinkCompareB && slotB.url != nil {
+            let timeA = (slotA.currentTime.isValid && slotA.currentTime.isNumeric) ? slotA.currentTime : slotA.player.currentTime()
+            let timeB: CMTime
+            if isLinked {
+                let offsetSecs = Double(slotB.slipOffsetFrames) / max(1.0, slotB.fps)
+                let masterSecs = CMTimeGetSeconds(timeA)
+                let targetSecsB = max(0.0, (masterSecs.isFinite && !masterSecs.isNaN ? masterSecs : 0.0) + offsetSecs)
+                timeB = CMTime(seconds: targetSecsB, preferredTimescale: 60000)
             } else {
-                targetSlot = .slotA
+                timeB = (slotB.currentTime.isValid && slotB.currentTime.isNumeric) ? slotB.currentTime : slotB.player.currentTime()
             }
-            guard let rawImage = await captureCurrentFrame(for: targetSlot) else { return nil }
-            return ExposureAdjuster.shared.applyExposure(to: rawImage, ev: exposureEV)
+            guard let rawImage = await captureCurrentFrame(for: .slotB, at: timeB) ?? slotB.lastDecodedFrame else { return nil }
+            return (exposureEV != 0.0) ? ExposureAdjuster.shared.applyExposure(to: rawImage, ev: exposureEV) : rawImage
         }
         
-        // Dual slot A/B compositing
-        async let frameA = captureCurrentFrame(for: .slotA)
-        async let frameB = captureCurrentFrame(for: .slotB)
-        let (rawA, rawB) = await (frameA, frameB)
+        // 2. Single slot capture
+        if !isABActive || compareMode == .single {
+            let targetSlot: SlotTarget = (activeTarget == .slotB && slotB.url != nil) ? .slotB : .slotA
+            let rawImage = await captureCurrentFrame(for: targetSlot) ?? ((targetSlot == .slotB) ? slotB.lastDecodedFrame : slotA.lastDecodedFrame)
+            guard let img = rawImage else { return nil }
+            return (exposureEV != 0.0) ? ExposureAdjuster.shared.applyExposure(to: img, ev: exposureEV) : img
+        }
+        
+        // 3. Dual slot A/B compositing
+        let timeA = (slotA.currentTime.isValid && slotA.currentTime.isNumeric) ? slotA.currentTime : slotA.player.currentTime()
+        let timeB: CMTime
+        if isLinked {
+            let offsetSecs = Double(slotB.slipOffsetFrames) / max(1.0, slotB.fps)
+            let masterSecs = CMTimeGetSeconds(timeA)
+            let targetSecsB = max(0.0, (masterSecs.isFinite && !masterSecs.isNaN ? masterSecs : 0.0) + offsetSecs)
+            timeB = CMTime(seconds: targetSecsB, preferredTimescale: 60000)
+        } else {
+            timeB = (slotB.currentTime.isValid && slotB.currentTime.isNumeric) ? slotB.currentTime : slotB.player.currentTime()
+        }
+        
+        async let frameA = captureCurrentFrame(for: .slotA, at: timeA)
+        async let frameB = captureCurrentFrame(for: .slotB, at: timeB)
+        var (rawA, rawB) = await (frameA, frameB)
+        
+        if rawA == nil { rawA = slotA.lastDecodedFrame }
+        if rawB == nil { rawB = slotB.lastDecodedFrame }
         
         guard let imgA = rawA else {
-            return rawB.map { ExposureAdjuster.shared.applyExposure(to: $0, ev: exposureEV) }
+            return rawB.map { (exposureEV != 0.0) ? ExposureAdjuster.shared.applyExposure(to: $0, ev: exposureEV) : $0 }
         }
         guard let imgB = rawB else {
-            return ExposureAdjuster.shared.applyExposure(to: imgA, ev: exposureEV)
+            return (exposureEV != 0.0) ? ExposureAdjuster.shared.applyExposure(to: imgA, ev: exposureEV) : imgA
         }
         
-        let expA = ExposureAdjuster.shared.applyExposure(to: imgA, ev: exposureEV)
-        let expB = ExposureAdjuster.shared.applyExposure(to: imgB, ev: exposureEV)
+        let expA = (exposureEV != 0.0) ? ExposureAdjuster.shared.applyExposure(to: imgA, ev: exposureEV) : imgA
+        let expB = (exposureEV != 0.0) ? ExposureAdjuster.shared.applyExposure(to: imgB, ev: exposureEV) : imgB
         
         let colorSpace = expA.colorSpace ?? expB.colorSpace ?? CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB()
         let bitmapInfo = CGImageAlphaInfo.premultipliedLast.rawValue

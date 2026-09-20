@@ -1009,7 +1009,14 @@ extension ContentView {
             let slotName = (playerEngine.isBlinkCompareB || currentSlot == .slotB) ? "Slot B" : "Slot A"
             let url = (slotName == "Slot B") ? (playerEngine.slotB.url ?? activeURL) : activeURL
             let baseName = url.deletingPathExtension().lastPathComponent
-            let frameNum = (slotName == "Slot B") ? Int(round(CMTimeGetSeconds(playerEngine.slotB.currentTime) * max(1.0, playerEngine.slotB.fps))) : frameA
+            let frameNum: Int
+            if slotName == "Slot B" {
+                let offsetSecs = Double(playerEngine.slotB.slipOffsetFrames) / max(1.0, playerEngine.slotB.fps)
+                let secsB = playerEngine.isLinked ? max(0.0, CMTimeGetSeconds(playerEngine.slotA.currentTime) + offsetSecs) : CMTimeGetSeconds(playerEngine.slotB.currentTime)
+                frameNum = Int(round(secsB * max(1.0, playerEngine.slotB.fps)))
+            } else {
+                frameNum = frameA
+            }
             defaultFileName = "\(baseName)_frame_\(frameNum).\(initialPreset.fileExtension)"
             panelTitle = "Save Frame Screenshot (\(slotName))"
         }
