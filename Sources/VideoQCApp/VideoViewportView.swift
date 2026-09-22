@@ -390,7 +390,7 @@ public final class PlayerContainerNSView: NSView {
             playerLayerB.player = engine.slotB.player
         }
         
-        if engine.isPlaying {
+        if engine.isPlaying && !engine.isScrubbing {
             displayLink?.isPaused = false
         } else {
             displayLink?.isPaused = true
@@ -532,7 +532,7 @@ public final class PlayerContainerNSView: NSView {
     }
     
     @objc private func onDisplayLinkTick() {
-        guard let engine = engine, engine.isPlaying else {
+        guard let engine = engine, engine.isPlaying, !engine.isScrubbing else {
             self.lastPlaybackPTS = -1.0
             return
         }
@@ -540,7 +540,7 @@ public final class PlayerContainerNSView: NSView {
     }
     
     private func renderPlaybackFrames() {
-        guard let engine = engine, engine.isPlaying else {
+        guard let engine = engine, engine.isPlaying, !engine.isScrubbing else {
             self.lastPlaybackPTS = -1.0
             return
         }

@@ -118,100 +118,112 @@ struct ContentView: View {
     var primaryBtnBg: Color { palette.primaryBtnBg }
     var primaryBtnFg: Color { palette.primaryBtnFg }
     
-    var body: some View {
+    private var baseContent: some View {
         ZStack {
             mainWorkspaceContent
             overlayModals
         }
         .preferredColorScheme(isLightMode ? .light : .dark)
-        .animation(.easeInOut(duration: 0.15), value: showUserGuide)
-        .animation(.easeInOut(duration: 0.15), value: showFeedbackModal)
-        .animation(.easeInOut(duration: 0.15), value: showShortcutsModal)
-        .animation(.easeInOut(duration: 0.15), value: showThemeModal)
-        .animation(.easeInOut(duration: 0.15), value: showPropertiesModal)
-        .animation(.easeInOut(duration: 0.15), value: showAddNoteModal)
-        .animation(.easeInOut(duration: 0.15), value: showNotesDrawer)
-        .animation(.easeInOut(duration: 0.15), value: showPlayerQueue)
-        .animation(.easeInOut(duration: 0.15), value: showSpecsControlPanel)
-        .animation(.easeInOut(duration: 0.15), value: fullscreenMode)
-        .animation(.spring(response: 0.3, dampingFraction: 0.7), value: toastMessage)
-        .onChange(of: showPropertiesModal) { _, newValue in if !newValue { dismissFocusReset() } }
-        .onChange(of: showAddNoteModal) { _, newValue in if !newValue { dismissFocusReset() } }
-        .onChange(of: playerEngine.slotA.url) { _, newURL in
-            let targetURL = (playerEngine.activeTarget == .slotB && playerEngine.slotB.url != nil) ? playerEngine.slotB.url : newURL
-            loadNotesForActiveURL(targetURL)
-        }
-        .onChange(of: playerEngine.slotB.url) { _, newURL in
-            if playerEngine.activeTarget == .slotB {
-                loadNotesForActiveURL(newURL)
+    }
+    
+    private var contentWithAnimations: some View {
+        baseContent
+            .animation(.easeInOut(duration: 0.15), value: showUserGuide)
+            .animation(.easeInOut(duration: 0.15), value: showFeedbackModal)
+            .animation(.easeInOut(duration: 0.15), value: showShortcutsModal)
+            .animation(.easeInOut(duration: 0.15), value: showThemeModal)
+            .animation(.easeInOut(duration: 0.15), value: showPropertiesModal)
+            .animation(.easeInOut(duration: 0.15), value: showAddNoteModal)
+            .animation(.easeInOut(duration: 0.15), value: showNotesDrawer)
+            .animation(.easeInOut(duration: 0.15), value: showPlayerQueue)
+            .animation(.easeInOut(duration: 0.15), value: showSpecsControlPanel)
+            .animation(.easeInOut(duration: 0.15), value: fullscreenMode)
+            .animation(.spring(response: 0.3, dampingFraction: 0.7), value: toastMessage)
+    }
+    
+    private var contentWithChangeHandlers: some View {
+        contentWithAnimations
+            .onChange(of: showPropertiesModal) { _, newValue in if !newValue { dismissFocusReset() } }
+            .onChange(of: showAddNoteModal) { _, newValue in if !newValue { dismissFocusReset() } }
+            .onChange(of: playerEngine.slotA.url) { _, newURL in
+                let targetURL = (playerEngine.activeTarget == .slotB && playerEngine.slotB.url != nil) ? playerEngine.slotB.url : newURL
+                loadNotesForActiveURL(targetURL)
             }
-        }
-        .onChange(of: playerEngine.activeTarget) { _, newTarget in
-            let targetURL = (newTarget == .slotB && playerEngine.slotB.url != nil) ? playerEngine.slotB.url : playerEngine.slotA.url
-            loadNotesForActiveURL(targetURL)
-        }
-        .onChange(of: showThemeModal) { _, newValue in if !newValue { dismissFocusReset() } }
-        .onChange(of: showUserGuide) { _, newValue in if !newValue { dismissFocusReset() } }
-        .onChange(of: showFeedbackModal) { _, newValue in if !newValue { dismissFocusReset() } }
-        .onChange(of: showShortcutsModal) { _, newValue in if !newValue { dismissFocusReset() } }
-        .onChange(of: updateManager.showModal) { _, newValue in if !newValue { dismissFocusReset() } }
-        .onReceive(NotificationCenter.default.publisher(for: NSWindow.didExitFullScreenNotification)) { _ in
-            if fullscreenMode != .none {
-                fullscreenMode = .none
-                didToggleWindowForFullscreen = false
-            }
-        }
-        .onReceive(NotificationCenter.default.publisher(for: NSColorPanel.colorDidChangeNotification)) { _ in
-            guard NSColorPanel.shared.isVisible else { return }
-            if let srgb = NSColorPanel.shared.color.usingColorSpace(.sRGB) {
-                let r = Int(round(srgb.redComponent * 255.0))
-                let g = Int(round(srgb.greenComponent * 255.0))
-                let b = Int(round(srgb.blueComponent * 255.0))
-                let newHex = String(format: "#%02X%02X%02X", max(0, min(255, r)), max(0, min(255, g)), max(0, min(255, b)))
-                if scannerState.hexCode.uppercased() != newHex {
-                    scannerState.hexCode = newHex
+            .onChange(of: playerEngine.slotB.url) { _, newURL in
+                if playerEngine.activeTarget == .slotB {
+                    loadNotesForActiveURL(newURL)
                 }
             }
-        }
-        .onChange(of: scannerState.hexCode) { _, newHex in
-            if NSColorPanel.shared.isVisible, let rgb = RGBColor(hex: newHex) {
-                let newColor = NSColor(srgbRed: CGFloat(rgb.r) / 255.0, green: CGFloat(rgb.g) / 255.0, blue: CGFloat(rgb.b) / 255.0, alpha: 1.0)
-                if NSColorPanel.shared.color != newColor {
-                    NSColorPanel.shared.color = newColor
+            .onChange(of: playerEngine.activeTarget) { _, newTarget in
+                let targetURL = (newTarget == .slotB && playerEngine.slotB.url != nil) ? playerEngine.slotB.url : playerEngine.slotA.url
+                loadNotesForActiveURL(targetURL)
+            }
+            .onChange(of: showThemeModal) { _, newValue in if !newValue { dismissFocusReset() } }
+            .onChange(of: showUserGuide) { _, newValue in if !newValue { dismissFocusReset() } }
+            .onChange(of: showFeedbackModal) { _, newValue in if !newValue { dismissFocusReset() } }
+            .onChange(of: showShortcutsModal) { _, newValue in if !newValue { dismissFocusReset() } }
+            .onChange(of: updateManager.showModal) { _, newValue in if !newValue { dismissFocusReset() } }
+            .onChange(of: scannerState.hexCode) { _, newHex in
+                if NSColorPanel.shared.isVisible, let rgb = RGBColor(hex: newHex) {
+                    let newColor = NSColor(srgbRed: CGFloat(rgb.r) / 255.0, green: CGFloat(rgb.g) / 255.0, blue: CGFloat(rgb.b) / 255.0, alpha: 1.0)
+                    if NSColorPanel.shared.color != newColor {
+                        NSColorPanel.shared.color = newColor
+                    }
                 }
             }
-        }
-        .onChange(of: videoFiles) { _, _ in
-            updatePlayerTreeNodes()
-        }
-        .onChange(of: folderURL) { _, _ in
-            updatePlayerTreeNodes()
-        }
-        .onReceive(fileOpenManager.$pendingURLs) { urls in
-            guard !urls.isEmpty else { return }
-            let isInitial = fileOpenManager.isInitialLaunchBatch
-            handleIncomingOpenFiles(urls, isInitialLaunch: isInitial)
-            fileOpenManager.pendingURLs = []
-        }
-        .onAppear {
-            updatePlayerTreeNodes()
-            setupKeyboardMonitor()
-            loadFinderTagsForQueue()
-            updateManager.checkForUpdates(userInitiated: false)
-            if !fileOpenManager.pendingURLs.isEmpty {
-                let urls = fileOpenManager.pendingURLs
+            .onChange(of: videoFiles) { _, _ in
+                updatePlayerTreeNodes()
+            }
+            .onChange(of: folderURL) { _, _ in
+                updatePlayerTreeNodes()
+            }
+    }
+
+    var body: some View {
+        contentWithChangeHandlers
+            .onReceive(NotificationCenter.default.publisher(for: NSWindow.didExitFullScreenNotification)) { _ in
+                if fullscreenMode != .none {
+                    fullscreenMode = .none
+                    didToggleWindowForFullscreen = false
+                }
+            }
+            .onReceive(NotificationCenter.default.publisher(for: NSColorPanel.colorDidChangeNotification)) { _ in
+                guard NSColorPanel.shared.isVisible else { return }
+                if let srgb = NSColorPanel.shared.color.usingColorSpace(.sRGB) {
+                    let r = Int(round(srgb.redComponent * 255.0))
+                    let g = Int(round(srgb.greenComponent * 255.0))
+                    let b = Int(round(srgb.blueComponent * 255.0))
+                    let newHex = String(format: "#%02X%02X%02X", max(0, min(255, r)), max(0, min(255, g)), max(0, min(255, b)))
+                    if scannerState.hexCode.uppercased() != newHex {
+                        scannerState.hexCode = newHex
+                    }
+                }
+            }
+            .onReceive(fileOpenManager.$pendingURLs) { urls in
+                guard !urls.isEmpty else { return }
                 let isInitial = fileOpenManager.isInitialLaunchBatch
-                fileOpenManager.pendingURLs = []
                 handleIncomingOpenFiles(urls, isInitialLaunch: isInitial)
+                fileOpenManager.pendingURLs = []
             }
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                fileOpenManager.isAppAlreadyRunning = true
+            .onAppear {
+                updatePlayerTreeNodes()
+                setupKeyboardMonitor()
+                loadFinderTagsForQueue()
+                updateManager.checkForUpdates(userInitiated: false)
+                if !fileOpenManager.pendingURLs.isEmpty {
+                    let urls = fileOpenManager.pendingURLs
+                    let isInitial = fileOpenManager.isInitialLaunchBatch
+                    fileOpenManager.pendingURLs = []
+                    handleIncomingOpenFiles(urls, isInitialLaunch: isInitial)
+                }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                    fileOpenManager.isAppAlreadyRunning = true
+                }
             }
-        }
-        .onDisappear {
-            eventMonitors.cleanup()
-            hasSetupKeyboardMonitor = false
-        }
+            .onDisappear {
+                eventMonitors.cleanup()
+                hasSetupKeyboardMonitor = false
+            }
     }
     
     private func dismissFocusReset() {

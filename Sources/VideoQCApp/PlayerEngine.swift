@@ -567,6 +567,12 @@ public final class PlayerEngine: ObservableObject {
     private var pendingSeekTimeB: CMTime? = nil
     private var lastDriftCorrectionTime: Date = .distantPast
     
+    // Dedicated interactive scrub seek state (independent hardware decoding pipelines)
+    private var isScrubSeekingA: Bool = false
+    private var pendingScrubTimeA: CMTime? = nil
+    private var isScrubSeekingB: Bool = false
+    private var pendingScrubTimeB: CMTime? = nil
+    
     /// Immediate frame presentation callback called when hardware seek decoding finishes
     public var onFrameDecoded: (@MainActor (SlotTarget, CMTime) -> Void)? = nil
     
@@ -1534,6 +1540,10 @@ public final class PlayerEngine: ObservableObject {
         self.isPlaying = false
         self.isScrubbing = false
         self.isSeeking = false
+        self.isScrubSeekingA = false
+        self.pendingScrubTimeA = nil
+        self.isScrubSeekingB = false
+        self.pendingScrubTimeB = nil
         self.wasPlayingBeforeScrub = false
         self.shuttleStateText = "PAUSE"
         self.shouldResetDroppedFramesOnPlayback = true
@@ -1663,6 +1673,10 @@ public final class PlayerEngine: ObservableObject {
         self.wasPlayingBeforeScrub = (self.isPlaying || self.rate != 0.0 || self.isSlowStepping)
         self.playbackRateBeforeScrub = (self.rate != 0.0) ? self.rate : 1.0
         self.isScrubbing = true
+        self.isScrubSeekingA = false
+        self.pendingScrubTimeA = nil
+        self.isScrubSeekingB = false
+        self.pendingScrubTimeB = nil
         
         if self.wasPlayingBeforeScrub {
             stopSlowStep()
@@ -1694,21 +1708,120 @@ public final class PlayerEngine: ObservableObject {
         let targetSecs = (Double(frameIdx) + 0.5) / fps
         let targetTime = CMTime(seconds: targetSecs, preferredTimescale: 60000)
         
-        if (self.compareMode != .single || self.isBlinkCompareB) && self.isLinked && self.slotB.url != nil {
-            let offsetSecs = Double(self.slotB.slipOffsetFrames) / max(1.0, self.slotB.fps)
-            let targetSecsB = max(0.0, targetSecs + offsetSecs)
-            self.slotB.currentTime = CMTime(seconds: targetSecsB, preferredTimescale: 60000)
+        // Zero SwiftUI objectWillChange storm during active mouse drag.
+        // Pure seek dispatch directly to independent hardware compositor layers.
+        dispatchScrubSeek(timeA: targetTime)
+    }
+    
+    // MARK: - Dedicated Interactive Scrub Seek Pipeline (Unblocked Parallel Hardware Decoding)
+    
+    private func dispatchScrubSeek(timeA: CMTime) {
+        guard slotA.player.currentItem != nil else { return }
+        let fpsA = max(1.0, activeFps)
+        let tolA = CMTime(seconds: 2.0 / fpsA, preferredTimescale: 60000)
+        
+        if isScrubSeekingA {
+            pendingScrubTimeA = timeA
+        } else {
+            isScrubSeekingA = true
+            dispatchScrubSeekSlotA(to: timeA, tolerance: tolA)
         }
         
-        // Pure seek dispatch: zero SwiftUI objectWillChange storm during active mouse drag.
-        // Timeline playhead tracks at 120 FPS via local dragProgress.
-        seek(toTime: targetTime)
+        let hasSlotB = (self.compareMode != .single || self.isBlinkCompareB) && self.isLinked && self.slotB.url != nil && self.slotB.player.currentItem != nil
+        if hasSlotB {
+            let offsetSecs = Double(self.slotB.slipOffsetFrames) / max(1.0, self.slotB.fps)
+            let targetSecsB = max(0.0, CMTimeGetSeconds(timeA) + offsetSecs)
+            let timeB = CMTime(seconds: targetSecsB, preferredTimescale: 60000)
+            let fpsB = max(1.0, self.slotB.fps)
+            let tolB = CMTime(seconds: 2.0 / fpsB, preferredTimescale: 60000)
+            
+            if isScrubSeekingB {
+                pendingScrubTimeB = timeB
+            } else {
+                isScrubSeekingB = true
+                dispatchScrubSeekSlotB(to: timeB, tolerance: tolB)
+            }
+        }
+    }
+    
+    private func dispatchScrubSeekSlotA(to time: CMTime, tolerance: CMTime) {
+        slotA.player.seek(to: time, toleranceBefore: tolerance, toleranceAfter: tolerance) { [weak self] finished in
+            let run = { @MainActor in
+                guard let self = self else { return }
+                self.isScrubSeekingA = false
+                
+                guard self.isScrubbing else {
+                    self.pendingScrubTimeA = nil
+                    return
+                }
+                
+                #if DEBUG
+                if finished {
+                    QCScrubDiagnostic.shared.recordSeekCompleted()
+                }
+                #endif
+                
+                if finished {
+                    let currSecs = CMTimeGetSeconds(time)
+                    let fps = max(1.0, self.activeFps)
+                    let frameIdx = max(0, min(max(0, self.totalFrames - 1), Int(floor(currSecs * fps + 1e-4))))
+                    if self.currentFrame != frameIdx {
+                        self.currentFrame = frameIdx
+                        self.currentTimecode = TimecodeFormatter.format(frameIndex: frameIdx, fps: self.activeFps)
+                    }
+                }
+                
+                if let next = self.pendingScrubTimeA {
+                    self.pendingScrubTimeA = nil
+                    self.isScrubSeekingA = true
+                    let fpsA = max(1.0, self.activeFps)
+                    let tolA = CMTime(seconds: 2.0 / fpsA, preferredTimescale: 60000)
+                    self.dispatchScrubSeekSlotA(to: next, tolerance: tolA)
+                }
+            }
+            if Thread.isMainThread {
+                MainActor.assumeIsolated { run() }
+            } else {
+                DispatchQueue.main.async { MainActor.assumeIsolated { run() } }
+            }
+        }
+    }
+    
+    private func dispatchScrubSeekSlotB(to time: CMTime, tolerance: CMTime) {
+        slotB.player.seek(to: time, toleranceBefore: tolerance, toleranceAfter: tolerance) { [weak self] _ in
+            let run = { @MainActor in
+                guard let self = self else { return }
+                self.isScrubSeekingB = false
+                
+                guard self.isScrubbing else {
+                    self.pendingScrubTimeB = nil
+                    return
+                }
+                
+                if let next = self.pendingScrubTimeB {
+                    self.pendingScrubTimeB = nil
+                    self.isScrubSeekingB = true
+                    let fpsB = max(1.0, self.slotB.fps)
+                    let tolB = CMTime(seconds: 2.0 / fpsB, preferredTimescale: 60000)
+                    self.dispatchScrubSeekSlotB(to: next, tolerance: tolB)
+                }
+            }
+            if Thread.isMainThread {
+                MainActor.assumeIsolated { run() }
+            } else {
+                DispatchQueue.main.async { MainActor.assumeIsolated { run() } }
+            }
+        }
     }
     
     /// Concludes interactive scrubbing: if previously playing, resumes playback from the new point; if paused, stays paused
     public func endScrubbing(at progress: Double) {
         let clamped = min(1.0, max(0.0, progress))
         self.isScrubbing = false
+        self.pendingScrubTimeA = nil
+        self.pendingScrubTimeB = nil
+        self.isScrubSeekingA = false
+        self.isScrubSeekingB = false
         self.currentProgress = clamped
         
         let durSecs = CMTimeGetSeconds(duration)
@@ -1782,18 +1895,8 @@ public final class PlayerEngine: ObservableObject {
         isSeeking = true
         let curCompletion = completion
         
-        // Fast seek during interactive scrubbing:
-        // Use a 2-frame tolerance so AVPlayer decodes the nearest frame directly without stalling.
-        // When paused or concluding scrub, tolerance is .zero for pixel-perfect frame accuracy.
-        let tol: CMTime
-        if let explicitTol = tolerance {
-            tol = explicitTol
-        } else if isScrubbing {
-            let fps = max(1.0, activeFps)
-            tol = CMTime(seconds: 2.0 / fps, preferredTimescale: 60000)
-        } else {
-            tol = .zero
-        }
+        // Exact frame accuracy by default unless explicit tolerance is provided
+        let tol: CMTime = tolerance ?? .zero
         
         let hasSlotB = (self.compareMode != .single || self.isBlinkCompareB) && self.isLinked && self.slotB.url != nil && self.slotB.player.currentItem != nil
         let offsetSeconds = hasSlotB ? (Double(self.slotB.slipOffsetFrames) / max(1.0, self.slotB.fps)) : 0.0
@@ -1807,16 +1910,7 @@ public final class PlayerEngine: ObservableObject {
             guard doneA && doneB else { return }
             self.isSeeking = false
             
-            // When scrubbing, update timecode & frame index ONLY when a decoded frame lands
-            if self.isScrubbing {
-                let currSecs = CMTimeGetSeconds(time)
-                let fps = max(1.0, self.activeFps)
-                let frameIdx = max(0, min(max(0, self.totalFrames - 1), Int(floor(currSecs * fps + 1e-4))))
-                if self.currentFrame != frameIdx {
-                    self.currentFrame = frameIdx
-                    self.currentTimecode = TimecodeFormatter.format(frameIndex: frameIdx, fps: self.activeFps)
-                }
-            } else if self.pendingSeekTime == nil {
+            if self.pendingSeekTime == nil {
                 self.updateCurrentTime(time: time)
             }
             
