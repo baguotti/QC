@@ -295,6 +295,7 @@ struct FullscreenPlayerView: View {
                 // Center: Transport Buttons
                 PlayerTransportDeckView(
                     engine: engine,
+                    transportState: engine.transportState,
                     scanResults: scanResults,
                     isLightMode: isLightMode,
                     hideGlitchNavWhenEmpty: true,
@@ -306,6 +307,7 @@ struct FullscreenPlayerView: View {
                     onExportScreenshot: onExportScreenshot,
                     showNotesAndGlitches: true
                 )
+                .equatable()
                 
                 Spacer()
                 

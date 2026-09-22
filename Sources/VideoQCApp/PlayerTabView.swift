@@ -255,6 +255,8 @@ extension ContentView {
             fileTagsMap: fileTagsMap,
             isScanning: scannerState.isScanning,
             isAutoplayEnabled: playerEngine.isAutoplayEnabled,
+            queueVersion: queueVersion,
+            tagsVersion: tagsVersion,
             slotAURL: playerEngine.activeURL ?? playerEngine.slotA.url,
             slotAResolution: playerEngine.slotA.resolution,
             slotAFps: playerEngine.slotA.fps,
@@ -864,11 +866,13 @@ extension ContentView {
             // Center: Playback, Shuttle & Frame Controls (Camera screengrab moved next to Exposure)
             PlayerTransportDeckView(
                 engine: playerEngine,
+                transportState: playerEngine.transportState,
                 scanResults: scannerState.scanResults,
                 isLightMode: isLightMode,
                 onExportScreenshot: { preset in exportCurrentFrameScreenshot(preset: preset) },
                 showNotesAndGlitches: false
             )
+            .equatable()
             .layoutPriority(1)
             
             // Right: Balanced spacer matching left width to keep center transport deck dead-centered

@@ -152,6 +152,44 @@ public struct DeliverableAsset: Identifiable, Sendable {
         audioConfig != "NONE" && audioCodec != "NONE"
     }
     
+    public func withAudioLevels(
+        peakDB: Double?,
+        isMute: Bool,
+        levelString: String,
+        validation: DeliverableValidation
+    ) -> DeliverableAsset {
+        DeliverableAsset(
+            id: self.id,
+            fileURL: self.fileURL,
+            fileName: self.fileName,
+            fileSizeBytes: self.fileSizeBytes,
+            formattedFileSize: self.formattedFileSize,
+            width: self.width,
+            height: self.height,
+            resolutionString: self.resolutionString,
+            aspectRatioString: self.aspectRatioString,
+            durationSeconds: self.durationSeconds,
+            formattedDuration: self.formattedDuration,
+            totalFrames: self.totalFrames,
+            timecode: self.timecode,
+            fps: self.fps,
+            videoCodec: self.videoCodec,
+            audioCodec: self.audioCodec,
+            audioBitrate: self.audioBitrate,
+            audioFormatDetail: self.audioFormatDetail,
+            audioConfig: self.audioConfig,
+            audioPeakDB: peakDB,
+            audioLevelString: levelString,
+            isAudioMute: isMute,
+            container: self.container,
+            creationDate: self.creationDate,
+            formattedCreationDate: self.formattedCreationDate,
+            hasSubtitles: self.hasSubtitles,
+            subtitlesInfo: self.subtitlesInfo,
+            validation: validation
+        )
+    }
+    
     public init(
         id: UUID = UUID(),
         fileURL: URL,

@@ -144,8 +144,6 @@ public final class PlayerContainerNSView: NSView {
     private var resolutionLabelWidthA: CGFloat = 0
     private var resolutionLabelWidthB: CGFloat = 0
     
-    // Playback dropped frame telemetry state
-    private var lastPlaybackPTS: Double = -1.0
     
     // Still frame inspection caching to eliminate AVPlayerLayer motion-downsampling
     private var lastCapturedTimeA: CMTime? = nil
@@ -532,18 +530,12 @@ public final class PlayerContainerNSView: NSView {
     }
     
     @objc private func onDisplayLinkTick() {
-        guard let engine = engine, engine.isPlaying, !engine.isScrubbing else {
-            self.lastPlaybackPTS = -1.0
-            return
-        }
+        guard let engine = engine, engine.isPlaying, !engine.isScrubbing else { return }
         renderPlaybackFrames()
     }
     
     private func renderPlaybackFrames() {
-        guard let engine = engine, engine.isPlaying, !engine.isScrubbing else {
-            self.lastPlaybackPTS = -1.0
-            return
-        }
+        guard let engine = engine, engine.isPlaying, !engine.isScrubbing else { return }
         
         var newImgA: CGImage? = nil
         var newTimeA: CMTime? = nil
@@ -558,32 +550,6 @@ public final class PlayerContainerNSView: NSView {
         if let outputA = engine.slotA.videoOutput {
             var displayTime = CMTime.zero
             if let pb = outputA.copyPixelBuffer(forItemTime: masterTime, itemTimeForDisplay: &displayTime) {
-                // Monitor dropped frames during continuous 1.0x playback
-                if engine.rate == 1.0 && !engine.isSeeking && !engine.isScrubbing {
-                    let pts = CMTimeGetSeconds(displayTime)
-                    if pts.isFinite && !pts.isNaN {
-                        if self.lastPlaybackPTS >= 0 {
-                            if pts < self.lastPlaybackPTS {
-                                // Loop or backward discontinuity
-                                self.lastPlaybackPTS = pts
-                            } else {
-                                let delta = pts - self.lastPlaybackPTS
-                                let fps = engine.slotA.fps > 0 ? engine.slotA.fps : 25.0
-                                let frames = Int(round(delta * fps))
-                                if frames > 1 && delta < 1.0 {
-                                    engine.recordDroppedFrames(frames - 1)
-                                }
-                                if frames >= 1 {
-                                    self.lastPlaybackPTS = pts
-                                }
-                            }
-                        } else {
-                            self.lastPlaybackPTS = pts
-                        }
-                    }
-                } else {
-                    self.lastPlaybackPTS = -1.0
-                }
                 
                 var cgImageA: CGImage?
                 VTCreateCGImageFromCVPixelBuffer(pb, options: nil, imageOut: &cgImageA)
@@ -597,24 +563,15 @@ public final class PlayerContainerNSView: NSView {
         
         // Slot B frame extraction (in active compare modes or during Blink):
         if (engine.compareMode != .single || engine.isBlinkCompareB) && engine.slotB.url != nil, let outputB = engine.slotB.videoOutput {
-            let offsetSecs = Double(engine.slotB.slipOffsetFrames) / max(1.0, engine.slotB.fps)
-            let masterSecs = CMTimeGetSeconds(masterTime)
-            let targetSecsB = max(0.0, (masterSecs.isFinite && !masterSecs.isNaN ? masterSecs : 0.0) + offsetSecs)
-            let targetTimeB = CMTime(seconds: targetSecsB, preferredTimescale: 60000)
-            
+            let timeB = engine.slotB.player.currentTime()
             var displayTime = CMTime.zero
-            var pbB = outputB.copyPixelBuffer(forItemTime: targetTimeB, itemTimeForDisplay: &displayTime)
-            if pbB == nil {
-                let timeB = engine.slotB.player.currentTime()
-                pbB = outputB.copyPixelBuffer(forItemTime: timeB, itemTimeForDisplay: &displayTime)
-            }
-            if let pb = pbB {
+            if let pb = outputB.copyPixelBuffer(forItemTime: timeB, itemTimeForDisplay: &displayTime) {
                 var cgImageB: CGImage?
                 VTCreateCGImageFromCVPixelBuffer(pb, options: nil, imageOut: &cgImageB)
                 if let imgB = cgImageB {
                     rawB = imgB
                     newImgB = (engine.exposureEV != 0.0) ? ExposureAdjuster.shared.applyExposure(to: imgB, ev: engine.exposureEV) : imgB
-                    newTimeB = targetTimeB
+                    newTimeB = timeB
                 }
             }
         }

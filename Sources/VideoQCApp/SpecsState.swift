@@ -14,6 +14,13 @@ public final class SpecsState: ObservableObject {
     @Published public var deliverablesCollapsedFolderIDs: Set<String> = []
     @Published public var dismissedMismatchURLs: Set<URL> = []
     
+    // Audio Level Analysis Tracking
+    @Published public var isAnalyzingAudioLevels: Bool = false
+    @Published public var audioAnalysisProgress: Double = 0.0
+    @Published public var analyzedAudioCount: Int = 0
+    @Published public var totalAudioCount: Int = 0
+    private var audioAnalysisTask: Task<Void, Never>? = nil
+    
     public func isMismatchDismissed(for url: URL) -> Bool {
         dismissedMismatchURLs.contains(url.standardizedFileURL)
     }
@@ -226,8 +233,43 @@ public final class SpecsState: ObservableObject {
         }
     }
     
+    public func analyzeAudioLevels() {
+        guard !deliverableAssets.isEmpty else { return }
+        cancelAudioAnalysis()
+        
+        let assetsToAnalyze = deliverableAssets
+        totalAudioCount = assetsToAnalyze.count
+        analyzedAudioCount = 0
+        audioAnalysisProgress = 0.0
+        isAnalyzingAudioLevels = true
+        
+        audioAnalysisTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            _ = await DeliverablesInspector.analyzeBatchAudioLevels(assets: assetsToAnalyze) { [weak self] updatedAsset, completed, total in
+                Task { @MainActor [weak self] in
+                    guard let self else { return }
+                    if let index = self.deliverableAssets.firstIndex(where: { $0.id == updatedAsset.id }) {
+                        self.deliverableAssets[index] = updatedAsset
+                    }
+                    self.analyzedAudioCount = completed
+                    self.totalAudioCount = total
+                    self.audioAnalysisProgress = total > 0 ? Double(completed) / Double(total) : 1.0
+                }
+            }
+            self.isAnalyzingAudioLevels = false
+            self.audioAnalysisTask = nil
+        }
+    }
+    
+    public func cancelAudioAnalysis() {
+        audioAnalysisTask?.cancel()
+        audioAnalysisTask = nil
+        isAnalyzingAudioLevels = false
+    }
+    
     public func inspectDeliverablesBatch(urls: [URL], append: Bool = false) {
         guard !urls.isEmpty else { return }
+        cancelAudioAnalysis()
         isInspectingDeliverables = true
         
         Task { @MainActor [weak self] in

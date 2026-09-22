@@ -55,8 +55,6 @@ public struct PlayerQueueFileRowView: View, Equatable {
         }
     }
     
-    @ObservedObject private var themeManager = ThemeManager.shared
-    
     private var bgSubtle: Color { StudioTheme.bgSubtle(isLightMode) }
     private var borderLine: Color { StudioTheme.borderLine(isLightMode) }
     private var textMain: Color { StudioTheme.textMain(isLightMode) }
@@ -174,7 +172,7 @@ public struct PlayerQueueFileRowView: View, Equatable {
     }
     
     private var badgeTextColor: Color {
-        themeManager.currentTheme.contrastTextColor(for: .blue)
+        ThemeManager.shared.currentTheme.contrastTextColor(for: .blue)
     }
     
     @ViewBuilder

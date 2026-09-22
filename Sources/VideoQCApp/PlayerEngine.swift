@@ -181,7 +181,7 @@ public final class PlayerSlot: ObservableObject {
     @Published public var fps: Double = 25.0
     @Published public var codec: String = ""
     @Published public var duration: CMTime = .zero
-    @Published public var currentTime: CMTime = .zero
+    public var currentTime: CMTime = .zero
     @Published public var videoSize: CGSize = CGSize(width: 1920, height: 1080)
     @Published public var totalFrames: Int = 0
     @Published public var slipOffsetFrames: Int = 0
@@ -299,6 +299,45 @@ public enum ClipInfoOverlayMode: String, CaseIterable, Codable, Sendable {
         case .fileName: return .fullDetails
         case .fullDetails: return .off
         }
+    }
+}
+
+// MARK: - Transport State Snapshot
+
+public struct TransportState: Equatable, Sendable {
+    public let isPlaying: Bool
+    public let rate: Float
+    public let isLooping: Bool
+    public let safeAreaMode: SafeAreaMode
+    public let isNineBySixteen: Bool
+    public let showCenterCrosshair: Bool
+    public let clipInfoOverlayMode: ClipInfoOverlayMode
+    public let lastScreenshotPreset: ScreenshotPreset
+    public let hasActiveURL: Bool
+    public let notesCount: Int
+    
+    public init(
+        isPlaying: Bool,
+        rate: Float,
+        isLooping: Bool,
+        safeAreaMode: SafeAreaMode,
+        isNineBySixteen: Bool,
+        showCenterCrosshair: Bool,
+        clipInfoOverlayMode: ClipInfoOverlayMode,
+        lastScreenshotPreset: ScreenshotPreset,
+        hasActiveURL: Bool,
+        notesCount: Int
+    ) {
+        self.isPlaying = isPlaying
+        self.rate = rate
+        self.isLooping = isLooping
+        self.safeAreaMode = safeAreaMode
+        self.isNineBySixteen = isNineBySixteen
+        self.showCenterCrosshair = showCenterCrosshair
+        self.clipInfoOverlayMode = clipInfoOverlayMode
+        self.lastScreenshotPreset = lastScreenshotPreset
+        self.hasActiveURL = hasActiveURL
+        self.notesCount = notesCount
     }
 }
 
@@ -420,7 +459,7 @@ public final class PlayerEngine: ObservableObject {
     public var activeCodec: String { slotA.codec }
     public var videoSize: CGSize { slotA.videoSize }
     
-    @Published public var currentTime: CMTime = .zero
+    public var currentTime: CMTime = .zero
     @Published public var duration: CMTime = .zero
     @Published public var currentTimecode: String = "00:00:00:00"
     @Published public var durationTimecode: String = "00:00:00:00"
@@ -453,20 +492,24 @@ public final class PlayerEngine: ObservableObject {
         self.exposureEV = 0.0
     }
     
-    // MARK: - Dropped Frame Telemetry (Premiere Pro-style QC Indicator)
+    // MARK: - Discrete Transport State for Sub-Views
     
-    @Published public var droppedFramesCount: Int = 0
-    private var shouldResetDroppedFramesOnPlayback: Bool = false
-    
-    public func recordDroppedFrames(_ count: Int) {
-        guard count > 0 else { return }
-        self.droppedFramesCount += count
+    public var transportState: TransportState {
+        TransportState(
+            isPlaying: isPlaying,
+            rate: rate,
+            isLooping: isLooping,
+            safeAreaMode: safeAreaMode,
+            isNineBySixteen: isNineBySixteen,
+            showCenterCrosshair: showCenterCrosshair,
+            clipInfoOverlayMode: clipInfoOverlayMode,
+            lastScreenshotPreset: lastScreenshotPreset,
+            hasActiveURL: activeURL != nil,
+            notesCount: activeNotes.count
+        )
     }
     
-    public func resetDroppedFrames() {
-        self.droppedFramesCount = 0
-        self.shouldResetDroppedFramesOnPlayback = false
-    }
+    public func resetDroppedFrames() {}
     
     // MARK: - Exposure Video Composition (Hardware-Accelerated Playback)
     
@@ -565,6 +608,7 @@ public final class PlayerEngine: ObservableObject {
     
     public private(set) var isSeekingB: Bool = false
     private var pendingSeekTimeB: CMTime? = nil
+    private var pendingSeekCompletionB: (@MainActor @Sendable () -> Void)? = nil
     private var lastDriftCorrectionTime: Date = .distantPast
     
     // Dedicated interactive scrub seek state (independent hardware decoding pipelines)
@@ -1170,6 +1214,7 @@ public final class PlayerEngine: ObservableObject {
         }
         if isSeekingB {
             pendingSeekTimeB = time
+            pendingSeekCompletionB = completion
             return
         }
         isSeekingB = true
@@ -1183,8 +1228,10 @@ public final class PlayerEngine: ObservableObject {
                     self.objectWillChange.send()
                 }
                 if let nextB = self.pendingSeekTimeB {
+                    let nextComp = self.pendingSeekCompletionB
                     self.pendingSeekTimeB = nil
-                    self.seekSlotB(to: nextB, tolerance: tolerance)
+                    self.pendingSeekCompletionB = nil
+                    self.seekSlotB(to: nextB, tolerance: tolerance, completion: nextComp)
                 }
             }
             if Thread.isMainThread {
@@ -1264,26 +1311,58 @@ public final class PlayerEngine: ObservableObject {
             }
             
             // Continuous drift correction during linked playback:
-            // Smooth Phase-Locked Loop (PLL) micro-rate adjustment.
-            // NEVER perform a destructive seek while playing, as seeking halts video decode and creates audio pops.
+            // High-precision Phase-Locked Loop (PLL) micro-rate adjustment with stall recovery.
+            // Samples both players synchronously on the main thread to eliminate observer dispatch skew.
             if self.isLinked && self.isPlaying && self.rate != 0 && !self.isSeekingB {
-                let offsetSecs = Double(slotB.slipOffsetFrames) / max(1.0, slotB.fps)
-                let expectedSecsB = currSecs + offsetSecs
-                let actualSecsB = CMTimeGetSeconds(timeB)
-                let drift = actualSecsB - expectedSecsB
-                
-                let baseRate = self.rate
-                if abs(drift) > 0.008 {
-                    // Drift > 8ms: apply subtle ±4% micro-rate correction to lock back within milliseconds
-                    let correctionFactor: Float = (drift < 0) ? 1.04 : 0.96
-                    let adjustedRate = baseRate * correctionFactor
-                    if abs(slotB.player.rate - adjustedRate) > 0.001 {
-                        slotB.player.rate = adjustedRate
-                    }
-                } else {
-                    // In lockstep: maintain exact base rate
-                    if abs(slotB.player.rate - baseRate) > 0.001 {
-                        slotB.player.rate = baseRate
+                let liveA = slotA.player.currentTime()
+                let liveB = slotB.player.currentTime()
+                if liveA.isValid && liveA.isNumeric && liveB.isValid && liveB.isNumeric {
+                    let liveSecsA = CMTimeGetSeconds(liveA)
+                    let liveSecsB = CMTimeGetSeconds(liveB)
+                    if liveSecsA.isFinite && !liveSecsA.isNaN && liveSecsB.isFinite && !liveSecsB.isNaN {
+                        let fpsB = max(1.0, slotB.fps)
+                        let frameDurB = 1.0 / fpsB
+                        let offsetSecs = Double(slotB.slipOffsetFrames) / fpsB
+                        let expectedSecsB = max(0.0, liveSecsA + offsetSecs)
+                        let drift = liveSecsB - expectedSecsB
+                        let baseRate = self.rate
+                        
+                        let durSecsB = CMTimeGetSeconds(slotB.duration)
+                        let isAtEndB = (durSecsB > 0 && durSecsB.isFinite && liveSecsB >= durSecsB - 0.05)
+                        
+                        if !isAtEndB {
+                            // Stall Recovery: If slotB stopped moving or fell drastically behind (>3.5 frames) while playing
+                            if slotB.player.rate == 0.0 || abs(drift) > frameDurB * 3.5 {
+                                let clampedTargetSecs = (durSecsB > 0 && durSecsB.isFinite) ? min(durSecsB - 0.01, expectedSecsB) : expectedSecsB
+                                let targetTimeB = CMTime(seconds: clampedTargetSecs, preferredTimescale: 60000)
+                                self.isSeekingB = true
+                                slotB.player.seek(to: targetTimeB, toleranceBefore: .zero, toleranceAfter: .zero) { [weak self] _ in
+                                    MainActor.assumeIsolated {
+                                        guard let self = self else { return }
+                                        self.isSeekingB = false
+                                        if self.isPlaying && self.rate != 0 {
+                                            self.slotB.player.playImmediately(atRate: baseRate)
+                                        }
+                                    }
+                                }
+                            } else if abs(drift) > frameDurB * 0.75 {
+                                // Gentle micro-rate adjustment (±1.5%) with 0.25s rate-settle debounce
+                                let now = Date()
+                                if now.timeIntervalSince(self.lastDriftCorrectionTime) >= 0.25 {
+                                    self.lastDriftCorrectionTime = now
+                                    let correctionFactor: Float = (drift < 0) ? 1.015 : 0.985
+                                    let adjustedRate = baseRate * correctionFactor
+                                    if abs(slotB.player.rate - adjustedRate) > 0.003 {
+                                        slotB.player.rate = adjustedRate
+                                    }
+                                }
+                            } else {
+                                // In frame-accurate lockstep (within 3/4 frame): maintain exact base rate
+                                if abs(slotB.player.rate - baseRate) > 0.001 {
+                                    slotB.player.rate = baseRate
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -1461,10 +1540,6 @@ public final class PlayerEngine: ObservableObject {
     private func startSlowStepTimer() {
         stopSlowStep()
         
-        if shouldResetDroppedFramesOnPlayback {
-            resetDroppedFrames()
-        }
-        
         let targetFps = slowSpeeds[slowSpeedIndex]
         let interval = 1.0 / targetFps
         let isFwd = (slowDirection == .forward)
@@ -1546,7 +1621,6 @@ public final class PlayerEngine: ObservableObject {
         self.pendingScrubTimeB = nil
         self.wasPlayingBeforeScrub = false
         self.shuttleStateText = "PAUSE"
-        self.shouldResetDroppedFramesOnPlayback = true
         if let currentItem = slotA.player.currentItem, currentItem.status == .readyToPlay {
             let pausedTime = slotA.player.currentTime()
             if pausedTime.isValid && pausedTime.isNumeric {
@@ -1574,10 +1648,6 @@ public final class PlayerEngine: ObservableObject {
         if newRate == 0.0 {
             pause()
             return
-        }
-        
-        if shouldResetDroppedFramesOnPlayback {
-            resetDroppedFrames()
         }
         
         slotA.player.automaticallyWaitsToMinimizeStalling = false

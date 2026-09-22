@@ -129,6 +129,54 @@ extension ContentView {
             
             // Actions & Export Controls
             VStack(spacing: 6) {
+                // Audio Check Button (Sidebar)
+                Button(action: {
+                    if specsState.isAnalyzingAudioLevels {
+                        specsState.cancelAudioAnalysis()
+                    } else {
+                        specsState.analyzeAudioLevels()
+                    }
+                }) {
+                    HStack(spacing: 6) {
+                        if specsState.isAnalyzingAudioLevels {
+                            ProgressView()
+                                .controlSize(.mini)
+                                .scaleEffect(0.65)
+                                .frame(width: 10, height: 10)
+                            Text("SCANNING AUDIO (\(specsState.analyzedAudioCount)/\(specsState.totalAudioCount))")
+                                .font(.system(size: 9.5, weight: .bold, design: .monospaced))
+                                .foregroundColor(accentBlue)
+                            Spacer()
+                            Image(systemName: "xmark.circle.fill")
+                                .font(.system(size: 9, weight: .bold))
+                                .foregroundColor(textMuted)
+                        } else {
+                            Image(systemName: "waveform")
+                                .font(.system(size: 8.5, weight: .bold))
+                            Text(hasPendingAudioAnalysis ? "CHECK AUDIO LEVELS" : "RECHECK AUDIO LEVELS")
+                                .font(.system(size: 9.5, weight: .bold, design: .monospaced))
+                            Spacer()
+                            Text("SIMD")
+                                .font(.system(size: 7.5, weight: .black, design: .monospaced))
+                                .foregroundColor(hasPendingAudioAnalysis ? accentBlue : textMuted)
+                                .padding(.horizontal, 4)
+                                .padding(.vertical, 1.5)
+                                .background(borderLine)
+                                .cornerRadius(2)
+                        }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .center)
+                    .frame(height: 28)
+                    .padding(.horizontal, 8)
+                    .foregroundColor(specsState.deliverableAssets.isEmpty ? textMuted : (hasPendingAudioAnalysis ? textMain : textSubtle))
+                    .studioBox(
+                        background: hasPendingAudioAnalysis ? accentBlue.opacity(0.12) : bgSubtle,
+                        border: hasPendingAudioAnalysis ? accentBlue.opacity(0.5) : borderLine
+                    )
+                }
+                .buttonStyle(.plain)
+                .disabled(specsState.deliverableAssets.isEmpty)
+                .explain("Decodes audio tracks with Apple Accelerate SIMD to measure peak dBFS and detect silence.")
                 
                 // Export Row: SHEETS | SAVE CSV | OPEN HTML (All on one line)
                 HStack(spacing: 6) {
@@ -226,6 +274,7 @@ extension ContentView {
             // Clear Button
             if !specsState.deliverableAssets.isEmpty {
                 Button(action: {
+                    specsState.cancelAudioAnalysis()
                     specsState.deliverableAssets = []
                     specsState.selectedDeliverableURL = nil
                 }) {
@@ -311,8 +360,52 @@ extension ContentView {
                 
                 Spacer()
                 
-                // Right: 3 Visually Cohesive Studio Buttons
+                // Right: Visually Cohesive Studio Buttons
                 HStack(spacing: 6) {
+                    // Audio Check Button
+                    if specsState.isAnalyzingAudioLevels {
+                        HStack(spacing: 4) {
+                            ProgressView()
+                                .controlSize(.mini)
+                                .scaleEffect(0.65)
+                                .frame(width: 10, height: 10)
+                            Text("AUDIO \(specsState.analyzedAudioCount)/\(specsState.totalAudioCount)")
+                                .font(.system(size: 9.5, weight: .bold, design: .monospaced))
+                                .foregroundColor(accentBlue)
+                            Button(action: { specsState.cancelAudioAnalysis() }) {
+                                Image(systemName: "xmark.circle.fill")
+                                    .font(.system(size: 8.5, weight: .bold))
+                                    .foregroundColor(textMuted)
+                            }
+                            .buttonStyle(.plain)
+                            .explain("Cancel audio analysis")
+                        }
+                        .padding(.horizontal, 7)
+                        .frame(height: 24)
+                        .studioBox(background: accentBlue.opacity(0.15), border: accentBlue.opacity(0.6))
+                    } else {
+                        Button(action: { specsState.analyzeAudioLevels() }) {
+                            HStack(spacing: 4) {
+                                Image(systemName: "waveform")
+                                    .font(.system(size: 8.5, weight: .bold))
+                                Text(hasPendingAudioAnalysis ? "CHECK AUDIO" : "RECHECK AUDIO")
+                                    .font(.system(size: 9.5, weight: .bold, design: .monospaced))
+                            }
+                            .padding(.horizontal, 8)
+                            .frame(height: 24)
+                            .contentShape(Rectangle())
+                            .foregroundColor(specsState.deliverableAssets.isEmpty ? textMuted : (hasPendingAudioAnalysis ? accentBlue : textSubtle))
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(specsState.deliverableAssets.isEmpty)
+                        .fixedSize()
+                        .studioBox(
+                            background: hasPendingAudioAnalysis ? accentBlue.opacity(0.12) : bgSubtle,
+                            border: hasPendingAudioAnalysis ? accentBlue.opacity(0.5) : borderLine
+                        )
+                        .explain("Scan audio tracks with Apple Accelerate SIMD to measure peak dBFS and detect mute tracks.")
+                    }
+                    
                     // Button 1: Fit / Reset Name
                     Button(action: { autoFitFileNameColumnWidth() }) {
                         HStack(spacing: 4) {
@@ -478,7 +571,7 @@ extension ContentView {
                     
                     // Table Rows
                     ScrollView(.vertical) {
-                        VStack(spacing: 0) {
+                        LazyVStack(spacing: 0) {
                             let assetMap = deliverableAssetsMap
                             
                             if filteredDeliverableAssets.isEmpty && !specsState.specsFilterText.isEmpty {
@@ -502,8 +595,7 @@ extension ContentView {
                             } else if hasDeliverablesSubfolders {
                                 let nodes = flattenedDeliverableNodes
                                 let nodeCount = nodes.count
-                                let nonDirNodes = nodes.filter { !$0.isDirectory }
-                                let assetIndexMap: [URL: Int] = Dictionary(uniqueKeysWithValues: nonDirNodes.enumerated().map { ($0.element.url, $0.offset) })
+                                let assetIndexMap = deliverablesAssetIndexMap
                                 
                                 ForEach(Array(nodes.enumerated()), id: \.element.id) { idx, node in
                                     if node.isDirectory {
@@ -541,6 +633,11 @@ extension ContentView {
     }
     
     // MARK: - Column Resizing & Width Helpers
+    
+    private var deliverablesAssetIndexMap: [URL: Int] {
+        let nonDirNodes = flattenedDeliverableNodes.filter { !$0.isDirectory }
+        return Dictionary(uniqueKeysWithValues: nonDirNodes.enumerated().map { ($0.element.url, $0.offset) })
+    }
     
     var effectiveFileNameColumnWidth: Double {
         specsState.effectiveFileNameColumnWidth
@@ -688,6 +785,10 @@ extension ContentView {
     
     var hasDeliverablesSubfolders: Bool {
         FileSystemTreeBuilder.hasSubfolders(in: deliverablesTree)
+    }
+    
+    var hasPendingAudioAnalysis: Bool {
+        specsState.deliverableAssets.contains { $0.hasAudio && ($0.audioLevelString == "--" || $0.audioLevelString.isEmpty) }
     }
     
     var flattenedDeliverableNodes: [FileSystemTreeNode] {

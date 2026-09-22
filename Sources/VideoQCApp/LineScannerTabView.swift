@@ -465,7 +465,7 @@ extension ContentView {
             }
             
             ScrollView {
-                VStack(alignment: .leading, spacing: 16) {
+                LazyVStack(alignment: .leading, spacing: 16) {
                     if flagged.isEmpty {
                         VStack(spacing: 8) {
                             Text("STATUS // ALL DELIVERIES PASSED")

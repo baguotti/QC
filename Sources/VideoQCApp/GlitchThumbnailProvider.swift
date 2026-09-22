@@ -31,6 +31,9 @@ public actor GlitchThumbnailProvider {
         if let existing = generators[stdURL] {
             gen = existing
         } else {
+            if generators.count >= 16, let oldest = generators.keys.first {
+                generators.removeValue(forKey: oldest)
+            }
             let asset = AVURLAsset(url: stdURL, options: [AVURLAssetPreferPreciseDurationAndTimingKey: false])
             let newGen = AVAssetImageGenerator(asset: asset)
             newGen.appliesPreferredTrackTransform = true

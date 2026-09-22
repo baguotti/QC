@@ -37,9 +37,12 @@ struct ContentView: View {
     @State var folderURL: URL? = nil
     @State var videoFiles: [URL] = []
     @State var playerTreeNodes: [FileSystemTreeNode] = []
+    @State var queueVersion: Int = 0
+    @State var tagsVersion: Int = 0
     
     func updatePlayerTreeNodes() {
         playerTreeNodes = FileSystemTreeBuilder.buildTree(rootURL: folderURL, files: videoFiles)
+        queueVersion &+= 1
     }
     
     // MARK: - Tab 1: Player State
@@ -176,6 +179,11 @@ struct ContentView: View {
             }
             .onChange(of: folderURL) { _, _ in
                 updatePlayerTreeNodes()
+            }
+            .onChange(of: selectedTab) { _, newTab in
+                if newTab == .specs && specsState.deliverableAssets.isEmpty && !videoFiles.isEmpty {
+                    specsState.inspectDeliverablesBatch(urls: videoFiles)
+                }
             }
     }
 
@@ -1043,8 +1051,10 @@ struct ContentView: View {
                 self.videoFiles = mergedVideos
                 self.folderURL = determineFolderURL(for: mergedVideos, detectedFolder: self.folderURL ?? detectedFolder)
                 
-                // Inspect only newly added deliverables and append to existing deliverables
-                specsState.inspectDeliverablesBatch(urls: newlyAdded, append: true)
+                // Inspect only if already on Specs tab, otherwise defer until tab is selected
+                if self.selectedTab == .specs {
+                    specsState.inspectDeliverablesBatch(urls: newlyAdded, append: true)
+                }
                 self.loadFinderTagsForQueue()
                 if self.playerEngine.activeURL == nil, let first = newlyAdded.first {
                     self.playerEngine.loadVideo(url: first)
@@ -1070,8 +1080,12 @@ struct ContentView: View {
                 self.scannerState.generatedReportURL = nil
                 self.scannerState.generatedCSVURL = nil
                 
-                // Populate deliverables in background
-                specsState.inspectDeliverablesBatch(urls: uniqueVideos, append: false)
+                // Populate deliverables if on Specs tab, otherwise defer until tab is selected
+                if self.selectedTab == .specs {
+                    specsState.inspectDeliverablesBatch(urls: uniqueVideos, append: false)
+                } else {
+                    specsState.deliverableAssets = []
+                }
                 self.loadFinderTagsForQueue()
                 if self.playerEngine.activeURL == nil, let first = uniqueVideos.first {
                     self.playerEngine.loadVideo(url: first)
@@ -1172,7 +1186,9 @@ struct ContentView: View {
         if !newlyAdded.isEmpty {
             self.videoFiles = mergedVideos
             self.folderURL = self.determineFolderURL(for: mergedVideos, detectedFolder: self.folderURL ?? detectedFolder)
-            self.specsState.inspectDeliverablesBatch(urls: newlyAdded, append: true)
+            if self.selectedTab == .specs {
+                self.specsState.inspectDeliverablesBatch(urls: newlyAdded, append: true)
+            }
             self.loadFinderTagsForQueue()
         }
         
@@ -1863,11 +1879,13 @@ struct ContentView: View {
             }
             await MainActor.run {
                 self.fileTagsMap = newMap
+                self.tagsVersion &+= 1
             }
         }
     }
     
     func toggleFinderTag(_ tag: FinderTagColor, for url: URL) {
+        tagsVersion &+= 1
         if fileTagsMap[url] == tag {
             FinderTagManager.setTag(nil, for: url)
             fileTagsMap.removeValue(forKey: url)
@@ -1878,6 +1896,7 @@ struct ContentView: View {
     }
     
     func setFinderTag(_ tag: FinderTagColor?, for url: URL) {
+        tagsVersion &+= 1
         FinderTagManager.setTag(tag, for: url)
         if let tag = tag {
             fileTagsMap[url] = tag

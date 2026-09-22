@@ -5,8 +5,9 @@ import VideoQCLib
 
 /// Encapsulates the 7 transport controls, playback utilities (Loop, Crosshair, Exposure),
 /// and line glitch jump navigation into a single reusable component shared across windowed and fullscreen player views.
-struct PlayerTransportDeckView: View {
-    @ObservedObject var engine: PlayerEngine
+struct PlayerTransportDeckView: View, Equatable {
+    let engine: PlayerEngine
+    let transportState: TransportState
     let scanResults: [VideoQCResult]
     var isLightMode: Bool
     var hideGlitchNavWhenEmpty: Bool
@@ -20,8 +21,18 @@ struct PlayerTransportDeckView: View {
     var onExportScreenshot: ((ScreenshotPreset) -> Void)?
     var showNotesAndGlitches: Bool
     
+    public static nonisolated func == (lhs: PlayerTransportDeckView, rhs: PlayerTransportDeckView) -> Bool {
+        lhs.transportState == rhs.transportState &&
+        lhs.isLightMode == rhs.isLightMode &&
+        lhs.hideGlitchNavWhenEmpty == rhs.hideGlitchNavWhenEmpty &&
+        lhs.isNotesDrawerOpen == rhs.isNotesDrawerOpen &&
+        lhs.showNotesAndGlitches == rhs.showNotesAndGlitches &&
+        lhs.scanResults.count == rhs.scanResults.count
+    }
+    
     init(
         engine: PlayerEngine,
+        transportState: TransportState? = nil,
         scanResults: [VideoQCResult] = [],
         isLightMode: Bool = false,
         hideGlitchNavWhenEmpty: Bool = false,
@@ -36,6 +47,7 @@ struct PlayerTransportDeckView: View {
         showNotesAndGlitches: Bool = false
     ) {
         self.engine = engine
+        self.transportState = transportState ?? engine.transportState
         self.scanResults = scanResults
         self.isLightMode = isLightMode
         self.hideGlitchNavWhenEmpty = hideGlitchNavWhenEmpty
@@ -84,7 +96,7 @@ struct PlayerTransportDeckView: View {
                     Image(systemName: "backward.fill")
                         .font(.system(size: iconSize(14), weight: .bold))
                         .frame(width: btnWidth(28), height: btnHeight)
-                        .foregroundColor(engine.rate < 0 ? accentBlue : textMain)
+                        .foregroundColor(transportState.rate < 0 ? accentBlue : textMain)
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(TransportIconButtonStyle())
@@ -93,7 +105,7 @@ struct PlayerTransportDeckView: View {
                 // Play / Pause (Space / K)
                 Button(action: { engine.togglePlayPause() }) {
                     AnimatedPlayPauseIconView(
-                        isPlaying: engine.isPlaying,
+                        isPlaying: transportState.isPlaying,
                         color: textMain,
                         size: iconSize(20)
                     )
@@ -108,7 +120,7 @@ struct PlayerTransportDeckView: View {
                     Image(systemName: "forward.fill")
                         .font(.system(size: iconSize(14), weight: .bold))
                         .frame(width: btnWidth(28), height: btnHeight)
-                        .foregroundColor(engine.rate > 1.0 ? accentBlue : textMain)
+                        .foregroundColor(transportState.rate > 1.0 ? accentBlue : textMain)
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(TransportIconButtonStyle())
@@ -135,8 +147,8 @@ struct PlayerTransportDeckView: View {
             HStack(spacing: 4) {
                 transportBtn(
                     icon: "repeat",
-                    tooltip: engine.isLooping ? "Loop Playback: ON (⌘L)" : "Loop Playback: OFF (⌘L)",
-                    isActive: engine.isLooping,
+                    tooltip: transportState.isLooping ? "Loop Playback: ON (⌘L)" : "Loop Playback: OFF (⌘L)",
+                    isActive: transportState.isLooping,
                     size: 11,
                     weight: .semibold,
                     width: 26
@@ -146,11 +158,11 @@ struct PlayerTransportDeckView: View {
 
                 
                 let safeAreaTooltip: String = {
-                    switch engine.safeAreaMode {
+                    switch transportState.safeAreaMode {
                     case .off:
-                        return engine.isNineBySixteen ? "Safe Area: OFF (Click for Title & Action)" : "Title & Action Safe: OFF"
+                        return transportState.isNineBySixteen ? "Safe Area: OFF (Click for Title & Action)" : "Title & Action Safe: OFF"
                     case .standard:
-                        return engine.isNineBySixteen ? "Safe Area: Title & Action (Click for TikTok)" : "Title & Action Safe: ON"
+                        return transportState.isNineBySixteen ? "Safe Area: Title & Action (Click for TikTok)" : "Title & Action Safe: ON"
                     case .tikTok:
                         return "Safe Area: TikTok 9:16 (50% Opacity) (Click to turn OFF)"
                     }
@@ -158,12 +170,12 @@ struct PlayerTransportDeckView: View {
                 
                 customTransportBtn(
                     tooltip: safeAreaTooltip,
-                    isActive: engine.safeAreaMode != .off,
+                    isActive: transportState.safeAreaMode != .off,
                     width: 26
                 ) {
                     engine.cycleSafeAreaMode()
                 } content: {
-                    if engine.safeAreaMode == .tikTok {
+                    if transportState.safeAreaMode == .tikTok {
                         ZStack {
                             RoundedRectangle(cornerRadius: 1.8)
                                 .strokeBorder(lineWidth: 1.1)
@@ -186,8 +198,8 @@ struct PlayerTransportDeckView: View {
                 
                 transportBtn(
                     icon: "scope",
-                    tooltip: engine.showCenterCrosshair ? "Center Crosshair: ON" : "Center Crosshair: OFF",
-                    isActive: engine.showCenterCrosshair,
+                    tooltip: transportState.showCenterCrosshair ? "Center Crosshair: ON" : "Center Crosshair: OFF",
+                    isActive: transportState.showCenterCrosshair,
                     size: 12,
                     weight: .semibold,
                     width: 26
@@ -197,8 +209,8 @@ struct PlayerTransportDeckView: View {
 
                 transportBtn(
                     icon: "info.circle",
-                    tooltip: "Clip Info: \(engine.clipInfoOverlayMode.rawValue) (I: Cycle, Right-click to choose).",
-                    isActive: engine.clipInfoOverlayMode != .off,
+                    tooltip: "Clip Info: \(transportState.clipInfoOverlayMode.rawValue) (I: Cycle, Right-click to choose).",
+                    isActive: transportState.clipInfoOverlayMode != .off,
                     size: 12,
                     weight: .semibold,
                     width: 26
@@ -213,7 +225,7 @@ struct PlayerTransportDeckView: View {
                         }) {
                             HStack {
                                 Text(mode.rawValue)
-                                if engine.clipInfoOverlayMode == mode {
+                                if transportState.clipInfoOverlayMode == mode {
                                     Spacer()
                                     Image(systemName: "checkmark")
                                 }
@@ -231,14 +243,14 @@ struct PlayerTransportDeckView: View {
                 if let onExport = onExportScreenshot {
                     transportBtn(
                         icon: "camera.fill",
-                        tooltip: "Export Screenshot: \(engine.lastScreenshotPreset.rawValue) (Click to export, Right-click to choose preset).",
+                        tooltip: "Export Screenshot: \(transportState.lastScreenshotPreset.rawValue) (Click to export, Right-click to choose preset).",
                         size: 11,
                         weight: .bold,
                         width: 26
                     ) {
-                        onExport(engine.lastScreenshotPreset)
+                        onExport(transportState.lastScreenshotPreset)
                     }
-                    .disabled(engine.activeURL == nil)
+                    .disabled(!transportState.hasActiveURL)
                     .contextMenu {
                         ForEach(ScreenshotPreset.allCases) { preset in
                             Button(action: {
@@ -247,7 +259,7 @@ struct PlayerTransportDeckView: View {
                             }) {
                                 HStack {
                                     Text(preset.rawValue)
-                                    if engine.lastScreenshotPreset == preset {
+                                    if transportState.lastScreenshotPreset == preset {
                                         Spacer()
                                         Image(systemName: "checkmark")
                                     }
@@ -256,8 +268,6 @@ struct PlayerTransportDeckView: View {
                         }
                     }
                 }
-                
-                droppedFrameIndicator
             }
             
             // 3. Compact Review Notes Controls (Optional for decks that display notes inline, e.g. Fullscreen HUD)
@@ -278,16 +288,16 @@ struct PlayerTransportDeckView: View {
                             }
                             .frame(height: btnHeight)
                             .padding(.horizontal, 5)
-                            .foregroundColor(engine.activeURL == nil ? textMuted : textMain)
+                            .foregroundColor(!transportState.hasActiveURL ? textMuted : textMain)
                             .contentShape(Rectangle())
                         }
                         .buttonStyle(TransportIconButtonStyle())
-                        .disabled(engine.activeURL == nil)
+                        .disabled(!transportState.hasActiveURL)
                         .explain("Add review note at playhead (M).")
                     }
                     
                     // Compact Note Navigator: < 💬 count >
-                    let notesCount = engine.activeNotes.count
+                    let notesCount = transportState.notesCount
                     let hasNotes = notesCount > 0
                     
                     HStack(spacing: 1) {
@@ -321,7 +331,7 @@ struct PlayerTransportDeckView: View {
                                 .contentShape(Rectangle())
                             }
                             .buttonStyle(TransportIconButtonStyle())
-                            .disabled(engine.activeURL == nil)
+                            .disabled(!transportState.hasActiveURL)
                             .explain(hasNotes ? "Toggle Review Notes drawer (\(notesCount) notes)." : "Toggle Review Notes drawer.")
                         } else {
                             SlotText(
@@ -434,33 +444,5 @@ struct PlayerTransportDeckView: View {
         .explain(tooltip)
     }
     
-    // MARK: - Dropped Frame Indicator (Premiere Pro-style QC Monitor)
-    
-    private var droppedFrameIndicator: some View {
-        Button(action: {
-            engine.resetDroppedFrames()
-        }) {
-            HStack(spacing: themeManager.scale(3)) {
-                Circle()
-                    .fill(engine.droppedFramesCount > 0 ? palette.droppedFrameRed : palette.droppedFrameGreen)
-                    .frame(width: themeManager.scale(7), height: themeManager.scale(7))
-                
-                if engine.droppedFramesCount > 0 {
-                    Text("\(engine.droppedFramesCount)")
-                        .font(.system(size: themeManager.scaleFont(10), weight: .bold, design: .monospaced))
-                        .foregroundColor(palette.droppedFrameRed)
-                }
-            }
-            .padding(.horizontal, engine.droppedFramesCount > 0 ? themeManager.scale(4) : 0)
-            .frame(minWidth: btnWidth(engine.droppedFramesCount > 0 ? 32 : 22))
-            .frame(height: btnHeight)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(TransportIconButtonStyle())
-        .explain(
-            engine.droppedFramesCount > 0
-                ? "Dropped Frames: \(engine.droppedFramesCount) during playback (Click to reset)"
-                : "Dropped Frames: 0 (Smooth real-time playback)"
-        )
-    }
+
 }

@@ -11,6 +11,7 @@
 > 1. **DO NOT REMOVE OR BYPASS THE DEDICATED STILL FRAME LAYERS (`stillFrameLayerA` / `stillFrameLayerB`) UNDER ANY CIRCUMSTANCES.**
 > 2. `stillFrameLayerA` and `stillFrameLayerB` are the **exclusive presentation layers** during paused inspection, single-frame stepping, and live continuous playback (via `CADisplayLink`).
 > 3. `playerLayerA` and `playerLayerB` (`AVPlayerLayer`) are kept hidden and are revealed **strictly during active timeline drag scrubbing** (`isScrubbing == true`) to allow zero-copy GPU hardware seeking.
+> 4. **PERFORMANCE & SMOOTH PLAYBACK/SCRUBBING ARE ABSOLUTELY PARAMOUNT**: Liquid 60–120 FPS playback, instant scrubbing, and zero-stutter timeline interaction are core product invariants. If any newly introduced feature, UI component, publisher, disk I/O, or architectural change is suspected of degrading playback or scrub performance, **YOU MUST STOP AND FLAG IT TO THE USER IMMEDIATELY** before proceeding.
 
 ---
 
@@ -111,6 +112,12 @@
    - During continuous linked playback (`isLinked && isPlaying && rate != 0`), `updateCurrentTime` applies a Phase-Locked Loop (PLL) micro-rate adjustment to Slot B's `AVPlayer` to prevent cumulative clock drift between two independent hardware decoders.
    - **Never perform a destructive `seek(to:)` on Slot B while playing** — seeking halts video decode and creates audio pops. The PLL adjusts `slotB.player.rate` by tiny increments to smoothly converge Slot B's playhead onto the target offset.
    - Do not remove or bypass this drift correction when refactoring the time observer or playback code, or A/B sync will gradually diverge during long playback sessions.
+6. **Large Queue & View Hierarchy Scalability (100+ Assets)**:
+   - **Never use eager `VStack` for asset/file lists**: Always use `LazyVStack` in scrollable queues so only visible rows are instantiated and measured.
+   - **Zero Synchronous Disk I/O or JSON Decoding in View Bodies**: Heavy file checks (e.g. `notesCount`) must be backed by an in-memory thread-safe cache (`QCNotesManager.notesCountCache`).
+   - **O(1) Equatable Checks (`queueVersion` / `tagsVersion`)**: Never recursively compare large trees (`playerTreeNodes`), dictionaries (`fileTagsMap`), or URL arrays inside `==` on 60/120 FPS render paths. Track integer versions to allow instantaneous equality checks.
+   - **Per-Row View Isolation**: Queue row views must conform to and use `.equatable()`, must avoid per-row `@ObservedObject` subscriptions to global singletons, and must use stable URLs/IDs rather than dynamic concatenated strings in `.id(...)`.
+   - **AVAssetImageGenerator Throttling**: Cap open thumbnail/frame generator instances (LRU cache) to avoid CoreMedia hardware decoder and file descriptor exhaustion.
 
 ---
 
@@ -164,6 +171,8 @@ Before committing any changes affecting `VideoViewportView.swift`, `PlayerEngine
 - [ ] Verify audio routing maintains mutual exclusivity (only one slot unmuted at a time).
 - [ ] Verify text input fields shield keyboard shortcuts from triggering player transport.
 - [ ] Run `swift build` with 0 warnings/errors under Swift 6.
+- [ ] Verify scrub seeking and playback maintain fluid 60–120 FPS with large queues (100+ assets).
+- [ ] Verify no synchronous disk I/O or JSON decoding runs on the main thread during view evaluations.
 - [ ] Test in canvas mode: Zoom into an edge line, pause, and drag the canvas around with the hand tool. Verify the line **does not** turn white during motion.
 - [ ] Test exposure slider: Scrub EV from -5.0 to +5.0 EV while paused and while playing. Verify video never disappears and exposure brightens/darkens smoothly.
 
@@ -193,6 +202,10 @@ Before committing any changes affecting `VideoViewportView.swift`, `PlayerEngine
 - Do not repeat or parrot back the user's prompt or code before answering.
 - Write zero redundant code comments (no explaining obvious syntax like `// set count to 0`).
 - Explain root causes and architectural decisions in 1–2 dense sentences maximum.
+
+### Performance-First Invariant
+- Smooth playback (60/120 FPS) and butter-smooth scrubbing are paramount.
+- Every time a new feature, UI layout, publisher, or disk access pattern is introduced that could hinder performance, **STOP AND FLAG IT TO THE USER IMMEDIATELY**.
 
 ### Engineering Standards
 - Strict YAGNI: reject speculative abstractions, unnecessary wrappers, and unused dependencies.

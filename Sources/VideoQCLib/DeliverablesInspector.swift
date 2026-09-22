@@ -1,6 +1,7 @@
 import Foundation
 @preconcurrency import AVFoundation
 import CoreMedia
+import Accelerate
 
 public struct DeliverablesInspector: Sendable {
     
@@ -9,7 +10,7 @@ public struct DeliverablesInspector: Sendable {
     // MARK: - Inspection Engine
     
     /// Inspects a single video file URL and extracts all delivery specifications
-    public static func inspectFile(url: URL) async -> DeliverableAsset? {
+    public static func inspectFile(url: URL, calculateAudioLevels: Bool = false) async -> DeliverableAsset? {
         let asset = AVURLAsset(url: url, options: [AVURLAssetPreferPreciseDurationAndTimingKey: true])
         
         do {
@@ -50,7 +51,14 @@ public struct DeliverablesInspector: Sendable {
             // 5. Audio Info (Codec, Bitrate, Sub-Details, Full Config or NONE)
             let audioTracks = (try? await asset.loadTracks(withMediaType: .audio)) ?? []
             let audioInfo = await extractAudioInfo(tracks: audioTracks)
-            let audioLevels = await extractAudioLevels(asset: asset, tracks: audioTracks)
+            let audioLevels: (peakDB: Double?, isMute: Bool, levelString: String)
+            if calculateAudioLevels && !audioTracks.isEmpty {
+                audioLevels = await extractAudioLevels(asset: asset, tracks: audioTracks)
+            } else if audioTracks.isEmpty {
+                audioLevels = (peakDB: nil, isMute: false, levelString: "NO AUDIO")
+            } else {
+                audioLevels = (peakDB: nil, isMute: false, levelString: "--")
+            }
             
             // 6. Subtitles & Closed Captions
             let subInfo = await extractSubtitlesInfo(asset: asset)
@@ -120,7 +128,11 @@ public struct DeliverablesInspector: Sendable {
     }()
     
     /// Inspects a batch of video files in parallel using structured concurrency with bounded worker pool
-    public static func inspectBatch(urls: [URL], maxConcurrency: Int = 4) async -> [DeliverableAsset] {
+    public static func inspectBatch(
+        urls: [URL],
+        maxConcurrency: Int = 4,
+        calculateAudioLevels: Bool = false
+    ) async -> [DeliverableAsset] {
         guard !urls.isEmpty else { return [] }
         let concurrency = min(max(1, maxConcurrency), urls.count)
         
@@ -135,7 +147,7 @@ public struct DeliverablesInspector: Sendable {
                 let url = urls[idx]
                 submitted += 1
                 group.addTask {
-                    let asset = await inspectFile(url: url)
+                    let asset = await inspectFile(url: url, calculateAudioLevels: calculateAudioLevels)
                     return (idx, asset)
                 }
             }
@@ -151,7 +163,7 @@ public struct DeliverablesInspector: Sendable {
                     let nextURL = urls[nextIdx]
                     submitted += 1
                     group.addTask {
-                        let asset = await inspectFile(url: nextURL)
+                        let asset = await inspectFile(url: nextURL, calculateAudioLevels: calculateAudioLevels)
                         return (nextIdx, asset)
                     }
                 }
@@ -426,9 +438,10 @@ public struct DeliverablesInspector: Sendable {
     }
     
     /// Reads audio track samples using AVAssetReader to measure peak level (dBFS) and detect mute/silent tracks.
+    /// Hardware-accelerated using Apple Accelerate framework vDSP SIMD instructions.
     public static func extractAudioLevels(asset: AVAsset, tracks: [AVAssetTrack]) async -> (peakDB: Double?, isMute: Bool, levelString: String) {
         guard let audioTrack = tracks.first else {
-            return (peakDB: nil, isMute: false, levelString: "--")
+            return (peakDB: nil, isMute: false, levelString: "NO AUDIO")
         }
         
         guard let reader = try? AVAssetReader(asset: asset) else {
@@ -437,8 +450,8 @@ public struct DeliverablesInspector: Sendable {
         
         let outputSettings: [String: Any] = [
             AVFormatIDKey: kAudioFormatLinearPCM,
-            AVLinearPCMBitDepthKey: 16,
-            AVLinearPCMIsFloatKey: false,
+            AVLinearPCMBitDepthKey: 32,
+            AVLinearPCMIsFloatKey: true,
             AVLinearPCMIsBigEndianKey: false,
             AVLinearPCMIsNonInterleaved: false
         ]
@@ -454,7 +467,7 @@ public struct DeliverablesInspector: Sendable {
             return (peakDB: nil, isMute: false, levelString: "--")
         }
         
-        var maxPeak: Int32 = 0
+        var maxPeakFloat: Float = 0.0
         var totalSamplesAnalyzed: Int64 = 0
         
         while reader.status == .reading {
@@ -476,14 +489,13 @@ public struct DeliverablesInspector: Sendable {
                 dataPointerOut: &dataPointer
             )
             
-            if status == noErr, let ptr = dataPointer, total >= 2 {
-                let sampleCount = total / MemoryLayout<Int16>.size
-                ptr.withMemoryRebound(to: Int16.self, capacity: sampleCount) { rawInt16 in
-                    for i in 0..<sampleCount {
-                        let sampleVal = abs(Int32(rawInt16[i]))
-                        if sampleVal > maxPeak {
-                            maxPeak = sampleVal
-                        }
+            if status == noErr, let ptr = dataPointer, total >= MemoryLayout<Float>.size {
+                let sampleCount = total / MemoryLayout<Float>.size
+                ptr.withMemoryRebound(to: Float.self, capacity: sampleCount) { floatPtr in
+                    var bufferPeak: Float = 0.0
+                    vDSP_maxmgv(floatPtr, 1, &bufferPeak, vDSP_Length(sampleCount))
+                    if bufferPeak > maxPeakFloat {
+                        maxPeakFloat = bufferPeak
                     }
                 }
                 totalSamplesAnalyzed += Int64(sampleCount)
@@ -498,18 +510,95 @@ public struct DeliverablesInspector: Sendable {
             return (peakDB: nil, isMute: true, levelString: "MUTE")
         }
         
-        if maxPeak == 0 {
+        if maxPeakFloat <= 0.000000001 {
             return (peakDB: -Double.infinity, isMute: true, levelString: "-∞ dB")
         }
         
-        let peakRatio = Double(maxPeak) / 32768.0
-        let peakDB = 20.0 * log10(peakRatio)
-        
-        // Professional silence / mute threshold:
-        // Digital audio noise floor for dither/room tone is below -60 dBFS.
+        let peakDB = Double(20.0 * log10(maxPeakFloat))
         let isMute = peakDB < -60.0
         let levelString = String(format: "%.1f dB", peakDB)
         return (peakDB: peakDB, isMute: isMute, levelString: levelString)
+    }
+    
+    /// Extracts audio levels for a single media file URL using hardware-accelerated SIMD
+    public static func extractAudioLevels(for url: URL) async -> (peakDB: Double?, isMute: Bool, levelString: String) {
+        let asset = AVURLAsset(url: url, options: [AVURLAssetPreferPreciseDurationAndTimingKey: false])
+        let audioTracks = (try? await asset.loadTracks(withMediaType: .audio)) ?? []
+        return await extractAudioLevels(asset: asset, tracks: audioTracks)
+    }
+    
+    /// Analyzes audio levels for an array of deliverable assets in parallel with bounded concurrency and progress reporting
+    public static func analyzeBatchAudioLevels(
+        assets: [DeliverableAsset],
+        maxConcurrency: Int = 4,
+        onProgress: (@Sendable (DeliverableAsset, Int, Int) -> Void)? = nil
+    ) async -> [DeliverableAsset] {
+        guard !assets.isEmpty else { return [] }
+        let concurrency = min(max(1, maxConcurrency), assets.count)
+        
+        return await withTaskGroup(of: (Int, DeliverableAsset).self) { group in
+            var submitted = 0
+            var indexedAssets: [(Int, DeliverableAsset)] = []
+            indexedAssets.reserveCapacity(assets.count)
+            
+            for _ in 0..<concurrency {
+                let idx = submitted
+                let asset = assets[idx]
+                submitted += 1
+                group.addTask {
+                    let updated = await analyzeSingleAssetAudio(asset: asset)
+                    return (idx, updated)
+                }
+            }
+            
+            var completedCount = 0
+            for await (idx, updated) in group {
+                completedCount += 1
+                indexedAssets.append((idx, updated))
+                onProgress?(updated, completedCount, assets.count)
+                
+                if submitted < assets.count {
+                    let nextIdx = submitted
+                    let nextAsset = assets[nextIdx]
+                    submitted += 1
+                    group.addTask {
+                        let updatedNext = await analyzeSingleAssetAudio(asset: nextAsset)
+                        return (nextIdx, updatedNext)
+                    }
+                }
+            }
+            
+            return indexedAssets.sorted { $0.0 < $1.0 }.map { $0.1 }
+        }
+    }
+    
+    private static func analyzeSingleAssetAudio(asset: DeliverableAsset) async -> DeliverableAsset {
+        guard asset.hasAudio else {
+            let validation = validateFilename(
+                fileName: asset.fileName,
+                durationSeconds: asset.durationSeconds,
+                aspectRatio: asset.aspectRatioString,
+                width: asset.width,
+                height: asset.height,
+                hasAudioTrack: false,
+                isAudioMute: false,
+                audioLevelString: "NO AUDIO"
+            )
+            return asset.withAudioLevels(peakDB: nil, isMute: false, levelString: "NO AUDIO", validation: validation)
+        }
+        
+        let levels = await extractAudioLevels(for: asset.fileURL)
+        let validation = validateFilename(
+            fileName: asset.fileName,
+            durationSeconds: asset.durationSeconds,
+            aspectRatio: asset.aspectRatioString,
+            width: asset.width,
+            height: asset.height,
+            hasAudioTrack: true,
+            isAudioMute: levels.isMute,
+            audioLevelString: levels.levelString
+        )
+        return asset.withAudioLevels(peakDB: levels.peakDB, isMute: levels.isMute, levelString: levels.levelString, validation: validation)
     }
     
     // MARK: - Subtitles & Closed Captions Extraction

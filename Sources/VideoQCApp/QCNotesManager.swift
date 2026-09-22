@@ -30,23 +30,60 @@ public actor QCNotesManager {
         mediaURL.appendingPathExtension("qcnotes")
     }
     
-    /// Checks whether notes companion sidecar file exists on disk for a media file.
-    public nonisolated static func hasNotes(for mediaURL: URL) -> Bool {
-        let hidden = sidecarURL(for: mediaURL)
-        if FileManager.default.fileExists(atPath: hidden.path) { return true }
-        let visible = visibleSidecarURL(for: mediaURL)
-        return FileManager.default.fileExists(atPath: visible.path)
+    private static let cacheLock = NSLock()
+    private static var notesCountCache: [URL: Int] = [:]
+    
+    /// Updates the in-memory cache for a file's note count.
+    public nonisolated static func updateCachedCount(_ count: Int, for mediaURL: URL) {
+        cacheLock.lock()
+        notesCountCache[mediaURL.standardizedFileURL] = count
+        cacheLock.unlock()
     }
     
-    /// Returns the number of notes recorded in the companion sidecar file.
+    /// Invalidates cached note count for a specific media file or all files.
+    public nonisolated static func invalidateCache(for mediaURL: URL? = nil) {
+        cacheLock.lock()
+        if let mediaURL = mediaURL {
+            notesCountCache.removeValue(forKey: mediaURL.standardizedFileURL)
+        } else {
+            notesCountCache.removeAll()
+        }
+        cacheLock.unlock()
+    }
+    
+    /// Checks whether notes companion sidecar file exists on disk for a media file.
+    public nonisolated static func hasNotes(for mediaURL: URL) -> Bool {
+        let count = notesCount(for: mediaURL)
+        return count > 0
+    }
+    
+    /// Returns the number of notes recorded in the companion sidecar file (cached for UI performance).
     public nonisolated static func notesCount(for mediaURL: URL) -> Int {
+        let stdURL = mediaURL.standardizedFileURL
+        cacheLock.lock()
+        if let cached = notesCountCache[stdURL] {
+            cacheLock.unlock()
+            return cached
+        }
+        cacheLock.unlock()
+        
         let hidden = sidecarURL(for: mediaURL)
         let visible = visibleSidecarURL(for: mediaURL)
         let targetURL: URL? = FileManager.default.fileExists(atPath: hidden.path) ? hidden : (FileManager.default.fileExists(atPath: visible.path) ? visible : nil)
-        guard let url = targetURL, let data = try? Data(contentsOf: url) else { return 0 }
+        guard let url = targetURL, let data = try? Data(contentsOf: url) else {
+            cacheLock.lock()
+            notesCountCache[stdURL] = 0
+            cacheLock.unlock()
+            return 0
+        }
         let dec = JSONDecoder()
         dec.dateDecodingStrategy = .iso8601
-        return (try? dec.decode(QCNotesDocument.self, from: data))?.notes.count ?? 0
+        let count = (try? dec.decode(QCNotesDocument.self, from: data))?.notes.count ?? 0
+        
+        cacheLock.lock()
+        notesCountCache[stdURL] = count
+        cacheLock.unlock()
+        return count
     }
     
     /// Loads notes from the companion sidecar file if present (checks hidden file first, falls back to visible).
@@ -60,15 +97,22 @@ public actor QCNotesManager {
         } else if FileManager.default.fileExists(atPath: visibleURL.path) {
             targetURL = visibleURL
         } else {
+            QCNotesManager.updateCachedCount(0, for: mediaURL)
             return []
         }
         
-        guard let url = targetURL else { return [] }
+        guard let url = targetURL else {
+            QCNotesManager.updateCachedCount(0, for: mediaURL)
+            return []
+        }
         do {
             let data = try Data(contentsOf: url)
             let doc = try decoder.decode(QCNotesDocument.self, from: data)
-            return doc.notes.sorted { $0.frameIndex < $1.frameIndex }
+            let notes = doc.notes.sorted { $0.frameIndex < $1.frameIndex }
+            QCNotesManager.updateCachedCount(notes.count, for: mediaURL)
+            return notes
         } catch {
+            QCNotesManager.updateCachedCount(0, for: mediaURL)
             return []
         }
     }
@@ -88,6 +132,7 @@ public actor QCNotesManager {
             if FileManager.default.fileExists(atPath: visibleURL.path) {
                 try? FileManager.default.removeItem(at: visibleURL)
             }
+            QCNotesManager.updateCachedCount(0, for: mediaURL)
             return true
         }
         
@@ -102,6 +147,7 @@ public actor QCNotesManager {
         do {
             let data = try encoder.encode(doc)
             try data.write(to: hiddenURL, options: .atomic)
+            QCNotesManager.updateCachedCount(sortedNotes.count, for: mediaURL)
             
             // Set macOS Finder isHidden attribute as an additional guarantee
             var resourceValues = URLResourceValues()

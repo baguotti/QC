@@ -17,6 +17,8 @@ public struct PlayerQueuePanelView: View, Equatable {
     public var fileTagsMap: [URL: FinderTagColor]
     public var isScanning: Bool
     public var isAutoplayEnabled: Bool
+    public var queueVersion: Int = 0
+    public var tagsVersion: Int = 0
     
     // Slot selection / metadata for rows
     public var slotAURL: URL?
@@ -54,17 +56,16 @@ public struct PlayerQueuePanelView: View, Equatable {
     
     public nonisolated static func == (lhs: PlayerQueuePanelView, rhs: PlayerQueuePanelView) -> Bool {
         MainActor.assumeIsolated {
+            lhs.queueVersion == rhs.queueVersion &&
+            lhs.tagsVersion == rhs.tagsVersion &&
             lhs.buttonZoom == rhs.buttonZoom &&
             lhs.isLightMode == rhs.isLightMode &&
             lhs.themeId == rhs.themeId &&
             lhs.folderURL == rhs.folderURL &&
-            lhs.videoFiles == rhs.videoFiles &&
-            lhs.playerTreeNodes == rhs.playerTreeNodes &&
             lhs.playerFilterText == rhs.playerFilterText &&
             lhs.playerCollapsedFolderIDs == rhs.playerCollapsedFolderIDs &&
             lhs.hiddenFolderIDs == rhs.hiddenFolderIDs &&
             lhs.hideAllFolders == rhs.hideAllFolders &&
-            lhs.fileTagsMap == rhs.fileTagsMap &&
             lhs.isScanning == rhs.isScanning &&
             lhs.isAutoplayEnabled == rhs.isAutoplayEnabled &&
             isSameURL(lhs.slotAURL, rhs.slotAURL) &&
@@ -286,18 +287,18 @@ public struct PlayerQueuePanelView: View, Equatable {
                 } else {
                     ScrollViewReader { scrollProxy in
                         ScrollView {
-                            VStack(spacing: queueDisplayMode == "inline" ? 2 : 4) {
+                            LazyVStack(spacing: queueDisplayMode == "inline" ? 2 : 4) {
                                 if hasSubfolders {
                                     ForEach(flattenedNodes) { node in
                                         if node.isDirectory {
                                             folderRow(node: node)
-                                                .id("\(node.id)_\(themeId)")
+                                                .id(node.id)
                                         } else {
                                             let isSelA = isSameURL(slotAURL, node.url)
                                             let isSelB = isSameURL(slotBURL, node.url)
                                             let count = fileNotesCount(url: node.url)
                                             makeFileRow(url: node.url, depth: node.depth, isSlotA: isSelA, isSlotB: isSelB, notesCount: count)
-                                                .id("\(node.url.path)_\(isSelA ? "A" : "_")_\(isSelB ? "B" : "_")_\(count)_\(queueDisplayMode)_\(themeId)")
+                                                .id(node.url)
                                         }
                                     }
                                 } else {
@@ -306,7 +307,7 @@ public struct PlayerQueuePanelView: View, Equatable {
                                         let isSelB = isSameURL(slotBURL, url)
                                         let count = fileNotesCount(url: url)
                                         makeFileRow(url: url, depth: 0, isSlotA: isSelA, isSlotB: isSelB, notesCount: count)
-                                            .id("\(url.path)_\(isSelA ? "A" : "_")_\(isSelB ? "B" : "_")_\(count)_\(queueDisplayMode)_\(themeId)")
+                                            .id(url)
                                     }
                                 }
                             }
@@ -566,6 +567,7 @@ public struct PlayerQueuePanelView: View, Equatable {
             onToggleTag: onToggleTag,
             onClearTag: onClearTag
         )
+        .equatable()
     }
     
     // MARK: - Queue View Options Popover (Thumbnail View / List View / Size Slider)
