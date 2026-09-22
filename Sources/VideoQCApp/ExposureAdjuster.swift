@@ -2,7 +2,7 @@ import Cocoa
 import CoreImage
 import Metal
 
-/// Thread-safe, Metal-accelerated exposure adjuster matching After Effects EV exposure math (I * 2^EV).
+/// @MainActor Metal-accelerated exposure adjuster matching After Effects EV exposure math (I * 2^EV).
 @MainActor
 public final class ExposureAdjuster {
     public static let shared = ExposureAdjuster()

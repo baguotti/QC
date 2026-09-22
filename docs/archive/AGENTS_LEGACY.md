@@ -1,16 +1,15 @@
 # QCpie / LineFinder 5000: Architectural Directives for AI Agents & Developers
+> **LEGACY ARCHIVE SNAPSHOT**
+> **Archived:** March 2026
+> **Purpose:** Pristine historical reference snapshot preserved after resolving CoreMedia motion-downsampling and A/B viewport breakages. If modern updates cause regressions, consult this unedited document for recovery.
 
-> **LEGACY RECOVERY NOTICE**
-> The unedited historical architectural directive is archived at [docs/archive/AGENTS_LEGACY.md](file:///Users/macstudio-smalloffice/Documents/_RIC/QC/docs/archive/AGENTS_LEGACY.md).
-> If future changes cause regressions, refer to the legacy archive for recovery baseline.
+---
 
 > **CRITICAL MANDATE - READ BEFORE MODIFYING PLAYER OR VIEWPORT CODE**
 >
 > The viewport inspection architecture described below has been accidentally broken and re-fixed twice during past refactorings (e.g. during optimization passes and the A/B dual-slot compare mode introduction).
 >
-> 1. **DO NOT REMOVE OR BYPASS THE DEDICATED STILL FRAME LAYERS (`stillFrameLayerA` / `stillFrameLayerB`) UNDER ANY CIRCUMSTANCES.**
-> 2. `stillFrameLayerA` and `stillFrameLayerB` are the **exclusive presentation layers** during paused inspection, single-frame stepping, and live continuous playback (via `CADisplayLink`).
-> 3. `playerLayerA` and `playerLayerB` (`AVPlayerLayer`) are kept hidden and are revealed **strictly during active timeline drag scrubbing** (`isScrubbing == true`) to allow zero-copy GPU hardware seeking.
+> **DO NOT REMOVE OR BYPASS THE DEDICATED STILL FRAME LAYERS (`stillFrameLayerA` / `stillFrameLayerB`) UNDER ANY CIRCUMSTANCES.**
 
 ---
 
@@ -30,8 +29,7 @@
 2. **Why Static `CALayer.contents` is Immune While Paused**:
    - CoreAnimation treats a `CALayer` with a static `CGImage` as an immutable GPU texture. It **never** applies CoreMedia dynamic proxy downsampling during panning, scrolling, stepping, or zooming while paused. The 1-pixel edge line remains solid green at all times.
 3. **Compare Modes Synchronization**:
-   - Every compare mode (single, split vertical, split horizontal, side-by-side, side-by-side vertical, difference, 50% overlay, blink) operates directly and cleanly on both `playerLayerA/B` (during scrub) and `stillFrameLayerA/B` (when paused/playing) (`frames`, `masks`, `compositingFilter`, `opacity`, `zPosition`).
-   - **Blink mode** has a unique visibility pattern: `updateLayerVisibility` hides *both* A-slot layers (`playerLayerA` and `stillFrameLayerA`) entirely, displaying only the B-slot layer (`stillFrameLayerB` when paused/playing, `playerLayerB` when scrubbing). This is distinct from all other compare modes where A-slot layers remain visible.
+   - Every compare mode (single, split vertical, split horizontal, side-by-side, side-by-side vertical, difference, 50% overlay, blink) operates directly and cleanly on both `playerLayerA/B` (during scrub) and `stillFrameLayerA/B` (when paused) (`frames`, `masks`, `compositingFilter`, `opacity`, `zPosition`).
 4. **Instant Seeking & Frame Delivery**:
    - When scrubbing ends or stepping, exact frame seek (`.zero` tolerance) snaps to the exact target frame, and `displayImmediateDecodedFrame` or `slot.frameExtractor.capture(at:)` delivers the uncompressed still frame immediately.
 
@@ -78,98 +76,32 @@
 2. **NO `setNeedsDisplay()` on Player or Still Layers**:
    - Calling `layer.setNeedsDisplay()` on a `CALayer` backed directly by `layer.contents = cgImage` invokes Core Animation's default display cycle, which **immediately wipes `layer.contents` to `nil`** if no custom delegate `draw(in:)` is present.
    - Calling `setNeedsDisplay()` on `AVPlayerLayer` similarly disrupts hardware frame presentation.
-3. **Dual-Pipeline Exposure Architecture**:
-   - **Playback & Paused Inspection (`stillFrameLayerA/B`)**: Exposure is applied directly to the uncompressed `CGImage` via `ExposureAdjuster.shared.applyExposure(to:ev:)` using a GPU-accelerated `CIContext` (<3.2ms per 1080p frame). The result is set directly to `stillFrameLayer.contents`, keeping the texture 100% immune to motion-downsampling during canvas panning and zooming.
-   - **Active Timeline Scrubbing (`playerLayerA/B`)**: When the hardware layers are temporarily revealed for dragging, exposure is applied via `slot.player.currentItem.videoComposition` using `CIExposureAdjust`. When EV is 0.0, `videoComposition` is set to `nil` for zero playback overhead.
-   - This dual approach ensures exposure remains identical across playback, paused inspection, zooming, and active scrub scrubbing.
+3. **Hardware Playback Exposure (`AVVideoComposition`)**:
+   - During live playback (`isPlaying`), exposure adjustment ($I \times 2^{\text{EV}}$) is applied via `slot.player.currentItem.videoComposition` using `CIExposureAdjust`.
+   - When EV is reset to 0.0, `item.videoComposition` is set to `nil` for zero playback overhead.
+4. **Instant Still Frame Exposure (`ExposureAdjuster`)**:
+   - When paused, `ExposureAdjuster.shared.applyExposure(to:ev:)` computes the exposure on the pristine uncompressed `CGImage` using GPU-accelerated `CIContext` (<3.2ms per 1080p frame).
+   - The resulting exposed `CGImage` is set directly to `stillFrameLayer.contents`, maintaining an immutable GPU texture that remains 100% immune to motion-downsampling during canvas panning and zooming.
 
 ---
 
-## 5. Timeline Scrubbing Architecture & Dual-Slot A/B Performance Awareness
+## 5. Pre-Commit Checklist for Future Amends
 
-> **AWARENESS NOTE FOR FUTURE AMENDS & TROUBLESHOOTING**
->
-> Dual-slot A/B scrubbing performance was optimized to eliminate main-thread stuttering on high-spec machines (e.g. Mac Studio M1 Ultra / M3 Max driving 4K/5K displays). Keep the following architecture in mind if modifying scrubbing or playback code:
-
-1. **Zero `@Published` Mutations During Drag Scrubbing (`scrubTo`)**:
-   - Never mutate `@Published` properties (such as `slotB.currentTime` or `currentProgress`) inside `scrubTo()`. The `scrubTo()` call path itself is strictly mutation-free.
-   - Mutating `@Published` properties during mouse drag triggers Combine `objectWillChange` broadcasts that force SwiftUI to re-evaluate the entire view tree at 120 FPS (`ContentView`, `PlayerTabView`, `TimelineScrubberView`, `VideoViewportView`), saturating the main thread.
-   - Timeline playhead dragging is driven 100% locally via `@State private var dragProgress` in `TimelineScrubberView`.
-   - *Exception*: The seek-completion handler in `dispatchScrubSeekSlotA` updates `currentFrame` and `currentTimecode` (both `@Published`) to keep the timecode HUD accurate during scrub. This is safe because it fires at seek-completion cadence (throttled by hardware decoder latency), not at raw 120 FPS mouse-event rate. **Do not remove these updates** — they are necessary for timecode display during scrub.
-2. **Decoupled Parallel Scrub Seeking (`dispatchScrubSeek`)**:
-   - `dispatchScrubSeek(timeA:)` maintains separate seek pipelines (`isScrubSeekingA`/`B` and `pendingScrubTimeA`/`B`).
-   - Slot A and Slot B hardware decoders seek independently without locking each other. If Slot A takes 8ms and Slot B takes 35ms, Slot A must never be forced to idle waiting for Slot B before grabbing the next pending seek frame.
-   - Intermediate seek timestamps are coalesced into `pendingScrubTimeA`/`B` so decoders immediately jump to the latest mouse position without backlog.
-   - Synchronized parallel seeking with exact `.zero` tolerance is reserved for settle (`endScrubbing`), stepping, and pause inspection.
-   - Slot B's target time incorporates `slotB.slipOffsetFrames` (converted to seconds via `slipOffsetFrames / slotB.fps`) for A/B frame slip sync correction. Do not remove this offset calculation during scrub refactoring.
-3. **DisplayLink Suppression During Active Scrubbing**:
-   - `displayLink` is explicitly paused while `engine.isScrubbing` is true, and `renderPlaybackFrames()` guards against running during scrub.
-   - Extracting `videoOutput` pixel buffers for `stillFrameLayerA`/`B` during scrubbing wastes CPU/GPU cycles and locks buffer pools while `playerLayerA`/`B` are presenting frames directly.
-4. **SwiftUI View Modifier Complexity Limits**:
-   - Avoid chaining 20+ view modifiers directly onto a single `body` view expression in `ContentView.swift`. De-nest into computed sub-expression properties (`baseContent`, `contentWithAnimations`, `contentWithChangeHandlers`) to keep Swift type-checking under reasonable compile-time budgets.
-5. **Linked A/B Playback Drift Correction (PLL)**:
-   - During continuous linked playback (`isLinked && isPlaying && rate != 0`), `updateCurrentTime` applies a Phase-Locked Loop (PLL) micro-rate adjustment to Slot B's `AVPlayer` to prevent cumulative clock drift between two independent hardware decoders.
-   - **Never perform a destructive `seek(to:)` on Slot B while playing** — seeking halts video decode and creates audio pops. The PLL adjusts `slotB.player.rate` by tiny increments to smoothly converge Slot B's playhead onto the target offset.
-   - Do not remove or bypass this drift correction when refactoring the time observer or playback code, or A/B sync will gradually diverge during long playback sessions.
-
----
-
-## 6. Compare Modes & Aspect Ratio Invariants
-
-1. **`requiresMatchingAspect` Constraint**:
-   - Comparison modes that overlay or slice pixels in the same coordinate frame (`.splitVertical`, `.splitHorizontal`, `.difference`, `.overlay`) require Slot A and Slot B to share identical aspect ratios.
-   - If two loaded deliverables have different aspect ratios, the engine automatically falls back to `.sideBySide` and disables overlay/split options in the UI to avoid geometric tearing and misaligned pixel comparison.
-2. **Independent Aspect Ratios in Side-by-Side**:
-   - `.sideBySide` (Horizontal) and `.sideBySideVertical` compute separate sub-viewport bounds for each slot, preserving the native aspect ratio of each deliverable without clipping or distorting either video.
-3. **Blink Compare (`isBlinkCompareB`)**:
-   - Blink is a toggle overlay on `.single` mode (not a distinct `CompareMode` case). When active, `updateLayerVisibility` hides all A-slot layers and shows only the B-slot layer, creating a clean A↔B blink toggle.
-   - `isBlinkCompareB` auto-disables if `compareMode` changes away from `.single`, and auto-syncs Slot B when linked.
-
----
-
-## 7. Audio Routing & Slot Exclusivity
-
-1. **Mutual Audio Exclusivity (`updateAudioVolumes`)**:
-   - Only one slot plays audio at any given time: `audioSlot == .slotA` or `.slotB`.
-   - The inactive slot's audio volume is strictly set to `0.0`.
-   - Simultaneous audio output from both slots is strictly prohibited to avoid acoustic comb filtering, phase cancellation, and core audio mixer clipping.
-2. **Global Mute Override**:
-   - When `isMuted == true`, both slots are forced to `0.0` volume regardless of the selected `audioSlot`.
-
----
-
-## 8. Keyboard Event Routing & Text Input Shielding
-
-1. **First-Responder Text Field Shielding**:
-   - `KeyboardShortcutRouter` intercepts key events application-wide.
-   - When a text field (`NSTextView`, `NSTextField`, search bars, QC notes editor, EV number field) is the active first responder, transport and navigation shortcuts (Space, J/K/L, arrow keys, numbers) **MUST be bypassed**.
-   - Pressing ESC or Return inside a text field unfocuses the responder (`makeFirstResponder(nil)`).
-2. **Modal Scope Protection**:
-   - When a modal dialog is active (`isModalActive == true`), background shortcuts must be blocked to prevent accidental state mutations behind the modal.
-
----
-
-## 9. Pre-Commit Checklist for Future Amends
-
-Before committing any changes affecting `VideoViewportView.swift`, `PlayerEngine.swift`, `PlayerTransportDeckView.swift`, or `KeyboardShortcutRouter.swift`:
+Before committing any changes affecting `VideoViewportView.swift`, `PlayerEngine.swift`, or `PlayerTransportDeckView.swift`:
 - [ ] Ensure `stillFrameLayerA` and `stillFrameLayerB` are present in `VideoViewportView`.
-- [ ] Verify `stillFrameLayerA` and `stillFrameLayerB` are the exclusive visual presentation layers across playback and paused states, with `playerLayerA`/`playerLayerB` revealed exclusively during active scrubbing.
+- [ ] Verify `stillFrameLayerA` and `stillFrameLayerB` are the exclusive visual presentation layers across playback, scrubbing, and paused states, with `playerLayerA`/`playerLayerB` kept hidden.
 - [ ] Verify `videoGravity` and `contentsGravity` remain `.resize`.
 - [ ] Verify adaptive texture filtering operates correctly: `.linear` at fit/normal zoom for QuickTime-grade anti-aliasing, and `.nearest` when zoomed in (>= 1.75x) for pixel QC.
 - [ ] Verify rational aspect ratio with even pixel step sizing is used for canvas dimensions and `canvasLayer.masksToBounds` remains `false`.
 - [ ] Verify `layer.setNeedsDisplay()` is NEVER called on `playerLayer` or `stillFrameLayer`.
 - [ ] Verify `playerLayer.filters` is NEVER assigned a `CIFilter` (live video filtering belongs in `AVVideoComposition`).
-- [ ] Verify `scrubTo()` does not mutate `@Published` properties during dragging.
-- [ ] Verify compare modes honor `requiresMatchingAspect` and aspect ratio mismatches fallback cleanly.
-- [ ] Verify audio routing maintains mutual exclusivity (only one slot unmuted at a time).
-- [ ] Verify text input fields shield keyboard shortcuts from triggering player transport.
 - [ ] Run `swift build` with 0 warnings/errors under Swift 6.
 - [ ] Test in canvas mode: Zoom into an edge line, pause, and drag the canvas around with the hand tool. Verify the line **does not** turn white during motion.
 - [ ] Test exposure slider: Scrub EV from -5.0 to +5.0 EV while paused and while playing. Verify video never disappears and exposure brightens/darkens smoothly.
 
 ---
 
-## 10. Absolute Workflow & Operational Directives
+## 6. Absolute Workflow & Operational Directives
 
 > **INVIOLABLE OPERATIONAL DIRECTIVE**
 >
@@ -180,7 +112,7 @@ Before committing any changes affecting `VideoViewportView.swift`, `PlayerEngine
 
 ---
 
-## 11. Project Behavior Rules
+## 7. Project Behavior Rules
 
 ### Communication Style
 - Be extremely direct, concise, and technical.
