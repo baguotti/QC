@@ -27,7 +27,8 @@
 1. **Hybrid Direct-Pixel & Hardware Scrub Pipeline**:
    - **Active Timeline Scrubbing (`isScrubbing == true`)**: `playerLayerA` & `playerLayerB` (`AVPlayerLayer`) are revealed directly. Frames are presented on the GPU hardware compositor with zero copy overhead, streaming fluidly at 60–120 FPS with QuickTime-grade responsiveness.
    - **Paused Inspection, Stepping & Canvas Pan/Zoom (`isScrubbing == false`)**: `stillFrameLayerA` & `stillFrameLayerB` (`CALayer` backed by uncompressed `CGImage` in `contents`) are the EXCLUSIVE visual display layers. This ensures 100% immunity to CoreMedia dynamic proxy downsampling when panning or zooming with the hand tool. Single-pixel edge lines retain 100% saturation and square pixel fidelity.
-   - *How Live Playback Works*: Each `PlayerSlot` attaches an `AVPlayerItemVideoOutput` (32BGRA). `VideoViewportView` uses AppKit's native `CADisplayLink` (synchronized to 60Hz / 120Hz ProMotion). On each display tick, frames are extracted via `copyPixelBuffer` and converted zero-copy to `CGImage` via `VTCreateCGImageFromCVPixelBuffer` (<0.14 ms per frame), then set directly to `stillFrameLayer.contents`.
+   - *How Live Playback Works*: Each `PlayerSlot` attaches an `AVPlayerItemVideoOutput` (32BGRA). `VideoViewportView` uses AppKit's native `CADisplayLink` (synchronized to 60Hz / 120Hz ProMotion). On each display tick, the frame for the vsync it will appear on is selected with `itemTime(forHostTime: link.targetTimestamp)`, extracted via `copyPixelBuffer` and converted zero-copy to `CGImage` via `VTCreateCGImageFromCVPixelBuffer` (<0.14 ms per frame), then set directly to `stillFrameLayer.contents`.
+   - Buffers already on screen are skipped by identity (`presentFrame`): with 25 fps content on a 120 Hz display, 77% of ticks would otherwise re-present the same frame. Do not switch this to `hasNewPixelBuffer` — it marks buffers as acquired, so a second live viewport (fullscreen overlay) would starve.
 2. **Why Static `CALayer.contents` is Immune While Paused**:
    - CoreAnimation treats a `CALayer` with a static `CGImage` as an immutable GPU texture. It **never** applies CoreMedia dynamic proxy downsampling during panning, scrolling, stepping, or zooming while paused. The 1-pixel edge line remains solid green at all times.
 3. **Compare Modes Synchronization**:
@@ -35,6 +36,8 @@
    - **Blink mode** has a unique visibility pattern: `updateLayerVisibility` hides *both* A-slot layers (`playerLayerA` and `stillFrameLayerA`) entirely, displaying only the B-slot layer (`stillFrameLayerB` when paused/playing, `playerLayerB` when scrubbing). This is distinct from all other compare modes where A-slot layers remain visible.
 4. **Instant Seeking & Frame Delivery**:
    - When scrubbing ends or stepping, exact frame seek (`.zero` tolerance) snaps to the exact target frame, and `displayImmediateDecodedFrame` or `slot.frameExtractor.capture(at:)` delivers the uncompressed still frame immediately.
+   - Seek completions reach every live viewport through `PlayerEngine.attachViewport(_:frameDecoded:seekSettled:)` (player tab and fullscreen overlay can both be live). Paused seeks never broadcast `objectWillChange` (that re-rendered the whole window per step).
+   - With an exposure composition installed, the composited frame reaches the video output a few ms *after* the seek completion (the output still holds the previous frame at completion). `watchForFreshStill` keeps the display link ticking for 0.5 s after a paused seek to present it — without it, stepping with EV ≠ 0 shows the previous frame.
 
 ---
 
@@ -60,9 +63,9 @@
 1. **Actor Isolation**:
    - `FrameExtractor` is an isolated `actor` stored on `PlayerSlot`.
    - `AVAssetImageGenerator` is a non-`Sendable` reference type. To comply with Swift 6 strict concurrency without data-race warnings (`#SendingRisksDataRace`), image extraction (`copyCGImage`) is performed synchronously inside `FrameExtractor`'s actor domain.
-2. **Warm Generator Cache (<10ms)**:
+2. **Warm Generator Cache**:
    - Creating a new `AVAssetImageGenerator` on every frame takes ~122ms.
-   - Reusing the warm generator inside `FrameExtractor` executes in **~9.8ms**, providing near-instant still frame display upon pausing or stepping.
+   - Reusing the warm generator inside `FrameExtractor` takes **~15 ms** (1080p H.264 long-GOP, M4 Max) versus ~2 ms for a seek + video output read, so it is only a fallback for when the video output has no buffer (e.g. right after load) and for screenshot export.
 3. **Boundary Fallback**:
    - `capture(at:fallbackURL:)` must always attempt `.zero` tolerance first for frame accuracy.
    - If `.zero` tolerance fails on edge timestamps (e.g. file start/end PTS truncation), it automatically falls back to a 0.02s tolerance retry before failing, ensuring textures never turn blank.
@@ -79,10 +82,12 @@
 2. **NO `setNeedsDisplay()` on Player or Still Layers**:
    - Calling `layer.setNeedsDisplay()` on a `CALayer` backed directly by `layer.contents = cgImage` invokes Core Animation's default display cycle, which **immediately wipes `layer.contents` to `nil`** if no custom delegate `draw(in:)` is present.
    - Calling `setNeedsDisplay()` on `AVPlayerLayer` similarly disrupts hardware frame presentation.
-3. **Dual-Pipeline Exposure Architecture**:
-   - **Playback & Paused Inspection (`stillFrameLayerA/B`)**: Exposure is applied directly to the uncompressed `CGImage` via `ExposureAdjuster.shared.applyExposure(to:ev:)` using a GPU-accelerated `CIContext` (<3.2ms per 1080p frame). The result is set directly to `stillFrameLayer.contents`, keeping the texture 100% immune to motion-downsampling during canvas panning and zooming.
-   - **Active Timeline Scrubbing (`playerLayerA/B`)**: When the hardware layers are temporarily revealed for dragging, exposure is applied via `slot.player.currentItem.videoComposition` using `CIExposureAdjust`. When EV is 0.0, `videoComposition` is set to `nil` for zero playback overhead.
-   - This dual approach ensures exposure remains identical across playback, paused inspection, zooming, and active scrub scrubbing.
+3. **Single Exposure Pipeline (`AVVideoComposition`)**:
+   - Exposure is applied in exactly one place for decoded video: the item's `videoComposition` (`CIExposureAdjust`). `AVPlayerLayer` (scrub) **and** `AVPlayerItemVideoOutput` (playback & paused stills) both receive composited frames, so video output buffers are display-ready. **Never re-apply exposure to video output buffers** — that doubled the EV (measured: +1 EV dialed displayed as +2 EV).
+   - The composition handler reads the EV from a lock-protected box at render time (`ExposureValueBox`), so EV changes **never replace** `item.videoComposition`. Replacing it rebuilds the render pipeline and drops frames during playback (measured at 4K: 44 of 76 frames delivered while dragging EV).
+   - The composition is installed when EV leaves 0 and removed 400 ms after EV settles back at 0 (zero playback overhead at 0 EV; dragging through 0 doesn't rebuild twice).
+   - A paused frame is only re-composited by a seek, and a seek to the exact current time is a no-op, so an EV change while paused nudges a seek within the same frame (`refreshPausedFramesForExposure`).
+   - `FrameExtractor` decodes without the composition: `captureCurrentFrame` applies `ExposureAdjuster` once, so every frame it returns (and `lastDecodedFrame`) is display-ready. Screenshot compositing must not apply exposure again.
 
 ---
 
@@ -96,7 +101,7 @@
    - Never mutate `@Published` properties (such as `slotB.currentTime` or `currentProgress`) inside `scrubTo()`. The `scrubTo()` call path itself is strictly mutation-free.
    - Mutating `@Published` properties during mouse drag triggers Combine `objectWillChange` broadcasts that force SwiftUI to re-evaluate the entire view tree at 120 FPS (`ContentView`, `PlayerTabView`, `TimelineScrubberView`, `VideoViewportView`), saturating the main thread.
    - Timeline playhead dragging is driven 100% locally via `@State private var dragProgress` in `TimelineScrubberView`.
-   - *Exception*: The seek-completion handler in `dispatchScrubSeekSlotA` updates `currentFrame` and `currentTimecode` (both `@Published`) to keep the timecode HUD accurate during scrub. This is safe because it fires at seek-completion cadence (throttled by hardware decoder latency), not at raw 120 FPS mouse-event rate. **Do not remove these updates** — they are necessary for timecode display during scrub.
+   - *Exception*: The seek-completion handler in `dispatchScrubSeekSlotA` updates `currentFrame` and `currentTimecode` to keep the timecode HUD accurate during scrub. Seek completions keep pace with drag events (~110/s measured for 1080p/4K H.264), so these values live on `PlaybackClock` (see §5.7), never on `PlayerEngine`'s `objectWillChange`. **Do not remove these updates** — they are necessary for timecode display during scrub.
 2. **Decoupled Parallel Scrub Seeking (`dispatchScrubSeek`)**:
    - `dispatchScrubSeek(timeA:)` maintains separate seek pipelines (`isScrubSeekingA`/`B` and `pendingScrubTimeA`/`B`).
    - Slot A and Slot B hardware decoders seek independently without locking each other. If Slot A takes 8ms and Slot B takes 35ms, Slot A must never be forced to idle waiting for Slot B before grabbing the next pending seek frame.
@@ -109,15 +114,21 @@
 4. **SwiftUI View Modifier Complexity Limits**:
    - Avoid chaining 20+ view modifiers directly onto a single `body` view expression in `ContentView.swift`. De-nest into computed sub-expression properties (`baseContent`, `contentWithAnimations`, `contentWithChangeHandlers`) to keep Swift type-checking under reasonable compile-time budgets.
 5. **Linked A/B Playback Drift Correction (PLL)**:
-   - During continuous linked playback (`isLinked && isPlaying && rate != 0`), `updateCurrentTime` applies a Phase-Locked Loop (PLL) micro-rate adjustment to Slot B's `AVPlayer` to prevent cumulative clock drift between two independent hardware decoders.
+   - During continuous linked playback (`isLinkedPlaybackRunning`: linked, playing, not scrubbing, and slot A's player actually running), `updateCurrentTime` applies a Phase-Locked Loop (PLL) micro-rate adjustment to Slot B's `AVPlayer` to prevent cumulative clock drift between two independent hardware decoders.
    - **Never perform a destructive `seek(to:)` on Slot B while playing** — seeking halts video decode and creates audio pops. The PLL adjusts `slotB.player.rate` by tiny increments to smoothly converge Slot B's playhead onto the target offset.
+   - **Hard re-sync is `relockSlotB()` only**: when B stalls or lags more than 3.5 frames of wall-clock time (threshold scaled by |rate|), B seeks *ahead* of A and is started with `setRate(_:time:atHostTime:)` at the host time A reaches that position — one seek, landing in phase, at most once per second. Never seek B to A's *current* time and then `playImmediately`: an exact long-GOP seek takes ~100–200 ms, so B restarts ~4 frames behind and the recovery loops (measured in v0.7.11: B at ~6 fps with 6–7 seeks/s after TAB, fast-forward or pause→play, continuing even while B is hidden).
+   - `syncSlotBToMaster()` during linked playback re-locks only when B is off by more than half a frame (TAB/Blink must not seek an already phase-locked B). `setPlaybackRate` waits for any in-flight B seek (pause alignment, re-lock) before starting both players.
    - Do not remove or bypass this drift correction when refactoring the time observer or playback code, or A/B sync will gradually diverge during long playback sessions.
 6. **Large Queue & View Hierarchy Scalability (100+ Assets)**:
    - **Never use eager `VStack` for asset/file lists**: Always use `LazyVStack` in scrollable queues so only visible rows are instantiated and measured.
-   - **Zero Synchronous Disk I/O or JSON Decoding in View Bodies**: Heavy file checks (e.g. `notesCount`) must be backed by an in-memory thread-safe cache (`QCNotesManager.notesCountCache`).
+   - **Zero Synchronous Disk I/O or JSON Decoding in View Bodies**: Heavy file checks (e.g. `notesCount`) must be backed by an in-memory thread-safe cache (`QCNotesManager.notesCountCache`). View bodies read `QCNotesManager.cachedNotesCount(for:)` (never touches disk); the cache is prewarmed off the main thread in `loadFinderTagsForQueue()`. Folder enumeration (`findVideoFiles`) runs off the main thread via `AssetLoadQueue`.
    - **O(1) Equatable Checks (`queueVersion` / `tagsVersion`)**: Never recursively compare large trees (`playerTreeNodes`), dictionaries (`fileTagsMap`), or URL arrays inside `==` on 60/120 FPS render paths. Track integer versions to allow instantaneous equality checks.
    - **Per-Row View Isolation**: Queue row views must conform to and use `.equatable()`, must avoid per-row `@ObservedObject` subscriptions to global singletons, and must use stable URLs/IDs rather than dynamic concatenated strings in `.id(...)`.
    - **AVAssetImageGenerator Throttling**: Cap open thumbnail/frame generator instances (LRU cache) to avoid CoreMedia hardware decoder and file descriptor exhaustion.
+7. **Playback Clock & Per-Frame Views**:
+   - `ContentView` owns the engine as `@StateObject`: any `PlayerEngine` publish re-renders the whole window. Per-frame values (`currentFrame`, `currentTimecode`, `currentProgress`) therefore live on `engine.clock` (`PlaybackClock`); `engine.currentFrame` etc. forward to it. **Never re-add per-frame state as `@Published` on `PlayerEngine`.**
+   - Views that change every frame must not be SwiftUI views observing the clock: a SwiftUI transaction per frame costs ~4.7 ms in the window graph (measured, M4 Max) and ~0.6 ms even in an isolated `NSHostingView`. Use the AppKit-backed views in `PlaybackClockViews.swift` (`PlaybackClockText`, `TimelinePlayhead`, `TimelineProgressFill`), which subscribe to the clock directly. A hidden template `Text` reserves their layout size.
+   - Background progress (Line Finder scans) is throttled to ~5 Hz and runs at `.utility` priority; any `@StateObject` owned by `ContentView` re-renders the whole window when it publishes.
 
 ---
 
@@ -174,7 +185,10 @@ Before committing any changes affecting `VideoViewportView.swift`, `PlayerEngine
 - [ ] Verify scrub seeking and playback maintain fluid 60–120 FPS with large queues (100+ assets).
 - [ ] Verify no synchronous disk I/O or JSON decoding runs on the main thread during view evaluations.
 - [ ] Test in canvas mode: Zoom into an edge line, pause, and drag the canvas around with the hand tool. Verify the line **does not** turn white during motion.
-- [ ] Test exposure slider: Scrub EV from -5.0 to +5.0 EV while paused and while playing. Verify video never disappears and exposure brightens/darkens smoothly.
+- [ ] Test exposure slider: Scrub EV from -5.0 to +5.0 EV while paused and while playing. Verify video never disappears, exposure brightens/darkens smoothly, playback doesn't stutter while dragging, and brightness is identical when playing, paused, stepping and scrubbing.
+- [ ] With EV ≠ 0, step frames with the arrow keys and verify the picture matches the timecode (not one frame behind).
+- [ ] Verify no per-frame state is `@Published` on `PlayerEngine` (per-frame values belong to `PlaybackClock`, displayed by AppKit-backed views).
+- [ ] During linked A/B playback of long-GOP deliverables, press TAB (Blink) on/off, fast-forward (L, L), and K→L quickly: slot B stays in phase with at most one brief re-lock hitch, never repeated B seeks.
 
 ---
 

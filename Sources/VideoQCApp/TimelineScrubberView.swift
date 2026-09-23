@@ -113,6 +113,78 @@ struct PlayheadChevronShape: Shape {
     }
 }
 
+// MARK: - Equatable Glitch & Note Marks
+// Re-evaluated only when markers, notes or geometry change (not on hover, drag or playhead updates).
+
+struct TimelineMarks: View, Equatable {
+    struct NoteMark: Equatable {
+        let frame: Int
+        let colorTag: String
+    }
+    
+    enum Style: Equatable {
+        case rulerPips
+        case trackBars
+    }
+    
+    let style: Style
+    let markerFrames: [Int]
+    let notes: [NoteMark]
+    let durSecs: Double
+    let fps: Double
+    let trackWidth: CGFloat
+    let trackInset: CGFloat
+    
+    private static let markerColor = Color(red: 0.85, green: 0.38, blue: 0.38)
+    
+    private func ratio(for frame: Int) -> CGFloat {
+        let secs = (Double(frame) + 0.5) / max(1.0, fps)
+        return CGFloat(min(1.0, max(0.0, secs / durSecs)))
+    }
+    
+    var body: some View {
+        ZStack(alignment: .topLeading) {
+            if durSecs > 0 {
+                marks
+            }
+        }
+    }
+    
+    @ViewBuilder
+    private var marks: some View {
+        switch style {
+        case .rulerPips:
+            ForEach(Array(markerFrames.enumerated()), id: \.offset) { _, frame in
+                Circle()
+                    .fill(Self.markerColor)
+                    .frame(width: 3.5, height: 3.5)
+                    .shadow(color: Color.red.opacity(0.35), radius: 1)
+                    .position(x: trackInset + trackWidth * ratio(for: frame), y: 20)
+            }
+            ForEach(Array(notes.enumerated()), id: \.offset) { _, note in
+                Circle()
+                    .fill(QCNoteTheme.color(for: note.colorTag))
+                    .frame(width: 4.5, height: 4.5)
+                    .shadow(color: QCNoteTheme.color(for: note.colorTag).opacity(0.35), radius: 1)
+                    .position(x: trackInset + trackWidth * ratio(for: note.frame), y: 20)
+            }
+        case .trackBars:
+            ForEach(Array(markerFrames.enumerated()), id: \.offset) { _, frame in
+                Rectangle()
+                    .fill(Self.markerColor)
+                    .frame(width: 1.5, height: 10)
+                    .position(x: trackWidth * ratio(for: frame), y: 5)
+            }
+            ForEach(Array(notes.enumerated()), id: \.offset) { _, note in
+                Rectangle()
+                    .fill(QCNoteTheme.color(for: note.colorTag))
+                    .frame(width: 1.5, height: 10)
+                    .position(x: trackWidth * ratio(for: note.frame), y: 5)
+            }
+        }
+    }
+}
+
 // MARK: - Main Modern Minimal Timeline Scrubber View
 
 public struct TimelineScrubberView: View {
@@ -148,9 +220,9 @@ public struct TimelineScrubberView: View {
         GeometryReader { geo in
             let width = max(20, geo.size.width)
             let trackWidth = max(1.0, width - (trackInset * 2))
-            let effectiveProgress = dragProgress ?? engine.currentProgress
-            let playheadX = trackInset + trackWidth * CGFloat(min(1.0, max(0.0, effectiveProgress)))
             let durSecs = CMTimeGetSeconds(engine.duration)
+            let markerFrames = engine.activeMarkers.map(\.frameIndex)
+            let noteMarks = engine.activeNotes.map { TimelineMarks.NoteMark(frame: $0.frameIndex, colorTag: $0.colorTag) }
             
             ZStack(alignment: .topLeading) {
                 // Unified Studio Bezel Container (4px radius matching app design system)
@@ -178,33 +250,17 @@ public struct TimelineScrubberView: View {
                     )
                     .equatable()
                     
-                    // Glitch Markers on Ruler (Subtle, crisp pips)
-                    ForEach(engine.activeMarkers) { marker in
-                        if durSecs > 0 {
-                            let fps = max(1.0, engine.activeFps)
-                            let markerSecs = (Double(marker.frameIndex) + 0.5) / fps
-                            let markerX = trackInset + trackWidth * CGFloat(min(1.0, max(0.0, markerSecs / durSecs)))
-                            Circle()
-                                .fill(Color(red: 0.85, green: 0.38, blue: 0.38))
-                                .frame(width: 3.5, height: 3.5)
-                                .shadow(color: Color.red.opacity(0.35), radius: 1)
-                                .position(x: markerX, y: 20)
-                        }
-                    }
-                    
-                    // Review Note Markers on Ruler (Distinct muted colored circular pips)
-                    ForEach(engine.activeNotes) { note in
-                        if durSecs > 0 {
-                            let fps = max(1.0, engine.activeFps)
-                            let noteSecs = (Double(note.frameIndex) + 0.5) / fps
-                            let noteX = trackInset + trackWidth * CGFloat(min(1.0, max(0.0, noteSecs / durSecs)))
-                            Circle()
-                                .fill(QCNoteTheme.color(for: note.colorTag))
-                                .frame(width: 4.5, height: 4.5)
-                                .shadow(color: QCNoteTheme.color(for: note.colorTag).opacity(0.35), radius: 1)
-                                .position(x: noteX, y: 20)
-                        }
-                    }
+                    // Glitch & Review Note Pips on Ruler
+                    TimelineMarks(
+                        style: .rulerPips,
+                        markerFrames: markerFrames,
+                        notes: noteMarks,
+                        durSecs: durSecs,
+                        fps: engine.activeFps,
+                        trackWidth: trackWidth,
+                        trackInset: trackInset
+                    )
+                    .equatable()
                 }
                 .frame(height: 22)
                 
@@ -219,37 +275,25 @@ public struct TimelineScrubberView: View {
                         )
                         .frame(width: trackWidth, height: 10)
                     
-                    // Played Progress Fill (Solid theme accent, flat pro studio aesthetic)
-                    Rectangle()
-                        .fill(playheadAccent)
-                        .frame(width: max(0, playheadX - trackInset), height: 10)
-                        .clipShape(RoundedRectangle(cornerRadius: 2.0))
+                    // Played Progress Fill (Solid theme accent; moved per frame by Core Animation, see PlaybackClockViews)
+                    TimelineProgressFill(
+                        clock: engine.clock,
+                        dragProgress: dragProgress,
+                        color: playheadAccent
+                    )
+                    .frame(width: trackWidth, height: 10)
                     
-                    // Glitch Markers Inside Track (Crisp 1.5px vertical bars)
-                    ForEach(engine.activeMarkers) { marker in
-                        if durSecs > 0 {
-                            let fps = max(1.0, engine.activeFps)
-                            let markerSecs = (Double(marker.frameIndex) + 0.5) / fps
-                            let markerX = trackWidth * CGFloat(min(1.0, max(0.0, markerSecs / durSecs)))
-                            Rectangle()
-                                .fill(Color(red: 0.85, green: 0.38, blue: 0.38))
-                                .frame(width: 1.5, height: 10)
-                                .position(x: markerX, y: 5)
-                        }
-                    }
-                    
-                    // Review Note Markers Inside Track (Crisp 1.5px vertical bars)
-                    ForEach(engine.activeNotes) { note in
-                        if durSecs > 0 {
-                            let fps = max(1.0, engine.activeFps)
-                            let noteSecs = (Double(note.frameIndex) + 0.5) / fps
-                            let noteX = trackWidth * CGFloat(min(1.0, max(0.0, noteSecs / durSecs)))
-                            Rectangle()
-                                .fill(QCNoteTheme.color(for: note.colorTag))
-                                .frame(width: 1.5, height: 10)
-                                .position(x: noteX, y: 5)
-                        }
-                    }
+                    // Glitch & Review Note Markers Inside Track (Crisp 1.5px vertical bars)
+                    TimelineMarks(
+                        style: .trackBars,
+                        markerFrames: markerFrames,
+                        notes: noteMarks,
+                        durSecs: durSecs,
+                        fps: engine.activeFps,
+                        trackWidth: trackWidth,
+                        trackInset: trackInset
+                    )
+                    .equatable()
                 }
                 .frame(width: trackWidth, height: 10)
                 .offset(x: trackInset, y: 29)
@@ -266,34 +310,15 @@ public struct TimelineScrubberView: View {
                         .allowsHitTesting(false)
                 }
                 
-                // MARK: - Modern Tactile Playhead (CTI)
-                // 1. Full-Height Precision Needle (Crisp hairline)
-                Rectangle()
-                    .fill(playheadAccent)
-                    .frame(width: isDragging ? 1.75 : 1.0, height: 43)
-                    .offset(x: playheadX - (isDragging ? 0.875 : 0.5), y: 2)
-                    .allowsHitTesting(false)
-                
-                // 2. Chevron-Style Tactile Head Badge (Clean, flat studio aesthetic)
-                ZStack {
-                    PlayheadChevronShape(tipProportion: 0.38, cornerRadius: 1.0)
-                        .fill(playheadAccent)
-                        .frame(width: 11, height: 13)
-                        .shadow(color: Color.black.opacity(0.35), radius: 1.5, x: 0, y: 1)
-                    
-                    PlayheadChevronShape(tipProportion: 0.38, cornerRadius: 1.0)
-                        .stroke(isLightMode ? Color.black.opacity(0.20) : Color.white.opacity(0.65), lineWidth: 0.75)
-                        .frame(width: 11, height: 13)
-                    
-                    // Micro-notch center line
-                    Rectangle()
-                        .fill(Color.white.opacity(0.90))
-                        .frame(width: 1.0, height: 4.5)
-                        .offset(y: -1.5)
-                }
-                .scaleEffect(isDragging ? 1.15 : 1.0)
-                .animation(.spring(response: 0.2, dampingFraction: 0.7), value: isDragging)
-                .offset(x: playheadX - 5.5, y: 1)
+                // MARK: - Modern Tactile Playhead (CTI; moved per frame by Core Animation, see PlaybackClockViews)
+                TimelinePlayhead(
+                    clock: engine.clock,
+                    dragProgress: dragProgress,
+                    isDragging: isDragging,
+                    trackInset: trackInset,
+                    accent: playheadAccent,
+                    isLightMode: isLightMode
+                )
                 .allowsHitTesting(false)
                 
                 // Native AppKit Scroll Wheel & Trackpad Interceptor

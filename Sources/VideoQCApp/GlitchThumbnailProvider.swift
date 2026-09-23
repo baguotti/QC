@@ -11,6 +11,7 @@ public actor GlitchThumbnailProvider {
     private var cache: [String: CGImage] = [:]
     private var cacheOrder: [String] = []
     private var generators: [URL: AVAssetImageGenerator] = [:]
+    private var generatorOrder: [URL] = [] // least recently used first
     private let maxCacheItems = 300
     
     public init() {}
@@ -30,14 +31,19 @@ public actor GlitchThumbnailProvider {
         let stdURL = url.standardizedFileURL
         if let existing = generators[stdURL] {
             gen = existing
+            if let index = generatorOrder.firstIndex(of: stdURL) {
+                generatorOrder.remove(at: index)
+            }
+            generatorOrder.append(stdURL)
         } else {
-            if generators.count >= 16, let oldest = generators.keys.first {
-                generators.removeValue(forKey: oldest)
+            if generators.count >= 16, !generatorOrder.isEmpty {
+                generators.removeValue(forKey: generatorOrder.removeFirst())
             }
             let asset = AVURLAsset(url: stdURL, options: [AVURLAssetPreferPreciseDurationAndTimingKey: false])
             let newGen = AVAssetImageGenerator(asset: asset)
             newGen.appliesPreferredTrackTransform = true
             generators[stdURL] = newGen
+            generatorOrder.append(stdURL)
             gen = newGen
         }
         
@@ -94,6 +100,7 @@ public actor GlitchThumbnailProvider {
         cache.removeAll()
         cacheOrder.removeAll()
         generators.removeAll()
+        generatorOrder.removeAll()
     }
 }
 

@@ -240,15 +240,12 @@ public final class PlayerSlot: ObservableObject {
         return String(format: "%.2f:1 (%dx%d)", aspect, w, h)
     }
     
-    public var formattedFileSize: String {
-        guard let url = url else { return "--" }
-        do {
-            let values = try url.resourceValues(forKeys: [.fileSizeKey])
-            if let bytes = values.fileSize {
-                return ByteCountFormatter.string(fromByteCount: Int64(bytes), countStyle: .file)
-            }
-        } catch {}
-        return "--"
+    /// Resolved once per load off the main thread (read per viewport update by the clip info overlay).
+    public var formattedFileSize: String = "--"
+    
+    nonisolated static func fileSizeText(for url: URL) -> String {
+        guard let bytes = try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize else { return "--" }
+        return ByteCountFormatter.string(fromByteCount: Int64(bytes), countStyle: .file)
     }
     
     public var displayResolution: String {
@@ -339,6 +336,25 @@ public struct TransportState: Equatable, Sendable {
         self.hasActiveURL = hasActiveURL
         self.notesCount = notesCount
     }
+}
+
+// MARK: - Playback Clock
+
+/// Per-frame playhead state, published separately from `PlayerEngine.objectWillChange` so that only the
+/// timecode readouts and the timeline playhead re-render at frame / scrub rate (not the whole view tree).
+@MainActor
+public final class PlaybackClock: ObservableObject {
+    @Published public fileprivate(set) var currentTimecode: String = "00:00:00:00"
+    @Published public fileprivate(set) var currentFrame: Int = 0
+    @Published public fileprivate(set) var currentProgress: Double = 0.0 // 0.0 ... 1.0
+}
+
+/// Exposure read by the video composition handler at render time, so EV changes never replace
+/// `AVPlayerItem.videoComposition` (a replacement rebuilds the render pipeline and drops frames).
+private final class ExposureValueBox: Sendable {
+    private let state = OSAllocatedUnfairLock(initialState: 0.0)
+    var value: Double { state.withLock { $0 } }
+    func set(_ newValue: Double) { state.withLock { $0 = newValue } }
 }
 
 @MainActor
@@ -461,11 +477,26 @@ public final class PlayerEngine: ObservableObject {
     
     public var currentTime: CMTime = .zero
     @Published public var duration: CMTime = .zero
-    @Published public var currentTimecode: String = "00:00:00:00"
     @Published public var durationTimecode: String = "00:00:00:00"
-    @Published public var currentProgress: Double = 0.0 // 0.0 ... 1.0
-    @Published public var currentFrame: Int = 0
     @Published public var totalFrames: Int = 0
+    
+    // Per-frame values live on `clock`; never re-add them as @Published on the engine.
+    public let clock = PlaybackClock()
+    
+    public var currentTimecode: String {
+        get { clock.currentTimecode }
+        set { if clock.currentTimecode != newValue { clock.currentTimecode = newValue } }
+    }
+    
+    public var currentFrame: Int {
+        get { clock.currentFrame }
+        set { if clock.currentFrame != newValue { clock.currentFrame = newValue } }
+    }
+    
+    public var currentProgress: Double {
+        get { clock.currentProgress }
+        set { if clock.currentProgress != newValue { clock.currentProgress = newValue } }
+    }
     @Published public var displayTimeAsFrames: Bool = false
     
     @Published public var rate: Float = 0.0
@@ -484,7 +515,10 @@ public final class PlayerEngine: ObservableObject {
     // Video Exposure Adjustment (EV stops: -5.0 to +5.0)
     @Published public var exposureEV: Double = 0.0 {
         didSet {
+            guard exposureEV != oldValue else { return }
+            exposureBox.set(exposureEV)
             updateVideoCompositions()
+            refreshPausedFramesForExposure()
         }
     }
     
@@ -511,38 +545,67 @@ public final class PlayerEngine: ObservableObject {
     
     public func resetDroppedFrames() {}
     
-    // MARK: - Exposure Video Composition (Hardware-Accelerated Playback)
+    // MARK: - Exposure Video Composition (Single Exposure Pipeline)
+    //
+    // The composition is the only place exposure is applied to decoded video: AVPlayerLayer (scrub) and
+    // AVPlayerItemVideoOutput (playback & paused stills) both receive composited frames, so the viewport must
+    // never re-apply exposure to video output buffers. The handler reads `exposureBox` per frame, so EV changes
+    // never replace the composition. Installed when EV leaves 0, removed once EV settles back at 0.
+    
+    private let exposureBox = ExposureValueBox()
+    private var exposureTeardownTask: Task<Void, Never>? = nil
     
     public func updateVideoCompositions() {
-        updateComposition(for: slotA)
-        updateComposition(for: slotB)
-    }
-    
-    private func updateComposition(for slot: PlayerSlot) {
-        guard let item = slot.player.currentItem else { return }
-        if abs(exposureEV) < 0.001 {
-            if item.videoComposition != nil {
-                item.videoComposition = nil
-            }
+        exposureTeardownTask?.cancel()
+        exposureTeardownTask = nil
+        if abs(exposureEV) >= 0.001 {
+            installExposureComposition(for: slotA)
+            installExposureComposition(for: slotB)
             return
         }
-        let ev = self.exposureEV
-        let asset = item.asset
-        let comp = AVVideoComposition(asset: asset, applyingCIFiltersWithHandler: { request in
-            let source = request.sourceImage
-            guard let filter = CIFilter(name: "CIExposureAdjust") else {
-                request.finish(with: source, context: nil)
+        guard slotA.player.currentItem?.videoComposition != nil || slotB.player.currentItem?.videoComposition != nil else { return }
+        // Debounced so dragging EV through 0 doesn't rebuild the render pipeline twice.
+        exposureTeardownTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .milliseconds(400))
+            guard let self, !Task.isCancelled, abs(self.exposureEV) < 0.001 else { return }
+            self.slotA.player.currentItem?.videoComposition = nil
+            self.slotB.player.currentItem?.videoComposition = nil
+        }
+    }
+    
+    private func installExposureComposition(for slot: PlayerSlot) {
+        guard abs(exposureEV) >= 0.001, let item = slot.player.currentItem, item.videoComposition == nil else { return }
+        let box = exposureBox
+        item.videoComposition = AVVideoComposition(asset: item.asset, applyingCIFiltersWithHandler: { @Sendable request in
+            let ev = box.value
+            guard abs(ev) >= 0.001 else {
+                request.finish(with: request.sourceImage, context: nil)
                 return
             }
-            filter.setValue(source, forKey: kCIInputImageKey)
-            filter.setValue(ev, forKey: kCIInputEVKey)
-            if let output = filter.outputImage {
-                request.finish(with: output, context: nil)
-            } else {
-                request.finish(with: source, context: nil)
-            }
+            request.finish(with: request.sourceImage.applyingFilter("CIExposureAdjust", parameters: [kCIInputEVKey: ev]), context: nil)
         })
-        item.videoComposition = comp
+    }
+    
+    /// A paused frame is only re-composited by a seek, and a seek to the exact current time is a no-op in
+    /// AVFoundation, so nudge within the same frame to re-render it with the new exposure.
+    private func refreshPausedFramesForExposure() {
+        guard !isPlaying, !isScrubbing, slotA.player.currentItem != nil else { return }
+        seek(toTime: nudgedFrameTime(frame: currentFrame, fps: activeFps, current: slotA.player.currentTime()))
+        
+        let showsSlotB = slotB.url != nil && slotB.player.currentItem != nil && (compareMode != .single || isBlinkCompareB)
+        guard showsSlotB && !isLinked else { return }
+        let fpsB = max(1.0, slotB.fps)
+        let currentB = slotB.player.currentTime()
+        let secsB = CMTimeGetSeconds(currentB)
+        guard secsB.isFinite else { return }
+        seekSlotB(to: nudgedFrameTime(frame: Int(floor(secsB * fpsB + 1e-4)), fps: fpsB, current: currentB))
+    }
+    
+    private func nudgedFrameTime(frame: Int, fps: Double, current: CMTime) -> CMTime {
+        let safeFps = max(1.0, fps)
+        let center = (Double(frame) + 0.5) / safeFps
+        let isAtCenter = abs(CMTimeGetSeconds(current) - center) < 0.0001
+        return CMTime(seconds: isAtCenter ? center + 0.25 / safeFps : center, preferredTimescale: 60000)
     }
     
     // Glitch Markers from Line Scanner
@@ -610,6 +673,15 @@ public final class PlayerEngine: ObservableObject {
     private var pendingSeekTimeB: CMTime? = nil
     private var pendingSeekCompletionB: (@MainActor @Sendable () -> Void)? = nil
     private var lastDriftCorrectionTime: Date = .distantPast
+
+    // Hard re-sync of slot B during linked playback (see `relockSlotB`).
+    private var isRelockingB: Bool = false
+    private var relockGeneration: Int = 0
+    private var relockHoldUntil: CFTimeInterval = 0
+    private var lastRelockStart: CFTimeInterval = -.greatestFiniteMagnitude
+    private var relockLead: Double = 0.25
+    // pause() aligns slot B with an untracked seek; play must not start B while it is still in flight.
+    private var isPauseAlignSeekPendingB: Bool = false
     
     // Dedicated interactive scrub seek state (independent hardware decoding pipelines)
     private var isScrubSeekingA: Bool = false
@@ -617,8 +689,43 @@ public final class PlayerEngine: ObservableObject {
     private var isScrubSeekingB: Bool = false
     private var pendingScrubTimeB: CMTime? = nil
     
-    /// Immediate frame presentation callback called when hardware seek decoding finishes
-    public var onFrameDecoded: (@MainActor (SlotTarget, CMTime) -> Void)? = nil
+    // Viewport presentation hooks. Several viewports can be live at once (player tab + fullscreen overlay),
+    // so each registers its own hooks instead of sharing a single callback.
+    private struct ViewportObserver {
+        weak var owner: AnyObject?
+        let frameDecoded: @MainActor (SlotTarget, CMTime) -> Void
+        let seekSettled: @MainActor () -> Void
+    }
+    private var viewportObservers: [ViewportObserver] = []
+    
+    /// `frameDecoded` fires when a seek has decoded the target frame; `seekSettled` fires when a paused seek
+    /// completes (replaces a full `objectWillChange` broadcast that re-rendered the whole view tree per step).
+    public func attachViewport(
+        _ owner: AnyObject,
+        frameDecoded: @escaping @MainActor (SlotTarget, CMTime) -> Void,
+        seekSettled: @escaping @MainActor () -> Void
+    ) {
+        viewportObservers.removeAll { $0.owner == nil || $0.owner === owner }
+        viewportObservers.append(ViewportObserver(owner: owner, frameDecoded: frameDecoded, seekSettled: seekSettled))
+    }
+    
+    public func detachViewport(_ owner: AnyObject) {
+        viewportObservers.removeAll { $0.owner == nil || $0.owner === owner }
+    }
+    
+    private func notifyFrameDecoded(_ slot: SlotTarget, at time: CMTime) {
+        viewportObservers.removeAll { $0.owner == nil }
+        for observer in viewportObservers {
+            observer.frameDecoded(slot, time)
+        }
+    }
+    
+    private func notifySeekSettled() {
+        viewportObservers.removeAll { $0.owner == nil }
+        for observer in viewportObservers {
+            observer.seekSettled()
+        }
+    }
     
     public init() {
         slotA.player.automaticallyWaitsToMinimizeStalling = false
@@ -692,6 +799,7 @@ public final class PlayerEngine: ObservableObject {
         self.objectWillChange.send()
         slotA.url = stdURL
         slotA.fileName = stdURL.lastPathComponent
+        slotA.formattedFileSize = "--"
         self.activeNotes = []
         self.activeNotesURL = nil
         self.currentTime = .zero
@@ -717,7 +825,7 @@ public final class PlayerEngine: ObservableObject {
         
         slotA.player.replaceCurrentItem(with: item)
         slotA.player.automaticallyWaitsToMinimizeStalling = false
-        updateComposition(for: slotA)
+        installExposureComposition(for: slotA)
         
         itemPresentationSizeCancellable = item.publisher(for: \.presentationSize)
             .receive(on: DispatchQueue.main)
@@ -778,6 +886,7 @@ public final class PlayerEngine: ObservableObject {
         self.objectWillChange.send()
         slotB.url = stdURL
         slotB.fileName = stdURL.lastPathComponent
+        slotB.formattedFileSize = "--"
         slotB.slipOffsetFrames = 0
         if activeTarget == .slotB {
             self.activeNotes = []
@@ -795,7 +904,7 @@ public final class PlayerEngine: ObservableObject {
         
         slotB.player.replaceCurrentItem(with: item)
         slotB.player.automaticallyWaitsToMinimizeStalling = false
-        updateComposition(for: slotB)
+        installExposureComposition(for: slotB)
         
         itemPresentationSizeCancellableB = item.publisher(for: \.presentationSize)
             .receive(on: DispatchQueue.main)
@@ -834,6 +943,8 @@ public final class PlayerEngine: ObservableObject {
     }
     
     private func extractMetadata(asset: AVURLAsset, for target: SlotTarget) async {
+        let fileURL = asset.url
+        let fileSizeText = await Task.detached(priority: .utility) { PlayerSlot.fileSizeText(for: fileURL) }.value
         do {
             let dur = try await asset.load(.duration)
             let tracks = try await asset.loadTracks(withMediaType: .video)
@@ -879,6 +990,7 @@ public final class PlayerEngine: ObservableObject {
                 self.slotA.codec = codecStr
                 self.slotA.videoSize = detectedSize
                 self.slotA.totalFrames = totFrames
+                self.slotA.formattedFileSize = fileSizeText
                 
                 self.duration = dur
                 self.totalFrames = totFrames
@@ -901,6 +1013,7 @@ public final class PlayerEngine: ObservableObject {
                 self.slotB.codec = codecStr
                 self.slotB.videoSize = detectedSize
                 self.slotB.totalFrames = totFrames
+                self.slotB.formattedFileSize = fileSizeText
                 self.syncSlotBToMaster()
                 self.enforceCompatibleCompareMode()
             }
@@ -957,6 +1070,7 @@ public final class PlayerEngine: ObservableObject {
         let duration: CMTime
         let videoSize: CGSize
         let totalFrames: Int
+        let formattedFileSize: String
         let currentTime: CMTime
         let lastDecodedFrame: CGImage?
         
@@ -969,6 +1083,7 @@ public final class PlayerEngine: ObservableObject {
             self.duration = slot.duration
             self.videoSize = slot.videoSize
             self.totalFrames = slot.totalFrames
+            self.formattedFileSize = slot.formattedFileSize
             self.currentTime = slot.player.currentTime()
             self.lastDecodedFrame = slot.lastDecodedFrame
         }
@@ -982,6 +1097,7 @@ public final class PlayerEngine: ObservableObject {
             slot.duration = duration
             slot.videoSize = videoSize
             slot.totalFrames = totalFrames
+            slot.formattedFileSize = formattedFileSize
             slot.lastDecodedFrame = lastDecodedFrame
         }
     }
@@ -1026,7 +1142,7 @@ public final class PlayerEngine: ObservableObject {
             slotA.attachVideoOutput(to: itemA)
             slotA.player.replaceCurrentItem(with: itemA)
             slotA.player.seek(to: snapB.currentTime, toleranceBefore: .zero, toleranceAfter: .zero)
-            updateComposition(for: slotA)
+            installExposureComposition(for: slotA)
             
             itemPresentationSizeCancellable = itemA.publisher(for: \.presentationSize)
                 .receive(on: DispatchQueue.main)
@@ -1057,7 +1173,7 @@ public final class PlayerEngine: ObservableObject {
             slotB.attachVideoOutput(to: itemB)
             slotB.player.replaceCurrentItem(with: itemB)
             slotB.player.seek(to: snapA.currentTime, toleranceBefore: .zero, toleranceAfter: .zero)
-            updateComposition(for: slotB)
+            installExposureComposition(for: slotB)
             
             itemPresentationSizeCancellableB = itemB.publisher(for: \.presentationSize)
                 .receive(on: DispatchQueue.main)
@@ -1124,6 +1240,7 @@ public final class PlayerEngine: ObservableObject {
         slotB.codec = ""
         slotB.duration = .zero
         slotB.totalFrames = 0
+        slotB.formattedFileSize = "--"
         slotB.slipOffsetFrames = 0
         slotB.lastDecodedFrame = nil
         Task { [slotB] in
@@ -1154,6 +1271,7 @@ public final class PlayerEngine: ObservableObject {
         slotA.codec = ""
         slotA.duration = .zero
         slotA.totalFrames = 0
+        slotA.formattedFileSize = "--"
         slotA.lastDecodedFrame = nil
         Task { [slotA] in
             await slotA.frameExtractor.setURL(nil)
@@ -1203,8 +1321,82 @@ public final class PlayerEngine: ObservableObject {
         let masterSecs = CMTimeGetSeconds(slotA.player.currentTime())
         let offsetSecs = Double(slotB.slipOffsetFrames) / max(1.0, slotB.fps)
         let targetSecs = max(0.0, masterSecs + offsetSecs)
+        if isLinkedPlaybackRunning {
+            // B is kept in phase by the PLL while playing; a plain seek would leave it behind by the seek latency.
+            let driftSecs = CMTimeGetSeconds(slotB.player.currentTime()) - targetSecs
+            if !driftSecs.isFinite || abs(driftSecs) > 0.5 / max(1.0, slotB.fps) || slotB.player.rate == 0 {
+                relockSlotB()
+            }
+            return
+        }
         let targetTimeB = CMTime(seconds: targetSecs, preferredTimescale: 60000)
         seekSlotB(to: targetTimeB)
+    }
+
+    /// Linked playback with the master actually running (the only state in which slot B is phase-locked).
+    private var isLinkedPlaybackRunning: Bool {
+        isLinked && isPlaying && !isScrubbing && rate != 0 && slotA.player.rate != 0 && slotB.url != nil
+    }
+
+    /// Hard re-sync of slot B during linked playback. An exact seek into long-GOP media takes ~100–200 ms, so
+    /// seeking B to A's *current* time and restarting it left B several frames behind every time and the stall
+    /// recovery re-seeked it several times a second (B stuttered at ~6 fps after TAB, fast-forward or pause/play).
+    /// B instead seeks ahead of A and is started with `setRate(_:time:atHostTime:)` at the host time A reaches
+    /// that position: one seek, landing in phase. The lead adapts to the measured seek latency.
+    private func relockSlotB() {
+        guard !isRelockingB, !isSeekingB, isLinkedPlaybackRunning,
+              let itemB = slotB.player.currentItem, itemB.status == .readyToPlay else { return }
+        let secsA = CMTimeGetSeconds(slotA.player.currentTime())
+        guard secsA.isFinite else { return }
+        let playRate = rate
+        let offsetSecs = Double(slotB.slipOffsetFrames) / max(1.0, slotB.fps)
+        let targetA = CMTime(seconds: secsA + relockLead * Double(playRate), preferredTimescale: 60000)
+        let targetB = CMTime(seconds: max(0.0, CMTimeGetSeconds(targetA) + offsetSecs), preferredTimescale: 60000)
+        let itemID = ObjectIdentifier(itemB)
+        let generation = relockGeneration
+        let seekStart = CACurrentMediaTime()
+
+        isRelockingB = true
+        relockHoldUntil = .greatestFiniteMagnitude
+        lastRelockStart = seekStart
+        slotB.player.pause()
+        slotB.player.seek(to: targetB, toleranceBefore: .zero, toleranceAfter: .zero) { [weak self] finished in
+            let complete = { @MainActor in
+                guard let self = self else { return }
+                self.isRelockingB = false
+                self.relockHoldUntil = 0
+                guard finished, generation == self.relockGeneration, self.isLinkedPlaybackRunning, self.rate == playRate,
+                      let currentB = self.slotB.player.currentItem, ObjectIdentifier(currentB) == itemID else { return }
+                self.relockLead = min(1.0, max(0.15, (CACurrentMediaTime() - seekStart) * 1.5 + 0.05))
+                self.slotB.player.automaticallyWaitsToMinimizeStalling = false
+                let hostClock = CMClockGetHostTimeClock()
+                // Host time at which A reaches targetA. If the seek overran the lead it is in the past and B starts
+                // interpolated to A's current position, still in phase.
+                guard let timebaseA = self.slotA.player.currentItem?.timebase else {
+                    self.slotB.player.playImmediately(atRate: playRate)
+                    return
+                }
+                let startHost = CMSyncConvertTime(targetA, from: timebaseA, to: hostClock)
+                guard startHost.isValid else {
+                    self.slotB.player.playImmediately(atRate: playRate)
+                    return
+                }
+                self.slotB.player.setRate(playRate, time: targetB, atHostTime: startHost)
+                let startsIn = max(0.0, CMTimeGetSeconds(CMTimeSubtract(startHost, CMClockGetTime(hostClock))))
+                self.relockHoldUntil = CACurrentMediaTime() + startsIn + 0.15
+            }
+            if Thread.isMainThread {
+                MainActor.assumeIsolated { complete() }
+            } else {
+                DispatchQueue.main.async { MainActor.assumeIsolated { complete() } }
+            }
+        }
+    }
+
+    /// Explicit transport actions supersede an in-flight re-lock.
+    private func cancelSlotBRelock() {
+        relockGeneration &+= 1
+        relockHoldUntil = 0
     }
     
     private func seekSlotB(to time: CMTime, tolerance: CMTime = .zero, completion: (@MainActor @Sendable () -> Void)? = nil) {
@@ -1222,10 +1414,10 @@ public final class PlayerEngine: ObservableObject {
             let runCompletion = { @MainActor in
                 guard let self = self else { return }
                 self.isSeekingB = false
-                self.onFrameDecoded?(.slotB, time)
+                self.notifyFrameDecoded(.slotB, at: time)
                 completion?()
                 if !self.isPlaying && !self.isScrubbing {
-                    self.objectWillChange.send()
+                    self.notifySeekSettled()
                 }
                 if let nextB = self.pendingSeekTimeB {
                     let nextComp = self.pendingSeekCompletionB
@@ -1313,7 +1505,8 @@ public final class PlayerEngine: ObservableObject {
             // Continuous drift correction during linked playback:
             // High-precision Phase-Locked Loop (PLL) micro-rate adjustment with stall recovery.
             // Samples both players synchronously on the main thread to eliminate observer dispatch skew.
-            if self.isLinked && self.isPlaying && self.rate != 0 && !self.isSeekingB {
+            // Suspended while B is being re-locked and until it has started in phase (see relockSlotB).
+            if isLinkedPlaybackRunning && !self.isSeekingB && !self.isRelockingB && CACurrentMediaTime() >= self.relockHoldUntil {
                 let liveA = slotA.player.currentTime()
                 let liveB = slotB.player.currentTime()
                 if liveA.isValid && liveA.isNumeric && liveB.isValid && liveB.isNumeric {
@@ -1331,20 +1524,12 @@ public final class PlayerEngine: ObservableObject {
                         let isAtEndB = (durSecsB > 0 && durSecsB.isFinite && liveSecsB >= durSecsB - 0.05)
                         
                         if !isAtEndB {
-                            // Stall Recovery: If slotB stopped moving or fell drastically behind (>3.5 frames) while playing
-                            if slotB.player.rate == 0.0 || abs(drift) > frameDurB * 3.5 {
-                                let clampedTargetSecs = (durSecsB > 0 && durSecsB.isFinite) ? min(durSecsB - 0.01, expectedSecsB) : expectedSecsB
-                                let targetTimeB = CMTime(seconds: clampedTargetSecs, preferredTimescale: 60000)
-                                self.isSeekingB = true
-                                slotB.player.seek(to: targetTimeB, toleranceBefore: .zero, toleranceAfter: .zero) { [weak self] _ in
-                                    MainActor.assumeIsolated {
-                                        guard let self = self else { return }
-                                        self.isSeekingB = false
-                                        if self.isPlaying && self.rate != 0 {
-                                            self.slotB.player.playImmediately(atRate: baseRate)
-                                        }
-                                    }
-                                }
+                            // Stall Recovery: slotB stopped moving or fell drastically behind (>3.5 frames of wall-clock
+                            // lag). Re-locked in phase with a single seek, at most once per second so a decoder that
+                            // can't keep up (fast-forward) never loops on seeks.
+                            let isStalledB = slotB.player.rate == 0.0 || abs(drift) > frameDurB * 3.5 * max(1.0, Double(abs(baseRate)))
+                            if isStalledB && CACurrentMediaTime() - self.lastRelockStart >= 1.0 {
+                                self.relockSlotB()
                             } else if abs(drift) > frameDurB * 0.75 {
                                 // Gentle micro-rate adjustment (±1.5%) with 0.25s rate-settle debounce
                                 let now = Date()
@@ -1609,18 +1794,20 @@ public final class PlayerEngine: ObservableObject {
     
     public func pause() {
         stopSlowStep()
+        cancelSlotBRelock()
         slotA.player.pause()
         slotB.player.pause()
-        self.rate = 0.0
-        self.isPlaying = false
-        self.isScrubbing = false
+        // Only assign changed values: every @Published write broadcasts objectWillChange to all observers.
+        if rate != 0.0 { rate = 0.0 }
+        if isPlaying { isPlaying = false }
+        if isScrubbing { isScrubbing = false }
         self.isSeeking = false
         self.isScrubSeekingA = false
         self.pendingScrubTimeA = nil
         self.isScrubSeekingB = false
         self.pendingScrubTimeB = nil
         self.wasPlayingBeforeScrub = false
-        self.shuttleStateText = "PAUSE"
+        if shuttleStateText != "PAUSE" { shuttleStateText = "PAUSE" }
         if let currentItem = slotA.player.currentItem, currentItem.status == .readyToPlay {
             let pausedTime = slotA.player.currentTime()
             if pausedTime.isValid && pausedTime.isNumeric {
@@ -1633,7 +1820,12 @@ public final class PlayerEngine: ObservableObject {
                     let targetSecsB = max(0.0, masterSecs + offsetSecs)
                     let targetTimeB = CMTime(seconds: targetSecsB, preferredTimescale: 60000)
                     self.slotB.currentTime = targetTimeB
-                    self.slotB.player.seek(to: targetTimeB, toleranceBefore: .zero, toleranceAfter: .zero)
+                    self.isPauseAlignSeekPendingB = true
+                    self.slotB.player.seek(to: targetTimeB, toleranceBefore: .zero, toleranceAfter: .zero) { [weak self] _ in
+                        DispatchQueue.main.async {
+                            MainActor.assumeIsolated { self?.isPauseAlignSeekPendingB = false }
+                        }
+                    }
                 }
             }
         }
@@ -1641,9 +1833,10 @@ public final class PlayerEngine: ObservableObject {
     
     public func setPlaybackRate(_ newRate: Float) {
         stopSlowStep()
-        self.rate = newRate
-        self.isPlaying = (newRate != 0.0)
-        self.isScrubbing = false
+        cancelSlotBRelock()
+        if rate != newRate { rate = newRate }
+        if isPlaying != (newRate != 0.0) { isPlaying = (newRate != 0.0) }
+        if isScrubbing { isScrubbing = false }
         
         if newRate == 0.0 {
             pause()
@@ -1672,7 +1865,8 @@ public final class PlayerEngine: ObservableObject {
             self.updateShuttleText(for: newRate)
         }
         
-        if abs(currSecsB - targetSecs) > frameDur * 1.5 {
+        // A B seek still in flight (pause alignment, re-lock) would start B late: land it exactly first.
+        if isSeekingB || isRelockingB || isPauseAlignSeekPendingB || abs(currSecsB - targetSecs) > frameDur * 1.5 {
             let targetTimeB = CMTime(seconds: targetSecs, preferredTimescale: 60000)
             seekSlotB(to: targetTimeB) {
                 startBothPlayers()
@@ -1683,13 +1877,15 @@ public final class PlayerEngine: ObservableObject {
     }
     
     private func updateShuttleText(for newRate: Float) {
+        let text: String
         if newRate == 0.0 {
-            shuttleStateText = "PAUSE"
+            text = "PAUSE"
         } else if newRate > 0.0 {
-            shuttleStateText = newRate == 1.0 ? "PLAY 1x" : "FWD \(Int(newRate))x"
+            text = newRate == 1.0 ? "PLAY 1x" : "FWD \(Int(newRate))x"
         } else {
-            shuttleStateText = newRate == -1.0 ? "REV 1x" : "REV \(Int(abs(newRate)))x"
+            text = newRate == -1.0 ? "REV 1x" : "REV \(Int(abs(newRate)))x"
         }
+        if shuttleStateText != text { shuttleStateText = text }
     }
     
     // MARK: - Frame Stepping & Jumps
@@ -1740,6 +1936,7 @@ public final class PlayerEngine: ObservableObject {
     /// Initiates interactive scrubbing: remembers active playback state and temporarily halts playback during dragging
     public func startScrubbing() {
         guard !self.isScrubbing else { return }
+        cancelSlotBRelock()
         self.wasPlayingBeforeScrub = (self.isPlaying || self.rate != 0.0 || self.isSlowStepping)
         self.playbackRateBeforeScrub = (self.rate != 0.0) ? self.rate : 1.0
         self.isScrubbing = true
@@ -1952,7 +2149,8 @@ public final class PlayerEngine: ObservableObject {
             completion?()
             return
         }
-        
+        cancelSlotBRelock()
+
         if isSeeking {
             pendingSeekTime = time
             pendingSeekTolerance = tolerance
@@ -1985,7 +2183,7 @@ public final class PlayerEngine: ObservableObject {
             }
             
             if !self.isPlaying && !self.isScrubbing {
-                self.objectWillChange.send()
+                self.notifySeekSettled()
             }
             
             curCompletion?()
@@ -2014,7 +2212,7 @@ public final class PlayerEngine: ObservableObject {
             let runSlotA = { @MainActor in
                 guard let self = self else { return }
                 lock.withLock { $0.completedA = true }
-                self.onFrameDecoded?(.slotA, time)
+                self.notifyFrameDecoded(.slotA, at: time)
                 checkParallelDone()
             }
             if Thread.isMainThread {
@@ -2030,7 +2228,7 @@ public final class PlayerEngine: ObservableObject {
                 let runSlotB = { @MainActor in
                     guard let self = self else { return }
                     lock.withLock { $0.completedB = true }
-                    self.onFrameDecoded?(.slotB, targetTimeB)
+                    self.notifyFrameDecoded(.slotB, at: targetTimeB)
                     checkParallelDone()
                 }
                 if Thread.isMainThread {
@@ -2130,6 +2328,7 @@ public final class PlayerEngine: ObservableObject {
     
     // MARK: - Pixel-Perfect Still Frame Capture (For export)
     
+    /// Returns the frame as displayed, i.e. with the current exposure applied exactly once.
     public func captureCurrentFrame(for slot: SlotTarget = .slotA, at time: CMTime? = nil) async -> CGImage? {
         let currentSlot = (slot == .slotA) ? slotA : slotB
         guard let url = currentSlot.url else { return currentSlot.lastDecodedFrame }
@@ -2163,13 +2362,14 @@ public final class PlayerEngine: ObservableObject {
         let targetSecs = (Double(frameIdx) + 0.5) / fps
         let centerTime = CMTime(seconds: targetSecs, preferredTimescale: 60000)
         
-        // 1. Try frame extractor
+        // 1. Try frame extractor (decodes without the exposure composition, so apply it here)
         if let extracted = await currentSlot.frameExtractor.capture(at: centerTime, fallbackURL: url) {
-            currentSlot.lastDecodedFrame = extracted
-            return extracted
+            let image = ExposureAdjuster.shared.applyExposure(to: extracted, ev: exposureEV)
+            currentSlot.lastDecodedFrame = image
+            return image
         }
         
-        // 2. Try video output pixel buffer
+        // 2. Try video output pixel buffer (already composited with exposure)
         if let output = currentSlot.videoOutput {
             var displayTime = CMTime.zero
             var pb = output.copyPixelBuffer(forItemTime: centerTime, itemTimeForDisplay: &displayTime)
@@ -2210,7 +2410,7 @@ public final class PlayerEngine: ObservableObject {
                 timeB = (slotB.currentTime.isValid && slotB.currentTime.isNumeric) ? slotB.currentTime : slotB.player.currentTime()
             }
             guard let rawImage = await captureCurrentFrame(for: .slotB, at: timeB) ?? slotB.lastDecodedFrame else { return nil }
-            return (exposureEV != 0.0) ? ExposureAdjuster.shared.applyExposure(to: rawImage, ev: exposureEV) : rawImage
+            return rawImage
         }
         
         // 2. Single slot capture
@@ -2218,7 +2418,7 @@ public final class PlayerEngine: ObservableObject {
             let targetSlot: SlotTarget = (activeTarget == .slotB && slotB.url != nil) ? .slotB : .slotA
             let rawImage = await captureCurrentFrame(for: targetSlot) ?? ((targetSlot == .slotB) ? slotB.lastDecodedFrame : slotA.lastDecodedFrame)
             guard let img = rawImage else { return nil }
-            return (exposureEV != 0.0) ? ExposureAdjuster.shared.applyExposure(to: img, ev: exposureEV) : img
+            return img
         }
         
         // 3. Dual slot A/B compositing
@@ -2241,14 +2441,15 @@ public final class PlayerEngine: ObservableObject {
         if rawB == nil { rawB = slotB.lastDecodedFrame }
         
         guard let imgA = rawA else {
-            return rawB.map { (exposureEV != 0.0) ? ExposureAdjuster.shared.applyExposure(to: $0, ev: exposureEV) : $0 }
+            return rawB
         }
         guard let imgB = rawB else {
-            return (exposureEV != 0.0) ? ExposureAdjuster.shared.applyExposure(to: imgA, ev: exposureEV) : imgA
+            return imgA
         }
         
-        let expA = (exposureEV != 0.0) ? ExposureAdjuster.shared.applyExposure(to: imgA, ev: exposureEV) : imgA
-        let expB = (exposureEV != 0.0) ? ExposureAdjuster.shared.applyExposure(to: imgB, ev: exposureEV) : imgB
+        // Captured frames are display-ready (exposure already applied once).
+        let expA = imgA
+        let expB = imgB
         
         let colorSpace = expA.colorSpace ?? expB.colorSpace ?? CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB()
         let bitmapInfo = CGImageAlphaInfo.premultipliedLast.rawValue

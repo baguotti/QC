@@ -22,8 +22,8 @@ struct NotesDrawerPanelView: View {
     var mediaName: String
     var mediaURL: URL?
     var mediaAsset: DeliverableAsset?
-    var currentTimecode: String
-    var currentFrame: Int
+    /// Read at action time; only the timecode badge observes it (the drawer must not re-render per frame).
+    let clock: PlaybackClock
     var isLightMode: Bool
     
     var onSeekToFrame: (Int) -> Void
@@ -786,8 +786,13 @@ struct NotesDrawerPanelView: View {
                 HStack(spacing: 3.5) {
                     Image(systemName: "clock.fill")
                         .font(.system(size: 7.5))
-                    Text(currentTimecode)
-                        .font(.system(size: 9, weight: .bold, design: .monospaced))
+                    PlaybackClockText(
+                        clock: clock,
+                        value: .timecode,
+                        template: "00:00:00:00",
+                        fontSize: 9,
+                        color: colorForTag(inlineSelectedColor)
+                    )
                 }
                 .padding(.horizontal, 6)
                 .padding(.vertical, 2.5)
@@ -821,7 +826,7 @@ struct NotesDrawerPanelView: View {
             
             // Text Input Field & Send Button
             HStack(spacing: 6) {
-                TextField("Add note at \(currentTimecode)...", text: $inlineNoteText)
+                TextField("Add note at playhead...", text: $inlineNoteText)
                     .textFieldStyle(.plain)
                     .font(.system(size: 11, design: .monospaced))
                     .foregroundColor(palette.textMain)
@@ -874,8 +879,8 @@ struct NotesDrawerPanelView: View {
         let safeColorTag = inlineSelectedColor.lowercased() == "red" ? "cyan" : inlineSelectedColor
         
         let newNote = QCFileNote(
-            frameIndex: currentFrame,
-            timecode: currentTimecode,
+            frameIndex: clock.currentFrame,
+            timecode: clock.currentTimecode,
             author: finalAuthor,
             text: cleanText,
             colorTag: safeColorTag,

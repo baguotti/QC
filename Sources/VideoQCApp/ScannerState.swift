@@ -1,5 +1,6 @@
 import SwiftUI
 import AppKit
+import os
 import VideoQCLib
 
 @MainActor
@@ -109,12 +110,23 @@ public final class ScannerState: ObservableObject {
         let scanner = VideoScanner()
         self.scannerActor = scanner
         
-        Task {
+        // Display-only progress: every ScannerState change re-renders ContentView, so cap it at 5 Hz.
+        let lastProgressPublish = OSAllocatedUnfairLock(initialState: 0.0)
+        
+        // Utility priority: batch scans yield to playback decode and UI work.
+        Task(priority: .utility) {
             let results = await scanner.scanBatch(
                 videoURLs: videoFiles,
                 config: config,
                 maxConcurrentScanners: 2,
                 progressHandler: { progress in
+                    let now = CFAbsoluteTimeGetCurrent()
+                    let shouldPublish = lastProgressPublish.withLock { last -> Bool in
+                        guard now - last >= 0.2 else { return false }
+                        last = now
+                        return true
+                    }
+                    guard shouldPublish else { return }
                     DispatchQueue.main.async {
                         self.progressInfo = progress
                     }
@@ -129,7 +141,9 @@ public final class ScannerState: ObservableObject {
             )
             
             if self.tagInFinder {
-                ReportWriter.tagFlaggedFilesInFinder(results: results)
+                await Task.detached(priority: .utility) {
+                    ReportWriter.tagFlaggedFilesInFinder(results: results)
+                }.value
             }
             
             DispatchQueue.main.async {

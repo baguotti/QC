@@ -54,6 +54,7 @@ struct ContentView: View {
     @State var queueScrollTarget: URL? = nil
     @State private var hasSetupKeyboardMonitor: Bool = false
     @State private var eventMonitors = EventMonitorCoordinator()
+    @State private var assetLoadQueue = AssetLoadQueue()
     
     // MARK: - Tab 2: Specs State
     @StateObject var specsState = SpecsState()
@@ -91,6 +92,40 @@ struct ContentView: View {
             }
         }
     }
+    
+    /// Runs file-system work (folder enumeration, existence checks) off the main thread — large or network
+    /// folders would otherwise freeze the UI — and applies results on the main actor in request order.
+    @MainActor
+    final class AssetLoadQueue {
+        private var tail: Task<Void, Never>? = nil
+        
+        func enqueue<T: Sendable>(_ work: @escaping @Sendable () -> T, apply: @escaping @MainActor (T) -> Void) {
+            let previous = tail
+            tail = Task { @MainActor in
+                let result = await Task.detached(priority: .userInitiated, operation: work).value
+                await previous?.value
+                apply(result)
+            }
+        }
+    }
+    
+    struct ScannedAssetInput: Sendable {
+        let url: URL
+        let isDirectory: Bool
+        let videos: [URL]
+    }
+    
+    nonisolated static func scanAssetInputs(_ urls: [URL]) -> [ScannedAssetInput] {
+        urls.compactMap { url in
+            var isDir: ObjCBool = false
+            guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDir) else { return nil }
+            if isDir.boolValue {
+                return ScannedAssetInput(url: url, isDirectory: true, videos: VideoScanner.findVideoFiles(in: url))
+            }
+            return ScannedAssetInput(url: url, isDirectory: false, videos: QCUtilities.isSupportedVideo(url: url) ? [url] : [])
+        }
+    }
+    
     enum FullscreenMode: Equatable {
         case none
         case review
@@ -1010,26 +1045,19 @@ struct ContentView: View {
         panel.prompt = append ? "Add" : "Select"
         panel.message = append ? "Choose video files or folders to add to the current batch" : "Choose video files or a folder to load"
         
-        if panel.runModal() == .OK, !panel.urls.isEmpty {
+        guard panel.runModal() == .OK, !panel.urls.isEmpty else { return }
+        let urls = panel.urls
+        assetLoadQueue.enqueue({ ContentView.scanAssetInputs(urls) }) { inputs in
             var collectedVideos: [URL] = []
             var detectedFolder: URL? = nil
             
-            for url in panel.urls {
-                var isDir: ObjCBool = false
-                if FileManager.default.fileExists(atPath: url.path, isDirectory: &isDir) {
-                    if isDir.boolValue {
-                        detectedFolder = url
-                        let inFolder = VideoScanner.findVideoFiles(in: url)
-                        collectedVideos.append(contentsOf: inFolder)
-                    } else {
-                        if detectedFolder == nil {
-                            detectedFolder = url.deletingLastPathComponent()
-                        }
-                        if QCUtilities.isSupportedVideo(url: url) {
-                            collectedVideos.append(url)
-                        }
-                    }
+            for input in inputs {
+                if input.isDirectory {
+                    detectedFolder = input.url
+                } else if detectedFolder == nil {
+                    detectedFolder = input.url.deletingLastPathComponent()
                 }
+                collectedVideos.append(contentsOf: input.videos)
             }
             
             if append {
@@ -1145,65 +1173,54 @@ struct ContentView: View {
     
     func addAssets(urls: [URL], targetSlot: SlotTarget? = nil, forceLoad: Bool = false, forceAutoplay: Bool = false) {
         guard !urls.isEmpty else { return }
-        var collectedVideos: [URL] = []
-        var detectedFolder: URL? = nil
-        
-        for url in urls {
-            var isDir: ObjCBool = false
-            if FileManager.default.fileExists(atPath: url.path, isDirectory: &isDir) {
-                if isDir.boolValue {
-                    if detectedFolder == nil {
-                        detectedFolder = url
-                    }
-                    let inFolder = VideoScanner.findVideoFiles(in: url)
-                    collectedVideos.append(contentsOf: inFolder)
-                } else {
-                    if detectedFolder == nil {
-                        detectedFolder = url.deletingLastPathComponent()
-                    }
-                    if QCUtilities.isSupportedVideo(url: url) {
-                        collectedVideos.append(url)
-                    }
+        assetLoadQueue.enqueue({ ContentView.scanAssetInputs(urls) }) { inputs in
+            var collectedVideos: [URL] = []
+            var detectedFolder: URL? = nil
+            
+            for input in inputs {
+                if detectedFolder == nil {
+                    detectedFolder = input.isDirectory ? input.url : input.url.deletingLastPathComponent()
+                }
+                collectedVideos.append(contentsOf: input.videos)
+            }
+            
+            guard !collectedVideos.isEmpty else { return }
+            
+            var mergedVideos = self.videoFiles
+            var seen = Set(self.videoFiles.map { $0.standardizedFileURL.path })
+            var newlyAdded: [URL] = []
+            
+            for v in collectedVideos {
+                let stdPath = v.standardizedFileURL.path
+                if !seen.contains(stdPath) {
+                    seen.insert(stdPath)
+                    mergedVideos.append(v)
+                    newlyAdded.append(v)
                 }
             }
-        }
-        
-        guard !collectedVideos.isEmpty else { return }
-        
-        var mergedVideos = self.videoFiles
-        var seen = Set(self.videoFiles.map { $0.standardizedFileURL.path })
-        var newlyAdded: [URL] = []
-        
-        for v in collectedVideos {
-            let stdPath = v.standardizedFileURL.path
-            if !seen.contains(stdPath) {
-                seen.insert(stdPath)
-                mergedVideos.append(v)
-                newlyAdded.append(v)
+            
+            if !newlyAdded.isEmpty {
+                self.videoFiles = mergedVideos
+                self.folderURL = self.determineFolderURL(for: mergedVideos, detectedFolder: self.folderURL ?? detectedFolder)
+                if self.selectedTab == .specs {
+                    self.specsState.inspectDeliverablesBatch(urls: newlyAdded, append: true)
+                }
+                self.loadFinderTagsForQueue()
             }
-        }
-        
-        if !newlyAdded.isEmpty {
-            self.videoFiles = mergedVideos
-            self.folderURL = self.determineFolderURL(for: mergedVideos, detectedFolder: self.folderURL ?? detectedFolder)
-            if self.selectedTab == .specs {
-                self.specsState.inspectDeliverablesBatch(urls: newlyAdded, append: true)
-            }
-            self.loadFinderTagsForQueue()
-        }
-        
-        if let targetSlot = targetSlot {
-            if let targetURL = newlyAdded.first ?? collectedVideos.first {
-                self.playerEngine.loadVideo(url: targetURL, into: targetSlot)
-            }
-        } else if forceLoad {
-            if let first = newlyAdded.first ?? collectedVideos.first {
-                self.playerEngine.loadVideo(url: first, into: .slotA, autoplay: self.playerEngine.isAutoplayEnabled, forceAutoplay: forceAutoplay)
+            
+            if let targetSlot = targetSlot {
+                if let targetURL = newlyAdded.first ?? collectedVideos.first {
+                    self.playerEngine.loadVideo(url: targetURL, into: targetSlot)
+                }
+            } else if forceLoad {
+                if let first = newlyAdded.first ?? collectedVideos.first {
+                    self.playerEngine.loadVideo(url: first, into: .slotA, autoplay: self.playerEngine.isAutoplayEnabled, forceAutoplay: forceAutoplay)
+                    self.queueScrollTarget = first
+                }
+            } else if self.playerEngine.activeURL == nil, let first = newlyAdded.first ?? collectedVideos.first {
+                self.playerEngine.loadVideo(url: first)
                 self.queueScrollTarget = first
             }
-        } else if self.playerEngine.activeURL == nil, let first = newlyAdded.first ?? collectedVideos.first {
-            self.playerEngine.loadVideo(url: first)
-            self.queueScrollTarget = first
         }
     }
     
@@ -1251,27 +1268,19 @@ struct ContentView: View {
     
     func refreshPlayerAssets() {
         guard !videoFiles.isEmpty || folderURL != nil else { return }
+        let rootFolder = folderURL
+        let treeFolders = playerTreeNodes.filter { $0.isDirectory }.map { $0.url }
+        let currentFiles = videoFiles
+        let activeURL = playerEngine.activeURL
+        let slotBURL = playerEngine.slotB.url
         
-        var refreshedVideos: [URL] = []
-        var seen = Set<String>()
-        
-        // 1. If we have a root folderURL, re-scan it
-        if let folder = folderURL, FileManager.default.fileExists(atPath: folder.path) {
-            let found = VideoScanner.findVideoFiles(in: folder)
-            for v in found {
-                let std = v.standardizedFileURL.path
-                if !seen.contains(std) {
-                    seen.insert(std)
-                    refreshedVideos.append(v)
-                }
-            }
-        }
-        
-        // 2. Also check any root folders in playerTreeNodes (handles multiple dropped/added folders)
-        for node in playerTreeNodes where node.isDirectory {
-            if FileManager.default.fileExists(atPath: node.url.path) {
-                let found = VideoScanner.findVideoFiles(in: node.url)
-                for v in found {
+        assetLoadQueue.enqueue({ () -> (videos: [URL], activeExists: Bool, slotBExists: Bool) in
+            var refreshedVideos: [URL] = []
+            var seen = Set<String>()
+            
+            // 1. If we have a root folderURL, re-scan it
+            if let folder = rootFolder, FileManager.default.fileExists(atPath: folder.path) {
+                for v in VideoScanner.findVideoFiles(in: folder) {
                     let std = v.standardizedFileURL.path
                     if !seen.contains(std) {
                         seen.insert(std)
@@ -1279,43 +1288,59 @@ struct ContentView: View {
                     }
                 }
             }
-        }
-        
-        // 3. Keep any standalone files that still exist on disk
-        for v in videoFiles {
-            let std = v.standardizedFileURL.path
-            if !seen.contains(std) && FileManager.default.fileExists(atPath: v.path) {
-                seen.insert(std)
-                refreshedVideos.append(v)
+            
+            // 2. Also check any root folders in playerTreeNodes (handles multiple dropped/added folders)
+            for folder in treeFolders where FileManager.default.fileExists(atPath: folder.path) {
+                for v in VideoScanner.findVideoFiles(in: folder) {
+                    let std = v.standardizedFileURL.path
+                    if !seen.contains(std) {
+                        seen.insert(std)
+                        refreshedVideos.append(v)
+                    }
+                }
             }
-        }
-        
-        self.videoFiles = refreshedVideos
-        self.folderURL = determineFolderURL(for: refreshedVideos, detectedFolder: self.folderURL)
-        self.updatePlayerTreeNodes()
-        self.loadFinderTagsForQueue()
-        
-        // Sync with Deliverables inspector if deliverables are loaded
-        if !specsState.deliverableAssets.isEmpty {
-            specsState.inspectDeliverablesBatch(urls: refreshedVideos, append: false)
-        }
-        
-        // Validate active slot videos
-        if let active = playerEngine.activeURL, !FileManager.default.fileExists(atPath: active.path) {
-            if let first = refreshedVideos.first {
+            
+            // 3. Keep any standalone files that still exist on disk
+            for v in currentFiles {
+                let std = v.standardizedFileURL.path
+                if !seen.contains(std) && FileManager.default.fileExists(atPath: v.path) {
+                    seen.insert(std)
+                    refreshedVideos.append(v)
+                }
+            }
+            
+            let activeExists = activeURL.map { FileManager.default.fileExists(atPath: $0.path) } ?? true
+            let slotBExists = slotBURL.map { FileManager.default.fileExists(atPath: $0.path) } ?? true
+            return (refreshedVideos, activeExists, slotBExists)
+        }) { result in
+            let refreshedVideos = result.videos
+            self.videoFiles = refreshedVideos
+            self.folderURL = determineFolderURL(for: refreshedVideos, detectedFolder: self.folderURL)
+            self.updatePlayerTreeNodes()
+            self.loadFinderTagsForQueue()
+            
+            // Sync with Deliverables inspector if deliverables are loaded
+            if !specsState.deliverableAssets.isEmpty {
+                specsState.inspectDeliverablesBatch(urls: refreshedVideos, append: false)
+            }
+            
+            // Validate active slot videos
+            if activeURL != nil, playerEngine.activeURL == activeURL, !result.activeExists {
+                if let first = refreshedVideos.first {
+                    playerEngine.loadVideo(url: first)
+                } else {
+                    playerEngine.unload()
+                }
+            } else if playerEngine.activeURL == nil, let first = refreshedVideos.first {
                 playerEngine.loadVideo(url: first)
-            } else {
-                playerEngine.unload()
             }
-        } else if playerEngine.activeURL == nil, let first = refreshedVideos.first {
-            playerEngine.loadVideo(url: first)
+            
+            if slotBURL != nil, playerEngine.slotB.url == slotBURL, !result.slotBExists {
+                playerEngine.clearSlotB()
+            }
+            
+            showToast("Queue refreshed (\(refreshedVideos.count) \(refreshedVideos.count == 1 ? "file" : "files"))")
         }
-        
-        if let slotB = playerEngine.slotB.url, !FileManager.default.fileExists(atPath: slotB.path) {
-            playerEngine.clearSlotB()
-        }
-        
-        showToast("Queue refreshed (\(refreshedVideos.count) \(refreshedVideos.count == 1 ? "file" : "files"))")
     }
     
     // MARK: - Deliverables Specs Execution
@@ -1876,6 +1901,8 @@ struct ContentView: View {
                 if let tag = FinderTagManager.getTag(for: url) {
                     newMap[url] = tag
                 }
+                // Warm the notes-count cache here: queue rows only read the cache (no disk I/O in view bodies).
+                _ = QCNotesManager.notesCount(for: url)
             }
             await MainActor.run {
                 self.fileTagsMap = newMap

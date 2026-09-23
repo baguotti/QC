@@ -225,60 +225,12 @@ struct FullscreenPlayerView: View {
             HStack(spacing: 12) {
                 // Left: Timecode / Frame Count + Shuttle Speed (Fixed 280px width)
                 HStack(spacing: 8) {
-                    if engine.displayTimeAsFrames {
-                        let maxNum = max(engine.totalFrames, engine.currentFrame, 999)
-                        let digitCount = max(4, String(maxNum).count)
-                        let frameColWidth = CGFloat(digitCount) * 8.8
-                        
-                        HStack(spacing: 4) {
-                            Text("\(engine.currentFrame)")
-                                .font(.system(size: 14, weight: .bold, design: .monospaced))
-                                .monospacedDigit()
-                                .foregroundColor(accentBlue)
-                                .frame(minWidth: frameColWidth, alignment: .trailing)
-                            
-                            Text("frames")
-                                .font(.system(size: 14, weight: .bold, design: .monospaced))
-                                .foregroundColor(accentBlue)
-                        }
-                        .frame(width: 130, alignment: .leading)
-                        .contentShape(Rectangle())
-                        .contextMenu {
-                            Button(action: {
-                                NSPasteboard.general.clearContents()
-                                NSPasteboard.general.setString("\(engine.currentFrame)", forType: .string)
-                            }) {
-                                Label("Copy Frame (\(engine.currentFrame))", systemImage: "doc.on.doc")
-                            }
-                            Button(action: {
-                                NSPasteboard.general.clearContents()
-                                NSPasteboard.general.setString(engine.currentTimecode, forType: .string)
-                            }) {
-                                Label("Copy SMPTE (\(engine.currentTimecode))", systemImage: "clock")
-                            }
-                        }
-                    } else {
-                        Text(engine.currentTimecode)
-                            .font(.system(size: 14, weight: .bold, design: .monospaced))
-                            .monospacedDigit()
-                            .foregroundColor(accentBlue)
-                            .frame(width: 120, alignment: .leading)
-                            .contentShape(Rectangle())
-                            .contextMenu {
-                                Button(action: {
-                                    NSPasteboard.general.clearContents()
-                                    NSPasteboard.general.setString(engine.currentTimecode, forType: .string)
-                                }) {
-                                    Label("Copy Timecode (\(engine.currentTimecode))", systemImage: "doc.on.doc")
-                                }
-                                Button(action: {
-                                    NSPasteboard.general.clearContents()
-                                    NSPasteboard.general.setString("\(engine.currentFrame)", forType: .string)
-                                }) {
-                                    Label("Copy Frame Number (\(engine.currentFrame))", systemImage: "number")
-                                }
-                            }
-                    }
+                    FullscreenTimecodeReadout(
+                        clock: engine.clock,
+                        displayTimeAsFrames: engine.displayTimeAsFrames,
+                        totalFrames: engine.totalFrames,
+                        accentBlue: accentBlue
+                    )
                     
                     if engine.shuttleStateText != "PAUSE" && (engine.isPlaying || engine.rate != 0) {
                         Text(engine.shuttleStateText)
@@ -349,6 +301,74 @@ struct FullscreenPlayerView: View {
             isHoveringControls = isHovering
             if isHovering { userDidInteract() }
         }
+    }
+}
+
+// MARK: - Live Timecode Readout (value drawn outside SwiftUI's update cycle, see PlaybackClockText)
+
+private struct FullscreenTimecodeReadout: View {
+    let clock: PlaybackClock
+    let displayTimeAsFrames: Bool
+    let totalFrames: Int
+    let accentBlue: Color
+    
+    private static let font = Font.system(size: 14, weight: .bold, design: .monospaced)
+    
+    var body: some View {
+        if displayTimeAsFrames {
+            let digitCount = max(4, String(max(totalFrames, 999)).count)
+            let frameColWidth = CGFloat(digitCount) * 8.8
+            
+            HStack(spacing: 4) {
+                PlaybackClockText(
+                    clock: clock,
+                    value: .frameNumber,
+                    template: String(repeating: "0", count: digitCount),
+                    fontSize: 14,
+                    color: accentBlue,
+                    alignment: .trailing
+                )
+                .frame(minWidth: frameColWidth, alignment: .trailing)
+                
+                Text("frames")
+                    .font(Self.font)
+                    .foregroundColor(accentBlue)
+            }
+            .frame(width: 130, alignment: .leading)
+            .contentShape(Rectangle())
+            .contextMenu {
+                // Static titles: values are read at click time.
+                Button(action: { copy("\(clock.currentFrame)") }) {
+                    Label("Copy Frame Number", systemImage: "doc.on.doc")
+                }
+                Button(action: { copy(clock.currentTimecode) }) {
+                    Label("Copy SMPTE Timecode", systemImage: "clock")
+                }
+            }
+        } else {
+            PlaybackClockText(
+                clock: clock,
+                value: .timecode,
+                template: "00:00:00:00",
+                fontSize: 14,
+                color: accentBlue
+            )
+            .frame(width: 120, alignment: .leading)
+                .contentShape(Rectangle())
+                .contextMenu {
+                    Button(action: { copy(clock.currentTimecode) }) {
+                        Label("Copy Timecode", systemImage: "doc.on.doc")
+                    }
+                    Button(action: { copy("\(clock.currentFrame)") }) {
+                        Label("Copy Frame Number", systemImage: "number")
+                    }
+                }
+        }
+    }
+    
+    private func copy(_ text: String) {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(text, forType: .string)
     }
 }
 

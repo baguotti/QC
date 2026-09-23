@@ -31,7 +31,7 @@ public actor QCNotesManager {
     }
     
     private static let cacheLock = NSLock()
-    private static var notesCountCache: [URL: Int] = [:]
+    nonisolated(unsafe) private static var notesCountCache: [URL: Int] = [:]
     
     /// Updates the in-memory cache for a file's note count.
     public nonisolated static func updateCachedCount(_ count: Int, for mediaURL: URL) {
@@ -55,6 +55,14 @@ public actor QCNotesManager {
     public nonisolated static func hasNotes(for mediaURL: URL) -> Bool {
         let count = notesCount(for: mediaURL)
         return count > 0
+    }
+    
+    /// Cached count only (never touches disk), for view bodies; `nil` until loaded or prewarmed.
+    public nonisolated static func cachedNotesCount(for mediaURL: URL) -> Int? {
+        let stdURL = mediaURL.standardizedFileURL
+        cacheLock.lock()
+        defer { cacheLock.unlock() }
+        return notesCountCache[stdURL]
     }
     
     /// Returns the number of notes recorded in the companion sidecar file (cached for UI performance).

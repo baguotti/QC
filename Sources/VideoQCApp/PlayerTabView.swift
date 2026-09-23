@@ -397,7 +397,8 @@ extension ContentView {
     private var playerNotesDrawerPanel: some View {
         let activeURL = (playerEngine.activeTarget == .slotB && playerEngine.slotB.url != nil) ? playerEngine.slotB.url : (playerEngine.activeURL ?? playerEngine.slotA.url)
         let activeName = (playerEngine.activeTarget == .slotB && playerEngine.slotB.url != nil) ? (playerEngine.slotB.url?.lastPathComponent ?? "Deliverable") : playerEngine.activeFileName
-        let matchedAsset = specsState.deliverableAssets.first { $0.fileURL.standardizedFileURL == activeURL?.standardizedFileURL } ?? propertiesAsset
+        let standardizedActiveURL = activeURL?.standardizedFileURL
+        let matchedAsset = specsState.deliverableAssets.first { $0.fileURL.standardizedFileURL == standardizedActiveURL } ?? propertiesAsset
         
         NotesDrawerPanelView(
             isPresented: $showNotesDrawer,
@@ -406,8 +407,7 @@ extension ContentView {
             mediaName: activeName.isEmpty ? (activeURL?.lastPathComponent ?? "Deliverable") : activeName,
             mediaURL: activeURL,
             mediaAsset: matchedAsset,
-            currentTimecode: playerEngine.currentTimecode,
-            currentFrame: playerEngine.currentFrame,
+            clock: playerEngine.clock,
             isLightMode: isLightMode,
             onSeekToFrame: { frame in
                 playerEngine.seek(toFrame: frame)
@@ -1506,119 +1506,121 @@ struct PlayerTimecodeMenuView: View {
     
     var body: some View {
         Menu {
-            Button(action: {
-                let text = playerEngine.displayTimeAsFrames ? "\(playerEngine.currentFrame)" : playerEngine.currentTimecode
-                NSPasteboard.general.clearContents()
-                NSPasteboard.general.setString(text, forType: .string)
-            }) {
-                Label("Copy Value (\(playerEngine.displayTimeAsFrames ? "\(playerEngine.currentFrame)" : playerEngine.currentTimecode))", systemImage: "doc.on.doc")
-            }
-            Divider()
-            Button(action: {
-                let text = playerEngine.currentTimecode
-                NSPasteboard.general.clearContents()
-                NSPasteboard.general.setString(text, forType: .string)
-            }) {
-                Label("Copy SMPTE (\(playerEngine.currentTimecode))", systemImage: "clock")
-            }
-            Button(action: {
-                let text = "\(playerEngine.currentFrame)"
-                NSPasteboard.general.clearContents()
-                NSPasteboard.general.setString(text, forType: .string)
-            }) {
-                Label("Copy Frame Number (\(playerEngine.currentFrame))", systemImage: "number")
-            }
-            Divider()
-            Button(action: { playerEngine.displayTimeAsFrames = false }) {
-                HStack {
-                    Text("SMPTE Timecode (HH:MM:SS:FF)")
-                    if !playerEngine.displayTimeAsFrames {
-                        Image(systemName: "checkmark")
-                    }
-                }
-            }
-            Button(action: { playerEngine.displayTimeAsFrames = true }) {
-                HStack {
-                    Text("Frames (Frame Count)")
-                    if playerEngine.displayTimeAsFrames {
-                        Image(systemName: "checkmark")
-                    }
-                }
-            }
+            timecodeMenuItems
         } label: {
+            // Hover styling is applied per element: the live readout draws in its own host.
             HStack(spacing: 4) {
-                if playerEngine.displayTimeAsFrames {
-                    let maxNum = max(playerEngine.totalFrames, playerEngine.currentFrame, 999)
-                    let digitCount = max(4, String(maxNum).count)
-                    let frameColWidth = CGFloat(digitCount) * 8.2
-                    
-                    Text("\(playerEngine.currentFrame)")
-                        .font(.system(size: 13, weight: .bold, design: .monospaced))
-                        .monospacedDigit()
-                        .foregroundColor(accentBlue)
-                        .frame(minWidth: frameColWidth, alignment: .trailing)
-                    
-                    Text("frames")
-                        .font(.system(size: 13, weight: .bold, design: .monospaced))
-                        .foregroundColor(accentBlue)
-                } else {
-                    Text(playerEngine.currentTimecode)
-                        .font(.system(size: 13, weight: .bold, design: .monospaced))
-                        .monospacedDigit()
-                        .foregroundColor(accentBlue)
-                        .tracking(0.5)
-                        .lineLimit(1)
-                }
+                PlayerTimecodeReadout(
+                    clock: playerEngine.clock,
+                    displayTimeAsFrames: playerEngine.displayTimeAsFrames,
+                    totalFrames: playerEngine.totalFrames,
+                    accentBlue: accentBlue,
+                    isHovered: isHovered
+                )
                 
                 Image(systemName: "chevron.down")
                     .font(.system(size: 8, weight: .bold))
                     .foregroundColor(accentBlue.opacity(0.8))
+                    .opacity(isHovered ? 1.0 : 0.82)
+                    .brightness(isHovered ? 0.05 : 0.0)
+                    .animation(.easeInOut(duration: 0.12), value: isHovered)
             }
-            .opacity(isHovered ? 1.0 : 0.82)
-            .brightness(isHovered ? 0.05 : 0.0)
-            .animation(.easeInOut(duration: 0.12), value: isHovered)
             .onHover { isHovered = $0 }
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .contextMenu {
-            Button(action: {
-                let text = playerEngine.displayTimeAsFrames ? "\(playerEngine.currentFrame)" : playerEngine.currentTimecode
-                NSPasteboard.general.clearContents()
-                NSPasteboard.general.setString(text, forType: .string)
-            }) {
-                Label("Copy Value (\(playerEngine.displayTimeAsFrames ? "\(playerEngine.currentFrame)" : playerEngine.currentTimecode))", systemImage: "doc.on.doc")
-            }
-            Divider()
-            Button(action: {
-                NSPasteboard.general.clearContents()
-                NSPasteboard.general.setString(playerEngine.currentTimecode, forType: .string)
-            }) {
-                Label("Copy SMPTE (\(playerEngine.currentTimecode))", systemImage: "clock")
-            }
-            Button(action: {
-                NSPasteboard.general.clearContents()
-                NSPasteboard.general.setString("\(playerEngine.currentFrame)", forType: .string)
-            }) {
-                Label("Copy Frame Number (\(playerEngine.currentFrame))", systemImage: "number")
-            }
-            Divider()
-            Button(action: { playerEngine.displayTimeAsFrames = false }) {
-                HStack {
-                    Text("SMPTE Timecode (HH:MM:SS:FF)")
-                    if !playerEngine.displayTimeAsFrames {
-                        Image(systemName: "checkmark")
-                    }
+            timecodeMenuItems
+        }
+    }
+    
+    // Static titles: values are read at click time so the menu is not rebuilt on every frame.
+    @ViewBuilder
+    private var timecodeMenuItems: some View {
+        Button(action: {
+            let text = playerEngine.displayTimeAsFrames ? "\(playerEngine.currentFrame)" : playerEngine.currentTimecode
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.setString(text, forType: .string)
+        }) {
+            Label("Copy Value", systemImage: "doc.on.doc")
+        }
+        Divider()
+        Button(action: {
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.setString(playerEngine.currentTimecode, forType: .string)
+        }) {
+            Label("Copy SMPTE Timecode", systemImage: "clock")
+        }
+        Button(action: {
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.setString("\(playerEngine.currentFrame)", forType: .string)
+        }) {
+            Label("Copy Frame Number", systemImage: "number")
+        }
+        Divider()
+        Button(action: { playerEngine.displayTimeAsFrames = false }) {
+            HStack {
+                Text("SMPTE Timecode (HH:MM:SS:FF)")
+                if !playerEngine.displayTimeAsFrames {
+                    Image(systemName: "checkmark")
                 }
             }
-            Button(action: { playerEngine.displayTimeAsFrames = true }) {
-                HStack {
-                    Text("Frames (Frame Count)")
-                    if playerEngine.displayTimeAsFrames {
-                        Image(systemName: "checkmark")
-                    }
+        }
+        Button(action: { playerEngine.displayTimeAsFrames = true }) {
+            HStack {
+                Text("Frames (Frame Count)")
+                if playerEngine.displayTimeAsFrames {
+                    Image(systemName: "checkmark")
                 }
             }
+        }
+    }
+}
+
+/// Timecode menu readout; the live value is drawn outside SwiftUI's update cycle (see `PlaybackClockText`).
+private struct PlayerTimecodeReadout: View {
+    let clock: PlaybackClock
+    let displayTimeAsFrames: Bool
+    let totalFrames: Int
+    let accentBlue: Color
+    let isHovered: Bool
+    
+    private static let font = Font.system(size: 13, weight: .bold, design: .monospaced)
+    
+    var body: some View {
+        if displayTimeAsFrames {
+            let digitCount = max(4, String(max(totalFrames, 999)).count)
+            let frameColWidth = CGFloat(digitCount) * 8.2
+            
+            HStack(spacing: 4) {
+                PlaybackClockText(
+                    clock: clock,
+                    value: .frameNumber,
+                    template: String(repeating: "0", count: digitCount),
+                    fontSize: 13,
+                    color: accentBlue,
+                    alignment: .trailing,
+                    hoverState: isHovered
+                )
+                .frame(minWidth: frameColWidth, alignment: .trailing)
+                
+                Text("frames")
+                    .font(Self.font)
+                    .foregroundColor(accentBlue)
+                    .opacity(isHovered ? 1.0 : 0.82)
+                    .brightness(isHovered ? 0.05 : 0.0)
+                    .animation(.easeInOut(duration: 0.12), value: isHovered)
+            }
+        } else {
+            PlaybackClockText(
+                clock: clock,
+                value: .timecode,
+                template: "00:00:00:00",
+                fontSize: 13,
+                color: accentBlue,
+                tracking: 0.5,
+                hoverState: isHovered
+            )
         }
     }
 }

@@ -537,7 +537,8 @@ public struct PlayerQueuePanelView: View, Equatable {
         if let notesURL = activeNotesURL, isSameURL(url, notesURL) {
             return activeNotesCount
         }
-        return QCNotesManager.notesCount(for: url)
+        // Cache only: counts are prewarmed off the main thread by ContentView.loadFinderTagsForQueue().
+        return QCNotesManager.cachedNotesCount(for: url) ?? 0
     }
     
     private func makeFileRow(url: URL, depth: Int = 0, isSlotA: Bool, isSlotB: Bool, notesCount: Int) -> some View {

@@ -387,6 +387,7 @@ public final class ThemeManager: ObservableObject {
     private let currentThemeDataKey = "QCpie_CurrentThemeData"
     private let userPresetsKey = "QCpie_UserThemePresets"
     private let buttonZoomKey = "QCpie_UIButtonZoomLevel"
+    private var lastKnownLightMode: Bool = false
     
     @Published public var currentTheme: StudioThemeConfig {
         didSet {
@@ -484,13 +485,20 @@ public final class ThemeManager: ObservableObject {
             self.currentTheme = StudioThemeConfig.muted
         }
         
+        // `StudioTheme.positive` & co. read "isLightMode" straight from UserDefaults, so observers must refresh when
+        // it flips. Any other defaults write (AppKit window frames, panels, @AppStorage) must not re-render the tree.
+        lastKnownLightMode = UserDefaults.standard.bool(forKey: "isLightMode")
         NotificationCenter.default.addObserver(
             forName: UserDefaults.didChangeNotification,
             object: nil,
             queue: .main
         ) { [weak self] _ in
             MainActor.assumeIsolated {
-                self?.objectWillChange.send()
+                guard let self = self else { return }
+                let isLightMode = UserDefaults.standard.bool(forKey: "isLightMode")
+                guard isLightMode != self.lastKnownLightMode else { return }
+                self.lastKnownLightMode = isLightMode
+                self.objectWillChange.send()
             }
         }
     }

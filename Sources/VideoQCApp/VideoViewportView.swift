@@ -133,7 +133,7 @@ public final class PlayerContainerNSView: NSView {
     private var lastClipInfoOverlayMode: ClipInfoOverlayMode? = nil
     private var lastSlotAURL: URL? = nil
     private var lastSlotBURL: URL? = nil
-    private var lastExposureEV: Double = 0.0
+    private var lastIsLightMode: Bool? = nil
     private var lastCanvasBoundsSize: CGSize = CGSize(width: -1, height: -1)
     private var lastAspectA: CGFloat = -1
     private var lastAspectB: CGFloat = -1
@@ -148,8 +148,14 @@ public final class PlayerContainerNSView: NSView {
     // Still frame inspection caching to eliminate AVPlayerLayer motion-downsampling
     private var lastCapturedTimeA: CMTime? = nil
     private var lastCapturedTimeB: CMTime? = nil
-    private var rawStillFrameA: CGImage? = nil
-    private var rawStillFrameB: CGImage? = nil
+    // Video output buffer currently on each still layer (identity-compared to skip redundant presents)
+    private var presentedBufferA: CVPixelBuffer? = nil
+    private var presentedBufferB: CVPixelBuffer? = nil
+    // Paused seek targets still awaiting their decoded (or composited) frame
+    private var pendingStillTimeA: CMTime? = nil
+    private var pendingStillTimeB: CMTime? = nil
+    private var pendingStillDeadline: CFTimeInterval = 0
+    private static let pendingStillWindow: CFTimeInterval = 0.5
     private var isCapturingStillA: Bool = false
     private var isCapturingStillB: Bool = false
     private var pendingCaptureTimeA: CMTime? = nil
@@ -366,19 +372,24 @@ public final class PlayerContainerNSView: NSView {
         self.engine = engine
         playerLayerA.player = engine.slotA.player
         playerLayerB.player = engine.slotB.player
-        engine.onFrameDecoded = { [weak self] slot, time in
-            self?.displayImmediateDecodedFrame(slot: slot, at: time)
-        }
+        attachPresentationHooks(to: engine)
         setupDisplayLink()
     }
     
+    private func attachPresentationHooks(to engine: PlayerEngine) {
+        engine.attachViewport(self, frameDecoded: { [weak self] slot, time in
+            self?.displayImmediateDecodedFrame(slot: slot, at: time)
+        }, seekSettled: { [weak self] in
+            self?.checkStillFrameDisplay()
+        })
+    }
+    
     public func update(engine: PlayerEngine, isLightMode: Bool) {
-        let engineChanged = (self.engine !== engine)
+        let previousEngine = self.engine
         self.engine = engine
-        if engineChanged {
-            engine.onFrameDecoded = { [weak self] slot, time in
-                self?.displayImmediateDecodedFrame(slot: slot, at: time)
-            }
+        if previousEngine !== engine {
+            previousEngine?.detachViewport(self)
+            attachPresentationHooks(to: engine)
         }
         
         if playerLayerA.player != engine.slotA.player {
@@ -388,11 +399,10 @@ public final class PlayerContainerNSView: NSView {
             playerLayerB.player = engine.slotB.player
         }
         
-        if engine.isPlaying && !engine.isScrubbing {
-            displayLink?.isPaused = false
-        } else {
-            displayLink?.isPaused = true
+        if engine.isScrubbing {
+            cancelPendingStills()
         }
+        syncDisplayLinkState()
         
         let urlAChanged = (engine.slotA.url != lastSlotAURL)
         let urlBChanged = (engine.slotB.url != lastSlotBURL)
@@ -401,9 +411,10 @@ public final class PlayerContainerNSView: NSView {
             lastSlotAURL = engine.slotA.url
             lastSlotBURL = engine.slotB.url
             lastCapturedTimeA = nil
-            rawStillFrameA = nil
+            presentedBufferA = nil
             lastCapturedTimeB = nil
-            rawStillFrameB = nil
+            presentedBufferB = nil
+            cancelPendingStills()
             engine.slotA.lastDecodedFrame = nil
             engine.slotB.lastDecodedFrame = nil
             
@@ -434,13 +445,13 @@ public final class PlayerContainerNSView: NSView {
             updateResolutionLabels()
         }
         
-        let canvasColor = isLightMode ? NSColor(white: 0.88, alpha: 1.0).cgColor : NSColor(red: 0.08, green: 0.08, blue: 0.08, alpha: 1.0).cgColor
-        layer?.backgroundColor = canvasColor
-        canvasLayer.backgroundColor = NSColor.clear.cgColor
+        if lastIsLightMode != isLightMode {
+            lastIsLightMode = isLightMode
+            layer?.backgroundColor = isLightMode ? NSColor(white: 0.88, alpha: 1.0).cgColor : NSColor(red: 0.08, green: 0.08, blue: 0.08, alpha: 1.0).cgColor
+        }
         
         layoutPlayerLayer()
         updateCompareLayers()
-        updateExposure()
         updateMagnificationFilters()
         checkStillFrameDisplay()
     }
@@ -450,52 +461,21 @@ public final class PlayerContainerNSView: NSView {
         // During active scrubbing, AVPlayerLayer displays frames directly via hardware.
         // Avoid expensive CPU pixel buffer copying and CGImage conversion while scrubbing.
         if engine.isScrubbing { return }
+        if slot == .slotB && engine.compareMode == .single && !engine.isBlinkCompareB { return }
+        let slotState = (slot == .slotA) ? engine.slotA : engine.slotB
+        guard let output = slotState.videoOutput else { return }
         
-        var imgToDisplay: CGImage? = nil
-        var targetLayer: CALayer? = nil
-        
-        if slot == .slotA, let outputA = engine.slotA.videoOutput {
-            var pbA = outputA.copyPixelBuffer(forItemTime: time, itemTimeForDisplay: nil)
-            if pbA == nil {
-                var displayTime = CMTime.zero
-                pbA = outputA.copyPixelBuffer(forItemTime: engine.slotA.player.currentTime(), itemTimeForDisplay: &displayTime)
-            }
-            if let pb = pbA {
-                var cgImageA: CGImage?
-                VTCreateCGImageFromCVPixelBuffer(pb, options: nil, imageOut: &cgImageA)
-                if let img = cgImageA {
-                    self.lastCapturedTimeA = time
-                    self.rawStillFrameA = img
-                    self.engine?.slotA.lastDecodedFrame = img
-                    imgToDisplay = (engine.exposureEV != 0.0) ? ExposureAdjuster.shared.applyExposure(to: img, ev: engine.exposureEV) : img
-                    targetLayer = stillFrameLayerA
-                }
-            }
-        } else if slot == .slotB, (engine.compareMode != .single || engine.isBlinkCompareB), let outputB = engine.slotB.videoOutput {
-            var pbB = outputB.copyPixelBuffer(forItemTime: time, itemTimeForDisplay: nil)
-            if pbB == nil {
-                var displayTime = CMTime.zero
-                pbB = outputB.copyPixelBuffer(forItemTime: engine.slotB.player.currentTime(), itemTimeForDisplay: &displayTime)
-            }
-            if let pb = pbB {
-                var cgImageB: CGImage?
-                VTCreateCGImageFromCVPixelBuffer(pb, options: nil, imageOut: &cgImageB)
-                if let imgB = cgImageB {
-                    self.lastCapturedTimeB = time
-                    self.rawStillFrameB = imgB
-                    self.engine?.slotB.lastDecodedFrame = imgB
-                    imgToDisplay = (engine.exposureEV != 0.0) ? ExposureAdjuster.shared.applyExposure(to: imgB, ev: engine.exposureEV) : imgB
-                    targetLayer = stillFrameLayerB
-                }
-            }
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        let result = presentFrame(from: output, slot: slot, itemTime: time, requireFrame: frameIndex(of: time, fps: slotState.fps))
+        if result == .unavailable {
+            presentFrame(from: output, slot: slot, itemTime: slotState.player.currentTime(), requireFrame: nil)
         }
+        updateLayerVisibility()
+        CATransaction.commit()
         
-        if let img = imgToDisplay, let layer = targetLayer {
-            CATransaction.begin()
-            CATransaction.setDisableActions(true)
-            layer.contents = img
-            updateLayerVisibility()
-            CATransaction.commit()
+        if !engine.isPlaying {
+            watchForFreshStill(slot: slot, at: time)
         }
     }
     
@@ -506,6 +486,7 @@ public final class PlayerContainerNSView: NSView {
             setupDisplayLink()
         } else {
             tearDownDisplayLink()
+            engine?.detachViewport(self)
         }
     }
     
@@ -513,15 +494,19 @@ public final class PlayerContainerNSView: NSView {
         super.viewDidMoveToWindow()
         if window != nil {
             setupDisplayLink()
+            if let engine = engine {
+                attachPresentationHooks(to: engine)
+            }
         }
     }
     
     private func setupDisplayLink() {
         guard displayLink == nil else { return }
-        let link = self.displayLink(target: self, selector: #selector(onDisplayLinkTick))
+        let link = self.displayLink(target: self, selector: #selector(onDisplayLinkTick(_:)))
         link.add(to: .main, forMode: .common)
-        link.isPaused = !(engine?.isPlaying ?? false)
+        link.isPaused = true
         self.displayLink = link
+        syncDisplayLinkState()
     }
     
     private func tearDownDisplayLink() {
@@ -529,73 +514,150 @@ public final class PlayerContainerNSView: NSView {
         displayLink = nil
     }
     
-    @objc private func onDisplayLinkTick() {
-        guard let engine = engine, engine.isPlaying, !engine.isScrubbing else { return }
-        renderPlaybackFrames()
+    /// Runs during playback, and briefly while paused when a seek result is still being delivered.
+    private func syncDisplayLinkState() {
+        guard let link = displayLink else { return }
+        let isScrubbing = engine?.isScrubbing ?? false
+        let isLive = (engine?.isPlaying ?? false) && !isScrubbing
+        let hasPendingStills = (pendingStillTimeA != nil || pendingStillTimeB != nil) && !isScrubbing
+        let shouldRun = isLive || hasPendingStills
+        if link.isPaused == shouldRun {
+            link.isPaused = !shouldRun
+        }
     }
     
-    private func renderPlaybackFrames() {
+    @objc private func onDisplayLinkTick(_ link: CADisplayLink) {
+        guard let engine = engine, !engine.isScrubbing else { return }
+        if engine.isPlaying {
+            renderPlaybackFrames(targetHostTime: link.targetTimestamp)
+        } else {
+            presentPendingStillFrames()
+        }
+    }
+    
+    private func renderPlaybackFrames(targetHostTime: CFTimeInterval) {
         guard let engine = engine, engine.isPlaying, !engine.isScrubbing else { return }
         
-        var newImgA: CGImage? = nil
-        var newTimeA: CMTime? = nil
-        var rawA: CGImage? = nil
-        var newImgB: CGImage? = nil
-        var newTimeB: CMTime? = nil
-        var rawB: CGImage? = nil
-        
-        let masterTime = engine.slotA.player.currentTime()
-        
-        // Slot A frame extraction:
+        // Commit both textures synchronously in a single atomic transaction
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        // Pick the frame for the vsync it will be shown on; buffers already on screen are skipped.
         if let outputA = engine.slotA.videoOutput {
-            var displayTime = CMTime.zero
-            if let pb = outputA.copyPixelBuffer(forItemTime: masterTime, itemTimeForDisplay: &displayTime) {
-                
-                var cgImageA: CGImage?
-                VTCreateCGImageFromCVPixelBuffer(pb, options: nil, imageOut: &cgImageA)
-                if let img = cgImageA {
-                    rawA = img
-                    newImgA = (engine.exposureEV != 0.0) ? ExposureAdjuster.shared.applyExposure(to: img, ev: engine.exposureEV) : img
-                    newTimeA = masterTime
-                }
-            }
+            let timeA = playbackItemTime(outputA, hostTime: targetHostTime, fallback: engine.slotA.player)
+            presentFrame(from: outputA, slot: .slotA, itemTime: timeA, requireFrame: nil)
         }
-        
         // Slot B frame extraction (in active compare modes or during Blink):
         if (engine.compareMode != .single || engine.isBlinkCompareB) && engine.slotB.url != nil, let outputB = engine.slotB.videoOutput {
-            let timeB = engine.slotB.player.currentTime()
-            var displayTime = CMTime.zero
-            if let pb = outputB.copyPixelBuffer(forItemTime: timeB, itemTimeForDisplay: &displayTime) {
-                var cgImageB: CGImage?
-                VTCreateCGImageFromCVPixelBuffer(pb, options: nil, imageOut: &cgImageB)
-                if let imgB = cgImageB {
-                    rawB = imgB
-                    newImgB = (engine.exposureEV != 0.0) ? ExposureAdjuster.shared.applyExposure(to: imgB, ev: engine.exposureEV) : imgB
-                    newTimeB = timeB
-                }
+            let timeB = playbackItemTime(outputB, hostTime: targetHostTime, fallback: engine.slotB.player)
+            presentFrame(from: outputB, slot: .slotB, itemTime: timeB, requireFrame: nil)
+        }
+        updateLayerVisibility()
+        CATransaction.commit()
+    }
+    
+    private func playbackItemTime(_ output: AVPlayerItemVideoOutput, hostTime: CFTimeInterval, fallback player: AVPlayer) -> CMTime {
+        let time = output.itemTime(forHostTime: hostTime)
+        return time.isValid ? time : player.currentTime()
+    }
+    
+    // MARK: - Still Frame Presentation (video output buffers are display-ready: exposure is composited upstream)
+    
+    private enum StillFetch {
+        case exact        // the displayed buffer is the requested frame
+        case stale        // the output still holds another frame (seek result not delivered yet)
+        case unavailable  // the output has no buffer
+    }
+    
+    private func frameIndex(of time: CMTime, fps: Double) -> Int {
+        let secs = CMTimeGetSeconds(time)
+        guard secs.isFinite else { return -1 }
+        return Int(floor(secs * max(1.0, fps) + 1e-4))
+    }
+    
+    private func stillLayer(for slot: SlotTarget) -> CALayer {
+        slot == .slotA ? stillFrameLayerA : stillFrameLayerB
+    }
+    
+    private func setStillContents(_ image: CGImage, slot: SlotTarget, time: CMTime, buffer: CVPixelBuffer?) {
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        stillLayer(for: slot).contents = image
+        CATransaction.commit()
+        if slot == .slotA {
+            presentedBufferA = buffer
+            lastCapturedTimeA = time
+            engine?.slotA.lastDecodedFrame = image
+        } else {
+            presentedBufferB = buffer
+            lastCapturedTimeB = time
+            engine?.slotB.lastDecodedFrame = image
+        }
+    }
+    
+    /// Puts the output's buffer for `itemTime` on screen unless it is already displayed. Buffers are compared by
+    /// identity rather than `hasNewPixelBuffer`, which stays correct when two viewports read the same output (fullscreen).
+    /// Returns `.stale` when the buffer belongs to another frame than `requireFrame` (the exact frame is still pending).
+    @discardableResult
+    private func presentFrame(from output: AVPlayerItemVideoOutput, slot: SlotTarget, itemTime: CMTime, requireFrame: Int?) -> StillFetch {
+        guard let engine = engine else { return .unavailable }
+        var displayTime = CMTime.invalid
+        guard let buffer = output.copyPixelBuffer(forItemTime: itemTime, itemTimeForDisplay: &displayTime) else { return .unavailable }
+        var isExact = true
+        if let requiredFrame = requireFrame, displayTime.isValid {
+            let fps = (slot == .slotA) ? engine.slotA.fps : engine.slotB.fps
+            isExact = frameIndex(of: displayTime, fps: fps) == requiredFrame
+        }
+        if buffer !== ((slot == .slotA) ? presentedBufferA : presentedBufferB) {
+            var image: CGImage?
+            VTCreateCGImageFromCVPixelBuffer(buffer, options: nil, imageOut: &image)
+            guard let image = image else { return .unavailable }
+            setStillContents(image, slot: slot, time: itemTime, buffer: buffer)
+        } else if isExact {
+            if slot == .slotA {
+                lastCapturedTimeA = itemTime
+            } else {
+                lastCapturedTimeB = itemTime
             }
         }
-        
-        // Commit both textures synchronously in a single atomic transaction
-        if newImgA != nil || newImgB != nil {
-            CATransaction.begin()
-            CATransaction.setDisableActions(true)
-            if let imgA = newImgA {
-                self.lastCapturedTimeA = newTimeA
-                let unexposedA = rawA ?? imgA
-                self.rawStillFrameA = unexposedA
-                self.engine?.slotA.lastDecodedFrame = unexposedA
-                self.stillFrameLayerA.contents = imgA
-            }
-            if let imgB = newImgB {
-                self.lastCapturedTimeB = newTimeB
-                let unexposedB = rawB ?? imgB
-                self.rawStillFrameB = unexposedB
-                self.engine?.slotB.lastDecodedFrame = unexposedB
-                self.stillFrameLayerB.contents = imgB
-            }
-            self.updateLayerVisibility()
-            CATransaction.commit()
+        return isExact ? .exact : .stale
+    }
+    
+    /// With exposure active, a paused seek's composited frame reaches the video output a few ms after the seek
+    /// completes (the output still holds the previous frame at completion), so keep ticking briefly to present it.
+    private func watchForFreshStill(slot: SlotTarget, at time: CMTime) {
+        if slot == .slotA {
+            pendingStillTimeA = time
+        } else {
+            pendingStillTimeB = time
+        }
+        pendingStillDeadline = CACurrentMediaTime() + Self.pendingStillWindow
+        syncDisplayLinkState()
+    }
+    
+    private func cancelPendingStills() {
+        pendingStillTimeA = nil
+        pendingStillTimeB = nil
+    }
+    
+    private func presentPendingStillFrames() {
+        guard let engine = engine, pendingStillTimeA != nil || pendingStillTimeB != nil else {
+            syncDisplayLinkState()
+            return
+        }
+        // Runs for the whole window: an exposure refresh delivers a new buffer for the same frame.
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        if let time = pendingStillTimeA, let output = engine.slotA.videoOutput {
+            presentFrame(from: output, slot: .slotA, itemTime: time, requireFrame: frameIndex(of: time, fps: engine.slotA.fps))
+        }
+        if let time = pendingStillTimeB, let output = engine.slotB.videoOutput {
+            presentFrame(from: output, slot: .slotB, itemTime: time, requireFrame: frameIndex(of: time, fps: engine.slotB.fps))
+        }
+        updateLayerVisibility()
+        CATransaction.commit()
+        if CACurrentMediaTime() >= pendingStillDeadline {
+            cancelPendingStills()
+            syncDisplayLinkState()
         }
     }
     
@@ -630,7 +692,6 @@ public final class PlayerContainerNSView: NSView {
         super.layout()
         layoutPlayerLayer()
         updateCompareLayers()
-        updateExposure()
         updateMagnificationFilters()
         checkStillFrameDisplay()
     }
@@ -1634,70 +1695,7 @@ public final class PlayerContainerNSView: NSView {
         }
         
         let timeA = engine.currentTime
-        let timeSecsA = CMTimeGetSeconds(timeA)
-        let frameDurationA = 1.0 / max(1.0, engine.slotA.fps)
-        let toleranceA = min(0.03, frameDurationA * 0.5)
-        
-        // 1. Check if stillFrameLayerA already displays the current frame
-        let isFreshA: Bool
-        if let lastA = lastCapturedTimeA, abs(CMTimeGetSeconds(lastA) - timeSecsA) <= toleranceA, stillFrameLayerA.contents != nil {
-            isFreshA = true
-        } else {
-            isFreshA = false
-        }
-        
-        if !isFreshA {
-            // 2. Direct VideoOutput pull (<0.15ms execution)
-            var fetchedFromOutputA = false
-            if let outputA = engine.slotA.videoOutput,
-               let pbA = outputA.copyPixelBuffer(forItemTime: timeA, itemTimeForDisplay: nil) {
-                var cgImageA: CGImage?
-                VTCreateCGImageFromCVPixelBuffer(pbA, options: nil, imageOut: &cgImageA)
-                if let img = cgImageA {
-                    self.lastCapturedTimeA = timeA
-                    self.rawStillFrameA = img
-                    self.engine?.slotA.lastDecodedFrame = img
-                    let exposedImg = (engine.exposureEV != 0.0) ? ExposureAdjuster.shared.applyExposure(to: img, ev: engine.exposureEV) : img
-                    CATransaction.begin()
-                    CATransaction.setDisableActions(true)
-                    self.stillFrameLayerA.contents = exposedImg
-                    CATransaction.commit()
-                    fetchedFromOutputA = true
-                }
-            }
-            
-            // 3. Fallback to FrameExtractor (AVAssetImageGenerator ~9.8ms) if videoOutput hasn't buffered this seek frame
-            if !fetchedFromOutputA {
-                if isCapturingStillA {
-                    self.pendingCaptureTimeA = timeA
-                } else {
-                    self.pendingCaptureTimeA = nil
-                    isCapturingStillA = true
-                    Task { [weak self] in
-                        guard let self = self, let curEngine = self.engine else { return }
-                        let img = await curEngine.captureCurrentFrame(for: .slotA, at: timeA)
-                        await MainActor.run {
-                            self.isCapturingStillA = false
-                            guard let curEngine = self.engine else { return }
-                            if let img = img {
-                                self.lastCapturedTimeA = timeA
-                                self.rawStillFrameA = img
-                                self.engine?.slotA.lastDecodedFrame = img
-                                let exposedImg = (curEngine.exposureEV != 0.0) ? ExposureAdjuster.shared.applyExposure(to: img, ev: curEngine.exposureEV) : img
-                                CATransaction.begin()
-                                CATransaction.setDisableActions(true)
-                                self.stillFrameLayerA.contents = exposedImg
-                                CATransaction.commit()
-                                self.updateLayerVisibility()
-                            }
-                            if let pending = self.pendingCaptureTimeA, pending != timeA {
-                                self.checkStillFrameDisplay()
-                            }
-                        }
-                    }
-                }
-            }
-        }
+        ensureStillFrame(slot: .slotA, at: timeA)
         
         // Slot B still frame check if active comparison or during Blink
         if engine.slotB.url != nil && (engine.compareMode != .single || engine.isBlinkCompareB) {
@@ -1711,76 +1709,76 @@ public final class PlayerContainerNSView: NSView {
                 let currB = engine.slotB.currentTime
                 timeB = (currB.isValid && currB.isNumeric) ? currB : engine.slotB.player.currentTime()
             }
-            let timeSecsB = CMTimeGetSeconds(timeB)
-            let frameDurationB = 1.0 / max(1.0, engine.slotB.fps)
-            let toleranceB = min(0.03, frameDurationB * 0.5)
-            
-            let isFreshB: Bool
-            if let lastB = lastCapturedTimeB, abs(CMTimeGetSeconds(lastB) - timeSecsB) <= toleranceB, stillFrameLayerB.contents != nil {
-                isFreshB = true
-            } else {
-                isFreshB = false
-            }
-            
-            if !isFreshB {
-                var fetchedFromOutputB = false
-                if let outputB = engine.slotB.videoOutput {
-                    var pbB = outputB.copyPixelBuffer(forItemTime: timeB, itemTimeForDisplay: nil)
-                    if pbB == nil {
-                        var displayTime = CMTime.zero
-                        pbB = outputB.copyPixelBuffer(forItemTime: engine.slotB.player.currentTime(), itemTimeForDisplay: &displayTime)
-                    }
-                    if let pb = pbB {
-                        var cgImageB: CGImage?
-                        VTCreateCGImageFromCVPixelBuffer(pb, options: nil, imageOut: &cgImageB)
-                        if let imgB = cgImageB {
-                            self.lastCapturedTimeB = timeB
-                            self.rawStillFrameB = imgB
-                            self.engine?.slotB.lastDecodedFrame = imgB
-                            let exposedImgB = (engine.exposureEV != 0.0) ? ExposureAdjuster.shared.applyExposure(to: imgB, ev: engine.exposureEV) : imgB
-                            CATransaction.begin()
-                            CATransaction.setDisableActions(true)
-                            self.stillFrameLayerB.contents = exposedImgB
-                            CATransaction.commit()
-                            fetchedFromOutputB = true
-                        }
-                    }
-                }
-                
-                if !fetchedFromOutputB {
-                    if isCapturingStillB {
-                        self.pendingCaptureTimeB = timeB
-                    } else {
-                        self.pendingCaptureTimeB = nil
-                        isCapturingStillB = true
-                        Task { [weak self] in
-                            guard let self = self, let curEngine = self.engine else { return }
-                            let imgB = await curEngine.captureCurrentFrame(for: .slotB, at: timeB)
-                            await MainActor.run {
-                                self.isCapturingStillB = false
-                                guard let curEngine = self.engine else { return }
-                                if let imgB = imgB {
-                                    self.lastCapturedTimeB = timeB
-                                    self.rawStillFrameB = imgB
-                                    self.engine?.slotB.lastDecodedFrame = imgB
-                                    let exposedImgB = (curEngine.exposureEV != 0.0) ? ExposureAdjuster.shared.applyExposure(to: imgB, ev: curEngine.exposureEV) : imgB
-                                    CATransaction.begin()
-                                    CATransaction.setDisableActions(true)
-                                    self.stillFrameLayerB.contents = exposedImgB
-                                    CATransaction.commit()
-                                    self.updateLayerVisibility()
-                                }
-                                if let pendingB = self.pendingCaptureTimeB, pendingB != timeB {
-                                    self.checkStillFrameDisplay()
-                                }
-                            }
-                        }
-                    }
-                }
-            }
+            ensureStillFrame(slot: .slotB, at: timeB)
         }
         
         updateLayerVisibility()
+    }
+    
+    private func ensureStillFrame(slot: SlotTarget, at time: CMTime) {
+        guard let engine = engine else { return }
+        let slotState = (slot == .slotA) ? engine.slotA : engine.slotB
+        
+        // 1. Check if the still layer already displays the current frame
+        let lastCaptured = (slot == .slotA) ? lastCapturedTimeA : lastCapturedTimeB
+        let tolerance = min(0.03, (1.0 / max(1.0, slotState.fps)) * 0.5)
+        if let last = lastCaptured, abs(CMTimeGetSeconds(last) - CMTimeGetSeconds(time)) <= tolerance, stillLayer(for: slot).contents != nil {
+            return
+        }
+        
+        // 2. Direct VideoOutput pull (<0.15ms execution)
+        if let output = slotState.videoOutput {
+            switch presentFrame(from: output, slot: slot, itemTime: time, requireFrame: frameIndex(of: time, fps: slotState.fps)) {
+            case .exact:
+                return
+            case .stale:
+                // The target frame hasn't reached the output yet (seek in flight / composited result pending).
+                watchForFreshStill(slot: slot, at: time)
+                return
+            case .unavailable:
+                break
+            }
+        }
+        
+        // 3. Fallback to FrameExtractor if videoOutput hasn't buffered this frame
+        captureStillFromExtractor(slot: slot, at: time)
+    }
+    
+    private func captureStillFromExtractor(slot: SlotTarget, at time: CMTime) {
+        let isCapturing = (slot == .slotA) ? isCapturingStillA : isCapturingStillB
+        if isCapturing {
+            if slot == .slotA {
+                pendingCaptureTimeA = time
+            } else {
+                pendingCaptureTimeB = time
+            }
+            return
+        }
+        if slot == .slotA {
+            pendingCaptureTimeA = nil
+            isCapturingStillA = true
+        } else {
+            pendingCaptureTimeB = nil
+            isCapturingStillB = true
+        }
+        Task { [weak self] in
+            guard let self = self, let engine = self.engine else { return }
+            // captureCurrentFrame returns the frame display-ready (exposure applied once).
+            let image = await engine.captureCurrentFrame(for: slot, at: time)
+            if slot == .slotA {
+                self.isCapturingStillA = false
+            } else {
+                self.isCapturingStillB = false
+            }
+            if let image = image {
+                self.setStillContents(image, slot: slot, time: time, buffer: nil)
+                self.updateLayerVisibility()
+            }
+            let pending = (slot == .slotA) ? self.pendingCaptureTimeA : self.pendingCaptureTimeB
+            if let pending = pending, pending != time {
+                self.checkStillFrameDisplay()
+            }
+        }
     }
     
     private func buildCrosshairPath(size: CGSize) -> CGPath {
@@ -1983,36 +1981,6 @@ public final class PlayerContainerNSView: NSView {
         
         lastFrameASize = frameA.size
         lastFrameBSize = frameB.size
-    }
-    
-    // MARK: - Exposure Adjustment (After Effects Style EV Filter)
-    
-    private func updateExposure() {
-        guard let engine = engine else { return }
-        let ev = engine.exposureEV
-        if abs(ev - lastExposureEV) < 0.001 { return }
-        lastExposureEV = ev
-        
-        CATransaction.begin()
-        CATransaction.setDisableActions(true)
-        
-        // Ensure no legacy layer filters are lingering (playback is handled by AVVideoComposition)
-        playerLayerA.filters = nil
-        playerLayerB.filters = nil
-        stillFrameLayerA.filters = nil
-        stillFrameLayerB.filters = nil
-        
-        // Re-bake cached still frames on GPU with new EV (~3ms execution)
-        if let rawA = rawStillFrameA {
-            let exposedA = ExposureAdjuster.shared.applyExposure(to: rawA, ev: ev)
-            stillFrameLayerA.contents = exposedA
-        }
-        if let rawB = rawStillFrameB {
-            let exposedB = ExposureAdjuster.shared.applyExposure(to: rawB, ev: ev)
-            stillFrameLayerB.contents = exposedB
-        }
-        
-        CATransaction.commit()
     }
     
     // MARK: - Interactive Split Wipe Drag & Canvas Pan
