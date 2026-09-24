@@ -207,24 +207,33 @@ extension ContentView {
     
     @ViewBuilder
     var playerTabView: some View {
-        HStack(spacing: 0) {
-            if showPlayerQueue {
-                playerQueuePanel
-                    .frame(width: 360)
-                    .overlay(
-                        Rectangle()
-                            .fill(borderLine)
-                            .frame(width: 1),
-                        alignment: .trailing
-                    )
-                    .transition(.move(edge: .leading).combined(with: .opacity))
-                    .layoutPriority(1)
-            }
-            playerProgramMonitorPanel
-                .layoutPriority(0)
-            if showNotesDrawer {
-                playerNotesDrawerPanel
-                    .layoutPriority(1)
+        GeometryReader { mainGeo in
+            let availableWidth = mainGeo.size.width - (showNotesDrawer ? 340.0 : 0.0)
+            let maxQueueWidth = max(240.0, min(800.0, availableWidth - 400.0))
+            let effectiveQueueWidth = max(240.0, min(maxQueueWidth, playerQueueWidth > 0 ? playerQueueWidth : 360.0))
+            
+            HStack(spacing: 0) {
+                if showPlayerQueue {
+                    playerQueuePanel
+                        .frame(width: effectiveQueueWidth)
+                        .overlay(
+                            Rectangle()
+                                .fill(borderLine)
+                                .frame(width: 1),
+                            alignment: .trailing
+                        )
+                        .overlay(alignment: .trailing) {
+                            playerQueueResizeHandle(maxWidth: maxQueueWidth)
+                        }
+                        .transition(.move(edge: .leading).combined(with: .opacity))
+                        .layoutPriority(1)
+                }
+                playerProgramMonitorPanel
+                    .layoutPriority(0)
+                if showNotesDrawer {
+                    playerNotesDrawerPanel
+                        .layoutPriority(1)
+                }
             }
         }
         .clipped()
@@ -324,6 +333,73 @@ extension ContentView {
             }
         )
         .equatable()
+    }
+    
+    // MARK: - Left Panel: Queue Resize Handle Divider
+    private func playerQueueResizeHandle(maxWidth: Double) -> some View {
+        ZStack {
+            // Hit target: generous 28 pt wide grab area (14 pt on each side of the border line)
+            Rectangle()
+                .fill(Color.clear)
+                .frame(width: 28)
+                .contentShape(Rectangle())
+            
+            // Visual border highlight line (1px on hover, 2px during active drag)
+            Rectangle()
+                .fill(isDraggingQueueResize ? accentBlue : (isHoveringQueueResize ? borderStrong : Color.clear))
+                .frame(width: isDraggingQueueResize ? 2 : 1)
+        }
+        .frame(width: 28)
+        .offset(x: 14)
+        .zIndex(200)
+        .onHover { isHovered in
+            if !isDraggingQueueResize {
+                if isHovered != isHoveringQueueResize {
+                    isHoveringQueueResize = isHovered
+                    if isHovered {
+                        NSCursor.resizeLeftRight.push()
+                    } else {
+                        NSCursor.pop()
+                    }
+                }
+            } else {
+                isHoveringQueueResize = isHovered
+            }
+        }
+        .onTapGesture(count: 2) {
+            withAnimation(.spring(response: 0.28, dampingFraction: 0.82)) {
+                playerQueueWidth = min(maxWidth, 360.0)
+            }
+        }
+        .gesture(
+            DragGesture(minimumDistance: 1, coordinateSpace: .global)
+                .onChanged { value in
+                    if !isDraggingQueueResize {
+                        isDraggingQueueResize = true
+                        dragStartQueueWidth = playerQueueWidth
+                    }
+                    let newWidth = dragStartQueueWidth + Double(value.translation.width)
+                    let clamped = max(240.0, min(maxWidth, newWidth))
+                    if abs(playerQueueWidth - clamped) > 0.5 {
+                        playerQueueWidth = clamped
+                    }
+                }
+                .onEnded { _ in
+                    isDraggingQueueResize = false
+                    UserDefaults.standard.set(playerQueueWidth, forKey: "playerQueueWidth")
+                    if !isHoveringQueueResize {
+                        NSCursor.pop()
+                    }
+                }
+        )
+        .onDisappear {
+            if isHoveringQueueResize || isDraggingQueueResize {
+                isHoveringQueueResize = false
+                isDraggingQueueResize = false
+                NSCursor.pop()
+            }
+        }
+        .explain("Drag to resize Assets & Queue panel. Double-click to reset width (360px).")
     }
     
     // MARK: - Right Panel: Program Monitor & Timeline

@@ -542,8 +542,17 @@ public final class PlayerEngine: ObservableObject {
             notesCount: activeNotes.count
         )
     }
+    // MARK: - Dropped Frame Telemetry (non-@Published to preserve 60/120 FPS performance)
+    public private(set) var droppedFramesCount: Int = 0
     
-    public func resetDroppedFrames() {}
+    public func recordDroppedFrames(_ count: Int) {
+        guard count > 0 else { return }
+        self.droppedFramesCount += count
+    }
+    
+    public func resetDroppedFrames() {
+        self.droppedFramesCount = 0
+    }
     
     // MARK: - Exposure Video Composition (Single Exposure Pipeline)
     //

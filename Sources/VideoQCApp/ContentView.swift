@@ -22,6 +22,10 @@ struct ContentView: View {
     @AppStorage("reviewerName") var reviewerName: String = ""
     @AppStorage("queueDisplayMode") var queueDisplayMode: String = "inline"
     @AppStorage("playerThumbnailSize") var playerThumbnailSize: Double = 52.0
+    @AppStorage("playerQueueWidth") var playerQueueWidth: Double = 360.0
+    @State var isDraggingQueueResize: Bool = false
+    @State var isHoveringQueueResize: Bool = false
+    @State var dragStartQueueWidth: Double = 360.0
     @AppStorage("specsDisplayMode") var specsDisplayMode: String = "inline"
     @AppStorage("specsThumbnailSize") var specsThumbnailSize: Double = 50.0
     @State var showSpecsViewOptionsPopover: Bool = false
@@ -1078,7 +1082,8 @@ struct ContentView: View {
                 
                 self.videoFiles = mergedVideos
                 self.folderURL = determineFolderURL(for: mergedVideos, detectedFolder: self.folderURL ?? detectedFolder)
-                
+                self.updatePlayerTreeNodes()
+
                 // Inspect only if already on Specs tab, otherwise defer until tab is selected
                 if self.selectedTab == .specs {
                     specsState.inspectDeliverablesBatch(urls: newlyAdded, append: true)
@@ -1102,6 +1107,7 @@ struct ContentView: View {
                 
                 self.folderURL = determineFolderURL(for: uniqueVideos, detectedFolder: detectedFolder)
                 self.videoFiles = uniqueVideos
+                self.updatePlayerTreeNodes()
                 self.playerCollapsedFolderIDs = []
                 self.specsState.deliverablesCollapsedFolderIDs = []
                 self.scannerState.scanResults = []
@@ -1202,6 +1208,7 @@ struct ContentView: View {
             if !newlyAdded.isEmpty {
                 self.videoFiles = mergedVideos
                 self.folderURL = self.determineFolderURL(for: mergedVideos, detectedFolder: self.folderURL ?? detectedFolder)
+                self.updatePlayerTreeNodes()
                 if self.selectedTab == .specs {
                     self.specsState.inspectDeliverablesBatch(urls: newlyAdded, append: true)
                 }

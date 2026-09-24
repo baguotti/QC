@@ -124,6 +124,15 @@ public struct PlayerQueuePanelView: View, Equatable {
         }
         return baseFiles.filter { $0.lastPathComponent.localizedCaseInsensitiveContains(playerFilterText) }
     }
+
+    /// Queue list rows: the folder tree when there are subfolders, otherwise the flat file list as depth-0 nodes.
+    /// File rows are identified by path in both layouts (same id as the tree builder's file nodes).
+    private var queueRows: [FileSystemTreeNode] {
+        if hasSubfolders { return flattenedNodes }
+        return filteredFiles.map { url in
+            FileSystemTreeNode(id: url.path, name: url.lastPathComponent, url: url, isDirectory: false, relativePath: url.lastPathComponent, depth: 0)
+        }
+    }
     
     public var body: some View {
         VStack(alignment: .leading, spacing: 18) {
@@ -288,26 +297,17 @@ public struct PlayerQueuePanelView: View, Equatable {
                     ScrollViewReader { scrollProxy in
                         ScrollView {
                             LazyVStack(spacing: queueDisplayMode == "inline" ? 2 : 4) {
-                                if hasSubfolders {
-                                    ForEach(flattenedNodes) { node in
-                                        if node.isDirectory {
-                                            folderRow(node: node)
-                                                .id(node.id)
-                                        } else {
-                                            let isSelA = isSameURL(slotAURL, node.url)
-                                            let isSelB = isSameURL(slotBURL, node.url)
-                                            let count = fileNotesCount(url: node.url)
-                                            makeFileRow(url: node.url, depth: node.depth, isSlotA: isSelA, isSlotB: isSelB, notesCount: count)
-                                                .id(node.url)
-                                        }
-                                    }
-                                } else {
-                                    ForEach(filteredFiles, id: \.self) { url in
-                                        let isSelA = isSameURL(slotAURL, url)
-                                        let isSelB = isSameURL(slotBURL, url)
-                                        let count = fileNotesCount(url: url)
-                                        makeFileRow(url: url, depth: 0, isSlotA: isSelA, isSlotB: isSelB, notesCount: count)
-                                            .id(url)
+                                // One ForEach keyed by path for both layouts: separate tree/flat ForEach branches tagging
+                                // rows with the same ids left rows of the first layout orphaned in the lazy stack
+                                // (stale highlight and indent until the panel was rebuilt).
+                                ForEach(queueRows) { node in
+                                    if node.isDirectory {
+                                        folderRow(node: node)
+                                    } else {
+                                        let isSelA = isSameURL(slotAURL, node.url)
+                                        let isSelB = isSameURL(slotBURL, node.url)
+                                        let count = fileNotesCount(url: node.url)
+                                        makeFileRow(url: node.url, depth: node.depth, isSlotA: isSelA, isSlotB: isSelB, notesCount: count)
                                     }
                                 }
                             }
@@ -320,7 +320,7 @@ public struct PlayerQueuePanelView: View, Equatable {
                         .onChange(of: queueScrollTarget) { _, targetURL in
                             if let targetURL = targetURL {
                                 withAnimation(.easeInOut(duration: 0.15)) {
-                                    scrollProxy.scrollTo(targetURL, anchor: nil)
+                                    scrollProxy.scrollTo(targetURL.path, anchor: nil)
                                 }
                             }
                         }
@@ -340,7 +340,7 @@ public struct PlayerQueuePanelView: View, Equatable {
             .frame(maxHeight: .infinity)
         }
         .padding(22)
-        .frame(minWidth: 280, idealWidth: 380, maxWidth: 650)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(bgPanel)
         .onDrop(of: [UTType.fileURL.identifier], isTargeted: nil) { providers in
             onDrop(providers)

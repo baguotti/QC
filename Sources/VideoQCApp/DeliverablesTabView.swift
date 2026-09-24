@@ -80,7 +80,7 @@ extension ContentView {
                     deliverablesResultsView
                 }
             }
-            .frame(minWidth: 540)
+            .frame(minWidth: 540, maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             .background(bgMain)
         }
     }
@@ -522,112 +522,121 @@ extension ContentView {
             }
             
             // Table
-            ScrollView(.horizontal, showsIndicators: true) {
-                VStack(alignment: .leading, spacing: 0) {
-                    // Table Header
-                    HStack(spacing: 8) {
-                        Text("#").frame(width: 25, alignment: .center)
-                        if specsDisplayMode == "thumbnail" {
-                            Text("PREVIEW").frame(width: CGFloat(specsThumbnailWidth), alignment: .center)
+            GeometryReader { tableGeo in
+                let geoWidth = floor(tableGeo.size.width)
+                let availableWidth = max(specsTableMinWidth, geoWidth)
+                let extraWidth = max(0, geoWidth - specsTableMinWidth)
+                let pathColWidth = CGFloat(specsState.columnWidth(for: .path)) + extraWidth
+                
+                ScrollView(.horizontal, showsIndicators: availableWidth > geoWidth) {
+                    VStack(alignment: .leading, spacing: 0) {
+                        // Table Header
+                        HStack(spacing: 8) {
+                            Text("#").frame(width: 25, alignment: .center)
+                            if specsDisplayMode == "thumbnail" {
+                                Text("PREVIEW").frame(width: CGFloat(specsThumbnailWidth), alignment: .center)
+                            }
+                            
+                            sortableHeaderCell("FILE NAME", column: .name, alignment: .leading)
+                            sortableHeaderCell("TIMECODE (TC)", column: .timecode)
+                            sortableHeaderCell("RATIO & SIZE", column: .ratio)
+                            sortableHeaderCell("FPS", column: .fps)
+                            sortableHeaderCell("FILE SIZE", column: .size)
+                            sortableHeaderCell("CREATED", column: .date)
+                            sortableHeaderCell("VIDEO", column: .videoCodec)
+                            sortableHeaderCell("AUDIO SPEC", column: .audioCodec)
+                            sortableHeaderCell("PATH", column: .path, customWidth: pathColWidth, alignment: .leading, isResizable: false)
+                        }
+                        .font(.system(size: 9, weight: .bold, design: .monospaced))
+                        .foregroundColor(textMuted)
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, specsDisplayMode == "large" ? 10 : (specsDisplayMode == "thumbnail" ? 8 : 6))
+                        .frame(width: availableWidth, alignment: .leading)
+                        .background(bgCardHeader)
+                        .contextMenu {
+                            Menu("Sort By") {
+                                ForEach(SpecsSortColumn.allCases, id: \.self) { col in
+                                    Button(action: {
+                                        toggleSpecsSort(col)
+                                    }) {
+                                        HStack {
+                                            Text(col.displayName)
+                                            if specsState.specsSortColumn == col {
+                                                Image(systemName: specsState.specsSortAscending ? "chevron.up" : "chevron.down")
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                            Divider()
+                            Button(action: { specsState.specsSortAscending.toggle() }) {
+                                Label(specsState.specsSortAscending ? "Ascending" : "Descending", systemImage: specsState.specsSortAscending ? "arrow.up" : "arrow.down")
+                            }
                         }
                         
-                        sortableHeaderCell("FILE NAME", column: .name, alignment: .leading)
-                        sortableHeaderCell("TIMECODE (TC)", column: .timecode)
-                        sortableHeaderCell("RATIO & SIZE", column: .ratio)
-                        sortableHeaderCell("FPS", column: .fps)
-                        sortableHeaderCell("FILE SIZE", column: .size)
-                        sortableHeaderCell("CREATED", column: .date)
-                        sortableHeaderCell("VIDEO", column: .videoCodec)
-                        sortableHeaderCell("AUDIO SPEC", column: .audioCodec)
-                        sortableHeaderCell("PATH", column: .path, alignment: .leading, isResizable: false)
-                    }
-                    .font(.system(size: 9, weight: .bold, design: .monospaced))
-                    .foregroundColor(textMuted)
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, specsDisplayMode == "large" ? 10 : (specsDisplayMode == "thumbnail" ? 8 : 6))
-                    .background(bgCardHeader)
-                    .contextMenu {
-                        Menu("Sort By") {
-                            ForEach(SpecsSortColumn.allCases, id: \.self) { col in
-                                Button(action: {
-                                    toggleSpecsSort(col)
-                                }) {
-                                    HStack {
-                                        Text(col.displayName)
-                                        if specsState.specsSortColumn == col {
-                                            Image(systemName: specsState.specsSortAscending ? "chevron.up" : "chevron.down")
+                        Rectangle().fill(borderLine).frame(width: availableWidth, height: 1)
+                        
+                        // Table Rows
+                        ScrollView(.vertical) {
+                            LazyVStack(spacing: 0) {
+                                let assetMap = deliverableAssetsMap
+                                
+                                if filteredDeliverableAssets.isEmpty && !specsState.specsFilterText.isEmpty {
+                                    VStack(spacing: 10) {
+                                        Spacer().frame(height: 40)
+                                        Image(systemName: "line.3.horizontal.decrease.circle")
+                                            .font(.system(size: 26))
+                                            .foregroundColor(textMuted)
+                                        Text("NO ASSETS MATCHING \"\(specsState.specsFilterText)\"")
+                                            .font(.system(size: 11, weight: .bold, design: .monospaced))
+                                            .foregroundColor(textMuted)
+                                        Button(action: { specsState.specsFilterText = "" }) {
+                                            Text("CLEAR FILTER")
+                                                .font(.system(size: 10, weight: .bold, design: .monospaced))
+                                                .foregroundColor(accentBlue)
+                                        }
+                                        .buttonStyle(.plain)
+                                        Spacer().frame(height: 40)
+                                    }
+                                    .frame(width: availableWidth)
+                                } else if hasDeliverablesSubfolders {
+                                    let nodes = flattenedDeliverableNodes
+                                    let nodeCount = nodes.count
+                                    let assetIndexMap = deliverablesAssetIndexMap
+                                    
+                                    ForEach(Array(nodes.enumerated()), id: \.element.id) { idx, node in
+                                        if node.isDirectory {
+                                            deliverablesFolderBannerRow(node: node, assetMap: assetMap, rowWidth: availableWidth)
+                                        } else if let asset = assetMap[node.url] {
+                                            let assetIdx = assetIndexMap[node.url] ?? idx
+                                            deliverablesAssetRow(idx: assetIdx, asset: asset, depth: node.depth, pathWidth: pathColWidth, rowWidth: availableWidth)
+                                                .id("\(node.url.path)_\(specsDisplayMode)_\(Int(specsThumbnailWidth))")
+                                        }
+                                        
+                                        if idx < nodeCount - 1 {
+                                            Rectangle().fill(borderLine.opacity(0.4)).frame(width: availableWidth, height: 1)
+                                        }
+                                    }
+                                } else {
+                                    let assets = filteredDeliverableAssets
+                                    let assetCount = assets.count
+                                    ForEach(Array(assets.enumerated()), id: \.element.id) { idx, asset in
+                                        deliverablesAssetRow(idx: idx, asset: asset, depth: 0, pathWidth: pathColWidth, rowWidth: availableWidth)
+                                            .id("\(asset.fileURL.path)_\(specsDisplayMode)_\(Int(specsThumbnailWidth))")
+                                        
+                                        if idx < assetCount - 1 {
+                                            Rectangle().fill(borderLine.opacity(0.4)).frame(width: availableWidth, height: 1)
                                         }
                                     }
                                 }
                             }
                         }
-                        Divider()
-                        Button(action: { specsState.specsSortAscending.toggle() }) {
-                            Label(specsState.specsSortAscending ? "Ascending" : "Descending", systemImage: specsState.specsSortAscending ? "arrow.up" : "arrow.down")
-                        }
                     }
-                    
-                    Rectangle().fill(borderLine).frame(height: 1)
-                    
-                    // Table Rows
-                    ScrollView(.vertical) {
-                        LazyVStack(spacing: 0) {
-                            let assetMap = deliverableAssetsMap
-                            
-                            if filteredDeliverableAssets.isEmpty && !specsState.specsFilterText.isEmpty {
-                                VStack(spacing: 10) {
-                                    Spacer().frame(height: 40)
-                                    Image(systemName: "line.3.horizontal.decrease.circle")
-                                        .font(.system(size: 26))
-                                        .foregroundColor(textMuted)
-                                    Text("NO ASSETS MATCHING \"\(specsState.specsFilterText)\"")
-                                        .font(.system(size: 11, weight: .bold, design: .monospaced))
-                                        .foregroundColor(textMuted)
-                                    Button(action: { specsState.specsFilterText = "" }) {
-                                        Text("CLEAR FILTER")
-                                            .font(.system(size: 10, weight: .bold, design: .monospaced))
-                                            .foregroundColor(accentBlue)
-                                    }
-                                    .buttonStyle(.plain)
-                                    Spacer().frame(height: 40)
-                                }
-                                .frame(maxWidth: .infinity)
-                            } else if hasDeliverablesSubfolders {
-                                let nodes = flattenedDeliverableNodes
-                                let nodeCount = nodes.count
-                                let assetIndexMap = deliverablesAssetIndexMap
-                                
-                                ForEach(Array(nodes.enumerated()), id: \.element.id) { idx, node in
-                                    if node.isDirectory {
-                                        deliverablesFolderBannerRow(node: node, assetMap: assetMap)
-                                    } else if let asset = assetMap[node.url] {
-                                        let assetIdx = assetIndexMap[node.url] ?? idx
-                                        deliverablesAssetRow(idx: assetIdx, asset: asset, depth: node.depth)
-                                            .id("\(node.url.path)_\(specsDisplayMode)_\(Int(specsThumbnailWidth))")
-                                    }
-                                    
-                                    if idx < nodeCount - 1 {
-                                        Rectangle().fill(borderLine.opacity(0.4)).frame(height: 1)
-                                    }
-                                }
-                            } else {
-                                let assets = filteredDeliverableAssets
-                                let assetCount = assets.count
-                                ForEach(Array(assets.enumerated()), id: \.element.id) { idx, asset in
-                                    deliverablesAssetRow(idx: idx, asset: asset, depth: 0)
-                                        .id("\(asset.fileURL.path)_\(specsDisplayMode)_\(Int(specsThumbnailWidth))")
-                                    
-                                    if idx < assetCount - 1 {
-                                        Rectangle().fill(borderLine.opacity(0.4)).frame(height: 1)
-                                    }
-                                }
-                            }
-                        }
-                    }
+                    .frame(width: availableWidth, alignment: .leading)
                 }
-                .frame(minWidth: specsTableMinWidth, maxWidth: .infinity, alignment: .leading)
             }
             .studioBox(background: bgPanel, border: borderLine)
+            .clipShape(RoundedRectangle(cornerRadius: StudioTheme.cornerRadius))
         }
         .padding(28)
     }
@@ -683,11 +692,12 @@ extension ContentView {
     private func sortableHeaderCell(
         _ title: String,
         column: SpecsSortColumn,
+        customWidth: CGFloat? = nil,
         alignment: Alignment = .center,
         isResizable: Bool = true
     ) -> some View {
         let isCurrent = specsState.specsSortColumn == column
-        let colWidth = CGFloat(specsState.columnWidth(for: column))
+        let colWidth = customWidth ?? CGFloat(specsState.columnWidth(for: column))
         let isDraggingThis = specsState.isDragging(column: column)
         
         return HStack(spacing: 0) {
@@ -749,7 +759,7 @@ extension ContentView {
         .frame(
             minWidth: column == .path ? colWidth : nil,
             idealWidth: colWidth,
-            maxWidth: column == .path ? .infinity : colWidth,
+            maxWidth: column == .path ? (customWidth != nil ? colWidth : .infinity) : colWidth,
             alignment: alignment
         )
         .explain("Sort by \(title.lowercased()) (\(isCurrent ? (specsState.specsSortAscending ? "ascending" : "descending") : "click to sort"))." + (isResizable ? " Drag divider to resize." : ""))
@@ -828,7 +838,7 @@ extension ContentView {
         }
     }
     
-    private func deliverablesFolderBannerRow(node: FileSystemTreeNode, assetMap: [URL: DeliverableAsset]) -> some View {
+    private func deliverablesFolderBannerRow(node: FileSystemTreeNode, assetMap: [URL: DeliverableAsset], rowWidth: CGFloat = 0) -> some View {
         let isCollapsed = isDeliverablesFolderRowCollapsed(node)
         let folderAssets = node.videoURLs.compactMap { assetMap[$0] }
         let folderMismatches = folderAssets.filter { $0.validation.hasAnyMismatch && !specsState.isMismatchDismissed(for: $0.fileURL) }.count
@@ -883,6 +893,7 @@ extension ContentView {
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 8)
+        .frame(width: rowWidth > 0 ? rowWidth : nil, alignment: .leading)
         .background(bgCardHeader)
         .contentShape(Rectangle())
         .onTapGesture {
@@ -911,7 +922,13 @@ extension ContentView {
         }
     }
     
-    private func deliverablesAssetRow(idx: Int, asset: DeliverableAsset, depth: Int = 0) -> some View {
+    private func deliverablesAssetRow(
+        idx: Int,
+        asset: DeliverableAsset,
+        depth: Int = 0,
+        pathWidth: CGFloat = 0,
+        rowWidth: CGFloat = 0
+    ) -> some View {
         let isDismissed = specsState.isMismatchDismissed(for: asset.fileURL)
         let hasMismatch = asset.validation.hasAnyMismatch && !isDismissed
         let isSelected = specsState.selectedDeliverableURL?.standardizedFileURL == asset.fileURL.standardizedFileURL
@@ -1140,16 +1157,18 @@ extension ContentView {
                 .help(asset.audioConfig + (asset.audioLevelString.isEmpty ? "" : "\nPeak Level: \(asset.audioLevelString)"))
             }
             
+            let effectivePathWidth = pathWidth > 0 ? pathWidth : CGFloat(specsState.columnWidth(for: .path))
             Text(asset.fileURL.path)
                 .font(.system(size: 10, design: .monospaced))
                 .foregroundColor(textSubtle)
-                .frame(minWidth: CGFloat(specsState.columnWidth(for: .path)), maxWidth: .infinity, alignment: .leading)
+                .frame(width: effectivePathWidth, alignment: .leading)
                 .lineLimit(1)
                 .truncationMode(.middle)
         }
         .font(.system(size: 11, design: .monospaced))
         .padding(.horizontal, 14)
         .padding(.vertical, specsDisplayMode == "large" ? 10 : (specsDisplayMode == "thumbnail" ? 7 : 4))
+        .frame(width: rowWidth > 0 ? rowWidth : nil, alignment: .leading)
         .background(
             isSelected ? accentBlue.opacity(0.14) : (hasMismatch ? alertRed.opacity(0.12) : (idx % 2 == 0 ? bgPanel : bgCardSubtle))
         )

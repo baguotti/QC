@@ -165,7 +165,7 @@ struct UserGuideView: View {
             guideRow(name: "FRAME SCREENSHOT (CAMERA ICON)", desc: "Left-click the camera button to export the current frame or active A/B comparison view directly using the active preset (default: JPG Medium). Right-click to choose from 4 presets: JPG Medium, JPG High, PNG Medium, or PNG High (all at full source resolution).")
             guideRow(name: "SEAMLESS LOOP (⌘L)", desc: "Toggles automatic looping. Reaching the end seamlessly restarts from the beginning without stopping.")
             guideRow(name: "AUDIO & MUTE", desc: "Master playback volume slider and instant audio mute button.")
-            guideRow(name: "TOGGLE SLEEVES & PANELS (⌘⇧← / ⌘⇧→)", desc: "Press ⌘⇧← to show or hide the Assets & Queue panel. Press ⌘⇧→ to show or hide the Review sleeve (Media Info & Notes). ⌘I inspects Media Info directly.")
+            guideRow(name: "TOGGLE SLEEVES & PANELS (⌘⇧← / ⌘⇧→)", desc: "Press ⌘⇧← to show or hide the Assets & Queue panel. Drag the divider to resize the queue panel, or double-click to reset width (360px). Press ⌘⇧→ to show or hide the Review sleeve (Media Info & Notes). ⌘I inspects Media Info directly.")
             guideRow(name: "WORKSPACE NAVIGATION (⇧1, ⇧2, ⇧3, ⇧4)", desc: "Jump directly to any workspace: ⇧1 for Player, ⇧2 for Specs, ⇧3 for Line Finder, and ⇧4 for Ingest.")
         }
     }
