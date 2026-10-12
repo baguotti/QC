@@ -312,6 +312,8 @@ public struct TransportState: Equatable, Sendable {
     public let lastScreenshotPreset: ScreenshotPreset
     public let hasActiveURL: Bool
     public let notesCount: Int
+    public let hasSubtitles: Bool
+    public let showSubtitles: Bool
     
     public init(
         isPlaying: Bool,
@@ -323,7 +325,9 @@ public struct TransportState: Equatable, Sendable {
         clipInfoOverlayMode: ClipInfoOverlayMode,
         lastScreenshotPreset: ScreenshotPreset,
         hasActiveURL: Bool,
-        notesCount: Int
+        notesCount: Int,
+        hasSubtitles: Bool,
+        showSubtitles: Bool
     ) {
         self.isPlaying = isPlaying
         self.rate = rate
@@ -335,6 +339,8 @@ public struct TransportState: Equatable, Sendable {
         self.lastScreenshotPreset = lastScreenshotPreset
         self.hasActiveURL = hasActiveURL
         self.notesCount = notesCount
+        self.hasSubtitles = hasSubtitles
+        self.showSubtitles = showSubtitles
     }
 }
 
@@ -539,8 +545,74 @@ public final class PlayerEngine: ObservableObject {
             clipInfoOverlayMode: clipInfoOverlayMode,
             lastScreenshotPreset: lastScreenshotPreset,
             hasActiveURL: activeURL != nil,
-            notesCount: activeNotes.count
+            notesCount: activeNotes.count,
+            hasSubtitles: !subtitleCues.isEmpty,
+            showSubtitles: showSubtitles
         )
+    }
+    
+    // MARK: - Subtitles (.srt, shown over slot A)
+    
+    @Published public private(set) var subtitleCues: [SubtitleCue] = []
+    @Published public private(set) var subtitleFileName: String? = nil
+    @Published public var showSubtitles: Bool = true
+    private var subtitleLoadGeneration: Int = 0
+    
+    /// Loads an .srt for the master clip. Returns false if the file has no readable cues.
+    @discardableResult
+    public func loadSubtitles(from url: URL) -> Bool {
+        guard let cues = try? SubtitleParser.load(from: url), !cues.isEmpty else { return false }
+        subtitleLoadGeneration &+= 1
+        subtitleCues = cues
+        subtitleFileName = url.lastPathComponent
+        showSubtitles = true
+        return true
+    }
+    
+    /// Lets the user pick an .srt for the master clip. Returns false if cancelled or unreadable.
+    @discardableResult
+    public func chooseAndLoadSubtitles() -> Bool {
+        guard let mediaURL = slotA.url else { return false }
+        let panel = NSOpenPanel()
+        panel.title = "Import Subtitles"
+        panel.prompt = "Import"
+        panel.allowsMultipleSelection = false
+        panel.canChooseDirectories = false
+        panel.allowedContentTypes = [UTType(filenameExtension: "srt") ?? .plainText]
+        panel.directoryURL = mediaURL.deletingLastPathComponent()
+        guard panel.runModal() == .OK, let url = panel.url else { return false }
+        let loaded = loadSubtitles(from: url)
+        if !loaded { NSSound.beep() }
+        return loaded
+    }
+    
+    public func clearSubtitles() {
+        subtitleLoadGeneration &+= 1
+        if !subtitleCues.isEmpty { subtitleCues = [] }
+        if subtitleFileName != nil { subtitleFileName = nil }
+    }
+    
+    /// Picks up `clip.srt` sitting next to `clip.mov` (read off the main thread).
+    private func autoLoadSubtitles(for mediaURL: URL?) {
+        clearSubtitles()
+        guard let mediaURL = mediaURL else { return }
+        let generation = subtitleLoadGeneration
+        Task { [weak self] in
+            let found: (URL, [SubtitleCue])? = await Task.detached(priority: .utility) {
+                let base = mediaURL.deletingPathExtension()
+                for ext in ["srt", "SRT"] {
+                    let candidate = base.appendingPathExtension(ext)
+                    if FileManager.default.fileExists(atPath: candidate.path),
+                       let cues = try? SubtitleParser.load(from: candidate), !cues.isEmpty {
+                        return (candidate, cues)
+                    }
+                }
+                return nil
+            }.value
+            guard let self, let (url, cues) = found, generation == self.subtitleLoadGeneration else { return }
+            self.subtitleCues = cues
+            self.subtitleFileName = url.lastPathComponent
+        }
     }
     // MARK: - Dropped Frame Telemetry (non-@Published to preserve 60/120 FPS performance)
     public private(set) var droppedFramesCount: Int = 0
@@ -809,6 +881,7 @@ public final class PlayerEngine: ObservableObject {
         slotA.url = stdURL
         slotA.fileName = stdURL.lastPathComponent
         slotA.formattedFileSize = "--"
+        autoLoadSubtitles(for: stdURL)
         self.activeNotes = []
         self.activeNotesURL = nil
         self.currentTime = .zero
@@ -1228,6 +1301,7 @@ public final class PlayerEngine: ObservableObject {
         
         updateCurrentTime(time: slotA.player.currentTime())
         updateAudioVolumes()
+        autoLoadSubtitles(for: slotA.url)
         
         if wasPlaying {
             self.play()
@@ -1282,6 +1356,7 @@ public final class PlayerEngine: ObservableObject {
         slotA.totalFrames = 0
         slotA.formattedFileSize = "--"
         slotA.lastDecodedFrame = nil
+        clearSubtitles()
         Task { [slotA] in
             await slotA.frameExtractor.setURL(nil)
         }

@@ -206,6 +206,31 @@ struct PlayerTransportDeckView: View, Equatable {
                 ) {
                     engine.showCenterCrosshair.toggle()
                 }
+                
+                transportBtn(
+                    icon: "captions.bubble",
+                    tooltip: transportState.hasSubtitles
+                        ? "Subtitles: \(transportState.showSubtitles ? "ON" : "OFF") (\(engine.subtitleFileName ?? ".srt")). Right-click to import or remove."
+                        : "Subtitles: import an .srt (or drop one on the player)",
+                    isActive: transportState.hasSubtitles && transportState.showSubtitles,
+                    size: 12,
+                    weight: .semibold,
+                    width: 26
+                ) {
+                    if transportState.hasSubtitles {
+                        engine.showSubtitles.toggle()
+                    } else {
+                        engine.chooseAndLoadSubtitles()
+                    }
+                }
+                .disabled(!transportState.hasActiveURL)
+                .contextMenu {
+                    Button("Import Subtitles (.srt)…") { engine.chooseAndLoadSubtitles() }
+                    if transportState.hasSubtitles {
+                        Button(transportState.showSubtitles ? "Hide Subtitles" : "Show Subtitles") { engine.showSubtitles.toggle() }
+                        Button("Remove Subtitles") { engine.clearSubtitles() }
+                    }
+                }
 
                 transportBtn(
                     icon: "info.circle",

@@ -4,6 +4,7 @@ import AVFoundation
 import CoreImage
 import ImageIO
 import VideoToolbox
+import Combine
 import VideoQCLib
 
 public struct VideoViewportView: NSViewRepresentable {
@@ -82,6 +83,12 @@ public final class PlayerContainerNSView: NSView {
     private let tikTokOverlayLayerA = CALayer()
     private let tikTokOverlayLayerB = CALayer()
     private let resolutionLabelLayerA = CATextLayer()
+    // .srt subtitles for slot A; text changes only when the cue on screen changes.
+    private let subtitleLayer = CATextLayer()
+    private var subtitleSubscription: AnyCancellable?
+    private var shownSubtitleIndex: Int? = nil
+    private var shownSubtitleFrame: CGRect = .null
+    private var subtitleStateKey: String = ""
     private let resolutionLabelLayerB = CATextLayer()
     private static let resolutionLabelFontSize: CGFloat = 10.0
     private static let resolutionLabelFont = NSFont.monospacedSystemFont(ofSize: resolutionLabelFontSize, weight: .bold)
@@ -351,6 +358,17 @@ public final class PlayerContainerNSView: NSView {
         }
         canvasLayer.addSublayer(tikTokOverlayLayerB)
         
+        subtitleLayer.isWrapped = true
+        subtitleLayer.alignmentMode = .center
+        subtitleLayer.zPosition = 104
+        subtitleLayer.isHidden = true
+        subtitleLayer.shadowColor = NSColor.black.cgColor
+        subtitleLayer.shadowOpacity = 0.95
+        subtitleLayer.shadowRadius = 2.5
+        subtitleLayer.shadowOffset = CGSize(width: 0, height: -1)
+        subtitleLayer.actions = ["hidden": NSNull(), "contents": NSNull(), "string": NSNull(), "position": NSNull(), "bounds": NSNull(), "frame": NSNull(), "contentsScale": NSNull()]
+        canvasLayer.addSublayer(subtitleLayer)
+        
         // Native trackpad pinch gesture for zoom in / zoom out
         let pinchGesture = NSMagnificationGestureRecognizer(target: self, action: #selector(handlePinch(_:)))
         addGestureRecognizer(pinchGesture)
@@ -373,6 +391,7 @@ public final class PlayerContainerNSView: NSView {
         playerLayerA.player = engine.slotA.player
         playerLayerB.player = engine.slotB.player
         attachPresentationHooks(to: engine)
+        bindSubtitles(to: engine)
         setupDisplayLink()
     }
     
@@ -390,6 +409,7 @@ public final class PlayerContainerNSView: NSView {
         if previousEngine !== engine {
             previousEngine?.detachViewport(self)
             attachPresentationHooks(to: engine)
+            bindSubtitles(to: engine)
         }
         
         if playerLayerA.player != engine.slotA.player {
@@ -454,6 +474,59 @@ public final class PlayerContainerNSView: NSView {
         updateCompareLayers()
         updateMagnificationFilters()
         checkStillFrameDisplay()
+        
+        let subtitleKey = "\(engine.subtitleFileName ?? "")|\(engine.subtitleCues.count)|\(engine.showSubtitles)|\(engine.isBlinkCompareB)|\(engine.zoomScale)|\(engine.isFitZoom)"
+        refreshSubtitle(frame: engine.clock.currentFrame, force: subtitleKey != subtitleStateKey)
+        subtitleStateKey = subtitleKey
+    }
+    
+    // MARK: - Subtitles
+    
+    private func bindSubtitles(to engine: PlayerEngine) {
+        // @Published emits before the value is stored: use the emitted frame, not clock.currentFrame.
+        subtitleSubscription = engine.clock.$currentFrame.sink { [weak self] frame in
+            MainActor.assumeIsolated {
+                self?.refreshSubtitle(frame: frame, force: false)
+            }
+        }
+    }
+    
+    private func refreshSubtitle(frame: Int, force: Bool) {
+        guard let engine = engine else { return }
+        let frameA = playerLayerA.frame
+        let isBlink = engine.isBlinkCompareB && engine.compareMode == .single && engine.slotB.url != nil
+        var index: Int? = nil
+        if engine.showSubtitles && !engine.subtitleCues.isEmpty && !isBlink && frameA.width > 0 && frameA.height > 0 {
+            let seconds = (Double(frame) + 0.5) / max(1.0, engine.slotA.fps)
+            index = SubtitleParser.cueIndex(at: seconds, in: engine.subtitleCues)
+        }
+        guard force || index != shownSubtitleIndex || frameA != shownSubtitleFrame else { return }
+        shownSubtitleIndex = index
+        shownSubtitleFrame = frameA
+        
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        defer { CATransaction.commit() }
+        guard let index = index, index < engine.subtitleCues.count else {
+            subtitleLayer.isHidden = true
+            return
+        }
+        let fontSize = max(9, min(frameA.width, frameA.height) * 0.05)
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.alignment = .center
+        let text = NSAttributedString(string: engine.subtitleCues[index].text, attributes: [
+            .font: NSFont.systemFont(ofSize: fontSize, weight: .semibold),
+            .foregroundColor: NSColor.white,
+            .paragraphStyle: paragraph
+        ])
+        let maxWidth = frameA.width * 0.9
+        let textHeight = ceil(text.boundingRect(with: CGSize(width: maxWidth, height: .greatestFiniteMagnitude),
+                                                options: [.usesLineFragmentOrigin, .usesFontLeading]).height) + 2
+        let zoom = engine.isFitZoom ? 1.0 : max(1.0, engine.zoomScale)
+        subtitleLayer.contentsScale = currentBackingScale() * zoom
+        subtitleLayer.string = text
+        subtitleLayer.frame = CGRect(x: frameA.midX - maxWidth / 2, y: frameA.minY + frameA.height * 0.06, width: maxWidth, height: textHeight)
+        subtitleLayer.isHidden = false
     }
     
     public func displayImmediateDecodedFrame(slot: SlotTarget, at time: CMTime) {
@@ -694,6 +767,9 @@ public final class PlayerContainerNSView: NSView {
         updateCompareLayers()
         updateMagnificationFilters()
         checkStillFrameDisplay()
+        if let engine = engine {
+            refreshSubtitle(frame: engine.clock.currentFrame, force: false)
+        }
     }
     
     // MARK: - Video Aspect Ratio & Layout

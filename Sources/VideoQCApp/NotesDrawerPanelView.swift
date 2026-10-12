@@ -32,6 +32,9 @@ struct NotesDrawerPanelView: View {
     var onToggleResolved: (UUID) -> Void
     var onDeleteNote: (UUID) -> Void
     var onClearAllNotes: () -> Void
+    var onUpdateNote: (QCFileNote) -> Void
+    var onExportNotes: () -> Void
+    var onImportNotes: () -> Void
     var onToast: (String) -> Void
     var onCopySpecs: ((String) -> Void)? = nil
     var onRevealInFinder: ((URL) -> Void)? = nil
@@ -43,6 +46,10 @@ struct NotesDrawerPanelView: View {
     @State private var inlineNoteText: String = ""
     @State private var inlineSelectedColor: String = "cyan"
     @State private var showClearConfirmation: Bool = false
+    @State private var editingNoteID: UUID? = nil
+    @State private var editText: String = ""
+    @State private var replyingNoteID: UUID? = nil
+    @State private var replyText: String = ""
     @FocusState private var isInlineInputFocused: Bool
     
     // Media Info tab state
@@ -314,10 +321,12 @@ struct NotesDrawerPanelView: View {
                         copyToClipboard(text)
                         onToast("Notes copied for Slack/Email!")
                     }
-                    Button("Export Premiere Pro Markers (CSV)") {
-                        let csv = QCNotesManager.generatePremiereCSV(notes: notes, mediaName: mediaName, fps: 25.0)
-                        copyToClipboard(csv)
-                        onToast("Premiere Markers CSV copied!")
+                    Button("Export QCpie Notes (.qcnotes)…") {
+                        onExportNotes()
+                    }
+                    Divider()
+                    Button("Export Premiere Pro Markers (XML)…") {
+                        exportPremiereMarkers()
                     }
                     Button("Export DaVinci Resolve Markers (EDL)") {
                         let edl = QCNotesManager.generateResolveEDL(notes: notes, mediaName: mediaName, fps: 25.0)
@@ -345,6 +354,21 @@ struct NotesDrawerPanelView: View {
                 .foregroundColor(palette.textMain)
                 .fixedSize()
                 .disabled(notes.isEmpty)
+                
+                Button(action: onImportNotes) {
+                    HStack(spacing: 4) {
+                        Image(systemName: "square.and.arrow.down")
+                            .font(.system(size: 9, weight: .bold))
+                        Text("IMPORT")
+                            .font(.system(size: 9, weight: .bold, design: .monospaced))
+                    }
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 5)
+                    .foregroundColor(palette.textMain)
+                    .studioBox(background: palette.bgSubtle, border: palette.borderLine)
+                }
+                .buttonStyle(.plain)
+                .help("Import a .qcnotes file into this clip (merged with existing notes)")
                 
                 Spacer()
                 
@@ -947,6 +971,18 @@ struct NotesDrawerPanelView: View {
                 .buttonStyle(.plain)
                 .help(note.isResolved ? "Mark as unresolved" : "Mark as resolved")
                 
+                // Edit Button
+                Button(action: {
+                    editText = note.text
+                    editingNoteID = note.id
+                }) {
+                    Image(systemName: "pencil")
+                        .font(.system(size: 9))
+                        .foregroundColor(palette.textMuted)
+                }
+                .buttonStyle(.plain)
+                .help("Edit note")
+                
                 // Delete Button
                 Button(action: { onDeleteNote(note.id) }) {
                     Image(systemName: "trash")
@@ -957,6 +993,9 @@ struct NotesDrawerPanelView: View {
                 .help("Delete note")
             }
             
+            if editingNoteID == note.id {
+                noteEditor(note: note)
+            } else {
             // Note Text with Clickable Links and File Paths
             Text(attributedText)
                 .font(.system(size: 10, design: .monospaced))
@@ -967,6 +1006,13 @@ struct NotesDrawerPanelView: View {
                     handleNoteURL(url)
                     return .handled
                 })
+            
+            if let editedAt = note.editedAt {
+                Text("edited \(editedAt.formatted(date: .abbreviated, time: .shortened))")
+                    .font(.system(size: 8, design: .monospaced))
+                    .foregroundColor(palette.textSubtle)
+            }
+            }
             
             // Clickable Quick Action Badges for Detected Links & File Paths
             if !detectedLinks.isEmpty && !note.isResolved {
@@ -990,9 +1036,120 @@ struct NotesDrawerPanelView: View {
                     }
                 }
             }
+
+            noteThread(note: note)
         }
         .padding(9)
         .studioBox(background: palette.bgCardSubtle, border: palette.borderLine)
+    }
+    
+    // MARK: - Note Editing & Replies
+    
+    private var currentAuthor: String {
+        let name = storedReviewerName.trimmingCharacters(in: .whitespacesAndNewlines)
+        return name.isEmpty ? "Reviewer" : name
+    }
+    
+    private func noteEditor(note: QCFileNote) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            TextField("Note", text: $editText, axis: .vertical)
+                .font(.system(size: 10, design: .monospaced))
+                .textFieldStyle(.plain)
+                .lineLimit(1...8)
+                .padding(6)
+                .studioBox(background: palette.bgMain, border: palette.accentBlue.opacity(0.6))
+                .onSubmit { commitEdit(note: note) }
+                .onExitCommand { editingNoteID = nil }
+            HStack(spacing: 6) {
+                Spacer()
+                Button("Cancel") { editingNoteID = nil }
+                    .buttonStyle(.plain)
+                    .font(.system(size: 9, weight: .bold, design: .monospaced))
+                    .foregroundColor(palette.textMuted)
+                Button("Save") { commitEdit(note: note) }
+                    .buttonStyle(.plain)
+                    .font(.system(size: 9, weight: .bold, design: .monospaced))
+                    .foregroundColor(palette.accentPositive)
+            }
+        }
+    }
+    
+    private func commitEdit(note: QCFileNote) {
+        let clean = editText.trimmingCharacters(in: .whitespacesAndNewlines)
+        editingNoteID = nil
+        guard !clean.isEmpty, clean != note.text else { return }
+        var updated = note
+        updated.text = clean
+        updated.editedAt = Date()
+        onUpdateNote(updated)
+    }
+    
+    @ViewBuilder
+    private func noteThread(note: QCFileNote) -> some View {
+        if !note.replies.isEmpty {
+            VStack(alignment: .leading, spacing: 5) {
+                ForEach(note.replies) { reply in
+                    VStack(alignment: .leading, spacing: 2) {
+                        HStack(spacing: 5) {
+                            Text(reply.author)
+                                .font(.system(size: 8.5, weight: .bold, design: .monospaced))
+                                .foregroundColor(palette.textMain)
+                            Text(reply.createdAt.formatted(date: .abbreviated, time: .shortened))
+                                .font(.system(size: 8, design: .monospaced))
+                                .foregroundColor(palette.textSubtle)
+                        }
+                        Text(reply.text)
+                            .font(.system(size: 9.5, design: .monospaced))
+                            .foregroundColor(palette.textMuted)
+                            .textSelection(.enabled)
+                    }
+                }
+            }
+            .padding(.leading, 8)
+            .overlay(alignment: .leading) {
+                Rectangle().fill(palette.borderLine).frame(width: 1)
+            }
+        }
+        if replyingNoteID == note.id {
+            HStack(spacing: 6) {
+                TextField("Reply…", text: $replyText)
+                    .font(.system(size: 9.5, design: .monospaced))
+                    .textFieldStyle(.plain)
+                    .padding(5)
+                    .studioBox(background: palette.bgMain, border: palette.borderLine)
+                    .onSubmit { commitReply(note: note) }
+                    .onExitCommand { replyingNoteID = nil }
+                Button("Send") { commitReply(note: note) }
+                    .buttonStyle(.plain)
+                    .font(.system(size: 9, weight: .bold, design: .monospaced))
+                    .foregroundColor(palette.accentBlue)
+            }
+        } else {
+            Button(action: {
+                replyText = ""
+                replyingNoteID = note.id
+            }) {
+                HStack(spacing: 3) {
+                    Image(systemName: "arrowshape.turn.up.left")
+                        .font(.system(size: 8, weight: .bold))
+                    Text(note.replies.isEmpty ? "REPLY" : "REPLY (\(note.replies.count))")
+                        .font(.system(size: 8, weight: .bold, design: .monospaced))
+                }
+                .foregroundColor(palette.textMuted)
+            }
+            .buttonStyle(.plain)
+            .help("Reply to this note")
+        }
+    }
+    
+    private func commitReply(note: QCFileNote) {
+        let clean = replyText.trimmingCharacters(in: .whitespacesAndNewlines)
+        replyingNoteID = nil
+        replyText = ""
+        guard !clean.isEmpty else { return }
+        var updated = note
+        updated.replies.append(QCNoteReply(author: currentAuthor, text: clean))
+        onUpdateNote(updated)
     }
     
     private func handleNoteURL(_ url: URL) {
@@ -1012,6 +1169,50 @@ struct NotesDrawerPanelView: View {
         QCNoteTheme.color(for: tag)
     }
     
+    /// Saves an FCP7 XML that Premiere imports (File > Import) as a sequence with the clip and every note as a marker.
+    private func exportPremiereMarkers() {
+        guard let url = effectiveURL else {
+            onToast("No media loaded to export markers for")
+            return
+        }
+        let exportNotes = notes
+        let name = mediaName.isEmpty ? url.lastPathComponent : mediaName
+        Task { @MainActor in
+            let asset = AVURLAsset(url: url)
+            var fps = 25.0
+            var size = CGSize(width: 1920, height: 1080)
+            var seconds = 0.0
+            if let track = try? await asset.loadTracks(withMediaType: .video).first {
+                if let rate = try? await track.load(.nominalFrameRate), rate > 0 { fps = Double(rate) }
+                if let natural = try? await track.load(.naturalSize), let transform = try? await track.load(.preferredTransform) {
+                    let rect = CGRect(origin: .zero, size: natural).applying(transform)
+                    size = CGSize(width: abs(rect.width), height: abs(rect.height))
+                }
+            }
+            if let duration = try? await asset.load(.duration) { seconds = CMTimeGetSeconds(duration) }
+            let totalFrames = max(1, Int((seconds * fps).rounded()))
+
+            let xml = QCNotesManager.generatePremiereXML(
+                notes: exportNotes, mediaName: name, mediaURL: url,
+                fps: fps, width: Int(size.width), height: Int(size.height), totalFrames: totalFrames
+            )
+            let panel = NSSavePanel()
+            panel.title = "Export Premiere Pro Markers"
+            panel.prompt = "Export"
+            panel.canCreateDirectories = true
+            panel.allowedContentTypes = [.xml]
+            panel.nameFieldStringValue = "\(url.deletingPathExtension().lastPathComponent)_QC_Markers.xml"
+            panel.directoryURL = url.deletingLastPathComponent()
+            guard panel.runModal() == .OK, let dest = panel.url else { return }
+            do {
+                try xml.write(to: dest, atomically: true, encoding: .utf8)
+                onToast("Premiere markers saved — File > Import in Premiere")
+            } catch {
+                onToast("Couldn't save markers: \(error.localizedDescription)")
+            }
+        }
+    }
+
     private func copyToClipboard(_ text: String) {
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(text, forType: .string)

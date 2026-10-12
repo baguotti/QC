@@ -173,6 +173,57 @@ public actor QCNotesManager {
         }
     }
     
+    // MARK: - Portable .qcnotes Export / Import
+
+    /// Writes a visible, portable `.qcnotes` document (same format as the hidden sidecar) to a user-chosen location.
+    public nonisolated static func exportDocument(notes: [QCFileNote], mediaFileName: String, fps: Double, to url: URL) throws {
+        let doc = QCNotesDocument(
+            version: 1,
+            mediaFileName: mediaFileName,
+            fps: fps > 0 ? fps : 25.0,
+            lastModified: Date(),
+            notes: notes.sorted { $0.frameIndex < $1.frameIndex }
+        )
+        let enc = JSONEncoder()
+        enc.outputFormatting = [.prettyPrinted, .sortedKeys]
+        enc.dateEncodingStrategy = .iso8601
+        try enc.encode(doc).write(to: url, options: .atomic)
+    }
+
+    public nonisolated static func importDocument(from url: URL) throws -> QCNotesDocument {
+        let dec = JSONDecoder()
+        dec.dateDecodingStrategy = .iso8601
+        return try dec.decode(QCNotesDocument.self, from: Data(contentsOf: url))
+    }
+
+    /// Merges imported notes into existing ones by note id: new notes are added; for a note present in both, the
+    /// more recently edited text wins, replies are unioned and it stays resolved if either side resolved it.
+    public nonisolated static func merge(existing: [QCFileNote], incoming: [QCFileNote]) -> (notes: [QCFileNote], added: Int, updated: Int) {
+        var byID = Dictionary(existing.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
+        var added = 0
+        var updated = 0
+        for note in incoming {
+            guard var current = byID[note.id] else {
+                byID[note.id] = note
+                added += 1
+                continue
+            }
+            let before = current
+            if (note.editedAt ?? note.createdAt) > (current.editedAt ?? current.createdAt) {
+                current.text = note.text
+                current.colorTag = note.colorTag
+                current.editedAt = note.editedAt
+            }
+            current.isResolved = current.isResolved || note.isResolved
+            let knownReplies = Set(current.replies.map(\.id))
+            current.replies += note.replies.filter { !knownReplies.contains($0.id) }
+            current.replies.sort { $0.createdAt < $1.createdAt }
+            if current != before { updated += 1 }
+            byID[note.id] = current
+        }
+        return (byID.values.sorted { $0.frameIndex < $1.frameIndex }, added, updated)
+    }
+
     // MARK: - Export Utilities
     
     /// Generates a clean Markdown checklist ready to paste into Slack, Teams, or Email.
@@ -195,19 +246,64 @@ public actor QCNotesManager {
         return lines.joined(separator: "\n")
     }
     
-    /// Generates a standard Adobe Premiere Pro Markers CSV import file.
-    public nonisolated static func generatePremiereCSV(notes: [QCFileNote], mediaName: String, fps: Double) -> String {
+    /// Final Cut Pro 7 XML (xmeml) that Premiere Pro imports via File > Import: a sequence named after the clip,
+    /// with the clip on V1 and every note as a sequence marker (also as clip markers, so they travel with the clip).
+    public nonisolated static func generatePremiereXML(notes: [QCFileNote], mediaName: String, mediaURL: URL,
+                                                       fps: Double, width: Int, height: Int, totalFrames: Int) -> String {
         let sorted = notes.sorted { $0.frameIndex < $1.frameIndex }
-        var lines: [String] = []
-        lines.append("Marker Name,Description,In,Out,Duration,Marker Type")
-        
-        for note in sorted {
-            let safeAuthor = QCUtilities.escapeCSV(note.author)
-            let safeText = QCUtilities.escapeCSV(note.text)
-            let tc = note.timecode
-            lines.append("\(safeAuthor),\(safeText),\(tc),\(tc),00:00:00:00,Comment")
-        }
-        return lines.joined(separator: "\n")
+        let safeFps = fps > 0 ? fps : 25.0
+        let timebase = Int(safeFps.rounded())
+        let ntsc = abs(safeFps - Double(timebase)) > 0.01 ? "TRUE" : "FALSE"
+        let rate = "<rate><timebase>\(timebase)</timebase><ntsc>\(ntsc)</ntsc></rate>"
+        let duration = max(1, totalFrames)
+        let name = xmlEscape(mediaName)
+        let pathURL = xmlEscape(mediaURL.absoluteString)
+
+        let markers = sorted.map { note -> String in
+            let frame = min(max(0, note.frameIndex), duration - 1)
+            let title = note.author.isEmpty ? "QC Note" : note.author
+            return "<marker><name>\(xmlEscape(title))</name><comment>\(xmlEscape(note.text))</comment><in>\(frame)</in><out>-1</out></marker>"
+        }.joined(separator: "\n")
+
+        return """
+        <?xml version="1.0" encoding="UTF-8"?>
+        <!DOCTYPE xmeml>
+        <xmeml version="4">
+        <sequence id="qcpie-sequence">
+        <name>QCpie Notes - \(name)</name>
+        <duration>\(duration)</duration>
+        \(rate)
+        <timecode>\(rate)<string>00:00:00:00</string><frame>0</frame><displayformat>NDF</displayformat></timecode>
+        <media><video>
+        <format><samplecharacteristics>\(rate)<width>\(width)</width><height>\(height)</height></samplecharacteristics></format>
+        <track>
+        <clipitem id="qcpie-clipitem">
+        <name>\(name)</name>
+        <duration>\(duration)</duration>
+        \(rate)
+        <start>0</start><end>\(duration)</end><in>0</in><out>\(duration)</out>
+        <file id="qcpie-file">
+        <name>\(name)</name>
+        <pathurl>\(pathURL)</pathurl>
+        \(rate)
+        <duration>\(duration)</duration>
+        <media><video><samplecharacteristics>\(rate)<width>\(width)</width><height>\(height)</height></samplecharacteristics></video></media>
+        </file>
+        \(markers)
+        </clipitem>
+        </track>
+        </video></media>
+        \(markers)
+        </sequence>
+        </xmeml>
+        """
+    }
+
+    private nonisolated static func xmlEscape(_ s: String) -> String {
+        s.replacingOccurrences(of: "&", with: "&amp;")
+            .replacingOccurrences(of: "<", with: "&lt;")
+            .replacingOccurrences(of: ">", with: "&gt;")
+            .replacingOccurrences(of: "\"", with: "&quot;")
     }
     
     /// Generates a standard DaVinci Resolve Marker EDL (CMX 3600) import file.

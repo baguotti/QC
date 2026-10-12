@@ -486,8 +486,7 @@ extension ContentView {
             clock: playerEngine.clock,
             isLightMode: isLightMode,
             onSeekToFrame: { frame in
-                playerEngine.seek(toFrame: frame)
-                playerEngine.pause()
+                seekToNoteFrame(frame)
             },
             onAddNote: {
                 openAddNoteModal()
@@ -503,6 +502,15 @@ extension ContentView {
             },
             onClearAllNotes: {
                 clearAllNotes()
+            },
+            onUpdateNote: { note in
+                updateNote(note)
+            },
+            onExportNotes: {
+                exportQCNotes()
+            },
+            onImportNotes: {
+                importQCNotes()
             },
             onToast: { msg in
                 showToast(msg)

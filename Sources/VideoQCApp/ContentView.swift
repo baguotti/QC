@@ -1159,13 +1159,32 @@ struct ContentView: View {
             if forTab == .ingest {
                 self.ingestState.scanIntake(urls: collector.urls)
             } else {
-                self.addAssets(urls: collector.urls, targetSlot: targetSlot)
+                let media = self.importSubtitleFiles(in: collector.urls)
+                if !media.isEmpty {
+                    self.addAssets(urls: media, targetSlot: targetSlot)
+                }
             }
         }
         return true
     }
     
+    /// Loads any dropped/opened .srt onto the master clip and returns the remaining (media) URLs.
+    func importSubtitleFiles(in urls: [URL]) -> [URL] {
+        let subtitles = urls.filter { $0.pathExtension.lowercased() == "srt" }
+        guard let srt = subtitles.last else { return urls }
+        if playerEngine.activeURL == nil {
+            showToast("Load a clip first, then drop the .srt on the player")
+        } else if playerEngine.loadSubtitles(from: srt) {
+            showToast("Subtitles loaded: \(srt.lastPathComponent) (\(playerEngine.subtitleCues.count) lines)")
+        } else {
+            showToast("No subtitles found in \(srt.lastPathComponent)")
+        }
+        return urls.filter { $0.pathExtension.lowercased() != "srt" }
+    }
+    
     func handleIncomingOpenFiles(_ urls: [URL], isInitialLaunch: Bool = false) {
+        let urls = importSubtitleFiles(in: urls)
+        guard !urls.isEmpty else { return }
         self.selectedTab = .player
         if isInitialLaunch {
             withAnimation(.easeInOut(duration: 0.15)) {
@@ -2122,8 +2141,40 @@ struct ContentView: View {
         }
     }
     
+    /// The clip whose notes are shown and edited: slot B when it is the active target, otherwise slot A.
+    var notesTargetURL: URL? {
+        (playerEngine.activeTarget == .slotB && playerEngine.slotB.url != nil) ? playerEngine.slotB.url : playerEngine.activeURL
+    }
+    
+    var notesTargetIsSlotB: Bool {
+        playerEngine.activeTarget == .slotB && playerEngine.slotB.url != nil
+    }
+    
+    /// Seeks to a note's frame; slot B notes are stored in B's own frames, so map back to slot A's playhead.
+    func seekToNoteFrame(_ frame: Int) {
+        var target = frame
+        if notesTargetIsSlotB {
+            let fpsA = max(1.0, playerEngine.activeFps)
+            let fpsB = max(1.0, playerEngine.slotB.fps)
+            let secsA = (Double(frame) + 0.5) / fpsB - Double(playerEngine.slotB.slipOffsetFrames) / fpsB
+            target = max(0, Int(floor(secsA * fpsA)))
+        }
+        playerEngine.seek(toFrame: target)
+        playerEngine.pause()
+    }
+    
     func addNote(_ note: QCFileNote) {
-        guard let url = playerEngine.activeURL else { return }
+        guard let url = notesTargetURL else { return }
+        var note = note
+        if notesTargetIsSlotB {
+            // Notes are captured on slot A's clock: map to slot B's own frame (slip offset, B's frame rate).
+            let fpsA = max(1.0, playerEngine.activeFps)
+            let fpsB = max(1.0, playerEngine.slotB.fps)
+            let secsB = (Double(note.frameIndex) + 0.5) / fpsA + Double(playerEngine.slotB.slipOffsetFrames) / fpsB
+            let frameB = max(0, Int(floor(secsB * fpsB)))
+            note.frameIndex = frameB
+            note.timecode = TimecodeFormatter.format(frameIndex: frameB, fps: fpsB)
+        }
         var currentNotes = playerEngine.activeNotes
         currentNotes.append(note)
         currentNotes.sort { $0.frameIndex < $1.frameIndex }
@@ -2138,7 +2189,7 @@ struct ContentView: View {
     }
     
     func toggleNoteResolved(id: UUID) {
-        guard let url = playerEngine.activeURL else { return }
+        guard let url = notesTargetURL else { return }
         guard let index = playerEngine.activeNotes.firstIndex(where: { $0.id == id }) else { return }
         playerEngine.activeNotes[index].isResolved.toggle()
         playerEngine.activeNotesURL = url
@@ -2146,7 +2197,7 @@ struct ContentView: View {
     }
     
     func deleteNote(id: UUID) {
-        guard let url = playerEngine.activeURL else { return }
+        guard let url = notesTargetURL else { return }
         withAnimation(.easeInOut(duration: 0.2)) {
             playerEngine.activeNotes.removeAll(where: { $0.id == id })
             playerEngine.activeNotesURL = url
@@ -2156,7 +2207,7 @@ struct ContentView: View {
     }
     
     func clearAllNotes() {
-        guard let url = playerEngine.activeURL else { return }
+        guard let url = notesTargetURL else { return }
         withAnimation(.easeInOut(duration: 0.2)) {
             playerEngine.activeNotes.removeAll()
             playerEngine.activeNotesURL = url
@@ -2165,8 +2216,65 @@ struct ContentView: View {
         showToast("All markers cleared for \(url.lastPathComponent)")
     }
     
+    /// Replaces a note (edited text or new reply) on the clip whose notes are shown.
+    func updateNote(_ note: QCFileNote) {
+        guard let url = notesTargetURL,
+              let index = playerEngine.activeNotes.firstIndex(where: { $0.id == note.id }) else { return }
+        playerEngine.activeNotes[index] = note
+        saveNotes(playerEngine.activeNotes, for: url)
+    }
+
+    /// Saves the shown clip's notes as a visible `.qcnotes` file wherever the user chooses.
+    func exportQCNotes() {
+        guard let url = notesTargetURL else { return }
+        let panel = NSSavePanel()
+        panel.title = "Export QCpie Notes"
+        panel.prompt = "Export"
+        panel.canCreateDirectories = true
+        panel.allowedContentTypes = [UTType(filenameExtension: "qcnotes") ?? .json]
+        panel.nameFieldStringValue = "\(url.lastPathComponent).qcnotes"
+        panel.directoryURL = url.deletingLastPathComponent()
+        guard panel.runModal() == .OK, let dest = panel.url else { return }
+        do {
+            try QCNotesManager.exportDocument(notes: playerEngine.activeNotes, mediaFileName: url.lastPathComponent, fps: isSameURL(url, playerEngine.slotB.url) ? playerEngine.slotB.fps : playerEngine.activeFps, to: dest)
+            showToast("Exported \(playerEngine.activeNotes.count) notes")
+        } catch {
+            showToast("Export failed: \(error.localizedDescription)")
+        }
+    }
+
+    /// Imports a `.qcnotes` file into the shown clip, merging with its existing notes (no duplicates).
+    func importQCNotes() {
+        guard let url = notesTargetURL else { return }
+        let panel = NSOpenPanel()
+        panel.title = "Import QCpie Notes"
+        panel.prompt = "Import"
+        panel.allowsMultipleSelection = false
+        panel.canChooseDirectories = false
+        panel.allowedContentTypes = [UTType(filenameExtension: "qcnotes") ?? .json, .json]
+        panel.directoryURL = url.deletingLastPathComponent()
+        guard panel.runModal() == .OK, let source = panel.url else { return }
+        let doc: QCNotesDocument
+        do {
+            doc = try QCNotesManager.importDocument(from: source)
+        } catch {
+            showToast("Not a valid .qcnotes file")
+            return
+        }
+        let result = QCNotesManager.merge(existing: playerEngine.activeNotes, incoming: doc.notes)
+        withAnimation(.spring(response: 0.32, dampingFraction: 0.78)) {
+            playerEngine.activeNotes = result.notes
+            playerEngine.activeNotesURL = url
+            playerDrawerTab = .notes
+            showNotesDrawer = true
+        }
+        saveNotes(result.notes, for: url)
+        let mismatch = doc.mediaFileName != url.lastPathComponent ? " (notes were for \(doc.mediaFileName))" : ""
+        showToast("Imported \(result.added) new, \(result.updated) updated\(mismatch)")
+    }
+
     func saveNotes(_ notes: [QCFileNote], for url: URL) {
-        let fps = playerEngine.activeFps
+        let fps = isSameURL(url, playerEngine.slotB.url) ? playerEngine.slotB.fps : playerEngine.activeFps
         Task {
             await QCNotesManager.shared.saveNotes(notes, for: url, fps: fps)
         }
