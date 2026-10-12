@@ -555,18 +555,56 @@ public final class PlayerEngine: ObservableObject {
     
     @Published public private(set) var subtitleCues: [SubtitleCue] = []
     @Published public private(set) var subtitleFileName: String? = nil
+    @Published public private(set) var subtitleSourceURL: URL? = nil
+    @Published public private(set) var hasUnsavedSubtitleEdits: Bool = false
     @Published public var showSubtitles: Bool = true
+    /// Where subtitles sit over slot A, as fractions of the picture: x = centre, y = distance of the text's bottom
+    /// edge from the picture's bottom. Set when a drag ends (never per mouse event); remembered across launches.
+    @Published public var subtitlePosition: CGPoint = PlayerEngine.savedSubtitlePosition() {
+        didSet {
+            UserDefaults.standard.set(Double(subtitlePosition.x), forKey: "subtitlePositionX")
+            UserDefaults.standard.set(Double(subtitlePosition.y), forKey: "subtitlePositionY")
+        }
+    }
+    public static let defaultSubtitlePosition = CGPoint(x: 0.5, y: 0.06)
+    
+    private static func savedSubtitlePosition() -> CGPoint {
+        let defaults = UserDefaults.standard
+        guard defaults.object(forKey: "subtitlePositionX") != nil, defaults.object(forKey: "subtitlePositionY") != nil else {
+            return defaultSubtitlePosition
+        }
+        return CGPoint(x: defaults.double(forKey: "subtitlePositionX"), y: defaults.double(forKey: "subtitlePositionY"))
+    }
+    
+    public func resetSubtitlePosition() {
+        subtitlePosition = Self.defaultSubtitlePosition
+    }
+    /// Bumped on every text edit so the viewport overlay redraws the current line.
+    public private(set) var subtitleRevision: Int = 0
+    private var subtitleFormat = SubtitleFileFormat()
     private var subtitleLoadGeneration: Int = 0
+    /// Unsaved edits per .srt (standardized path), restored if that file is opened again this session.
+    private var unsavedSubtitleEdits: [String: [SubtitleCue]] = [:]
     
     /// Loads an .srt for the master clip. Returns false if the file has no readable cues.
     @discardableResult
     public func loadSubtitles(from url: URL) -> Bool {
-        guard let cues = try? SubtitleParser.load(from: url), !cues.isEmpty else { return false }
+        guard let file = try? SubtitleParser.loadFile(from: url), !file.cues.isEmpty else { return false }
         subtitleLoadGeneration &+= 1
-        subtitleCues = cues
-        subtitleFileName = url.lastPathComponent
+        applySubtitleFile(file, from: url)
         showSubtitles = true
         return true
+    }
+    
+    private func applySubtitleFile(_ file: SubtitleFile, from url: URL) {
+        let key = url.standardizedFileURL.path
+        let pending = unsavedSubtitleEdits[key]
+        subtitleFormat = file.format
+        subtitleCues = pending ?? file.cues
+        subtitleFileName = url.lastPathComponent
+        subtitleSourceURL = url
+        hasUnsavedSubtitleEdits = pending != nil
+        subtitleRevision &+= 1
     }
     
     /// Lets the user pick an .srt for the master clip. Returns false if cancelled or unreadable.
@@ -590,6 +628,45 @@ public final class PlayerEngine: ObservableObject {
         subtitleLoadGeneration &+= 1
         if !subtitleCues.isEmpty { subtitleCues = [] }
         if subtitleFileName != nil { subtitleFileName = nil }
+        if subtitleSourceURL != nil { subtitleSourceURL = nil }
+        if hasUnsavedSubtitleEdits { hasUnsavedSubtitleEdits = false }
+    }
+    
+    /// Edits one line's text (kept in memory until saved).
+    public func updateSubtitleText(at index: Int, to text: String) {
+        guard subtitleCues.indices.contains(index), subtitleCues[index].text != text else { return }
+        var cues = subtitleCues
+        cues[index].text = text
+        setEditedSubtitles(cues)
+    }
+    
+    /// Replaces all lines at once (Replace All), as a single change.
+    public func setEditedSubtitles(_ cues: [SubtitleCue]) {
+        guard cues != subtitleCues else { return }
+        subtitleRevision &+= 1
+        subtitleCues = cues
+        if !hasUnsavedSubtitleEdits { hasUnsavedSubtitleEdits = true }
+        if let url = subtitleSourceURL {
+            unsavedSubtitleEdits[url.standardizedFileURL.path] = cues
+        }
+    }
+    
+    /// Writes the edited lines back to the .srt they came from.
+    public func saveSubtitles() throws {
+        guard let url = subtitleSourceURL else { throw CocoaError(.fileNoSuchFile) }
+        try saveSubtitles(to: url)
+    }
+    
+    /// Writes the lines to `url` (Save As); the new file becomes the subtitles' source.
+    public func saveSubtitles(to url: URL) throws {
+        try SubtitleParser.write(SubtitleFile(cues: subtitleCues, format: subtitleFormat), to: url)
+        if let old = subtitleSourceURL {
+            unsavedSubtitleEdits.removeValue(forKey: old.standardizedFileURL.path)
+        }
+        unsavedSubtitleEdits.removeValue(forKey: url.standardizedFileURL.path)
+        subtitleSourceURL = url
+        subtitleFileName = url.lastPathComponent
+        hasUnsavedSubtitleEdits = false
     }
     
     /// Picks up `clip.srt` sitting next to `clip.mov` (read off the main thread).
@@ -598,20 +675,19 @@ public final class PlayerEngine: ObservableObject {
         guard let mediaURL = mediaURL else { return }
         let generation = subtitleLoadGeneration
         Task { [weak self] in
-            let found: (URL, [SubtitleCue])? = await Task.detached(priority: .utility) {
+            let found: (URL, SubtitleFile)? = await Task.detached(priority: .utility) {
                 let base = mediaURL.deletingPathExtension()
                 for ext in ["srt", "SRT"] {
                     let candidate = base.appendingPathExtension(ext)
                     if FileManager.default.fileExists(atPath: candidate.path),
-                       let cues = try? SubtitleParser.load(from: candidate), !cues.isEmpty {
-                        return (candidate, cues)
+                       let file = try? SubtitleParser.loadFile(from: candidate), !file.cues.isEmpty {
+                        return (candidate, file)
                     }
                 }
                 return nil
             }.value
-            guard let self, let (url, cues) = found, generation == self.subtitleLoadGeneration else { return }
-            self.subtitleCues = cues
-            self.subtitleFileName = url.lastPathComponent
+            guard let self, let (url, file) = found, generation == self.subtitleLoadGeneration else { return }
+            self.applySubtitleFile(file, from: url)
         }
     }
     // MARK: - Dropped Frame Telemetry (non-@Published to preserve 60/120 FPS performance)

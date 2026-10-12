@@ -89,6 +89,9 @@ public final class PlayerContainerNSView: NSView {
     private var shownSubtitleIndex: Int? = nil
     private var shownSubtitleFrame: CGRect = .null
     private var subtitleStateKey: String = ""
+    // Live position while the subtitle is being dragged (committed to the engine on mouse up).
+    private var liveSubtitlePosition: CGPoint? = nil
+    private var subtitleDragStart: (point: CGPoint, position: CGPoint)? = nil
     private let resolutionLabelLayerB = CATextLayer()
     private static let resolutionLabelFontSize: CGFloat = 10.0
     private static let resolutionLabelFont = NSFont.monospacedSystemFont(ofSize: resolutionLabelFontSize, weight: .bold)
@@ -475,7 +478,7 @@ public final class PlayerContainerNSView: NSView {
         updateMagnificationFilters()
         checkStillFrameDisplay()
         
-        let subtitleKey = "\(engine.subtitleFileName ?? "")|\(engine.subtitleCues.count)|\(engine.showSubtitles)|\(engine.isBlinkCompareB)|\(engine.zoomScale)|\(engine.isFitZoom)"
+        let subtitleKey = "\(engine.subtitleFileName ?? "")|\(engine.subtitleCues.count)|\(engine.subtitleRevision)|\(engine.showSubtitles)|\(engine.isBlinkCompareB)|\(engine.zoomScale)|\(engine.isFitZoom)|\(engine.subtitlePosition)"
         refreshSubtitle(frame: engine.clock.currentFrame, force: subtitleKey != subtitleStateKey)
         subtitleStateKey = subtitleKey
     }
@@ -514,18 +517,22 @@ public final class PlayerContainerNSView: NSView {
         let fontSize = max(9, min(frameA.width, frameA.height) * 0.05)
         let paragraph = NSMutableParagraphStyle()
         paragraph.alignment = .center
-        let text = NSAttributedString(string: engine.subtitleCues[index].text, attributes: [
+        let text = NSAttributedString(string: engine.subtitleCues[index].displayText, attributes: [
             .font: NSFont.systemFont(ofSize: fontSize, weight: .semibold),
             .foregroundColor: NSColor.white,
             .paragraphStyle: paragraph
         ])
-        let maxWidth = frameA.width * 0.9
-        let textHeight = ceil(text.boundingRect(with: CGSize(width: maxWidth, height: .greatestFiniteMagnitude),
-                                                options: [.usesLineFragmentOrigin, .usesFontLeading]).height) + 2
+        let textBounds = text.boundingRect(with: CGSize(width: frameA.width * 0.9, height: .greatestFiniteMagnitude),
+                                           options: [.usesLineFragmentOrigin, .usesFontLeading])
+        let textHeight = ceil(textBounds.height) + 2
+        let maxWidth = min(frameA.width * 0.9, ceil(textBounds.width) + fontSize)
         let zoom = engine.isFitZoom ? 1.0 : max(1.0, engine.zoomScale)
         subtitleLayer.contentsScale = currentBackingScale() * zoom
         subtitleLayer.string = text
-        subtitleLayer.frame = CGRect(x: frameA.midX - maxWidth / 2, y: frameA.minY + frameA.height * 0.06, width: maxWidth, height: textHeight)
+        let position = liveSubtitlePosition ?? engine.subtitlePosition
+        let centerX = min(max(frameA.minX + frameA.width * position.x, frameA.minX + maxWidth / 2), frameA.maxX - maxWidth / 2)
+        let bottomY = min(max(frameA.minY + frameA.height * position.y, frameA.minY), frameA.maxY - textHeight)
+        subtitleLayer.frame = CGRect(x: centerX - maxWidth / 2, y: bottomY, width: maxWidth, height: textHeight)
         subtitleLayer.isHidden = false
     }
     
@@ -2066,6 +2073,11 @@ public final class PlayerContainerNSView: NSView {
         return layer?.convert(viewPoint, to: canvasLayer) ?? viewPoint
     }
     
+    private func isOverSubtitle(windowPoint: NSPoint) -> Bool {
+        guard !subtitleLayer.isHidden else { return false }
+        return subtitleLayer.frame.insetBy(dx: -6, dy: -6).contains(pointInCanvas(from: windowPoint))
+    }
+    
     private func isNearSplitDivider(windowPoint: NSPoint) -> Bool {
         guard let engine = engine, engine.slotB.url != nil, engine.compareMode != .single, !engine.isBlinkCompareB else { return false }
         guard engine.hasMatchingAspectRatios else { return false }
@@ -2093,6 +2105,16 @@ public final class PlayerContainerNSView: NSView {
             return
         }
         
+        if isOverSubtitle(windowPoint: event.locationInWindow) {
+            if event.clickCount == 2 {
+                engine.resetSubtitlePosition()
+                return
+            }
+            subtitleDragStart = (pointInCanvas(from: event.locationInWindow), engine.subtitlePosition)
+            NSCursor.closedHand.set()
+            return
+        }
+        
         if isNearSplitDivider(windowPoint: event.locationInWindow) {
             isDraggingSplit = true
             if engine.compareMode == .splitVertical {
@@ -2115,6 +2137,18 @@ public final class PlayerContainerNSView: NSView {
     public override func mouseDragged(with event: NSEvent) {
         guard let engine = engine else {
             super.mouseDragged(with: event)
+            return
+        }
+        
+        if let drag = subtitleDragStart {
+            let frameA = playerLayerA.frame
+            guard frameA.width > 0, frameA.height > 0 else { return }
+            let pt = pointInCanvas(from: event.locationInWindow)
+            liveSubtitlePosition = CGPoint(
+                x: min(1, max(0, drag.position.x + (pt.x - drag.point.x) / frameA.width)),
+                y: min(1, max(0, drag.position.y + (pt.y - drag.point.y) / frameA.height))
+            )
+            refreshSubtitle(frame: engine.clock.currentFrame, force: true)
             return
         }
         
@@ -2155,6 +2189,24 @@ public final class PlayerContainerNSView: NSView {
     }
     
     public override func mouseUp(with event: NSEvent) {
+        if subtitleDragStart != nil {
+            subtitleDragStart = nil
+            if let position = liveSubtitlePosition, let engine = engine {
+                // Clamp to where the text actually landed so the saved value matches what is on screen.
+                let frameA = playerLayerA.frame
+                if frameA.width > 0, frameA.height > 0 {
+                    engine.subtitlePosition = CGPoint(
+                        x: (subtitleLayer.frame.midX - frameA.minX) / frameA.width,
+                        y: (subtitleLayer.frame.minY - frameA.minY) / frameA.height
+                    )
+                } else {
+                    engine.subtitlePosition = position
+                }
+            }
+            liveSubtitlePosition = nil
+            updateCursor(at: event.locationInWindow)
+            return
+        }
         if event.clickCount == 2 {
             if let onDoubleClick = onDoubleClick {
                 onDoubleClick()
@@ -2240,6 +2292,11 @@ public final class PlayerContainerNSView: NSView {
     
     private func updateCursor(at windowPoint: NSPoint? = nil) {
         guard let engine = engine else { return }
+        
+        if let pt = windowPoint, isOverSubtitle(windowPoint: pt) {
+            NSCursor.openHand.set()
+            return
+        }
         
         if let pt = windowPoint, isNearSplitDivider(windowPoint: pt) {
             if engine.compareMode == .splitVertical {

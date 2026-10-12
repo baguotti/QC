@@ -1175,6 +1175,7 @@ struct ContentView: View {
         if playerEngine.activeURL == nil {
             showToast("Load a clip first, then drop the .srt on the player")
         } else if playerEngine.loadSubtitles(from: srt) {
+            playerDrawerTab = .subtitles
             showToast("Subtitles loaded: \(srt.lastPathComponent) (\(playerEngine.subtitleCues.count) lines)")
         } else {
             showToast("No subtitles found in \(srt.lastPathComponent)")

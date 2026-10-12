@@ -30,56 +30,60 @@ public struct RulerTicksCanvasView: View, Equatable {
             guard duration > 0 else { return }
             let trackWidth = max(1.0, width - (trackInset * 2))
             
-            // Adaptive interval for long master files so marks never overlap
-            let intervalSecs: Double
-            if trackWidth / (duration / 5.0) >= 60 {
-                intervalSecs = 5.0
-            } else if trackWidth / (duration / 10.0) >= 60 {
-                intervalSecs = 10.0
-            } else if trackWidth / (duration / 15.0) >= 60 {
-                intervalSecs = 15.0
-            } else {
-                intervalSecs = 30.0
-            }
+            // Label step: the smallest "nice" interval whose labels (measured) keep a clear gap at this width.
+            let fpsSafe = max(1.0, fps)
+            let sample = context.resolve(Text(TimecodeFormatter.format(frameIndex: 0, fps: fpsSafe))
+                .font(.system(size: 8, weight: .semibold, design: .monospaced)))
+            let labelWidth = sample.measure(in: CGSize(width: 400, height: 40)).width
+            let pointsPerSecond = trackWidth / CGFloat(duration)
+            let steps: [Double] = [1, 2, 5, 10, 15, 30, 60, 120, 300, 600, 900, 1800, 3600, 7200]
+            let intervalSecs = steps.first { CGFloat($0) * pointsPerSecond >= labelWidth + 24 } ?? steps[steps.count - 1]
             
-            // 1. Draw 1-second minor & major ticks
-            let minorStep: Double = intervalSecs <= 5.0 ? 1.0 : (intervalSecs / 5.0)
-            var sec = 0.0
-            while sec <= duration + 0.001 {
+            // Minor ticks: subdivide the label step, keeping at least ~6 pt between ticks.
+            let subdivisions: [Double] = [10, 6, 5, 4, 3, 2, 1]
+            let minorDivisor = subdivisions.first { CGFloat(intervalSecs / $0) * pointsPerSecond >= 6 && (intervalSecs / $0) >= 1 } ?? 1
+            let minorStep = intervalSecs / minorDivisor
+            
+            var tick = 0
+            while Double(tick) * minorStep <= duration + 0.001 {
+                let sec = Double(tick) * minorStep
                 let x = trackInset + trackWidth * CGFloat(sec / duration)
-                let rem = sec.truncatingRemainder(dividingBy: intervalSecs)
-                let isMajor = rem < 0.001 || abs(rem - intervalSecs) < 0.001
-                
+                let isMajor = tick % Int(minorDivisor) == 0
                 var tickPath = Path()
                 let tickH: CGFloat = isMajor ? 5.5 : 3.0
                 tickPath.move(to: CGPoint(x: x, y: size.height - tickH))
                 tickPath.addLine(to: CGPoint(x: x, y: size.height))
                 context.stroke(tickPath, with: .color(isMajor ? majorTickColor : tickColor), lineWidth: 1)
-                sec += minorStep
+                tick += 1
             }
             
-            // 2. Draw 5-second interval timecode labels
-            var labelSec = 0.0
-            while labelSec <= duration + 0.001 {
+            // Timecode labels, skipping any that would still touch the previous one (e.g. at the track ends).
+            var lastLabelMaxX = -CGFloat.greatestFiniteMagnitude
+            var labelIndex = 0
+            while Double(labelIndex) * intervalSecs <= duration + 0.001 {
+                let labelSec = Double(labelIndex) * intervalSecs
+                labelIndex += 1
                 let x = trackInset + trackWidth * CGFloat(labelSec / duration)
-                let frame = Int(round(labelSec * max(1.0, fps)))
-                let tc = TimecodeFormatter.format(frameIndex: frame, fps: fps)
-                
-                let text = Text(tc)
+                let tc = TimecodeFormatter.format(frameIndex: Int(round(labelSec * fpsSafe)), fps: fpsSafe)
+                let text = context.resolve(Text(tc)
                     .font(.system(size: 8, weight: .semibold, design: .monospaced))
-                    .foregroundColor(textColor)
-                
+                    .foregroundColor(textColor))
+                let w = text.measure(in: CGSize(width: 400, height: 40)).width
                 let anchor: UnitPoint
-                if x < 40 {
+                let minX: CGFloat
+                if x - w / 2 < 0 {
                     anchor = .topLeading
-                } else if x > width - 40 {
+                    minX = x
+                } else if x + w / 2 > width {
                     anchor = .topTrailing
+                    minX = x - w
                 } else {
                     anchor = .top
+                    minX = x - w / 2
                 }
-                
+                guard minX >= lastLabelMaxX + 8 else { continue }
                 context.draw(text, at: CGPoint(x: x, y: 6), anchor: anchor)
-                labelSec += intervalSecs
+                lastLabelMaxX = minX + w
             }
         }
         .frame(width: width, height: 22)

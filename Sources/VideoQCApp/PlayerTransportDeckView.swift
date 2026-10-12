@@ -210,7 +210,7 @@ struct PlayerTransportDeckView: View, Equatable {
                 transportBtn(
                     icon: "captions.bubble",
                     tooltip: transportState.hasSubtitles
-                        ? "Subtitles: \(transportState.showSubtitles ? "ON" : "OFF") (\(engine.subtitleFileName ?? ".srt")). Right-click to import or remove."
+                        ? "Subtitles: \(transportState.showSubtitles ? "ON" : "OFF") (\(engine.subtitleFileName ?? ".srt")). Drag them on the video to move (double-click to reset). Right-click to import or remove."
                         : "Subtitles: import an .srt (or drop one on the player)",
                     isActive: transportState.hasSubtitles && transportState.showSubtitles,
                     size: 12,
@@ -228,6 +228,7 @@ struct PlayerTransportDeckView: View, Equatable {
                     Button("Import Subtitles (.srt)…") { engine.chooseAndLoadSubtitles() }
                     if transportState.hasSubtitles {
                         Button(transportState.showSubtitles ? "Hide Subtitles" : "Show Subtitles") { engine.showSubtitles.toggle() }
+                        Button("Reset Subtitle Position") { engine.resetSubtitlePosition() }
                         Button("Remove Subtitles") { engine.clearSubtitles() }
                     }
                 }

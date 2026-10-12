@@ -9,6 +9,7 @@ import VideoQCLib
 public enum PlayerDrawerTab: String, CaseIterable, Identifiable, Sendable {
     case mediaInfo = "Media Info"
     case notes = "Notes"
+    case subtitles = "Subtitles"
     
     public var id: String { rawValue }
 }
@@ -25,6 +26,10 @@ struct NotesDrawerPanelView: View {
     /// Read at action time; only the timecode badge observes it (the drawer must not re-render per frame).
     let clock: PlaybackClock
     var isLightMode: Bool
+    /// Subtitles tab: shown only when slot A's clip has subtitles loaded.
+    let subtitleEngine: PlayerEngine
+    var hasSubtitles: Bool
+    var subtitlesDirty: Bool
     
     var onSeekToFrame: (Int) -> Void
     var onAddNote: () -> Void
@@ -89,11 +94,21 @@ struct NotesDrawerPanelView: View {
                             removal: .move(edge: .trailing).combined(with: .opacity)
                         ))
                 }
+                if selectedDrawerTab == .subtitles && hasSubtitles {
+                    SubtitlesPanelView(engine: subtitleEngine, isLightMode: isLightMode, onToast: onToast)
+                        .transition(.asymmetric(
+                            insertion: .move(edge: .trailing).combined(with: .opacity),
+                            removal: .move(edge: .trailing).combined(with: .opacity)
+                        ))
+                }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .clipped()
         }
-        .frame(width: 340)
+        .frame(width: selectedDrawerTab == .subtitles && hasSubtitles ? 420 : 340)
+        .onChange(of: hasSubtitles) { _, has in
+            if !has && selectedDrawerTab == .subtitles { selectedDrawerTab = .notes }
+        }
         .studioBox(background: palette.bgPanel, border: palette.borderLine)
         .onAppear {
             if storedReviewerName.isEmpty {
@@ -121,7 +136,7 @@ struct NotesDrawerPanelView: View {
         HStack(spacing: 8) {
             // Rounded Pill Switcher
             HStack(spacing: 4) {
-                ForEach(PlayerDrawerTab.allCases) { tab in
+                ForEach(PlayerDrawerTab.allCases.filter { $0 != .subtitles || hasSubtitles }) { tab in
                     let isSelected = (selectedDrawerTab == tab)
                     Button(action: {
                         withAnimation(.spring(response: 0.32, dampingFraction: 0.84)) {
@@ -132,6 +147,13 @@ struct NotesDrawerPanelView: View {
                             Text(tab.rawValue)
                                 .font(.system(size: 11, weight: isSelected ? .bold : .medium, design: .monospaced))
                                 .lineLimit(1)
+                            
+                            if tab == .subtitles && subtitlesDirty {
+                                Circle()
+                                    .fill(palette.accentBlue)
+                                    .frame(width: 5, height: 5)
+                                    .help("Unsaved subtitle changes")
+                            }
                             
                             if tab == .notes && !notes.isEmpty {
                                 Text("\(notes.count)")
@@ -850,7 +872,13 @@ struct NotesDrawerPanelView: View {
             
             // Text Input Field & Send Button
             HStack(spacing: 6) {
-                TextField("Add note at playhead...", text: $inlineNoteText)
+                TextField("Add note at playhead... (drop files to link them)", text: $inlineNoteText)
+                    .onDrop(of: [.fileURL], isTargeted: nil) { providers in
+                        handlePathDrop(providers) { token in
+                            inlineNoteText = appendingPath(token, to: inlineNoteText)
+                            isInlineInputFocused = true
+                        }
+                    }
                     .textFieldStyle(.plain)
                     .font(.system(size: 11, design: .monospaced))
                     .foregroundColor(palette.textMain)
@@ -1059,6 +1087,9 @@ struct NotesDrawerPanelView: View {
                 .padding(6)
                 .studioBox(background: palette.bgMain, border: palette.accentBlue.opacity(0.6))
                 .onSubmit { commitEdit(note: note) }
+                .onDrop(of: [.fileURL], isTargeted: nil) { providers in
+                    handlePathDrop(providers) { token in editText = appendingPath(token, to: editText) }
+                }
                 .onExitCommand { editingNoteID = nil }
             HStack(spacing: 6) {
                 Spacer()
@@ -1118,6 +1149,9 @@ struct NotesDrawerPanelView: View {
                     .padding(5)
                     .studioBox(background: palette.bgMain, border: palette.borderLine)
                     .onSubmit { commitReply(note: note) }
+                    .onDrop(of: [.fileURL], isTargeted: nil) { providers in
+                        handlePathDrop(providers) { token in replyText = appendingPath(token, to: replyText) }
+                    }
                     .onExitCommand { replyingNoteID = nil }
                 Button("Send") { commitReply(note: note) }
                     .buttonStyle(.plain)
@@ -1140,6 +1174,27 @@ struct NotesDrawerPanelView: View {
             .buttonStyle(.plain)
             .help("Reply to this note")
         }
+    }
+    
+    /// Dropped files become quoted paths, which notes render as clickable reveal-in-Finder links.
+    private func handlePathDrop(_ providers: [NSItemProvider], insert: @escaping @MainActor @Sendable (String) -> Void) -> Bool {
+        let fileProviders = providers.filter { $0.canLoadObject(ofClass: URL.self) }
+        guard !fileProviders.isEmpty else { return false }
+        for provider in fileProviders {
+            _ = provider.loadObject(ofClass: URL.self) { url, _ in
+                guard let url = url, url.isFileURL else { return }
+                let token = "\"\(url.path)\""
+                DispatchQueue.main.async {
+                    MainActor.assumeIsolated { insert(token) }
+                }
+            }
+        }
+        return true
+    }
+    
+    private func appendingPath(_ token: String, to text: String) -> String {
+        let trimmed = text.trimmingCharacters(in: .whitespaces)
+        return trimmed.isEmpty ? token : trimmed + " " + token
     }
     
     private func commitReply(note: QCFileNote) {

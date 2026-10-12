@@ -485,6 +485,9 @@ extension ContentView {
             mediaAsset: matchedAsset,
             clock: playerEngine.clock,
             isLightMode: isLightMode,
+            subtitleEngine: playerEngine,
+            hasSubtitles: !playerEngine.subtitleCues.isEmpty,
+            subtitlesDirty: playerEngine.hasUnsavedSubtitleEdits,
             onSeekToFrame: { frame in
                 seekToNoteFrame(frame)
             },
