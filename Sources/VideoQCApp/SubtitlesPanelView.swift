@@ -197,9 +197,7 @@ struct SubtitlesPanelView: View {
 
     private var header: some View {
         HStack(spacing: 6) {
-            Image(systemName: "captions.bubble")
-                .font(.system(size: 10, weight: .bold))
-                .foregroundColor(palette.textMuted)
+            CCBadge(color: palette.textMuted, size: 10)
             Text(engine.subtitleFileName ?? "Subtitles")
                 .font(.system(size: 10, weight: .bold, design: .monospaced))
                 .foregroundColor(palette.textMain)
@@ -442,7 +440,7 @@ struct SubtitlesPanelView: View {
         if selectedIndex != index {
             commitDraft()
             selectedIndex = index
-            draftText = cues[index].text
+            draftText = SubtitleParser.editableText(cues[index].text)
         }
         if seek {
             let frame = max(0, Int(ceil(cues[index].start * fps - 0.5)))
@@ -468,7 +466,7 @@ struct SubtitlesPanelView: View {
         commitTask?.cancel()
         commitTask = nil
         guard let index = selectedIndex, cues.indices.contains(index) else { return }
-        engine.updateSubtitleText(at: index, to: draftText)
+        engine.updateSubtitleText(at: index, to: SubtitleParser.applyingEditedText(draftText, to: cues[index].text))
     }
 
     private func goToMatch(_ target: Int, in currentMatches: [SubtitleSearch.Match]) {
@@ -489,11 +487,12 @@ struct SubtitlesPanelView: View {
         guard !currentMatches.isEmpty else { return }
         commitDraft()
         let match = currentMatches[min(currentMatch, currentMatches.count - 1)]
-        let text = cues[match.cueIndex].text as NSString
-        guard NSMaxRange(match.range) <= text.length else { return }
-        let updated = text.replacingCharacters(in: match.range, with: replacement)
-        engine.updateSubtitleText(at: match.cueIndex, to: updated)
-        if selectedIndex == match.cueIndex { draftText = updated }
+        let raw = cues[match.cueIndex].text
+        let plain = SubtitleParser.editableText(raw) as NSString
+        guard NSMaxRange(match.range) <= plain.length else { return }
+        let updatedPlain = plain.replacingCharacters(in: match.range, with: replacement)
+        engine.updateSubtitleText(at: match.cueIndex, to: SubtitleParser.applyingEditedText(updatedPlain, to: raw))
+        if selectedIndex == match.cueIndex { draftText = updatedPlain }
         // Same position now points at the following match.
         let remaining = SubtitleSearch.matches(in: engine.subtitleCues, query: query, matchCase: matchCase)
         if remaining.isEmpty {
@@ -508,7 +507,7 @@ struct SubtitlesPanelView: View {
         let (updated, count) = SubtitleSearch.replaceAll(in: cues, query: query, with: replacement, matchCase: matchCase)
         guard count > 0 else { return }
         engine.setEditedSubtitles(updated)
-        if let index = selectedIndex, updated.indices.contains(index) { draftText = updated[index].text }
+        if let index = selectedIndex, updated.indices.contains(index) { draftText = SubtitleParser.editableText(updated[index].text) }
         currentMatch = 0
         onToast("Replaced \(count) occurrence\(count == 1 ? "" : "s") — remember to SAVE")
     }
@@ -519,13 +518,9 @@ struct SubtitlesPanelView: View {
         let start = selectedIndex ?? -1
         let target = indices.first { $0 > start } ?? indices[0]
         select(target, seek: true)
+        // Spelling ranges are in tag-free text, the same coordinates the editor shows.
         if let range = spelling.issues[target]?.first {
-            let plain = SubtitleStyledText.make(cues[target].text).plain as NSString
-            if NSMaxRange(range) <= plain.length {
-                let word = plain.substring(with: range)
-                let rawRange = (cues[target].text as NSString).range(of: word)
-                if rawRange.location != NSNotFound { highlightInEditor(rawRange) }
-            }
+            highlightInEditor(range)
         }
     }
 
@@ -712,5 +707,24 @@ struct ClickCountCatcher: NSViewRepresentable {
         var onClick: ((Int) -> Void)?
         override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
         override func mouseDown(with event: NSEvent) { onClick?(event.clickCount) }
+    }
+}
+
+// MARK: - CC Badge
+
+/// "CC" closed-captions mark (rounded box with the letters), used for subtitle controls.
+struct CCBadge: View {
+    /// nil = inherit the surrounding foreground colour (e.g. a button's active / inactive tint).
+    var color: Color? = nil
+    var size: CGFloat = 10
+
+    var body: some View {
+        Text("CC")
+            .font(.system(size: size * 0.78, weight: .heavy, design: .rounded))
+            .tracking(-0.2)
+            .padding(.horizontal, size * 0.22)
+            .padding(.vertical, size * 0.06)
+            .overlay(RoundedRectangle(cornerRadius: size * 0.25).stroke(.primary, lineWidth: max(1, size * 0.11)))
+            .foregroundStyle(color.map { AnyShapeStyle($0) } ?? AnyShapeStyle(.primary))
     }
 }

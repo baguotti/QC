@@ -1592,73 +1592,30 @@ struct PlayerTimecodeMenuView: View {
     @State private var isHovered: Bool = false
     
     var body: some View {
-        Menu {
-            timecodeMenuItems
-        } label: {
-            // Hover styling is applied per element: the live readout draws in its own host.
-            HStack(spacing: 4) {
-                PlayerTimecodeReadout(
-                    clock: playerEngine.clock,
-                    displayTimeAsFrames: playerEngine.displayTimeAsFrames,
-                    totalFrames: playerEngine.totalFrames,
-                    accentBlue: accentBlue,
-                    isHovered: isHovered
-                )
-                
-                Image(systemName: "chevron.down")
-                    .font(.system(size: 8, weight: .bold))
-                    .foregroundColor(accentBlue.opacity(0.8))
-                    .opacity(isHovered ? 1.0 : 0.82)
-                    .brightness(isHovered ? 0.05 : 0.0)
-                    .animation(.easeInOut(duration: 0.12), value: isHovered)
-            }
+        // Click switches timecode ↔ frames; right-click copies the value as currently shown.
+        Button(action: { playerEngine.displayTimeAsFrames.toggle() }) {
+            PlayerTimecodeReadout(
+                clock: playerEngine.clock,
+                displayTimeAsFrames: playerEngine.displayTimeAsFrames,
+                totalFrames: playerEngine.totalFrames,
+                accentBlue: accentBlue,
+                isHovered: isHovered
+            )
             .onHover { isHovered = $0 }
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .explain(playerEngine.displayTimeAsFrames
+                 ? "Frame count. Click to show timecode · Right-click to copy the frame number."
+                 : "Timecode. Click to show frame count · Right-click to copy the timecode.")
         .contextMenu {
-            timecodeMenuItems
-        }
-    }
-    
-    // Static titles: values are read at click time so the menu is not rebuilt on every frame.
-    @ViewBuilder
-    private var timecodeMenuItems: some View {
-        Button(action: {
-            let text = playerEngine.displayTimeAsFrames ? "\(playerEngine.currentFrame)" : playerEngine.currentTimecode
-            NSPasteboard.general.clearContents()
-            NSPasteboard.general.setString(text, forType: .string)
-        }) {
-            Label("Copy Value", systemImage: "doc.on.doc")
-        }
-        Divider()
-        Button(action: {
-            NSPasteboard.general.clearContents()
-            NSPasteboard.general.setString(playerEngine.currentTimecode, forType: .string)
-        }) {
-            Label("Copy SMPTE Timecode", systemImage: "clock")
-        }
-        Button(action: {
-            NSPasteboard.general.clearContents()
-            NSPasteboard.general.setString("\(playerEngine.currentFrame)", forType: .string)
-        }) {
-            Label("Copy Frame Number", systemImage: "number")
-        }
-        Divider()
-        Button(action: { playerEngine.displayTimeAsFrames = false }) {
-            HStack {
-                Text("SMPTE Timecode (HH:MM:SS:FF)")
-                if !playerEngine.displayTimeAsFrames {
-                    Image(systemName: "checkmark")
-                }
-            }
-        }
-        Button(action: { playerEngine.displayTimeAsFrames = true }) {
-            HStack {
-                Text("Frames (Frame Count)")
-                if playerEngine.displayTimeAsFrames {
-                    Image(systemName: "checkmark")
-                }
+            // Static title: the value is read at click time so the menu is not rebuilt every frame.
+            Button(action: {
+                let text = playerEngine.displayTimeAsFrames ? "\(playerEngine.currentFrame)" : playerEngine.currentTimecode
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString(text, forType: .string)
+            }) {
+                Label(playerEngine.displayTimeAsFrames ? "Copy Frame Number" : "Copy Timecode", systemImage: "doc.on.doc")
             }
         }
     }

@@ -229,7 +229,8 @@ struct FullscreenPlayerView: View {
                         clock: engine.clock,
                         displayTimeAsFrames: engine.displayTimeAsFrames,
                         totalFrames: engine.totalFrames,
-                        accentBlue: accentBlue
+                        accentBlue: accentBlue,
+                        onToggle: { engine.displayTimeAsFrames.toggle() }
                     )
                     
                     if engine.shuttleStateText != "PAUSE" && (engine.isPlaying || engine.rate != 0) {
@@ -311,10 +312,28 @@ private struct FullscreenTimecodeReadout: View {
     let displayTimeAsFrames: Bool
     let totalFrames: Int
     let accentBlue: Color
+    let onToggle: () -> Void
     
     private static let font = Font.system(size: 14, weight: .bold, design: .monospaced)
     
     var body: some View {
+        // Click switches timecode ↔ frames; right-click copies the value as currently shown.
+        Button(action: onToggle) {
+            readout
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help(displayTimeAsFrames ? "Click to show timecode · Right-click to copy" : "Click to show frame count · Right-click to copy")
+        .contextMenu {
+            // Static title: the value is read at click time.
+            Button(action: { copy(displayTimeAsFrames ? "\(clock.currentFrame)" : clock.currentTimecode) }) {
+                Label(displayTimeAsFrames ? "Copy Frame Number" : "Copy Timecode", systemImage: "doc.on.doc")
+            }
+        }
+    }
+    
+    @ViewBuilder
+    private var readout: some View {
         if displayTimeAsFrames {
             let digitCount = max(4, String(max(totalFrames, 999)).count)
             let frameColWidth = CGFloat(digitCount) * 8.8
@@ -335,16 +354,6 @@ private struct FullscreenTimecodeReadout: View {
                     .foregroundColor(accentBlue)
             }
             .frame(width: 130, alignment: .leading)
-            .contentShape(Rectangle())
-            .contextMenu {
-                // Static titles: values are read at click time.
-                Button(action: { copy("\(clock.currentFrame)") }) {
-                    Label("Copy Frame Number", systemImage: "doc.on.doc")
-                }
-                Button(action: { copy(clock.currentTimecode) }) {
-                    Label("Copy SMPTE Timecode", systemImage: "clock")
-                }
-            }
         } else {
             PlaybackClockText(
                 clock: clock,
@@ -354,15 +363,6 @@ private struct FullscreenTimecodeReadout: View {
                 color: accentBlue
             )
             .frame(width: 120, alignment: .leading)
-                .contentShape(Rectangle())
-                .contextMenu {
-                    Button(action: { copy(clock.currentTimecode) }) {
-                        Label("Copy Timecode", systemImage: "doc.on.doc")
-                    }
-                    Button(action: { copy("\(clock.currentFrame)") }) {
-                        Label("Copy Frame Number", systemImage: "number")
-                    }
-                }
         }
     }
     

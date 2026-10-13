@@ -207,14 +207,11 @@ struct PlayerTransportDeckView: View, Equatable {
                     engine.showCenterCrosshair.toggle()
                 }
                 
-                transportBtn(
-                    icon: "captions.bubble",
+                customTransportBtn(
                     tooltip: transportState.hasSubtitles
                         ? "Subtitles: \(transportState.showSubtitles ? "ON" : "OFF") (\(engine.subtitleFileName ?? ".srt")). Drag them on the video to move (double-click to reset). Right-click to import or remove."
                         : "Subtitles: import an .srt (or drop one on the player)",
                     isActive: transportState.hasSubtitles && transportState.showSubtitles,
-                    size: 12,
-                    weight: .semibold,
                     width: 26
                 ) {
                     if transportState.hasSubtitles {
@@ -222,6 +219,8 @@ struct PlayerTransportDeckView: View, Equatable {
                     } else {
                         engine.chooseAndLoadSubtitles()
                     }
+                } content: {
+                    CCBadge(size: 12)
                 }
                 .disabled(!transportState.hasActiveURL)
                 .contextMenu {

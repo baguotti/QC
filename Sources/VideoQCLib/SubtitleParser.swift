@@ -131,6 +131,34 @@ public enum SubtitleParser {
         return nil
     }
 
+    /// Text the user edits: every styling tag (`<font …>`, `<i>`, `{\\an8}` …) removed, line breaks kept.
+    public static func editableText(_ raw: String) -> String {
+        stripTags(raw)
+    }
+    
+    /// Puts edited plain text back into the line's formatting: each line keeps the opening / closing tags that
+    /// wrapped the matching original line (extra lines reuse the last line's). Unchanged text returns `raw` untouched,
+    /// so tags inside a line are only dropped from lines that were actually edited.
+    public static func applyingEditedText(_ edited: String, to raw: String) -> String {
+        guard edited != editableText(raw) else { return raw }
+        let wrappers = raw.components(separatedBy: "\n").map(lineWrapper)
+        let lines = edited.components(separatedBy: "\n")
+        return lines.enumerated().map { index, line in
+            guard !line.isEmpty, let wrapper = wrappers.isEmpty ? nil : wrappers[min(index, wrappers.count - 1)] else { return line }
+            return wrapper.prefix + line + wrapper.suffix
+        }.joined(separator: "\n")
+    }
+    
+    private static func lineWrapper(_ line: String) -> (prefix: String, suffix: String) {
+        let ns = line as NSString
+        let full = NSRange(location: 0, length: ns.length)
+        let prefixRange = (try? NSRegularExpression(pattern: #"^(?:<[^/>][^>]*>|\{\\[^}]*\})*"#))?.firstMatch(in: line, range: full)?.range
+        let suffixRange = (try? NSRegularExpression(pattern: #"(?:</[^>]+>)*$"#))?.firstMatch(in: line, range: full)?.range
+        let prefix = prefixRange.map { ns.substring(with: $0) } ?? ""
+        let suffix = suffixRange.map { ns.substring(with: $0) } ?? ""
+        return (prefix, prefix.count + suffix.count >= line.count ? "" : suffix)
+    }
+    
     public static func stripTags(_ text: String) -> String {
         text.replacingOccurrences(of: "<[^>]+>", with: "", options: .regularExpression)
             .replacingOccurrences(of: "\\{\\\\[^}]*\\}", with: "", options: .regularExpression)
@@ -167,7 +195,8 @@ public enum SubtitleParser {
     }
 }
 
-/// Find / replace over subtitle text (plain substring search, optionally case-sensitive).
+/// Find / replace over the editable (tag-free) subtitle text, optionally case-sensitive. Match ranges are in
+/// `SubtitleParser.editableText` coordinates; replacements keep each line's formatting.
 public enum SubtitleSearch {
     public struct Match: Sendable, Equatable {
         public let cueIndex: Int
@@ -179,7 +208,7 @@ public enum SubtitleSearch {
         let options: NSString.CompareOptions = matchCase ? [] : [.caseInsensitive]
         var result: [Match] = []
         for (index, cue) in cues.enumerated() {
-            for range in ranges(of: query, in: cue.text, options: options) {
+            for range in ranges(of: query, in: SubtitleParser.editableText(cue.text), options: options) {
                 result.append(Match(cueIndex: index, range: range))
             }
         }
@@ -206,11 +235,13 @@ public enum SubtitleSearch {
         let options: NSString.CompareOptions = matchCase ? [] : [.caseInsensitive]
         var count = 0
         let updated = cues.map { cue -> SubtitleCue in
-            let hits = ranges(of: query, in: cue.text, options: options).count
+            let plain = SubtitleParser.editableText(cue.text) as NSString
+            let hits = ranges(of: query, in: plain as String, options: options).count
             guard hits > 0 else { return cue }
             count += hits
             var copy = cue
-            copy.text = (cue.text as NSString).replacingOccurrences(of: query, with: replacement, options: options, range: NSRange(location: 0, length: (cue.text as NSString).length))
+            let replaced = plain.replacingOccurrences(of: query, with: replacement, options: options, range: NSRange(location: 0, length: plain.length))
+            copy.text = SubtitleParser.applyingEditedText(replaced, to: cue.text)
             return copy
         }
         return (updated, count)
