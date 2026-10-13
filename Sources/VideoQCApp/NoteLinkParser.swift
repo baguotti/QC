@@ -22,11 +22,6 @@ public enum DetectedNoteLink: Identifiable, Equatable {
         }
     }
     
-    public var isWeb: Bool {
-        if case .webURL = self { return true }
-        return false
-    }
-    
     public var iconName: String {
         switch self {
         case .webURL: return "arrow.up.right.square"
@@ -84,10 +79,6 @@ public struct NoteLinkParser {
     private struct MatchItem {
         let range: NSRange
         let link: DetectedNoteLink
-    }
-    
-    public static func detectLinksAndPaths(in text: String) -> [DetectedNoteLink] {
-        findMatches(in: text).map { $0.link }
     }
     
     private static func findMatches(in text: String) -> [MatchItem] {

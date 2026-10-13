@@ -114,11 +114,6 @@ final class SubtitleSpellingModel: ObservableObject {
             self.issueCount = result.values.reduce(0) { $0 + $1.count }
         }
     }
-
-    func ignore(_ word: String, cues: [SubtitleCue]) {
-        NSSpellChecker.shared.ignoreWord(word, inSpellDocumentWithTag: documentTag)
-        recheck(cues, delay: .zero)
-    }
 }
 
 // MARK: - Subtitles Panel (Premiere-style Text panel)
@@ -719,12 +714,15 @@ struct CCBadge: View {
     var size: CGFloat = 10
 
     var body: some View {
+        // Text centres its line box (ascender + descender), not the caps; shift so "CC" sits optically centred.
+        let font = NSFont.systemFont(ofSize: size * 0.68, weight: .semibold)
+        let capOffset = ((font.ascender + font.descender) - font.capHeight) / 2
         Text("CC")
-            .font(.system(size: size * 0.78, weight: .heavy, design: .rounded))
-            .tracking(-0.2)
-            .padding(.horizontal, size * 0.22)
-            .padding(.vertical, size * 0.06)
-            .overlay(RoundedRectangle(cornerRadius: size * 0.25).stroke(.primary, lineWidth: max(1, size * 0.11)))
+            .font(.system(size: size * 0.68, weight: .semibold))
+            .tracking(-0.3)
+            .offset(y: capOffset)
+            .frame(width: size * 1.5, height: size * 1.05)
+            .overlay(RoundedRectangle(cornerRadius: size * 0.22).strokeBorder(.primary, lineWidth: 1))
             .foregroundStyle(color.map { AnyShapeStyle($0) } ?? AnyShapeStyle(.primary))
     }
 }

@@ -18,10 +18,6 @@ public struct FileSystemTreeNode: Identifiable, Hashable, Sendable {
         }
     }
     
-    public var isExpandable: Bool {
-        return isDirectory && !children.isEmpty
-    }
-    
     public init(
         id: String,
         name: String,

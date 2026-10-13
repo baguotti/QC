@@ -1,4 +1,5 @@
 import SwiftUI
+import UniformTypeIdentifiers
 import VideoQCLib
 
 extension ContentView {
@@ -82,7 +83,32 @@ extension ContentView {
             }
             .frame(minWidth: 540, maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             .background(bgMain)
+            .sheet(isPresented: $specsState.showSubtitleCrossCheck) {
+                if let report = specsState.subtitleCrossCheck {
+                    SubtitleCrossCheckSheet(
+                        report: report,
+                        isLightMode: isLightMode,
+                        onChange: { specsState.subtitleCrossCheck = $0 },
+                        onOpen: { video, seconds in
+                            specsState.showSubtitleCrossCheck = false
+                            openSubtitleDifference(video: video, seconds: seconds)
+                        },
+                        onClose: { specsState.showSubtitleCrossCheck = false }
+                    )
+                }
+            }
         }
+    }
+    
+    /// Opens a cross-check result: load the file in the player at that line with the Subtitles panel open.
+    func openSubtitleDifference(video: URL, seconds: Double) {
+        let fps = specsState.deliverableAssets.first { $0.fileURL.standardizedFileURL == video.standardizedFileURL }?.fps ?? 25
+        withAnimation(.spring(response: 0.22, dampingFraction: 0.85)) {
+            selectedTab = .player
+        }
+        playerEngine.loadVideo(url: video, into: .slotA, initialSeekFrame: max(0, Int(ceil(seconds * max(1, fps) - 0.5))))
+        playerDrawerTab = .subtitles
+        showNotesDrawer = true
     }
     
     // MARK: - Left Panel: Search Filter Bar (like in Tab 1)
@@ -177,6 +203,39 @@ extension ContentView {
                 .buttonStyle(.plain)
                 .disabled(specsState.deliverableAssets.isEmpty)
                 .explain("Decodes audio tracks with Apple Accelerate SIMD to measure peak dBFS and detect silence.")
+                
+                // Subtitle Cross-Check (selection with 2+ files, otherwise the whole list)
+                let crossCheckTargets = subtitleCrossCheckTargets
+                Button(action: { crossCheckSubtitles(crossCheckTargets) }) {
+                    HStack(spacing: 6) {
+                        if specsState.isCrossCheckingSubtitles {
+                            ProgressView()
+                                .controlSize(.mini)
+                                .scaleEffect(0.65)
+                                .frame(width: 10, height: 10)
+                        } else {
+                            CCBadge(size: 8.5)
+                        }
+                        Text("CROSS-CHECK SUBTITLES")
+                            .font(.system(size: 9.5, weight: .bold, design: .monospaced))
+                        Spacer()
+                        Text(crossCheckTargets.count >= 2 ? "\(crossCheckTargets.count) FILES" : "NEED 2+ SRT")
+                            .font(.system(size: 7.5, weight: .black, design: .monospaced))
+                            .foregroundColor(crossCheckTargets.count >= 2 ? accentBlue : textMuted)
+                            .padding(.horizontal, 4)
+                            .padding(.vertical, 1.5)
+                            .background(borderLine)
+                            .cornerRadius(2)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .center)
+                    .frame(height: 28)
+                    .padding(.horizontal, 8)
+                    .foregroundColor(crossCheckTargets.count >= 2 ? textMain : textMuted)
+                    .studioBox(background: bgSubtle, border: borderLine)
+                }
+                .buttonStyle(.plain)
+                .disabled(crossCheckTargets.count < 2 || specsState.isCrossCheckingSubtitles)
+                .explain("Compares the .srt of the selected files (⌘/⇧-click to select; all files if none selected) and lists any differences.")
                 
                 // Export Row: SHEETS | SAVE CSV | OPEN HTML (All on one line)
                 HStack(spacing: 6) {
@@ -599,37 +658,61 @@ extension ContentView {
                                         Spacer().frame(height: 40)
                                     }
                                     .frame(width: availableWidth)
-                                } else if hasDeliverablesSubfolders {
-                                    let nodes = flattenedDeliverableNodes
-                                    let nodeCount = nodes.count
-                                    let assetIndexMap = deliverablesAssetIndexMap
+                                } else {
+                                    // One ForEach keyed by path for tree and flat layouts (separate branches with
+                                    // shared ids left stale rows in the lazy stack — see AGENTS.md §5.6).
+                                    let rows = deliverableRows
+                                    let rowCount = rows.count
+                                    // Computed once per render and handed to every row (each row used to rebuild the
+                                    // sorted list + folder tree for its menus and indent, on every selection change).
+                                    let displayOrder = rows.filter { !$0.isDirectory }.map(\.url)
+                                    let isTreeLayout = hasDeliverablesSubfolders && !hideAllFolders
+                                    let assetIndexMap = Dictionary(uniqueKeysWithValues: displayOrder.enumerated().map { ($0.element, $0.offset) })
+                                    let _ = { specsState.currentDisplayOrder = displayOrder }()
+                                    // Rows re-render only when something they show changes (like the Player queue):
+                                    // a click then updates the 1–2 rows whose selection flipped, not the whole table.
+                                    let columnWidths = SpecsSortColumn.allCases.map { specsState.columnWidth(for: $0) }
+                                    let themeKey = "\(isLightMode)_\(themeManager.currentTheme.id)_\(themeManager.currentTheme.blueHex)_\(themeManager.buttonZoom)"
+                                    let multiSelectionKey = specsState.selectedDeliverableURLs.count > 1
+                                        ? specsState.selectedDeliverableURLs.hashValue &+ tagsVersion &* 31 &+ specsState.subtitleURLs.count : 0
                                     
-                                    ForEach(Array(nodes.enumerated()), id: \.element.id) { idx, node in
+                                    ForEach(Array(rows.enumerated()), id: \.element.id) { idx, node in
                                         if node.isDirectory {
                                             deliverablesFolderBannerRow(node: node, assetMap: assetMap, rowWidth: availableWidth)
                                         } else if let asset = assetMap[node.url] {
-                                            let assetIdx = assetIndexMap[node.url] ?? idx
-                                            deliverablesAssetRow(idx: assetIdx, asset: asset, depth: node.depth, pathWidth: pathColWidth, rowWidth: availableWidth)
-                                                .id("\(node.url.path)_\(specsDisplayMode)_\(Int(specsThumbnailWidth))")
+                                            let isSelected = specsState.isSelected(asset.fileURL)
+                                            EquatableRow(key: SpecsRowKey(
+                                                asset: asset,
+                                                idx: assetIndexMap[node.url] ?? idx,
+                                                depth: node.depth,
+                                                pathWidth: pathColWidth,
+                                                rowWidth: availableWidth,
+                                                isTreeLayout: isTreeLayout,
+                                                isSelected: isSelected,
+                                                isDismissed: specsState.isMismatchDismissed(for: asset.fileURL),
+                                                hasSubtitleMismatch: specsState.hasSubtitleMismatch(asset.fileURL),
+                                                srtURL: specsState.subtitleURL(for: asset.fileURL),
+                                                hasManualSrt: specsState.manuallyAttachedSubtitleVideos.contains(asset.fileURL),
+                                                tag: fileTagsMap[asset.fileURL],
+                                                columnWidths: columnWidths,
+                                                displayMode: specsDisplayMode,
+                                                thumbnailWidth: specsThumbnailWidth,
+                                                themeKey: themeKey,
+                                                menuContext: isSelected ? multiSelectionKey : 0
+                                            )) {
+                                                deliverablesAssetRow(idx: assetIndexMap[node.url] ?? idx, asset: asset, depth: node.depth, pathWidth: pathColWidth, rowWidth: availableWidth, displayOrder: displayOrder, isTreeLayout: isTreeLayout)
+                                            }
+                                            .equatable()
                                         }
                                         
-                                        if idx < nodeCount - 1 {
-                                            Rectangle().fill(borderLine.opacity(0.4)).frame(width: availableWidth, height: 1)
-                                        }
-                                    }
-                                } else {
-                                    let assets = filteredDeliverableAssets
-                                    let assetCount = assets.count
-                                    ForEach(Array(assets.enumerated()), id: \.element.id) { idx, asset in
-                                        deliverablesAssetRow(idx: idx, asset: asset, depth: 0, pathWidth: pathColWidth, rowWidth: availableWidth)
-                                            .id("\(asset.fileURL.path)_\(specsDisplayMode)_\(Int(specsThumbnailWidth))")
-                                        
-                                        if idx < assetCount - 1 {
+                                        if idx < rowCount - 1 {
                                             Rectangle().fill(borderLine.opacity(0.4)).frame(width: availableWidth, height: 1)
                                         }
                                     }
                                 }
                             }
+                            // Rebuild rows when the display mode / thumbnail size changes.
+                            .id("\(specsDisplayMode)_\(Int(specsThumbnailWidth))")
                         }
                     }
                     .frame(width: availableWidth, alignment: .leading)
@@ -643,9 +726,17 @@ extension ContentView {
     
     // MARK: - Column Resizing & Width Helpers
     
-    private var deliverablesAssetIndexMap: [URL: Int] {
-        let nonDirNodes = flattenedDeliverableNodes.filter { !$0.isDirectory }
-        return Dictionary(uniqueKeysWithValues: nonDirNodes.enumerated().map { ($0.element.url, $0.offset) })
+    /// Rows as shown: the folder tree when there are subfolders, otherwise the flat list as depth-0 nodes.
+    private var deliverableRows: [FileSystemTreeNode] {
+        if hasDeliverablesSubfolders { return flattenedDeliverableNodes }
+        return filteredDeliverableAssets.map {
+            FileSystemTreeNode(id: $0.fileURL.path, name: $0.fileName, url: $0.fileURL, isDirectory: false, relativePath: $0.fileName, depth: 0)
+        }
+    }
+    
+    /// Visible files in display order (for ⇧-click ranges and multi-file actions).
+    var displayedDeliverableURLs: [URL] {
+        deliverableRows.filter { !$0.isDirectory }.map(\.url)
     }
     
     var effectiveFileNameColumnWidth: Double {
@@ -927,11 +1018,15 @@ extension ContentView {
         asset: DeliverableAsset,
         depth: Int = 0,
         pathWidth: CGFloat = 0,
-        rowWidth: CGFloat = 0
+        rowWidth: CGFloat = 0,
+        displayOrder: [URL],
+        isTreeLayout: Bool
     ) -> some View {
         let isDismissed = specsState.isMismatchDismissed(for: asset.fileURL)
-        let hasMismatch = asset.validation.hasAnyMismatch && !isDismissed
-        let isSelected = specsState.selectedDeliverableURL?.standardizedFileURL == asset.fileURL.standardizedFileURL
+        let hasSubtitleMismatch = specsState.hasSubtitleMismatch(asset.fileURL)
+        let hasMismatch = (asset.validation.hasAnyMismatch || hasSubtitleMismatch) && !isDismissed
+        let isSelected = specsState.isSelected(asset.fileURL)
+        let srtURL = specsState.subtitleURL(for: asset.fileURL)
         
         return HStack(spacing: 8) {
             Text(String(format: "%02d", idx + 1))
@@ -947,7 +1042,7 @@ extension ContentView {
             }
             
             HStack(spacing: 5) {
-                if hasDeliverablesSubfolders && depth > 0 && !hideAllFolders {
+                if isTreeLayout && depth > 0 {
                     Spacer().frame(width: CGFloat((depth - 1) * 12 + 4))
                     Image(systemName: "arrow.turn.down.right")
                         .font(.system(size: 8, weight: .bold))
@@ -960,16 +1055,17 @@ extension ContentView {
                         .frame(width: 6, height: 6)
                 }
                 
+                if let srtURL = srtURL {
+                    CCBadge(color: hasSubtitleMismatch && !isDismissed ? alertRed : textMuted, size: 9)
+                        .help(hasSubtitleMismatch ? "Subtitles differ from the reference (\(srtURL.lastPathComponent))" : "Subtitles: \(srtURL.lastPathComponent)")
+                }
+                
                 Text(asset.fileName.uppercased())
                     .fontWeight(.bold)
                     .lineLimit(1)
                     .truncationMode(.middle)
                     .foregroundColor(isSelected ? textMain : (hasMismatch ? alertRed : textMain))
                     .help(asset.fileName)
-                    .contentShape(Rectangle())
-                    .onTapGesture(count: 2) {
-                        playDeliverableInPlayer(url: asset.fileURL)
-                    }
                 
                 Button(action: {
                     specsState.selectedDeliverableURL = asset.fileURL
@@ -1177,9 +1273,11 @@ extension ContentView {
             alignment: .leading
         )
         .contentShape(Rectangle())
-        .onTapGesture {
-            specsState.selectedDeliverableURL = asset.fileURL
-        }
+        // Finder-style: click selects, ⌘-click adds/removes, ⇧-click extends a range. Simultaneous with the double-click
+        // (play) so a single click selects immediately instead of waiting out the double-click interval.
+        .simultaneousGesture(TapGesture().onEnded {
+            specsState.handleClick(on: asset.fileURL, modifiers: NSEvent.modifierFlags, displayOrder: specsState.currentDisplayOrder)
+        })
         .simultaneousGesture(
             TapGesture(count: 2).onEnded {
                 specsState.selectedDeliverableURL = asset.fileURL
@@ -1210,7 +1308,24 @@ extension ContentView {
             Button("Reveal in Finder") {
                 NSWorkspace.shared.activateFileViewerSelecting([asset.fileURL])
             }
-            if asset.validation.hasAnyMismatch {
+            Divider()
+            let subtitleTargets = specsState.actionTargets(for: asset.fileURL, displayOrder: displayOrder)
+            if subtitleTargets.count > 1 {
+                Button(action: { crossCheckSubtitles(subtitleTargets) }) {
+                    Label("Cross-Check Subtitles (\(subtitleTargets.count) files)", systemImage: "text.badge.checkmark")
+                }
+                .disabled(subtitleTargets.filter { specsState.subtitleURL(for: $0) != nil }.count < 2)
+            }
+            Button(action: { attachSubtitles(to: asset.fileURL) }) {
+                Label(srtURL == nil ? "Attach Subtitles (.srt)…" : "Change Subtitles (.srt)…", systemImage: "captions.bubble")
+            }
+            if specsState.manuallyAttachedSubtitleVideos.contains(asset.fileURL) {
+                Button("Detach Subtitles") { specsState.attachSubtitles(nil, to: asset.fileURL) }
+            }
+            if let srtURL = srtURL {
+                Button("Reveal Subtitles in Finder") { NSWorkspace.shared.activateFileViewerSelecting([srtURL]) }
+            }
+            if asset.validation.hasAnyMismatch || hasSubtitleMismatch {
                 Divider()
                 Button(action: {
                     specsState.toggleDismissMismatch(for: asset.fileURL)
@@ -1223,15 +1338,17 @@ extension ContentView {
                 }
             }
             Divider()
-            Menu("Tags") {
-                let currentTag = fileTagsMap[asset.fileURL]
+            let tagTargets = specsState.actionTargets(for: asset.fileURL, displayOrder: displayOrder)
+            Menu(tagTargets.count > 1 ? "Tags (\(tagTargets.count) files)" : "Tags") {
                 ForEach(FinderTagColor.allCases) { tag in
+                    let allTagged = tagTargets.allSatisfy { fileTagsMap[$0] == tag }
                     Button(action: {
-                        toggleFinderTag(tag, for: asset.fileURL)
+                        // Like Finder: if every file already has the tag, remove it; otherwise apply it to all.
+                        for url in tagTargets { setFinderTag(allTagged ? nil : tag, for: url) }
                     }) {
                         HStack {
                             Text(tag.rawValue)
-                            if currentTag == tag {
+                            if allTagged {
                                 Image(systemName: "checkmark")
                             }
                         }
@@ -1239,12 +1356,45 @@ extension ContentView {
                 }
                 Divider()
                 Button(action: {
-                    setFinderTag(nil, for: asset.fileURL)
+                    for url in tagTargets { setFinderTag(nil, for: url) }
                 }) {
-                    Text("Remove Tag")
+                    Text(tagTargets.count > 1 ? "Remove Tags" : "Remove Tag")
                 }
             }
         }
+    }
+    
+    // MARK: - Subtitle Attach & Cross-Check
+    
+    func attachSubtitles(to video: URL) {
+        let panel = NSOpenPanel()
+        panel.title = "Attach Subtitles to \(video.lastPathComponent)"
+        panel.prompt = "Attach"
+        panel.allowsMultipleSelection = false
+        panel.canChooseDirectories = false
+        panel.allowedContentTypes = [UTType(filenameExtension: "srt") ?? .plainText]
+        panel.directoryURL = video.deletingLastPathComponent()
+        guard panel.runModal() == .OK, let srt = panel.url else { return }
+        specsState.attachSubtitles(srt, to: video)
+        showToast("Attached \(srt.lastPathComponent) to \(video.lastPathComponent)")
+    }
+    
+    /// Cross-checks the given videos' subtitles; the first one in list order is the reference.
+    func crossCheckSubtitles(_ videos: [URL]) {
+        let withSubs = videos.filter { specsState.subtitleURL(for: $0) != nil }
+        guard withSubs.count >= 2 else {
+            showToast("Need at least 2 files with subtitles to cross-check")
+            return
+        }
+        let fps = Dictionary(uniqueKeysWithValues: specsState.deliverableAssets.map { ($0.fileURL, $0.fps) })
+        specsState.runSubtitleCrossCheck(videos: withSubs, fpsByVideo: fps)
+    }
+    
+    /// Files the sidebar action checks: the selection if it has 2+ files, otherwise the whole visible list.
+    var subtitleCrossCheckTargets: [URL] {
+        let shown = displayedDeliverableURLs
+        let selected = shown.filter { specsState.isSelected($0) }
+        return (selected.count >= 2 ? selected : shown).filter { specsState.subtitleURL(for: $0) != nil }
     }
     
     // MARK: - Specs View Options Popover (Thumbnail View / List View / Size Slider)
@@ -1337,4 +1487,41 @@ extension ContentView {
         .frame(width: 185)
         .background(bgPanel)
     }
+}
+
+
+// MARK: - Row Skipping
+
+/// Everything a Specs table row shows. Rows whose key is unchanged are not re-evaluated or re-diffed on a render.
+struct SpecsRowKey: Equatable {
+    let asset: DeliverableAsset
+    let idx: Int
+    let depth: Int
+    let pathWidth: CGFloat
+    let rowWidth: CGFloat
+    let isTreeLayout: Bool
+    let isSelected: Bool
+    let isDismissed: Bool
+    let hasSubtitleMismatch: Bool
+    let srtURL: URL?
+    let hasManualSrt: Bool
+    let tag: FinderTagColor?
+    let columnWidths: [Double]
+    let displayMode: String
+    let thumbnailWidth: Double
+    let themeKey: String
+    /// Selection / tag / subtitle state used by a multi-file right-click menu (0 when the row is not part of one).
+    let menuContext: Int
+}
+
+/// Renders `content` only when `key` changes (use with `.equatable()`).
+struct EquatableRow<Key: Equatable, Content: View>: View, Equatable {
+    let key: Key
+    @ViewBuilder let content: () -> Content
+    
+    nonisolated static func == (lhs: EquatableRow, rhs: EquatableRow) -> Bool {
+        MainActor.assumeIsolated { lhs.key == rhs.key }
+    }
+    
+    var body: some View { content() }
 }

@@ -137,7 +137,6 @@ struct ContentView: View {
     }
     
     @State var fullscreenMode: FullscreenMode = .none
-    var isFullscreenVideo: Bool { fullscreenMode != .none }
     @State var didToggleWindowForFullscreen: Bool = false
     
     // Dynamic Studio Theme Palette
@@ -2139,6 +2138,22 @@ struct ContentView: View {
         playerEngine.pause()
         withAnimation(.easeInOut(duration: 0.15)) {
             showAddNoteModal = true
+        }
+    }
+    
+    /// Opens the Notes drawer for a queue file: the slot already showing it, otherwise loaded into slot A (paused).
+    func openNotesDrawer(for url: URL) {
+        if isSameURL(url, playerEngine.slotB.url) {
+            playerEngine.activeTarget = .slotB
+        } else {
+            if !isSameURL(url, playerEngine.slotA.url) {
+                playerEngine.loadVideo(url: url, into: .slotA)
+            }
+            playerEngine.activeTarget = .slotA
+        }
+        withAnimation(.spring(response: 0.32, dampingFraction: 0.78)) {
+            playerDrawerTab = .notes
+            showNotesDrawer = true
         }
     }
     

@@ -118,7 +118,7 @@ public enum SpecsSortColumn: String, CaseIterable, Equatable, Sendable {
     }
 }
 
-public struct DeliverableAsset: Identifiable, Sendable {
+public struct DeliverableAsset: Identifiable, Sendable, Equatable {
     public let id: UUID
     public let fileURL: URL
     public let fileName: String

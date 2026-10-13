@@ -396,10 +396,6 @@ public final class PlayerEngine: ObservableObject {
         return abs(aspectA - aspectB) / max(aspectA, aspectB) < 0.02
     }
     
-    public var canUseSplitWipe: Bool {
-        return hasMatchingAspectRatios
-    }
-    
     public var isNineBySixteen: Bool {
         if (compareMode == .sideBySide || compareMode == .sideBySideVertical) && slotB.url != nil {
             return slotA.isNineBySixteen || slotB.isNineBySixteen
@@ -669,22 +665,16 @@ public final class PlayerEngine: ObservableObject {
         hasUnsavedSubtitleEdits = false
     }
     
-    /// Picks up `clip.srt` sitting next to `clip.mov` (read off the main thread).
+    /// Picks up the clip's attached .srt, or `clip.srt` sitting next to `clip.mov` (read off the main thread).
     private func autoLoadSubtitles(for mediaURL: URL?) {
         clearSubtitles()
         guard let mediaURL = mediaURL else { return }
         let generation = subtitleLoadGeneration
         Task { [weak self] in
             let found: (URL, SubtitleFile)? = await Task.detached(priority: .utility) {
-                let base = mediaURL.deletingPathExtension()
-                for ext in ["srt", "SRT"] {
-                    let candidate = base.appendingPathExtension(ext)
-                    if FileManager.default.fileExists(atPath: candidate.path),
-                       let file = try? SubtitleParser.loadFile(from: candidate), !file.cues.isEmpty {
-                        return (candidate, file)
-                    }
-                }
-                return nil
+                guard let url = SubtitleAttachments.resolve(for: mediaURL),
+                      let file = try? SubtitleParser.loadFile(from: url), !file.cues.isEmpty else { return nil }
+                return (url, file)
             }.value
             guard let self, let (url, file) = found, generation == self.subtitleLoadGeneration else { return }
             self.applySubtitleFile(file, from: url)
@@ -1448,16 +1438,6 @@ public final class PlayerEngine: ObservableObject {
     public func unload() {
         clearSlotA()
         clearSlotB()
-    }
-    
-    public func nudgeSlip(frames: Int) {
-        slotB.slipOffsetFrames += frames
-        syncSlotBToMaster()
-    }
-    
-    public func resetSlip() {
-        slotB.slipOffsetFrames = 0
-        syncSlotBToMaster()
     }
     
     public func cycleCompareMode() {
@@ -2363,12 +2343,16 @@ public final class PlayerEngine: ObservableObject {
         }
         
         // Parallel dispatch to Slot A
+        #if DEBUG
         let seekStartA = CFAbsoluteTimeGetCurrent()
+        #endif
         slotA.player.seek(to: time, toleranceBefore: tol, toleranceAfter: tol) { [weak self] _ in
+            #if DEBUG
             let seekDurationMs = (CFAbsoluteTimeGetCurrent() - seekStartA) * 1000.0
             if seekDurationMs > 30.0 {
                 print("⏱️ [SEEK SLOW] slotA.player.seek took \(String(format: "%.1f", seekDurationMs))ms for time \(CMTimeGetSeconds(time))s")
             }
+            #endif
             let runSlotA = { @MainActor in
                 guard let self = self else { return }
                 lock.withLock { $0.completedA = true }

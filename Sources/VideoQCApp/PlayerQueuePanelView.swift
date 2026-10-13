@@ -50,6 +50,7 @@ public struct PlayerQueuePanelView: View, Equatable {
     public var onSwapSlots: () -> Void
     public var onClearSlotB: () -> Void
     public var onOpenProperties: (_ url: URL) -> Void
+    public var onOpenNotes: (_ url: URL) -> Void
     public var onToggleTag: (_ tag: FinderTagColor, _ url: URL) -> Void
     public var onClearTag: (_ url: URL) -> Void
     public var onDrop: (_ providers: [NSItemProvider]) -> Bool
@@ -565,6 +566,7 @@ public struct PlayerQueuePanelView: View, Equatable {
             onClearSlotB: onClearSlotB,
             onSwapSlots: onSwapSlots,
             onOpenProperties: onOpenProperties,
+            onOpenNotes: onOpenNotes,
             onToggleTag: onToggleTag,
             onClearTag: onClearTag
         )

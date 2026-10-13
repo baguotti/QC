@@ -27,18 +27,6 @@ public enum FinderTagColor: String, CaseIterable, Identifiable, Sendable {
         }
     }
     
-    public static func fromShortcutNumber(_ num: Int) -> FinderTagColor? {
-        switch num {
-        case 1: return .red
-        case 2: return .green
-        case 3: return .blue
-        case 4: return .yellow
-        case 5: return .orange
-        case 6: return .purple
-        case 7: return .gray
-        default: return nil
-        }
-    }
     
     /// Apple macOS legacy labelNumber stored in .labelNumberKey
     public var labelNumber: Int {

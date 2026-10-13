@@ -59,13 +59,7 @@ public struct StudioThemeConfig: Identifiable, Codable, Equatable, Sendable {
     public var lightWarnHex: String?
     
     // Semantic & Convenience Aliases
-    public var slotAHex: String { get { slotaHex } set { slotaHex = newValue } }
-    public var slobBHex: String { get { slotBHex } set { slotBHex = newValue } }
-    public var slotbHex: String { get { slotBHex } set { slotBHex = newValue } }
     
-    public var lightSlotAHex: String? { get { lightSlotaHex } set { lightSlotaHex = newValue } }
-    public var lightSlobBHex: String? { get { lightSlotBHex } set { lightSlotBHex = newValue } }
-    public var lightSlotbHex: String? { get { lightSlotBHex } set { lightSlotBHex = newValue } }
     
     // Backwards-compatible aliases
     public var greenHex: String { get { slotaHex } set { slotaHex = newValue } }
@@ -209,7 +203,6 @@ public struct StudioThemeConfig: Identifiable, Codable, Equatable, Sendable {
     public var slotBColor: Color { slotBColor(isLight: UserDefaults.standard.bool(forKey: "isLightMode")) }
     public var warnColor: Color { warnColor(isLight: UserDefaults.standard.bool(forKey: "isLightMode")) }
     
-    public var slotAColor: Color { slotaColor }
     
     public func slotaNSColor(isLight: Bool) -> NSColor { NSColor(slotaColor(isLight: isLight)) }
     public func playNSColor(isLight: Bool) -> NSColor { NSColor(playColor(isLight: isLight)) }
@@ -221,7 +214,6 @@ public struct StudioThemeConfig: Identifiable, Codable, Equatable, Sendable {
     public var slotBNSColor: NSColor { slotBNSColor(isLight: UserDefaults.standard.bool(forKey: "isLightMode")) }
     public var warnNSColor: NSColor { warnNSColor(isLight: UserDefaults.standard.bool(forKey: "isLightMode")) }
     
-    public var slotANSColor: NSColor { slotaNSColor }
     
     // Backwards-compatible methods
     public func greenHex(isLight: Bool) -> String { slotaHex(isLight: isLight) }
@@ -240,9 +232,7 @@ public struct StudioThemeConfig: Identifiable, Codable, Equatable, Sendable {
     public var redColor: Color { warnColor }
     
     public var greenNSColor: NSColor { slotaNSColor }
-    public var blueNSColor: NSColor { playNSColor }
     public var purpleNSColor: NSColor { slotBNSColor }
-    public var redNSColor: NSColor { warnNSColor }
     
     public func hex(for slot: AccentSlot, isLight: Bool = UserDefaults.standard.bool(forKey: "isLightMode")) -> String {
         switch slot {
@@ -331,9 +321,6 @@ public struct StudioThemeConfig: Identifiable, Codable, Equatable, Sendable {
     )
     
     // Backwards-compatible aliases
-    public static let warmAmber = warm
-    public static let studioTeal = muted
-    public static let broadcastVivid = vivid
     
     public static let presets: [StudioThemeConfig] = [
         muted,
@@ -601,17 +588,6 @@ public final class ThemeManager: ObservableObject {
         }
     }
     
-    public func renamePreset(id: String, newName: String) {
-        let trimmed = newName.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return }
-        if let idx = userPresets.firstIndex(where: { $0.id == id }) {
-            userPresets[idx].name = trimmed
-        }
-        if currentTheme.id == id {
-            currentTheme.name = trimmed
-        }
-    }
-    
     @discardableResult
     public func increaseButtonZoom() -> Bool {
         guard let next = UIButtonZoomLevel(rawValue: buttonZoom.rawValue + 1) else { return false }
@@ -660,7 +636,6 @@ public enum AccentSlot: String, CaseIterable, Identifiable, Sendable {
     public static let blue = play
     public static let purple = slotB
     public static let red = warn
-    public static let slobB = slotB
     
     public var id: String { rawValue }
     

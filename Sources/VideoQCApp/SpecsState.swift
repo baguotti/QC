@@ -5,9 +5,35 @@ import VideoQCLib
 
 @MainActor
 public final class SpecsState: ObservableObject {
-    @Published public var deliverableAssets: [DeliverableAsset] = []
+    @Published public var deliverableAssets: [DeliverableAsset] = [] {
+        didSet {
+            if deliverableAssets.isEmpty {
+                selectedDeliverableURLs = []
+                selectionAnchorURL = nil
+                subtitleCrossCheck = nil
+            }
+            // Only when files are added / removed: per-asset updates (audio levels) don't change subtitles.
+            if oldValue.map(\.fileURL) != deliverableAssets.map(\.fileURL) {
+                refreshSubtitleSidecars()
+            }
+        }
+    }
     @Published public var specsFilterText: String = ""
-    @Published public var selectedDeliverableURL: URL? = nil
+    /// Primary (last clicked) row: Media Info, Reveal in Finder etc. act on it. Setting it to a row outside the
+    /// multi-selection makes that row the whole selection.
+    @Published public var selectedDeliverableURL: URL? = nil {
+        didSet {
+            guard let url = selectedDeliverableURL, !selectedDeliverableURLs.contains(url) else { return }
+            selectedDeliverableURLs = [url]
+            selectionAnchorURL = url
+        }
+    }
+    /// Finder-style multi-selection: click, ⌘-click, ⇧-click.
+    @Published public var selectedDeliverableURLs: Set<URL> = []
+    public var selectionAnchorURL: URL? = nil
+    /// Files in the order the table shows them; refreshed on each table render and read when a row is clicked
+    /// (rows skip re-rendering when unchanged, so they must not capture the order).
+    public var currentDisplayOrder: [URL] = []
     @Published public var isInspectingDeliverables: Bool = false
     @Published public var manifestCSVURL: URL? = nil
     @Published public var manifestHTMLURL: URL? = nil
@@ -21,20 +47,119 @@ public final class SpecsState: ObservableObject {
     @Published public var totalAudioCount: Int = 0
     private var audioAnalysisTask: Task<Void, Never>? = nil
     
+    // MARK: - Multi-Selection
+    
+    public func isSelected(_ url: URL) -> Bool {
+        selectedDeliverableURLs.contains(url)
+    }
+    
+    /// Click handling like Finder. `displayOrder` is the list as shown (for ⇧-click ranges).
+    public func handleClick(on url: URL, modifiers: NSEvent.ModifierFlags, displayOrder: [URL]) {
+        let key = url
+        if modifiers.contains(.command) {
+            if selectedDeliverableURLs.contains(key) {
+                selectedDeliverableURLs.remove(key)
+                if selectedDeliverableURL == key {
+                    selectedDeliverableURL = displayOrder.first { selectedDeliverableURLs.contains($0) }
+                }
+            } else {
+                selectedDeliverableURLs.insert(key)
+                selectedDeliverableURL = url
+            }
+            selectionAnchorURL = url
+        } else if modifiers.contains(.shift), let anchor = selectionAnchorURL {
+            let order = displayOrder
+            if let a = order.firstIndex(of: anchor), let b = order.firstIndex(of: key) {
+                selectedDeliverableURLs.formUnion(order[min(a, b)...max(a, b)])
+            } else {
+                selectedDeliverableURLs.insert(key)
+            }
+            selectedDeliverableURL = url
+        } else {
+            selectedDeliverableURLs = [key]
+            selectedDeliverableURL = url
+            selectionAnchorURL = url
+        }
+    }
+    
+    /// The rows an action on `url` applies to: the whole selection if `url` is part of it, else just `url`.
+    public func actionTargets(for url: URL, displayOrder: [URL]) -> [URL] {
+        guard isSelected(url), selectedDeliverableURLs.count > 1 else { return [url] }
+        return displayOrder.filter { selectedDeliverableURLs.contains($0) }
+    }
+    
+    // MARK: - Subtitles (.srt per deliverable) & Cross-Check
+    
+    /// Resolved .srt per video: attached by hand, or same-name sidecar.
+    @Published public private(set) var subtitleURLs: [URL: URL] = [:]
+    /// Videos whose .srt was attached by hand (cached so table rows never read UserDefaults).
+    @Published public private(set) var manuallyAttachedSubtitleVideos: Set<URL> = []
+    @Published public var subtitleCrossCheck: SubtitleCrossCheckReport? = nil
+    @Published public var showSubtitleCrossCheck: Bool = false
+    @Published public private(set) var isCrossCheckingSubtitles: Bool = false
+    private var sidecarTask: Task<Void, Never>? = nil
+    
+    public func subtitleURL(for video: URL) -> URL? {
+        subtitleURLs[video]
+    }
+    
+    public func hasSubtitleMismatch(_ video: URL) -> Bool {
+        subtitleCrossCheck?.mismatchedVideos.contains(video) ?? false
+    }
+    
+    public func refreshSubtitleSidecars() {
+        let videos = deliverableAssets.map(\.fileURL)
+        sidecarTask?.cancel()
+        sidecarTask = Task { @MainActor [weak self] in
+            let (resolved, manual): ([URL: URL], Set<URL>) = await Task.detached(priority: .utility) {
+                var map: [URL: URL] = [:]
+                var manual: Set<URL> = []
+                for video in videos {
+                    if let srt = SubtitleAttachments.resolve(for: video) { map[video] = srt }
+                    if SubtitleAttachments.manual(for: video) != nil { manual.insert(video) }
+                }
+                return (map, manual)
+            }.value
+            guard let self, !Task.isCancelled else { return }
+            self.subtitleURLs = resolved
+            self.manuallyAttachedSubtitleVideos = manual
+        }
+    }
+    
+    /// Attaches (nil: detaches) an .srt to a video; remembered across launches and used by the player too.
+    public func attachSubtitles(_ srt: URL?, to video: URL) {
+        SubtitleAttachments.setManual(srt, for: video)
+        refreshSubtitleSidecars()
+    }
+    
+    /// Compares the .srt of each video (in list order; the first is the reference) and opens the results.
+    public func runSubtitleCrossCheck(videos: [URL], fpsByVideo: [URL: Double], options: SubtitleCrossCheck.Options = SubtitleCrossCheck.Options()) {
+        let pairs = videos.compactMap { video in subtitleURL(for: video).map { (video, $0) } }
+        guard pairs.count >= 2 else { return }
+        isCrossCheckingSubtitles = true
+        Task { @MainActor [weak self] in
+            let loaded: [SubtitleCrossCheckReport.File] = await Task.detached(priority: .userInitiated) {
+                pairs.map { video, srt in
+                    let cues = (try? SubtitleParser.load(from: srt)) ?? []
+                    return SubtitleCrossCheckReport.File(videoURL: video, srtURL: srt, cues: cues,
+                                                         fps: fpsByVideo[video] ?? 25)
+                }
+            }.value
+            guard let self else { return }
+            var report = SubtitleCrossCheckReport(files: loaded, referenceVideo: loaded[0].videoURL, options: options)
+            report.recompute()
+            self.subtitleCrossCheck = report
+            self.isCrossCheckingSubtitles = false
+            self.showSubtitleCrossCheck = true
+        }
+    }
+    
     public func isMismatchDismissed(for url: URL) -> Bool {
-        dismissedMismatchURLs.contains(url.standardizedFileURL)
-    }
-    
-    public func dismissMismatch(for url: URL) {
-        dismissedMismatchURLs.insert(url.standardizedFileURL)
-    }
-    
-    public func restoreMismatch(for url: URL) {
-        dismissedMismatchURLs.remove(url.standardizedFileURL)
+        dismissedMismatchURLs.contains(url)
     }
     
     public func toggleDismissMismatch(for url: URL) {
-        let key = url.standardizedFileURL
+        let key = url
         if dismissedMismatchURLs.contains(key) {
             dismissedMismatchURLs.remove(key)
         } else {
@@ -52,13 +177,6 @@ public final class SpecsState: ObservableObject {
     public var specsFileNameColumnWidth: Double {
         get { columnWidths[.name] ?? SpecsSortColumn.name.defaultWidth }
         set { setColumnWidth(newValue, for: .name) }
-    }
-    public var liveFileNameColumnWidth: Double {
-        get { liveDraggingColumn == .name ? liveDraggingWidth : specsFileNameColumnWidth }
-        set { if liveDraggingColumn == .name { liveDraggingWidth = newValue } }
-    }
-    public var isDraggingFileNameColumn: Bool {
-        liveDraggingColumn == .name
     }
     
     // Sorting
@@ -139,13 +257,6 @@ public final class SpecsState: ObservableObject {
     }
     
     // Legacy fileName helpers routed to universal implementation
-    public func onFileNameDragChanged(translationWidth: Double) {
-        onColumnDragChanged(column: .name, translationWidth: translationWidth)
-    }
-    
-    public func onFileNameDragEnded(translationWidth: Double) {
-        onColumnDragEnded(column: .name, translationWidth: translationWidth)
-    }
     
     public func autoFitFileNameColumnWidth(filteredAssets: [DeliverableAsset]) {
         if isFileNameExpanded {
@@ -276,13 +387,10 @@ public final class SpecsState: ObservableObject {
             guard let self else { return }
             let assets = await DeliverablesInspector.inspectBatch(urls: urls)
             if append {
-                var existingMap = Dictionary(uniqueKeysWithValues: self.deliverableAssets.map { ($0.fileURL.standardizedFileURL, $0) })
-                for asset in assets {
-                    let key = asset.fileURL.standardizedFileURL
-                    if existingMap[key] == nil {
-                        existingMap[key] = asset
-                        self.deliverableAssets.append(asset)
-                    }
+                var seen = Set(self.deliverableAssets.map { $0.fileURL.standardizedFileURL })
+                let newAssets = assets.filter { seen.insert($0.fileURL.standardizedFileURL).inserted }
+                if !newAssets.isEmpty {
+                    self.deliverableAssets += newAssets
                 }
             } else {
                 self.deliverableAssets = assets
@@ -325,5 +433,34 @@ public final class SpecsState: ObservableObject {
     public func generateManifestTSV(rootFolderURL: URL?) -> String? {
         guard !deliverableAssets.isEmpty else { return nil }
         return DeliverablesInspector.generateManifestTSV(assets: deliverableAssets, rootFolderURL: rootFolderURL)
+    }
+}
+
+
+/// Result of comparing several deliverables' subtitles against one reference file.
+public struct SubtitleCrossCheckReport: Sendable {
+    public struct File: Sendable, Identifiable {
+        public var id: URL { videoURL }
+        public let videoURL: URL
+        public let srtURL: URL
+        public let cues: [SubtitleCue]
+        public let fps: Double
+        public var differences: [SubtitleCrossCheck.Difference] = []
+    }
+    
+    public var files: [File]
+    public var referenceVideo: URL
+    public var options: SubtitleCrossCheck.Options
+    
+    public var reference: File? { files.first { $0.videoURL == referenceVideo } }
+    public var mismatchedVideos: Set<URL> { Set(files.filter { !$0.differences.isEmpty }.map(\.videoURL)) }
+    public var totalDifferences: Int { files.reduce(0) { $0 + $1.differences.count } }
+    
+    public mutating func recompute() {
+        guard let reference = reference else { return }
+        for index in files.indices {
+            files[index].differences = files[index].videoURL == referenceVideo ? [] :
+                SubtitleCrossCheck.compare(reference: reference.cues, other: files[index].cues, options: options)
+        }
     }
 }

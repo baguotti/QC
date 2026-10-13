@@ -29,6 +29,7 @@ public struct PlayerQueueFileRowView: View, Equatable {
     public let onClearSlotB: () -> Void
     public let onSwapSlots: () -> Void
     public let onOpenProperties: (_ url: URL) -> Void
+    public let onOpenNotes: (_ url: URL) -> Void
     public let onToggleTag: (_ tag: FinderTagColor, _ url: URL) -> Void
     public let onClearTag: (_ url: URL) -> Void
     
@@ -195,7 +196,10 @@ public struct PlayerQueueFileRowView: View, Equatable {
                 RoundedRectangle(cornerRadius: 3.5)
                     .stroke(playheadColor.opacity(0.85), lineWidth: 0.6)
             )
-            .help("\(notesCount) \(notesCount == 1 ? "review note" : "review notes")")
+            .help("\(notesCount) \(notesCount == 1 ? "review note" : "review notes") — click to open them")
+            .contentShape(Rectangle())
+            // High priority so the click opens the notes instead of the row's load action.
+            .highPriorityGesture(TapGesture().onEnded { onOpenNotes(url) })
         }
     }
     

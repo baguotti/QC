@@ -3,7 +3,6 @@ import AppKit
 import UniformTypeIdentifiers
 import VideoQCLib
 
-typealias ReviewFullscreenHUDView = FullscreenPlayerView
 
 // MARK: - Dedicated Studio Fullscreen Player View
 

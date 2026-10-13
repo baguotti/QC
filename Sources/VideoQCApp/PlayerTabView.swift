@@ -322,6 +322,9 @@ extension ContentView {
                     showNotesDrawer = true
                 }
             },
+            onOpenNotes: { url in
+                openNotesDrawer(for: url)
+            },
             onToggleTag: { tag, url in
                 toggleFinderTag(tag, for: url)
             },
@@ -967,20 +970,6 @@ extension ContentView {
                 .frame(maxWidth: .infinity, alignment: .trailing)
         }
         .frame(height: StudioTheme.scale(28))
-    }
-    
-    var hasPlayerSubfolders: Bool {
-        FileSystemTreeBuilder.hasSubfolders(in: playerTreeNodes)
-    }
-    
-    var flattenedPlayerNodes: [FileSystemTreeNode] {
-        FileSystemTreeBuilder.flatten(
-            nodes: playerTreeNodes,
-            collapsedIDs: playerCollapsedFolderIDs,
-            hiddenIDs: hiddenFolderIDs,
-            hideAllFolders: hideAllFolders,
-            filterText: playerFilterText
-        )
     }
     
     var filteredPlayerFiles: [URL] {

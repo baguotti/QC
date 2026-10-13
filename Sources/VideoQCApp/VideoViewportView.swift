@@ -136,7 +136,6 @@ public final class PlayerContainerNSView: NSView {
     private var lastSplitPosition: CGFloat = -1
     private var lastIsBlink: Bool = false
     private var lastShowCrosshair: Bool = false
-    private var lastShowTitleSafe: Bool = false
     private var lastSafeAreaMode: SafeAreaMode = .off
     private var lastIsNineBySixteen: Bool = false
     private var lastShowResolutionLabels: Bool = false

@@ -37,7 +37,6 @@ public struct ExtendedMediaInfo: Sendable {
     public var primaries: String = "ITU-R BT.709"
     public var colorspace: String = "Rec.709 Gamma 2.4 (SDR)"
     public var pixelFormat: String = "nv12 (HW)"
-    public var driver: String = "CoreMedia / Metal"
     public var videoBitrate: String = "--"
     public var fpsString: String = "25.000000"
     public var videoSizeString: String = "--"
@@ -58,7 +57,6 @@ public struct ExtendedMediaInfo: Sendable {
     public var hasAudio: Bool = false
     public var audioFormat: String = "aac"
     public var audioCodecLong: String = "AAC (Advanced Audio Coding)"
-    public var audioDriver: String = "coreaudio"
     public var audioChannels: String = "stereo"
     public var audioBitrate: String = "--"
     public var audioSampleRate: String = "48000"

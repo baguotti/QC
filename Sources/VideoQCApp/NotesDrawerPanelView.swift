@@ -351,7 +351,7 @@ struct NotesDrawerPanelView: View {
                         exportPremiereMarkers()
                     }
                     Button("Export DaVinci Resolve Markers (EDL)") {
-                        let edl = QCNotesManager.generateResolveEDL(notes: notes, mediaName: mediaName, fps: 25.0)
+                        let edl = QCNotesManager.generateResolveEDL(notes: notes, mediaName: mediaName)
                         copyToClipboard(edl)
                         onToast("Resolve Marker EDL copied!")
                     }

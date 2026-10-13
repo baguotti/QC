@@ -40,17 +40,6 @@ public actor QCNotesManager {
         cacheLock.unlock()
     }
     
-    /// Invalidates cached note count for a specific media file or all files.
-    public nonisolated static func invalidateCache(for mediaURL: URL? = nil) {
-        cacheLock.lock()
-        if let mediaURL = mediaURL {
-            notesCountCache.removeValue(forKey: mediaURL.standardizedFileURL)
-        } else {
-            notesCountCache.removeAll()
-        }
-        cacheLock.unlock()
-    }
-    
     /// Checks whether notes companion sidecar file exists on disk for a media file.
     public nonisolated static func hasNotes(for mediaURL: URL) -> Bool {
         let count = notesCount(for: mediaURL)
@@ -307,7 +296,7 @@ public actor QCNotesManager {
     }
     
     /// Generates a standard DaVinci Resolve Marker EDL (CMX 3600) import file.
-    public nonisolated static func generateResolveEDL(notes: [QCFileNote], mediaName: String, fps: Double) -> String {
+    public nonisolated static func generateResolveEDL(notes: [QCFileNote], mediaName: String) -> String {
         let sorted = notes.sorted { $0.frameIndex < $1.frameIndex }
         var lines: [String] = []
         lines.append("TITLE: QCpie Notes - \(mediaName)")
