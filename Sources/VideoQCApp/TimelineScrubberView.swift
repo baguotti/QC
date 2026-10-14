@@ -189,6 +189,35 @@ struct TimelineMarks: View, Equatable {
     }
 }
 
+// MARK: - Audio Waveform (drawn once per file / size, never per frame)
+
+struct TimelineWaveform: View, Equatable {
+    let peaks: [Float]
+    let color: Color
+    
+    nonisolated static func == (lhs: TimelineWaveform, rhs: TimelineWaveform) -> Bool {
+        lhs.color == rhs.color && lhs.peaks == rhs.peaks
+    }
+    
+    var body: some View {
+        Canvas { context, size in
+            guard !peaks.isEmpty, size.width > 0 else { return }
+            // One bar per pixel column, each the loudest bin it covers, mirrored around the centre line.
+            let columns = max(1, Int(size.width))
+            let midY = size.height / 2
+            var path = Path()
+            for column in 0..<columns {
+                let start = column * peaks.count / columns
+                let end = max(start + 1, (column + 1) * peaks.count / columns)
+                let peak = peaks[start..<min(end, peaks.count)].max() ?? 0
+                let half = max(0.5, CGFloat(peak) * midY)
+                path.addRect(CGRect(x: CGFloat(column), y: midY - half, width: 1, height: half * 2))
+            }
+            context.fill(path, with: .color(color))
+        }
+    }
+}
+
 // MARK: - Main Modern Minimal Timeline Scrubber View
 
 public struct TimelineScrubberView: View {
@@ -201,6 +230,9 @@ public struct TimelineScrubberView: View {
     @State private var isHovering: Bool = false
     @State private var dragInitialProgress: Double = 0.0
     @State private var isGrabbingPlayhead: Bool = false
+    /// Waveform lane under the scrub track; Shift + scroll over the timeline resizes it.
+    @AppStorage("waveformLaneHeight") private var waveformLaneHeight: Double = 32
+    private static let waveformLaneRange: ClosedRange<Double> = 20...200
     
     // Inset from outer container edges to float the track and protect playhead
     private let trackInset: CGFloat = 6.0
@@ -302,6 +334,15 @@ public struct TimelineScrubberView: View {
                 .frame(width: trackWidth, height: 10)
                 .offset(x: trackInset, y: 29)
                 
+                if hasWaveform {
+                    TimelineWaveform(peaks: engine.waveformPeaks, color: (isLightMode ? Color.black : Color.white).opacity(0.55))
+                        .equatable()
+                        .frame(width: trackWidth, height: waveformLaneHeight)
+                        .background(RoundedRectangle(cornerRadius: 2.0).fill(trackGrooveBg))
+                        .offset(x: trackInset, y: 46)
+                        .allowsHitTesting(false)
+                }
+                
                 // MARK: - Hover Ghost Needle
                 if let hX = hoverX, isHovering && !isDragging && durSecs > 0 {
                     let clampedHX = max(trackInset, min(hX, width - trackInset))
@@ -309,7 +350,7 @@ public struct TimelineScrubberView: View {
                     // Subtle Ghost Needle (hairline guide)
                     Rectangle()
                         .fill(isLightMode ? Color.black.opacity(0.18) : Color.white.opacity(0.18))
-                        .frame(width: 1, height: 42)
+                        .frame(width: 1, height: 42 + (hasWaveform ? waveformLaneHeight + 4 : 0))
                         .offset(x: clampedHX - 0.5, y: 2)
                         .allowsHitTesting(false)
                 }
@@ -326,7 +367,11 @@ public struct TimelineScrubberView: View {
                 .allowsHitTesting(false)
                 
                 // Native AppKit Scroll Wheel & Trackpad Interceptor
-                TimelineScrollTrackerView { delta, phase, isPrecise in
+                TimelineScrollTrackerView(laneTop: 46, onLaneScroll: hasWaveform ? { amount, isPrecise in
+                    // Scrolling over the waveform lane makes it taller / shorter (like Premiere's track height).
+                    let points = Double(amount) * (isPrecise ? 0.5 : 4)
+                    waveformLaneHeight = min(Self.waveformLaneRange.upperBound, max(Self.waveformLaneRange.lowerBound, waveformLaneHeight + points))
+                } : nil) { delta, phase, isPrecise in
                     let durSecs = CMTimeGetSeconds(engine.duration)
                     guard durSecs > 0, durSecs.isFinite, !durSecs.isNaN else { return }
                     let trackWidth = max(1.0, width - (trackInset * 2))
@@ -418,28 +463,38 @@ public struct TimelineScrubberView: View {
                     }
             )
         }
-        .frame(height: 46)
+        .frame(height: 46 + (hasWaveform ? waveformLaneHeight + 4 : 0))
+        .padding(.vertical, 3)
     }
+    
+    private var hasWaveform: Bool { !engine.waveformPeaks.isEmpty }
 }
 
 // MARK: - Native AppKit Scroll Wheel & Trackpad Gesture View
 
 struct TimelineScrollTrackerView: NSViewRepresentable {
+    /// Distance from the top where the waveform lane starts; vertical scrolling below it goes to `onLaneScroll`.
+    var laneTop: CGFloat = 0
+    var onLaneScroll: ((CGFloat, Bool) -> Void)? = nil
     var onScroll: (CGFloat, NSEvent.Phase, Bool) -> Void
     
     func makeNSView(context: Context) -> TimelineScrollNSView {
         let view = TimelineScrollNSView()
-        view.onScroll = onScroll
+        updateNSView(view, context: context)
         return view
     }
     
     func updateNSView(_ nsView: TimelineScrollNSView, context: Context) {
         nsView.onScroll = onScroll
+        nsView.onLaneScroll = onLaneScroll
+        nsView.laneTop = laneTop
     }
 }
 
 final class TimelineScrollNSView: NSView {
     var onScroll: ((CGFloat, NSEvent.Phase, Bool) -> Void)?
+    var onLaneScroll: ((CGFloat, Bool) -> Void)?
+    var laneTop: CGFloat = 0
     
     override func hitTest(_ point: NSPoint) -> NSView? {
         // Intercept scroll wheel events so trackpad two-finger swipes and mouse wheel are handled here,
@@ -451,6 +506,14 @@ final class TimelineScrollNSView: NSView {
     }
     
     override func scrollWheel(with event: NSEvent) {
+        if let onLaneScroll, abs(event.scrollingDeltaY) > abs(event.scrollingDeltaX) {
+            let point = convert(event.locationInWindow, from: nil)
+            let fromTop = isFlipped ? point.y : bounds.height - point.y
+            if fromTop >= laneTop {
+                onLaneScroll(event.scrollingDeltaY, event.hasPreciseScrollingDeltas)
+                return
+            }
+        }
         let delta: CGFloat
         let isPrecise = event.hasPreciseScrollingDeltas
         

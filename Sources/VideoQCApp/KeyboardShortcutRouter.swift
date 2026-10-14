@@ -240,6 +240,7 @@ struct KeyboardShortcutActions {
     var onPressSlowL: () -> Void
     var onToggleLooping: () -> Void
     var onToggleAutoplay: () -> Void
+    var onToggleWaveforms: () -> Void
     var onTogglePlayPause: () -> Void
     
     // Player - Navigation
@@ -287,6 +288,7 @@ struct KeyboardShortcutActions {
         onPressSlowL: @escaping () -> Void = {},
         onToggleLooping: @escaping () -> Void = {},
         onToggleAutoplay: @escaping () -> Void = {},
+        onToggleWaveforms: @escaping () -> Void = {},
         onTogglePlayPause: @escaping () -> Void = {},
         onStepFrame: @escaping (Bool) -> Void = { _ in },
         onStepFrames: @escaping (Int, Bool) -> Void = { _, _ in },
@@ -329,6 +331,7 @@ struct KeyboardShortcutActions {
         self.onPressSlowL = onPressSlowL
         self.onToggleLooping = onToggleLooping
         self.onToggleAutoplay = onToggleAutoplay
+        self.onToggleWaveforms = onToggleWaveforms
         self.onTogglePlayPause = onTogglePlayPause
         self.onStepFrame = onStepFrame
         self.onStepFrames = onStepFrames
@@ -502,6 +505,14 @@ extension KeyboardShortcutRouter {
                 scope: .playerOnly
             ) {
                 actions.onToggleAutoplay()
+                return true
+            },
+            Rule(
+                id: "waveformToggle",
+                trigger: ShortcutTrigger(characters: ["w"], modifiers: []),
+                scope: .playerOnly
+            ) {
+                actions.onToggleWaveforms()
                 return true
             },
             Rule(

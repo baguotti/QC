@@ -1,16 +1,34 @@
 import Foundation
 import CoreMedia
 
+/// Video plays through the full pipeline; images are a single still; audio plays without a picture.
+public enum MediaKind: Sendable {
+    case video, image, audio
+}
+
 public enum QCUtilities: Sendable {
     
-    /// Supported video file extensions recognized across QCpie
     public static let supportedVideoExtensions: Set<String> = [
         "mp4", "mov", "m4v", "mkv", "avi", "prores"
     ]
+    public static let supportedImageExtensions: Set<String> = [
+        "png", "jpg", "jpeg", "tif", "tiff", "heic", "heif", "gif", "bmp", "webp", "psd", "exr"
+    ]
+    public static let supportedAudioExtensions: Set<String> = [
+        "wav", "aif", "aiff", "mp3", "m4a", "aac", "flac", "caf"
+    ]
     
-    /// Checks if a given file URL has a supported video extension
-    public static func isSupportedVideo(url: URL) -> Bool {
-        supportedVideoExtensions.contains(url.pathExtension.lowercased())
+    /// nil for files the Player can't open.
+    public static func mediaKind(of url: URL) -> MediaKind? {
+        let ext = url.pathExtension.lowercased()
+        if supportedVideoExtensions.contains(ext) { return .video }
+        if supportedImageExtensions.contains(ext) { return .image }
+        if supportedAudioExtensions.contains(ext) { return .audio }
+        return nil
+    }
+    
+    public static func isSupportedMedia(url: URL) -> Bool {
+        mediaKind(of: url) != nil
     }
     
     /// Robust URL equality comparison that handles path standardization and symlinks

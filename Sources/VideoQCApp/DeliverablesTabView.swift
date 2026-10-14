@@ -102,7 +102,7 @@ extension ContentView {
     
     /// Opens a cross-check result: load the file in the player at that line with the Subtitles panel open.
     func openSubtitleDifference(video: URL, seconds: Double) {
-        let fps = specsState.deliverableAssets.first { $0.fileURL.standardizedFileURL == video.standardizedFileURL }?.fps ?? 25
+        let fps = specsState.deliverableAssets.first { $0.fileURL.standardizedFileURL == video.standardizedFileURL }.flatMap { $0.fps > 0 ? $0.fps : nil } ?? 25
         withAnimation(.spring(response: 0.22, dampingFraction: 0.85)) {
             selectedTab = .player
         }
@@ -140,6 +140,11 @@ extension ContentView {
                         .foregroundColor(textMuted)
                 }
                 .buttonStyle(.plain)
+            }
+            
+            let present = specsPresentKinds
+            if present.nonzeroBitCount > 1 {
+                MediaKindFilterChips(mask: $mediaKindFilter, present: present, isLightMode: isLightMode)
             }
         }
         .padding(.horizontal, 8)
@@ -862,15 +867,19 @@ extension ContentView {
     
     // MARK: - Deliverables Filtering & Hierarchy Helpers
     
+    var specsPresentKinds: Int { MediaKindFilter.presentMask(of: specsState.deliverableAssets.map(\.fileURL)) }
+    var specsKindMask: Int { MediaKindFilter.effectiveMask(mediaKindFilter, present: specsPresentKinds) }
+    
     var filteredDeliverableAssets: [DeliverableAsset] {
         let q = specsState.specsFilterText.trimmingCharacters(in: .whitespacesAndNewlines)
+        let mask = specsKindMask
         let base: [DeliverableAsset]
-        if q.isEmpty {
+        if q.isEmpty && mask == MediaKindFilter.all {
             base = specsState.deliverableAssets
         } else {
             base = specsState.deliverableAssets.filter {
-                $0.fileName.localizedCaseInsensitiveContains(q) ||
-                $0.fileURL.path.localizedCaseInsensitiveContains(q)
+                MediaKindFilter.allows($0.fileURL, mask: mask) &&
+                (q.isEmpty || $0.fileName.localizedCaseInsensitiveContains(q) || $0.fileURL.path.localizedCaseInsensitiveContains(q))
             }
         }
         return sortDeliverableAssets(base)
@@ -1055,6 +1064,13 @@ extension ContentView {
                         .frame(width: 6, height: 6)
                 }
                 
+                if specsDisplayMode != "thumbnail", let kind = QCUtilities.mediaKind(of: asset.fileURL) {
+                    Image(systemName: kind.symbolName)
+                        .font(.system(size: 9, weight: .semibold))
+                        .foregroundColor(textMuted)
+                        .frame(width: 12)
+                }
+                
                 if let srtURL = srtURL {
                     CCBadge(color: hasSubtitleMismatch && !isDismissed ? alertRed : textMuted, size: 9)
                         .help(hasSubtitleMismatch ? "Subtitles differ from the reference (\(srtURL.lastPathComponent))" : "Subtitles: \(srtURL.lastPathComponent)")
@@ -1171,7 +1187,7 @@ extension ContentView {
             }
             .frame(width: CGFloat(specsState.columnWidth(for: .ratio)), alignment: .center)
             
-            Text(String(format: "%.2f", asset.fps))
+            Text(asset.fps > 0 ? String(format: "%.2f", asset.fps) : "--")
                 .frame(width: CGFloat(specsState.columnWidth(for: .fps)), alignment: .center)
                 .foregroundColor(textSubtle)
             

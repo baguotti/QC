@@ -1703,10 +1703,10 @@ public final class PlayerContainerNSView: NSView {
         let isBlink = engine.isBlinkCompareB && engine.compareMode == .single && engine.slotB.url != nil
         let isScrubbing = engine.isScrubbing
         
-        let targetStillHiddenA: Bool
-        let targetStillHiddenB: Bool
-        let targetPlayerHiddenA: Bool
-        let targetPlayerHiddenB: Bool
+        var targetStillHiddenA: Bool
+        var targetStillHiddenB: Bool
+        var targetPlayerHiddenA: Bool
+        var targetPlayerHiddenB: Bool
         
         if isBlink {
             if isScrubbing {
@@ -1745,6 +1745,16 @@ public final class PlayerContainerNSView: NSView {
             } else {
                 targetStillHiddenB = false
             }
+        }
+        
+        // Images and audio have no video to scrub: their picture stays on the still layer.
+        if engine.slotA.mediaKind != .video {
+            targetStillHiddenA = targetStillHiddenA && targetPlayerHiddenA
+            targetPlayerHiddenA = true
+        }
+        if engine.slotB.mediaKind != .video {
+            targetStillHiddenB = targetStillHiddenB && targetPlayerHiddenB
+            targetPlayerHiddenB = true
         }
         
         // Fast path: skip expensive CoreAnimation transactions if layer visibility is already identical
@@ -1800,6 +1810,14 @@ public final class PlayerContainerNSView: NSView {
     private func ensureStillFrame(slot: SlotTarget, at time: CMTime) {
         guard let engine = engine else { return }
         let slotState = (slot == .slotA) ? engine.slotA : engine.slotB
+        
+        // Images and audio show one fixed picture (set once its metadata has loaded).
+        if slotState.mediaKind != .video {
+            if let image = slotState.stillImage, (stillLayer(for: slot).contents as AnyObject?) !== image {
+                setStillContents(image, slot: slot, time: time, buffer: nil)
+            }
+            return
+        }
         
         // 1. Check if the still layer already displays the current frame
         let lastCaptured = (slot == .slotA) ? lastCapturedTimeA : lastCapturedTimeB

@@ -145,6 +145,14 @@
    - Blink is a toggle overlay on `.single` mode (not a distinct `CompareMode` case). When active, `updateLayerVisibility` hides all A-slot layers and shows only the B-slot layer, creating a clean A↔B blink toggle.
    - `isBlinkCompareB` auto-disables if `compareMode` changes away from `.single`, and auto-syncs Slot B when linked.
 
+4. **Images & Audio (`PlayerSlot.mediaKind`)**:
+   - The kind is decided once per load from the extension (`QCUtilities.mediaKind(of:)`). Video code paths are unchanged; non-video slots opt out of them instead of each feature checking.
+   - **Image**: no `AVPlayerItem` (the slot's player has none, `hasTimeline == false` when it is slot A: no time observer, play, step or scrub). The ImageIO-decoded `stillImage` is shown on `stillFrameLayer` and stays visible while scrubbing slot B. An item-less `AVPlayer` still reports the previous file's time, so never read `slotA.player.currentTime()` when slot A is an image.
+   - **Audio**: normal `AVPlayerItem`, but no video output, frame extractor or exposure composition. The slot's `stillImage` is a rendered info card.
+   - **Waveform** (opt-in, queue WAVE toggle = `drawsWaveforms`, off by default): slot A's audio (audio files and videos) is drawn in a lane under the scrub track (`AudioWaveform`: 8 kHz mono decode of the audio track only, once per file at `.utility`, cancellable, cached; drawn by an equatable `Canvas`, never per frame). Vertical scrolling over the lane resizes it (elsewhere on the timeline the wheel still scrubs) (`waveformLaneHeight`, 20–200 pt); the timeline sizes itself, so callers must not fix its height.
+   - TAB between two audio slots switches `audioSlot` with the blink.
+   - **Kind filter** (`MediaKindFilter`, bit mask in `@AppStorage`, shared by queue and Specs): icon toggles appear only when a list mixes kinds; a mask that would hide every kind present shows everything.
+
 ---
 
 ## 7. Audio Routing & Slot Exclusivity

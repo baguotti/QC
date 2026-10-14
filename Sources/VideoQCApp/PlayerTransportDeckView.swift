@@ -106,7 +106,7 @@ struct PlayerTransportDeckView: View, Equatable {
                 Button(action: { engine.togglePlayPause() }) {
                     AnimatedPlayPauseIconView(
                         isPlaying: transportState.isPlaying,
-                        color: textMain,
+                        color: transportState.hasTimeline ? textMain : textMuted,
                         size: iconSize(20)
                     )
                     .frame(width: btnWidth(30), height: btnHeight)
@@ -136,6 +136,8 @@ struct PlayerTransportDeckView: View, Equatable {
                     engine.pressSlowL()
                 }
             }
+            .disabled(!transportState.hasTimeline)
+            .opacity(transportState.hasTimeline ? 1 : 0.35)
             
             // Group Divider
             Rectangle()
@@ -263,6 +265,8 @@ struct PlayerTransportDeckView: View, Equatable {
                     engine: engine,
                     isLightMode: isLightMode
                 )
+                .disabled(!transportState.hasVideo)
+                .opacity(transportState.hasVideo ? 1 : 0.35)
                 
                 // Screenshot / Screengrab Button (Camera next to EV)
                 if let onExport = onExportScreenshot {

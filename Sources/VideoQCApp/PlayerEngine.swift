@@ -185,6 +185,9 @@ public final class PlayerSlot: ObservableObject {
     @Published public var videoSize: CGSize = CGSize(width: 1920, height: 1080)
     @Published public var totalFrames: Int = 0
     @Published public var slipOffsetFrames: Int = 0
+    @Published public var mediaKind: MediaKind = .video
+    /// Images and the audio info card: shown on the still frame layer instead of decoded video frames.
+    public var stillImage: CGImage? = nil
     public var lastDecodedFrame: CGImage? = nil
     
     public let frameExtractor = FrameExtractor()
@@ -248,7 +251,17 @@ public final class PlayerSlot: ObservableObject {
         return ByteCountFormatter.string(fromByteCount: Int64(bytes), countStyle: .file)
     }
     
+    /// Header line under the file name: images have no frame rate, audio has no picture size.
+    public var infoLine: String {
+        switch mediaKind {
+        case .video: return "\(resolution) // \(String(format: "%.1f", fps)) FPS // \(codec)"
+        case .image: return "\(resolution) // \(codec)"
+        case .audio: return "AUDIO // \(codec)"
+        }
+    }
+    
     public var displayResolution: String {
+        if mediaKind == .audio { return "AUDIO" }
         if !resolution.isEmpty && resolution != "--" {
             return resolution
         }
@@ -314,6 +327,10 @@ public struct TransportState: Equatable, Sendable {
     public let notesCount: Int
     public let hasSubtitles: Bool
     public let showSubtitles: Bool
+    /// Slot A can play/step/scrub (not a still image).
+    public let hasTimeline: Bool
+    /// Slot A is a video (exposure applies).
+    public let hasVideo: Bool
     
     public init(
         isPlaying: Bool,
@@ -327,7 +344,9 @@ public struct TransportState: Equatable, Sendable {
         hasActiveURL: Bool,
         notesCount: Int,
         hasSubtitles: Bool,
-        showSubtitles: Bool
+        showSubtitles: Bool,
+        hasTimeline: Bool,
+        hasVideo: Bool
     ) {
         self.isPlaying = isPlaying
         self.rate = rate
@@ -341,6 +360,8 @@ public struct TransportState: Equatable, Sendable {
         self.notesCount = notesCount
         self.hasSubtitles = hasSubtitles
         self.showSubtitles = showSubtitles
+        self.hasTimeline = hasTimeline
+        self.hasVideo = hasVideo
     }
 }
 
@@ -457,6 +478,10 @@ public final class PlayerEngine: ObservableObject {
             if isBlinkCompareB && isLinked && slotB.url != nil {
                 syncSlotBToMaster()
             }
+            // A/B audio: blinking between two audio files switches what you hear.
+            if slotA.mediaKind == .audio && slotB.mediaKind == .audio && slotB.url != nil {
+                audioSlot = isBlinkCompareB ? .slotB : .slotA
+            }
         }
     }
     @Published public var clipInfoOverlayMode: ClipInfoOverlayMode = .resolution
@@ -474,7 +499,6 @@ public final class PlayerEngine: ObservableObject {
     public var activeFileName: String { slotA.fileName }
     public var activeResolution: String { slotA.resolution }
     public var activeFps: Double { slotA.fps }
-    public var activeCodec: String { slotA.codec }
     public var videoSize: CGSize { slotA.videoSize }
     
     public var currentTime: CMTime = .zero
@@ -543,11 +567,48 @@ public final class PlayerEngine: ObservableObject {
             hasActiveURL: activeURL != nil,
             notesCount: activeNotes.count,
             hasSubtitles: !subtitleCues.isEmpty,
-            showSubtitles: showSubtitles
+            showSubtitles: showSubtitles,
+            hasTimeline: hasTimeline,
+            hasVideo: slotA.mediaKind == .video
         )
     }
     
     // MARK: - Subtitles (.srt, shown over slot A)
+    
+    /// Waveforms are only decoded when the user turns them on (queue WAVE toggle).
+    @Published public var drawsWaveforms: Bool = UserDefaults.standard.bool(forKey: "drawsWaveforms") {
+        didSet {
+            UserDefaults.standard.set(drawsWaveforms, forKey: "drawsWaveforms")
+            refreshWaveform()
+        }
+    }
+    
+    /// Timeline waveform for slot A's audio (empty when off, for images and silent files). Published once per load.
+    @Published public private(set) var waveformPeaks: [Float] = []
+    private var waveformCache: [URL: [Float]] = [:]
+    private var waveformTask: Task<Void, Never>? = nil
+    
+    private func refreshWaveform() {
+        waveformTask?.cancel()
+        waveformTask = nil
+        guard drawsWaveforms, slotA.mediaKind != .image, let url = slotA.url else {
+            if !waveformPeaks.isEmpty { waveformPeaks = [] }
+            return
+        }
+        if let cached = waveformCache[url] {
+            waveformPeaks = cached
+            return
+        }
+        if !waveformPeaks.isEmpty { waveformPeaks = [] }
+        let work = Task.detached(priority: .utility) { await AudioWaveform.peaks(url: url) }
+        waveformTask = Task { [weak self] in
+            let peaks = await withTaskCancellationHandler { await work.value } onCancel: { work.cancel() }
+            guard let self, !Task.isCancelled, let peaks, self.slotA.url == url else { return }
+            if self.waveformCache.count >= 16 { self.waveformCache.removeAll() }
+            self.waveformCache[url] = peaks
+            self.waveformPeaks = peaks
+        }
+    }
     
     @Published public private(set) var subtitleCues: [SubtitleCue] = []
     @Published public private(set) var subtitleFileName: String? = nil
@@ -721,7 +782,7 @@ public final class PlayerEngine: ObservableObject {
     }
     
     private func installExposureComposition(for slot: PlayerSlot) {
-        guard abs(exposureEV) >= 0.001, let item = slot.player.currentItem, item.videoComposition == nil else { return }
+        guard abs(exposureEV) >= 0.001, slot.mediaKind == .video, let item = slot.player.currentItem, item.videoComposition == nil else { return }
         let box = exposureBox
         item.videoComposition = AVVideoComposition(asset: item.asset, applyingCIFiltersWithHandler: { @Sendable request in
             let ev = box.value
@@ -736,7 +797,7 @@ public final class PlayerEngine: ObservableObject {
     /// A paused frame is only re-composited by a seek, and a seek to the exact current time is a no-op in
     /// AVFoundation, so nudge within the same frame to re-render it with the new exposure.
     private func refreshPausedFramesForExposure() {
-        guard !isPlaying, !isScrubbing, slotA.player.currentItem != nil else { return }
+        guard !isPlaying, !isScrubbing, slotA.mediaKind == .video, slotA.player.currentItem != nil else { return }
         seek(toTime: nudgedFrameTime(frame: currentFrame, fps: activeFps, current: slotA.player.currentTime()))
         
         let showsSlotB = slotB.url != nil && slotB.player.currentItem != nil && (compareMode != .single || isBlinkCompareB)
@@ -951,6 +1012,7 @@ public final class PlayerEngine: ObservableObject {
         self.activeNotes = []
         self.activeNotesURL = nil
         self.currentTime = .zero
+        self.currentFrame = 0
         self.currentProgress = 0.0
         self.currentTimecode = "00:00:00:00"
         self.panOffset = .zero
@@ -962,18 +1024,20 @@ public final class PlayerEngine: ObservableObject {
         self.pendingSeekTolerance = nil
         self.pendingSeekCompletion = nil
         
-        let asset = AVURLAsset(url: url)
-        Task { [slotA] in
-            await slotA.frameExtractor.setURL(url)
+        slotA.mediaKind = QCUtilities.mediaKind(of: url) ?? .video
+        slotA.stillImage = nil
+        refreshWaveform()
+        if !hasTimeline {
+            setupTimeObserver()
         }
-        
-        let item = AVPlayerItem(asset: asset)
-        item.canUseNetworkResourcesForLiveStreamingWhilePaused = false
-        slotA.attachVideoOutput(to: item)
-        
-        slotA.player.replaceCurrentItem(with: item)
-        slotA.player.automaticallyWaitsToMinimizeStalling = false
-        installExposureComposition(for: slotA)
+        itemPresentationSizeCancellable = nil
+        itemStatusCancellable = nil
+        let item = makePlayerItem(url: url, for: slotA)
+        Task {
+            await extractMetadata(url: url, asset: item?.asset as? AVURLAsset, for: .slotA)
+        }
+        updateAudioVolumes()
+        guard let item else { return }
         
         itemPresentationSizeCancellable = item.publisher(for: \.presentationSize)
             .receive(on: DispatchQueue.main)
@@ -999,12 +1063,28 @@ public final class PlayerEngine: ObservableObject {
                     }
                 }
             }
-        
-        Task {
-            await extractMetadata(asset: asset, for: .slotA)
+    }
+    
+    /// Images get no item (no player, no timeline); audio plays without video output, frame extractor or exposure.
+    private func makePlayerItem(url: URL, for slot: PlayerSlot) -> AVPlayerItem? {
+        slot.detachVideoOutput()
+        let isVideo = slot.mediaKind == .video
+        Task { [slot] in
+            await slot.frameExtractor.setURL(isVideo ? url : nil)
         }
-        
-        updateAudioVolumes()
+        guard slot.mediaKind != .image else {
+            slot.player.replaceCurrentItem(with: nil)
+            return nil
+        }
+        let item = AVPlayerItem(asset: AVURLAsset(url: url))
+        item.canUseNetworkResourcesForLiveStreamingWhilePaused = false
+        if isVideo {
+            slot.attachVideoOutput(to: item)
+        }
+        slot.player.replaceCurrentItem(with: item)
+        slot.player.automaticallyWaitsToMinimizeStalling = false
+        installExposureComposition(for: slot)
+        return item
     }
     
     private func loadVideoIntoSlotB(url: URL, autoplay: Bool = false) {
@@ -1041,18 +1121,17 @@ public final class PlayerEngine: ObservableObject {
             self.activeNotesURL = nil
         }
         
-        let asset = AVURLAsset(url: stdURL)
-        Task { [slotB] in
-            await slotB.frameExtractor.setURL(stdURL)
+        slotB.mediaKind = QCUtilities.mediaKind(of: stdURL) ?? .video
+        slotB.stillImage = nil
+        itemPresentationSizeCancellableB = nil
+        itemStatusCancellableB = nil
+        let item = makePlayerItem(url: stdURL, for: slotB)
+        Task {
+            await extractMetadata(url: stdURL, asset: item?.asset as? AVURLAsset, for: .slotB)
         }
-        
-        let item = AVPlayerItem(asset: asset)
-        item.canUseNetworkResourcesForLiveStreamingWhilePaused = false
-        slotB.attachVideoOutput(to: item)
-        
-        slotB.player.replaceCurrentItem(with: item)
-        slotB.player.automaticallyWaitsToMinimizeStalling = false
-        installExposureComposition(for: slotB)
+        enforceCompatibleCompareMode()
+        updateAudioVolumes()
+        guard let item else { return }
         
         itemPresentationSizeCancellableB = item.publisher(for: \.presentationSize)
             .receive(on: DispatchQueue.main)
@@ -1080,29 +1159,48 @@ public final class PlayerEngine: ObservableObject {
                     }
                 }
             }
-        
-        Task {
-            await extractMetadata(asset: asset, for: .slotB)
-        }
-        
-        enforceCompatibleCompareMode()
-        
-        updateAudioVolumes()
     }
     
-    private func extractMetadata(asset: AVURLAsset, for target: SlotTarget) async {
-        let fileURL = asset.url
+    /// `asset` is nil for images (no player item).
+    private func extractMetadata(url fileURL: URL, asset: AVURLAsset?, for target: SlotTarget) async {
+        let slot = (target == .slotA) ? slotA : slotB
+        let kind = slot.mediaKind
         let fileSizeText = await Task.detached(priority: .utility) { PlayerSlot.fileSizeText(for: fileURL) }.value
         do {
-            let dur = try await asset.load(.duration)
-            let tracks = try await asset.loadTracks(withMediaType: .video)
-            
+            var dur = CMTime.zero
+            var tracks: [AVAssetTrack] = []
             var detectedFps: Double = 25.0
             var resStr = "--"
             var codecStr = "--"
             var detectedSize = CGSize(width: 1920, height: 1080)
+            var still: CGImage? = nil
             
-            if let vTrack = tracks.first {
+            if let asset {
+                dur = try await asset.load(.duration)
+                tracks = try await asset.loadTracks(withMediaType: .video)
+            } else {
+                guard let decoded = await Task.detached(priority: .userInitiated, operation: { MediaStills.decodeImage(at: fileURL) }).value else {
+                    print("[PlayerEngine] Could not decode image: \(fileURL.lastPathComponent)")
+                    return
+                }
+                still = decoded.image
+                detectedSize = CGSize(width: decoded.image.width, height: decoded.image.height)
+                resStr = "\(decoded.image.width)x\(decoded.image.height)"
+                codecStr = decoded.format
+            }
+            if kind == .audio, let asset {
+                let audioTracks = try await asset.loadTracks(withMediaType: .audio)
+                let info = await DeliverablesInspector.extractAudioInfo(tracks: audioTracks)
+                codecStr = info.codec
+                detectedSize = MediaStills.audioCardSize
+                let details = [info.fullDesc, TimecodeFormatter.format(time: dur, fps: detectedFps), fileSizeText]
+                still = MediaStills.audioCard(fileName: fileURL.lastPathComponent, details: details)
+            }
+            // A newer load replaced this file while its metadata was loading.
+            guard slot.url?.path == fileURL.standardizedFileURL.path else { return }
+            slot.stillImage = still
+            
+            if kind == .video, let vTrack = tracks.first {
                 let naturalSize = try await vTrack.load(.naturalSize)
                 let transform = try await vTrack.load(.preferredTransform)
                 let transformedSize = naturalSize.applying(transform)
@@ -1221,6 +1319,8 @@ public final class PlayerEngine: ObservableObject {
         let formattedFileSize: String
         let currentTime: CMTime
         let lastDecodedFrame: CGImage?
+        let mediaKind: MediaKind
+        let stillImage: CGImage?
         
         init(from slot: PlayerSlot) {
             self.url = slot.url
@@ -1234,6 +1334,8 @@ public final class PlayerEngine: ObservableObject {
             self.formattedFileSize = slot.formattedFileSize
             self.currentTime = slot.player.currentTime()
             self.lastDecodedFrame = slot.lastDecodedFrame
+            self.mediaKind = slot.mediaKind
+            self.stillImage = slot.stillImage
         }
         
         func apply(to slot: PlayerSlot) {
@@ -1247,6 +1349,8 @@ public final class PlayerEngine: ObservableObject {
             slot.totalFrames = totalFrames
             slot.formattedFileSize = formattedFileSize
             slot.lastDecodedFrame = lastDecodedFrame
+            slot.mediaKind = mediaKind
+            slot.stillImage = stillImage
         }
     }
     
@@ -1284,13 +1388,8 @@ public final class PlayerEngine: ObservableObject {
         self.pendingSeekTimeB = nil
         
         snapB.apply(to: slotA)
-        if let urlA = snapB.url {
-            let itemA = AVPlayerItem(asset: AVURLAsset(url: urlA))
-            itemA.canUseNetworkResourcesForLiveStreamingWhilePaused = false
-            slotA.attachVideoOutput(to: itemA)
-            slotA.player.replaceCurrentItem(with: itemA)
+        if let urlA = snapB.url, let itemA = makePlayerItem(url: urlA, for: slotA) {
             slotA.player.seek(to: snapB.currentTime, toleranceBefore: .zero, toleranceAfter: .zero)
-            installExposureComposition(for: slotA)
             
             itemPresentationSizeCancellable = itemA.publisher(for: \.presentationSize)
                 .receive(on: DispatchQueue.main)
@@ -1315,13 +1414,8 @@ public final class PlayerEngine: ObservableObject {
         self.objectWillChange.send()
         snapA.apply(to: slotB)
         slotB.slipOffsetFrames = -tempSlip
-        if let urlB = snapA.url {
-            let itemB = AVPlayerItem(asset: AVURLAsset(url: urlB))
-            itemB.canUseNetworkResourcesForLiveStreamingWhilePaused = false
-            slotB.attachVideoOutput(to: itemB)
-            slotB.player.replaceCurrentItem(with: itemB)
+        if let urlB = snapA.url, let itemB = makePlayerItem(url: urlB, for: slotB) {
             slotB.player.seek(to: snapA.currentTime, toleranceBefore: .zero, toleranceAfter: .zero)
-            installExposureComposition(for: slotB)
             
             itemPresentationSizeCancellableB = itemB.publisher(for: \.presentationSize)
                 .receive(on: DispatchQueue.main)
@@ -1344,9 +1438,12 @@ public final class PlayerEngine: ObservableObject {
                 }
         }
         
-        Task { [slotA, slotB] in
-            await slotA.frameExtractor.setURL(snapB.url)
-            await slotB.frameExtractor.setURL(snapA.url)
+        if snapB.url == nil {
+            Task { [slotA] in await slotA.frameExtractor.setURL(nil) }
+        }
+        refreshWaveform()
+        if snapA.url == nil {
+            Task { [slotB] in await slotB.frameExtractor.setURL(nil) }
         }
         
         self.duration = slotA.duration
@@ -1365,7 +1462,7 @@ public final class PlayerEngine: ObservableObject {
             enforceCompatibleCompareMode()
         }
         
-        updateCurrentTime(time: slotA.player.currentTime())
+        updateCurrentTime(time: hasTimeline ? slotA.player.currentTime() : .zero)
         updateAudioVolumes()
         autoLoadSubtitles(for: slotA.url)
         
@@ -1392,6 +1489,8 @@ public final class PlayerEngine: ObservableObject {
         slotB.formattedFileSize = "--"
         slotB.slipOffsetFrames = 0
         slotB.lastDecodedFrame = nil
+        slotB.mediaKind = .video
+        slotB.stillImage = nil
         Task { [slotB] in
             await slotB.frameExtractor.setURL(nil)
         }
@@ -1422,6 +1521,9 @@ public final class PlayerEngine: ObservableObject {
         slotA.totalFrames = 0
         slotA.formattedFileSize = "--"
         slotA.lastDecodedFrame = nil
+        slotA.mediaKind = .video
+        slotA.stillImage = nil
+        refreshWaveform()
         clearSubtitles()
         Task { [slotA] in
             await slotA.frameExtractor.setURL(nil)
@@ -1458,7 +1560,7 @@ public final class PlayerEngine: ObservableObject {
     
     public func syncSlotBToMaster() {
         guard slotB.url != nil, slotB.player.currentItem != nil else { return }
-        let masterSecs = CMTimeGetSeconds(slotA.player.currentTime())
+        let masterSecs = hasTimeline ? CMTimeGetSeconds(slotA.player.currentTime()) : 0
         let offsetSecs = Double(slotB.slipOffsetFrames) / max(1.0, slotB.fps)
         let targetSecs = max(0.0, masterSecs + offsetSecs)
         if isLinkedPlaybackRunning {
@@ -1475,7 +1577,7 @@ public final class PlayerEngine: ObservableObject {
 
     /// Linked playback with the master actually running (the only state in which slot B is phase-locked).
     private var isLinkedPlaybackRunning: Bool {
-        isLinked && isPlaying && !isScrubbing && rate != 0 && slotA.player.rate != 0 && slotB.url != nil
+        isLinked && isPlaying && !isScrubbing && rate != 0 && slotA.player.rate != 0 && slotB.player.currentItem != nil
     }
 
     /// Hard re-sync of slot B during linked playback. An exact seek into long-GOP media takes ~100–200 ms, so
@@ -1588,6 +1690,8 @@ public final class PlayerEngine: ObservableObject {
             tokens.timeObserverToken = nil
             tokens.player = nil
         }
+        // An image has no clock; an item-less AVPlayer still reports the previous file's time.
+        guard hasTimeline else { return }
         let fps = max(1.0, activeFps)
         let interval = CMTime(seconds: 1.0 / fps, preferredTimescale: 60000)
         let token = slotA.player.addPeriodicTimeObserver(forInterval: interval, queue: .main) { [weak self] time in
@@ -1928,6 +2032,9 @@ public final class PlayerEngine: ObservableObject {
         }
     }
     
+    /// False when slot A holds a still image: no playback, stepping or scrubbing.
+    public var hasTimeline: Bool { slotA.mediaKind != .image }
+    
     public func play() {
         setPlaybackRate(1.0)
     }
@@ -1972,6 +2079,7 @@ public final class PlayerEngine: ObservableObject {
     }
     
     public func setPlaybackRate(_ newRate: Float) {
+        guard hasTimeline || newRate == 0 else { return }
         stopSlowStep()
         cancelSlotBRelock()
         if rate != newRate { rate = newRate }
@@ -2075,7 +2183,7 @@ public final class PlayerEngine: ObservableObject {
     
     /// Initiates interactive scrubbing: remembers active playback state and temporarily halts playback during dragging
     public func startScrubbing() {
-        guard !self.isScrubbing else { return }
+        guard !self.isScrubbing, hasTimeline else { return }
         cancelSlotBRelock()
         self.wasPlayingBeforeScrub = (self.isPlaying || self.rate != 0.0 || self.isSlowStepping)
         self.playbackRateBeforeScrub = (self.rate != 0.0) ? self.rate : 1.0
@@ -2099,6 +2207,7 @@ public final class PlayerEngine: ObservableObject {
     public func scrubTo(progress: Double) {
         if !self.isScrubbing {
             startScrubbing()
+            guard self.isScrubbing else { return }
         }
         #if DEBUG
         QCScrubDiagnostic.shared.recordScrubCall()
@@ -2476,6 +2585,7 @@ public final class PlayerEngine: ObservableObject {
     public func captureCurrentFrame(for slot: SlotTarget = .slotA, at time: CMTime? = nil) async -> CGImage? {
         let currentSlot = (slot == .slotA) ? slotA : slotB
         guard let url = currentSlot.url else { return currentSlot.lastDecodedFrame }
+        guard currentSlot.mediaKind == .video else { return currentSlot.stillImage }
         
         let targetTime: CMTime
         if let explicitTime = time, explicitTime.isValid, explicitTime.isNumeric {

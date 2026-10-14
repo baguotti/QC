@@ -142,7 +142,7 @@ public final class SpecsState: ObservableObject {
                 pairs.map { video, srt in
                     let cues = (try? SubtitleParser.load(from: srt)) ?? []
                     return SubtitleCrossCheckReport.File(videoURL: video, srtURL: srt, cues: cues,
-                                                         fps: fpsByVideo[video] ?? 25)
+                                                         fps: fpsByVideo[video].flatMap { $0 > 0 ? $0 : nil } ?? 25)
                 }
             }.value
             guard let self else { return }

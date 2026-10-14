@@ -258,21 +258,23 @@ extension ContentView {
             videoFiles: videoFiles,
             playerTreeNodes: playerTreeNodes,
             playerFilterText: $playerFilterText,
+            mediaKindFilter: $mediaKindFilter,
             playerCollapsedFolderIDs: $playerCollapsedFolderIDs,
             hiddenFolderIDs: hiddenFolderIDs,
             hideAllFolders: hideAllFolders,
             fileTagsMap: fileTagsMap,
             isScanning: scannerState.isScanning,
             isAutoplayEnabled: playerEngine.isAutoplayEnabled,
+            drawsWaveforms: playerEngine.drawsWaveforms,
             queueVersion: queueVersion,
             tagsVersion: tagsVersion,
             slotAURL: playerEngine.activeURL ?? playerEngine.slotA.url,
             slotAResolution: playerEngine.slotA.resolution,
-            slotAFps: playerEngine.slotA.fps,
+            slotAFps: playerEngine.slotA.mediaKind == .video ? playerEngine.slotA.fps : 0,
             slotACodec: playerEngine.slotA.codec,
             slotBURL: playerEngine.slotBURL ?? playerEngine.slotB.url,
             slotBResolution: playerEngine.slotB.resolution,
-            slotBFps: playerEngine.slotB.fps,
+            slotBFps: playerEngine.slotB.mediaKind == .video ? playerEngine.slotB.fps : 0,
             slotBCodec: playerEngine.slotB.codec,
             activeTarget: playerEngine.activeTarget,
             activeNotesURL: playerEngine.activeNotesURL,
@@ -289,6 +291,9 @@ extension ContentView {
             },
             onToggleAutoplay: {
                 playerEngine.isAutoplayEnabled.toggle()
+            },
+            onToggleWaveforms: {
+                playerEngine.drawsWaveforms.toggle()
             },
             onToggleAllPlayerFolders: {
                 toggleAllPlayerFolders()
@@ -452,8 +457,7 @@ extension ContentView {
                     
                     // Timeline Scrubber
                     TimelineScrubberView(engine: playerEngine, isLightMode: isLightMode)
-                        .frame(height: 52)
-                        .disabled(playerEngine.activeURL == nil)
+                        .disabled(playerEngine.activeURL == nil || !playerEngine.hasTimeline)
                     
                     // Transport Strip
                     playerTransportBar
@@ -582,7 +586,7 @@ extension ContentView {
                         .lineLimit(1)
                     
                     if !playerEngine.activeResolution.isEmpty {
-                        Text("\(playerEngine.activeResolution) // \(String(format: "%.1f", playerEngine.activeFps)) FPS // \(playerEngine.activeCodec)")
+                        Text(playerEngine.slotA.infoLine)
                             .font(.system(size: 9, weight: .bold, design: .monospaced))
                             .foregroundColor(textMuted)
                     }
@@ -975,10 +979,14 @@ extension ContentView {
     var filteredPlayerFiles: [URL] {
         let treeOrder = FileSystemTreeBuilder.orderedVideoURLs(from: playerTreeNodes)
         let baseFiles = treeOrder.isEmpty ? videoFiles : treeOrder
-        if playerFilterText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+        let mask = MediaKindFilter.effectiveMask(mediaKindFilter, present: MediaKindFilter.presentMask(of: videoFiles))
+        let query = playerFilterText.trimmingCharacters(in: .whitespacesAndNewlines)
+        if query.isEmpty && mask == MediaKindFilter.all {
             return baseFiles
         }
-        return baseFiles.filter { $0.lastPathComponent.localizedCaseInsensitiveContains(playerFilterText) }
+        return baseFiles.filter {
+            MediaKindFilter.allows($0, mask: mask) && (query.isEmpty || $0.lastPathComponent.localizedCaseInsensitiveContains(query))
+        }
     }
     
     func revealPlayerFolderContaining(url: URL) {

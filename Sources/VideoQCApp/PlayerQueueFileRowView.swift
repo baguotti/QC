@@ -56,6 +56,11 @@ public struct PlayerQueueFileRowView: View, Equatable {
         }
     }
     
+    /// fps is 0 for stills and audio (no frame rate to show).
+    private static func specLine(_ resolution: String, _ fps: Double, _ codec: String) -> String {
+        fps > 0 ? "\(resolution) • \(String(format: "%.1f", fps))fps • \(codec)" : "\(resolution) • \(codec)"
+    }
+    
     private var bgSubtle: Color { StudioTheme.bgSubtle(isLightMode) }
     private var borderLine: Color { StudioTheme.borderLine(isLightMode) }
     private var textMain: Color { StudioTheme.textMain(isLightMode) }
@@ -234,6 +239,13 @@ public struct PlayerQueueFileRowView: View, Equatable {
                     .frame(width: 6, height: 6)
             }
             
+            if let kind = QCUtilities.mediaKind(of: url) {
+                Image(systemName: kind.symbolName)
+                    .font(.system(size: 8.5, weight: .semibold))
+                    .foregroundColor(isSlotA ? accentPositive : (isSlotB ? accentSlotB : textMuted))
+                    .frame(width: 12)
+            }
+            
             fileNameLabel(fontSize: 10.5, isSelected: isSelected)
             
             if isSlotA && !slotAResolution.isEmpty {
@@ -287,12 +299,12 @@ public struct PlayerQueueFileRowView: View, Equatable {
                 }
                 
                 if isSlotA && !slotAResolution.isEmpty {
-                    Text("\(slotAResolution) • \(String(format: "%.1f", slotAFps))fps • \(slotACodec)")
+                    Text(Self.specLine(slotAResolution, slotAFps, slotACodec))
                         .font(.system(size: isLarge ? 8.5 : 8, weight: .bold, design: .monospaced))
                         .foregroundColor(accentPositive)
                         .lineLimit(1)
                 } else if isSlotB && !slotBResolution.isEmpty {
-                    Text("\(slotBResolution) • \(String(format: "%.1f", slotBFps))fps • \(slotBCodec)")
+                    Text(Self.specLine(slotBResolution, slotBFps, slotBCodec))
                         .font(.system(size: isLarge ? 8.5 : 8, weight: .bold, design: .monospaced))
                         .foregroundColor(accentSlotB)
                         .lineLimit(1)
@@ -340,12 +352,12 @@ public struct PlayerQueueFileRowView: View, Equatable {
                 }
                 
                 if isSlotA && !slotAResolution.isEmpty {
-                    Text("\(slotAResolution) • \(String(format: "%.1f", slotAFps))fps • \(slotACodec)")
+                    Text(Self.specLine(slotAResolution, slotAFps, slotACodec))
                         .font(.system(size: 8.5, weight: .bold, design: .monospaced))
                         .foregroundColor(accentPositive)
                         .lineLimit(1)
                 } else if isSlotB && !slotBResolution.isEmpty {
-                    Text("\(slotBResolution) • \(String(format: "%.1f", slotBFps))fps • \(slotBCodec)")
+                    Text(Self.specLine(slotBResolution, slotBFps, slotBCodec))
                         .font(.system(size: 8.5, weight: .bold, design: .monospaced))
                         .foregroundColor(accentSlotB)
                         .lineLimit(1)

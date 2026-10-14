@@ -52,6 +52,7 @@ struct ContentView: View {
     // MARK: - Tab 1: Player State
     @StateObject var playerEngine = PlayerEngine()
     @State var playerFilterText: String = ""
+    @AppStorage(MediaKindFilter.storageKey) var mediaKindFilter: Int = MediaKindFilter.all
     @State var playerCollapsedFolderIDs: Set<String> = []
     @State var fileTagsMap: [URL: FinderTagColor] = [:]
     @State var showTagPickerPopover: Bool = false
@@ -124,9 +125,9 @@ struct ContentView: View {
             var isDir: ObjCBool = false
             guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDir) else { return nil }
             if isDir.boolValue {
-                return ScannedAssetInput(url: url, isDirectory: true, videos: VideoScanner.findVideoFiles(in: url))
+                return ScannedAssetInput(url: url, isDirectory: true, videos: VideoScanner.findMediaFiles(in: url))
             }
-            return ScannedAssetInput(url: url, isDirectory: false, videos: QCUtilities.isSupportedVideo(url: url) ? [url] : [])
+            return ScannedAssetInput(url: url, isDirectory: false, videos: QCUtilities.isSupportedMedia(url: url) ? [url] : [])
         }
     }
     
@@ -1044,9 +1045,9 @@ struct ContentView: View {
         panel.canChooseFiles = true
         panel.canChooseDirectories = true
         panel.allowsMultipleSelection = true
-        panel.allowedContentTypes = [UTType.movie, UTType.video, UTType.quickTimeMovie, UTType.mpeg4Movie, UTType.folder]
+        panel.allowedContentTypes = [UTType.movie, UTType.video, UTType.quickTimeMovie, UTType.mpeg4Movie, UTType.image, UTType.audio, UTType.folder]
         panel.prompt = append ? "Add" : "Select"
-        panel.message = append ? "Choose video files or folders to add to the current batch" : "Choose video files or a folder to load"
+        panel.message = append ? "Choose media files or folders to add to the current batch" : "Choose media files or a folder to load"
         
         guard panel.runModal() == .OK, !panel.urls.isEmpty else { return }
         let urls = panel.urls
@@ -1253,7 +1254,7 @@ struct ContentView: View {
     // MARK: - Line Scanner Execution
     
     func startScan() {
-        scannerState.startScan(videoFiles: videoFiles) { results, config in
+        scannerState.startScan(videoFiles: videoFiles.filter { QCUtilities.mediaKind(of: $0) == .video }) { results, config in
             self.playerEngine.setScanResults(results)
             if self.scannerState.tagInFinder {
                 for res in results where res.isFlagged {
@@ -1306,7 +1307,7 @@ struct ContentView: View {
             
             // 1. If we have a root folderURL, re-scan it
             if let folder = rootFolder, FileManager.default.fileExists(atPath: folder.path) {
-                for v in VideoScanner.findVideoFiles(in: folder) {
+                for v in VideoScanner.findMediaFiles(in: folder) {
                     let std = v.standardizedFileURL.path
                     if !seen.contains(std) {
                         seen.insert(std)
@@ -1317,7 +1318,7 @@ struct ContentView: View {
             
             // 2. Also check any root folders in playerTreeNodes (handles multiple dropped/added folders)
             for folder in treeFolders where FileManager.default.fileExists(atPath: folder.path) {
-                for v in VideoScanner.findVideoFiles(in: folder) {
+                for v in VideoScanner.findMediaFiles(in: folder) {
                     let std = v.standardizedFileURL.path
                     if !seen.contains(std) {
                         seen.insert(std)
@@ -1643,6 +1644,7 @@ struct ContentView: View {
             onPressSlowL: { self.playerEngine.pressSlowL() },
             onToggleLooping: { self.playerEngine.isLooping.toggle() },
             onToggleAutoplay: { self.playerEngine.isAutoplayEnabled.toggle() },
+            onToggleWaveforms: { self.playerEngine.drawsWaveforms.toggle() },
             onTogglePlayPause: { self.playerEngine.togglePlayPause() },
             onStepFrame: { forward in self.playerEngine.stepFrame(forward: forward) },
             onStepFrames: { count, forward in self.playerEngine.stepFrames(count: count, forward: forward) },

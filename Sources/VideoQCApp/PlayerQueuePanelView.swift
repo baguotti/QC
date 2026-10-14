@@ -11,12 +11,14 @@ public struct PlayerQueuePanelView: View, Equatable {
     public var videoFiles: [URL]
     public var playerTreeNodes: [FileSystemTreeNode]
     @Binding public var playerFilterText: String
+    @Binding public var mediaKindFilter: Int
     @Binding public var playerCollapsedFolderIDs: Set<String>
     public var hiddenFolderIDs: Set<String>
     public var hideAllFolders: Bool
     public var fileTagsMap: [URL: FinderTagColor]
     public var isScanning: Bool
     public var isAutoplayEnabled: Bool
+    public var drawsWaveforms: Bool
     public var queueVersion: Int = 0
     public var tagsVersion: Int = 0
     
@@ -42,6 +44,7 @@ public struct PlayerQueuePanelView: View, Equatable {
     public var onRefreshAssets: () -> Void
     public var onToggleHideFolders: () -> Void
     public var onToggleAutoplay: () -> Void
+    public var onToggleWaveforms: () -> Void
     public var onToggleAllPlayerFolders: () -> Void
     public var onToggleFolderCollapse: (_ folderID: String) -> Void
     public var onHideFolder: (_ folderID: String) -> Void
@@ -64,11 +67,13 @@ public struct PlayerQueuePanelView: View, Equatable {
             lhs.themeId == rhs.themeId &&
             lhs.folderURL == rhs.folderURL &&
             lhs.playerFilterText == rhs.playerFilterText &&
+            lhs.mediaKindFilter == rhs.mediaKindFilter &&
             lhs.playerCollapsedFolderIDs == rhs.playerCollapsedFolderIDs &&
             lhs.hiddenFolderIDs == rhs.hiddenFolderIDs &&
             lhs.hideAllFolders == rhs.hideAllFolders &&
             lhs.isScanning == rhs.isScanning &&
             lhs.isAutoplayEnabled == rhs.isAutoplayEnabled &&
+            lhs.drawsWaveforms == rhs.drawsWaveforms &&
             isSameURL(lhs.slotAURL, rhs.slotAURL) &&
             lhs.slotAResolution == rhs.slotAResolution &&
             lhs.slotAFps == rhs.slotAFps &&
@@ -113,17 +118,25 @@ public struct PlayerQueuePanelView: View, Equatable {
             collapsedIDs: playerCollapsedFolderIDs,
             hiddenIDs: hiddenFolderIDs,
             hideAllFolders: hideAllFolders,
-            filterText: playerFilterText
+            filterText: playerFilterText,
+            kindMask: kindMask
         )
     }
+    
+    private var presentKinds: Int { MediaKindFilter.presentMask(of: videoFiles) }
+    private var kindMask: Int { MediaKindFilter.effectiveMask(mediaKindFilter, present: presentKinds) }
     
     private var filteredFiles: [URL] {
         let treeOrder = FileSystemTreeBuilder.orderedVideoURLs(from: playerTreeNodes)
         let baseFiles = treeOrder.isEmpty ? videoFiles : treeOrder
-        if playerFilterText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+        let mask = kindMask
+        let query = playerFilterText.trimmingCharacters(in: .whitespacesAndNewlines)
+        if query.isEmpty && mask == MediaKindFilter.all {
             return baseFiles
         }
-        return baseFiles.filter { $0.lastPathComponent.localizedCaseInsensitiveContains(playerFilterText) }
+        return baseFiles.filter {
+            MediaKindFilter.allows($0, mask: mask) && (query.isEmpty || $0.lastPathComponent.localizedCaseInsensitiveContains(query))
+        }
     }
 
     /// Queue list rows: the folder tree when there are subfolders, otherwise the flat file list as depth-0 nodes.
@@ -170,6 +183,11 @@ public struct PlayerQueuePanelView: View, Equatable {
                                 .foregroundColor(textMuted)
                         }
                         .buttonStyle(.plain)
+                    }
+                    
+                    let present = presentKinds
+                    if present.nonzeroBitCount > 1 {
+                        MediaKindFilterChips(mask: $mediaKindFilter, present: present, isLightMode: isLightMode)
                     }
                 }
                 .padding(.horizontal, 8)
@@ -274,6 +292,32 @@ public struct PlayerQueuePanelView: View, Equatable {
                     }
                     .buttonStyle(.plain)
                     .explain(isAutoplayEnabled ? "Autoplay: ON (Videos play from start when clicked or navigating with ↑/↓) [A]" : "Autoplay: OFF (Videos load paused at frame 0) [A]")
+                    
+                    // Waveform Toggle: audio is only decoded for the timeline when this is on
+                    Button(action: onToggleWaveforms) {
+                        HStack(spacing: StudioTheme.scale(3)) {
+                            Image(systemName: "waveform")
+                                .font(.system(size: StudioTheme.scaleFont(7.5), weight: .bold))
+                            SlotText(
+                                "WAVE",
+                                mode: .character,
+                                direction: .up,
+                                font: .system(size: StudioTheme.scaleFont(8), weight: .black, design: .monospaced),
+                                foregroundColor: drawsWaveforms ? accentPositive : textMuted,
+                                tracking: 0.3,
+                                stagger: 0.018,
+                                rollDistance: 9,
+                                trigger: drawsWaveforms
+                            )
+                        }
+                        .padding(.horizontal, StudioTheme.scale(4))
+                        .frame(height: StudioTheme.scale(18))
+                        .foregroundColor(drawsWaveforms ? accentPositive : textMuted)
+                        .studioBox(background: drawsWaveforms ? accentPositive.opacity(0.18) : bgSubtle,
+                                   border: drawsWaveforms ? accentPositive : borderLine)
+                    }
+                    .buttonStyle(.plain)
+                    .explain(drawsWaveforms ? "Waveform: ON (audio waveform under the timeline; scroll over it to resize) [W]" : "Waveform: OFF (click to draw the audio waveform under the timeline) [W]")
                 }
                 
                 if videoFiles.isEmpty {

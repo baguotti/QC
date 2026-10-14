@@ -50,8 +50,8 @@ public actor VideoScanner {
         public let flaggedVideosCount: Int
     }
     
-    /// Finds all video files within a given directory
-    public static func findVideoFiles(in directoryURL: URL) -> [URL] {
+    /// Finds all files the Player can open (video, image, audio) within a given directory
+    public static func findMediaFiles(in directoryURL: URL) -> [URL] {
         let fileManager = FileManager.default
         
         guard let enumerator = fileManager.enumerator(
@@ -64,7 +64,7 @@ public actor VideoScanner {
         
         var videoURLs: [URL] = []
         for case let fileURL as URL in enumerator {
-            if QCUtilities.isSupportedVideo(url: fileURL) {
+            if QCUtilities.isSupportedMedia(url: fileURL) {
                 videoURLs.append(fileURL)
             }
         }

@@ -1,6 +1,7 @@
 import SwiftUI
 import AppKit
 import AVFoundation
+import ImageIO
 import VideoQCLib
 
 // MARK: - Hardware-Accelerated Glitch Thumbnail Provider
@@ -25,6 +26,23 @@ public actor GlitchThumbnailProvider {
         let key = "\(url.standardizedFileURL.path)_\(frameIndex)_\(Int(targetSize.width))x\(Int(targetSize.height))"
         if let cached = cache[key] {
             return cached
+        }
+        switch QCUtilities.mediaKind(of: url) {
+        case .audio:
+            return nil
+        case .image:
+            // Uses the file's embedded thumbnail when it has one (JPEG/HEIC), so large stills stay cheap.
+            let options: [CFString: Any] = [
+                kCGImageSourceCreateThumbnailFromImageIfAbsent: true,
+                kCGImageSourceCreateThumbnailWithTransform: true,
+                kCGImageSourceThumbnailMaxPixelSize: Int(max(targetSize.width, targetSize.height))
+            ]
+            guard let source = CGImageSourceCreateWithURL(url as CFURL, nil),
+                  let thumb = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary) else { return nil }
+            storeInCache(key: key, image: thumb)
+            return thumb
+        default:
+            break
         }
         
         let gen: AVAssetImageGenerator
@@ -395,7 +413,7 @@ public struct AssetThumbnailView: View {
                         ProgressView()
                             .scaleEffect(0.35)
                     } else {
-                        Image(systemName: "video")
+                        Image(systemName: QCUtilities.mediaKind(of: fileURL) == .audio ? "waveform" : "video")
                             .font(.system(size: 9))
                             .foregroundColor(Color(white: 0.35))
                     }

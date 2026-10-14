@@ -229,6 +229,7 @@ public struct FileSystemTreeBuilder {
         let hiddenIDs: Set<String>
         let hideAllFolders: Bool
         let filterText: String
+        let kindMask: Int
         let result: [FileSystemTreeNode]
     }
     private static var flattenCache: [FlattenCacheEntry] = []
@@ -239,11 +240,13 @@ public struct FileSystemTreeBuilder {
         collapsedIDs: Set<String>,
         hiddenIDs: Set<String> = [],
         hideAllFolders: Bool = false,
-        filterText: String = ""
+        filterText: String = "",
+        kindMask: Int = 7 // MediaKindFilter.all (internal, so not usable as a public default)
     ) -> [FileSystemTreeNode] {
         if let match = flattenCache.first(where: {
             $0.hideAllFolders == hideAllFolders &&
             $0.filterText == filterText &&
+            $0.kindMask == kindMask &&
             $0.collapsedIDs == collapsedIDs &&
             $0.hiddenIDs == hiddenIDs &&
             $0.nodes == nodes
@@ -255,6 +258,13 @@ public struct FileSystemTreeBuilder {
         
         // If filter is active, check if a node or any of its descendants matches
         func nodeMatches(_ node: FileSystemTreeNode) -> Bool {
+            if kindMask != MediaKindFilter.all {
+                if node.isDirectory {
+                    guard node.videoURLs.contains(where: { MediaKindFilter.allows($0, mask: kindMask) }) else { return false }
+                } else if !MediaKindFilter.allows(node.url, mask: kindMask) {
+                    return false
+                }
+            }
             if cleanFilter.isEmpty { return true }
             if node.name.localizedCaseInsensitiveContains(cleanFilter) { return true }
             if node.isDirectory {
@@ -267,7 +277,7 @@ public struct FileSystemTreeBuilder {
         
         func traverse(_ list: [FileSystemTreeNode]) {
             for node in list {
-                guard cleanFilter.isEmpty || nodeMatches(node) else { continue }
+                guard (cleanFilter.isEmpty && kindMask == MediaKindFilter.all) || nodeMatches(node) else { continue }
                 
                 if node.isDirectory {
                     let isBannerHidden = hideAllFolders || hiddenIDs.contains(node.id)
@@ -310,6 +320,7 @@ public struct FileSystemTreeBuilder {
             hiddenIDs: hiddenIDs,
             hideAllFolders: hideAllFolders,
             filterText: filterText,
+            kindMask: kindMask,
             result: result
         ))
         return result

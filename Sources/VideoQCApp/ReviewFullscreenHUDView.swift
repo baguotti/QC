@@ -123,7 +123,7 @@ struct FullscreenPlayerView: View {
                         .lineLimit(1)
                     
                     if !engine.activeResolution.isEmpty {
-                        Text("\(engine.activeResolution) // \(String(format: "%.1f", engine.activeFps)) FPS // \(engine.activeCodec)")
+                        Text(engine.slotA.infoLine)
                             .font(.system(size: 10, weight: .bold, design: .monospaced))
                             .foregroundColor(palette.textMuted)
                     }
@@ -202,8 +202,8 @@ struct FullscreenPlayerView: View {
     
     private func openCompareFileInFullscreen() {
         let panel = NSOpenPanel()
-        panel.title = "Select Video to Compare (Slot B)"
-        panel.allowedContentTypes = [.movie, .video, .quickTimeMovie, .mpeg4Movie]
+        panel.title = "Select File to Compare (Slot B)"
+        panel.allowedContentTypes = [.movie, .video, .quickTimeMovie, .mpeg4Movie, .image, .audio]
         panel.allowsMultipleSelection = false
         panel.canChooseDirectories = false
         if panel.runModal() == .OK, let url = panel.url {
@@ -218,7 +218,7 @@ struct FullscreenPlayerView: View {
         VStack(spacing: 12) {
             // Timeline Scrubber
             TimelineScrubberView(engine: engine, isLightMode: isLightMode)
-                .frame(height: 52)
+                .disabled(!engine.hasTimeline)
             
             // Transport & Timecode Bar
             HStack(spacing: 12) {

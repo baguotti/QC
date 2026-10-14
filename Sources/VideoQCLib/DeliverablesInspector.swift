@@ -2,6 +2,8 @@ import Foundation
 @preconcurrency import AVFoundation
 import CoreMedia
 import Accelerate
+import ImageIO
+import UniformTypeIdentifiers
 
 public struct DeliverablesInspector: Sendable {
     
@@ -11,33 +13,46 @@ public struct DeliverablesInspector: Sendable {
     
     /// Inspects a single video file URL and extracts all delivery specifications
     public static func inspectFile(url: URL, calculateAudioLevels: Bool = false) async -> DeliverableAsset? {
+        if QCUtilities.mediaKind(of: url) == .image {
+            return inspectImage(url: url)
+        }
         let asset = AVURLAsset(url: url, options: [AVURLAssetPreferPreciseDurationAndTimingKey: true])
         
         do {
             let videoTracks = try await asset.loadTracks(withMediaType: .video)
-            guard let videoTrack = videoTracks.first else { return nil }
+            let audioTracks = (try? await asset.loadTracks(withMediaType: .audio)) ?? []
+            let videoTrack = videoTracks.first
+            guard videoTrack != nil || !audioTracks.isEmpty else { return nil }
             
-            // 1. Dimensions & Transform
-            let naturalSize = (try? await videoTrack.load(.naturalSize)) ?? .zero
-            let transform = (try? await videoTrack.load(.preferredTransform)) ?? .identity
-            let isTransposed = abs(transform.b) == 1.0 && abs(transform.c) == 1.0
+            // 1. Dimensions & Transform (0 x 0 for audio-only files)
+            var width = 0
+            var height = 0
+            if let videoTrack {
+                let naturalSize = (try? await videoTrack.load(.naturalSize)) ?? .zero
+                let transform = (try? await videoTrack.load(.preferredTransform)) ?? .identity
+                let isTransposed = abs(transform.b) == 1.0 && abs(transform.c) == 1.0
+                
+                let rawWidth = (naturalSize.width.isFinite && naturalSize.width > 0) ? Int(naturalSize.width) : 0
+                let rawHeight = (naturalSize.height.isFinite && naturalSize.height > 0) ? Int(naturalSize.height) : 0
+                width = isTransposed ? rawHeight : rawWidth
+                height = isTransposed ? rawWidth : rawHeight
+            }
+            let resolutionString = videoTrack == nil ? "--" : "\(width) x \(height)"
+            let aspectRatioString = videoTrack == nil ? "--" : calculateAspectRatio(width: width, height: height)
             
-            let rawWidth = (naturalSize.width.isFinite && naturalSize.width > 0) ? Int(naturalSize.width) : 0
-            let rawHeight = (naturalSize.height.isFinite && naturalSize.height > 0) ? Int(naturalSize.height) : 0
-            let width = isTransposed ? rawHeight : rawWidth
-            let height = isTransposed ? rawWidth : rawHeight
-            let resolutionString = "\(width) x \(height)"
-            let aspectRatioString = calculateAspectRatio(width: width, height: height)
-            
-            // 2. Framerate & Duration
-            let rawFPS = Double((try? await videoTrack.load(.nominalFrameRate)) ?? 25.0)
-            let fps = (rawFPS.isFinite && rawFPS > 0) ? rawFPS : 25.0
+            // 2. Framerate & Duration (audio-only: fps 0, timecode counted at 25)
+            var fps = 0.0
+            if let videoTrack {
+                let rawFPS = Double((try? await videoTrack.load(.nominalFrameRate)) ?? 25.0)
+                fps = (rawFPS.isFinite && rawFPS > 0) ? rawFPS : 25.0
+            }
             
             let duration = (try? await asset.load(.duration)) ?? .zero
             let rawDurationSeconds = CMTimeGetSeconds(duration)
             let durationSeconds = (rawDurationSeconds.isFinite && rawDurationSeconds >= 0) ? rawDurationSeconds : 0.0
-            let totalFrames = Int(max(0.0, min(Double(Int.max - 1), round(durationSeconds * fps))))
-            let timecode = TimecodeFormatter.format(frameIndex: totalFrames, fps: fps)
+            let timecodeFPS = fps > 0 ? fps : 25.0
+            let totalFrames = Int(max(0.0, min(Double(Int.max - 1), round(durationSeconds * timecodeFPS))))
+            let timecode = TimecodeFormatter.format(frameIndex: totalFrames, fps: timecodeFPS)
             let formattedDuration = String(format: "%.2fs", durationSeconds)
             
             // 3. File Size
@@ -46,10 +61,9 @@ public struct DeliverablesInspector: Sendable {
             let formattedFileSize = formatFileSize(bytes: fileSizeBytes)
             
             // 4. Video Codec
-            let videoCodec = await extractVideoCodec(track: videoTrack)
+            let videoCodec = videoTrack == nil ? "NONE" : await extractVideoCodec(track: videoTrack!)
             
             // 5. Audio Info (Codec, Bitrate, Sub-Details, Full Config or NONE)
-            let audioTracks = (try? await asset.loadTracks(withMediaType: .audio)) ?? []
             let audioInfo = await extractAudioInfo(tracks: audioTracks)
             let audioLevels: (peakDB: Double?, isMute: Bool, levelString: String)
             if calculateAudioLevels && !audioTracks.isEmpty {
@@ -113,6 +127,79 @@ public struct DeliverablesInspector: Sendable {
         } catch {
             return nil
         }
+    }
+    
+    /// Stills: pixel size, format, bit depth and colour profile via ImageIO (no duration, frame rate or audio).
+    public static func inspectImage(url: URL) -> DeliverableAsset? {
+        guard let source = CGImageSourceCreateWithURL(url as CFURL, nil),
+              let props = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any] else { return nil }
+        let rawWidth = props[kCGImagePropertyPixelWidth] as? Int ?? 0
+        let rawHeight = props[kCGImagePropertyPixelHeight] as? Int ?? 0
+        guard rawWidth > 0, rawHeight > 0 else { return nil }
+        // EXIF orientations 5–8 are rotated 90°.
+        let orientation = props[kCGImagePropertyOrientation] as? Int ?? 1
+        let isTransposed = orientation >= 5
+        let width = isTransposed ? rawHeight : rawWidth
+        let height = isTransposed ? rawWidth : rawHeight
+        let aspectRatioString = calculateAspectRatio(width: width, height: height)
+        
+        let fileSizeBytes = Int64((try? url.resourceValues(forKeys: [.fileSizeKey]))?.fileSize ?? 0)
+        var creationDate: Date? = nil
+        var formattedCreationDate = "--"
+        if let values = try? url.resourceValues(forKeys: [.creationDateKey, .contentModificationDateKey]),
+           let date = values.creationDate ?? values.contentModificationDate {
+            creationDate = date
+            let formatter = DateFormatter()
+            formatter.dateFormat = "yyyy-MM-dd HH:mm"
+            formattedCreationDate = formatter.string(from: date)
+        }
+        
+        let ratioOnly = validateFilename(fileName: url.lastPathComponent, durationSeconds: 0, aspectRatio: aspectRatioString,
+                                         width: width, height: height, hasAudioTrack: false)
+        return DeliverableAsset(
+            fileURL: url,
+            fileName: url.lastPathComponent,
+            fileSizeBytes: fileSizeBytes,
+            formattedFileSize: formatFileSize(bytes: fileSizeBytes),
+            width: width,
+            height: height,
+            resolutionString: "\(width) x \(height)",
+            aspectRatioString: aspectRatioString,
+            durationSeconds: 0,
+            formattedDuration: "--",
+            totalFrames: 0,
+            timecode: "--",
+            fps: 0,
+            videoCodec: imageFormatDescription(source: source, properties: props),
+            audioConfig: "NONE",
+            container: url.pathExtension.uppercased(),
+            creationDate: creationDate,
+            formattedCreationDate: formattedCreationDate,
+            validation: DeliverableValidation(isRatioMismatch: ratioOnly.isRatioMismatch,
+                                              expectedRatioString: ratioOnly.expectedRatioString,
+                                              ratioMismatchDetail: ratioOnly.ratioMismatchDetail)
+        )
+    }
+    
+    /// e.g. "PNG 16-bit RGBA · Display P3"
+    public static func imageFormatDescription(source: CGImageSource, properties props: [CFString: Any]) -> String {
+        var format = "IMAGE"
+        if let type = CGImageSourceGetType(source), let ext = UTType(type as String)?.preferredFilenameExtension {
+            format = ext.uppercased()
+        }
+        var parts = [format]
+        if let depth = props[kCGImagePropertyDepth] as? Int, depth > 0 {
+            parts.append("\(depth)-bit")
+        }
+        if let model = props[kCGImagePropertyColorModel] as? String {
+            let hasAlpha = props[kCGImagePropertyHasAlpha] as? Bool ?? false
+            parts.append(model.uppercased() + (hasAlpha && model == (kCGImagePropertyColorModelRGB as String) ? "A" : ""))
+        }
+        var text = parts.joined(separator: " ")
+        if let profile = props[kCGImagePropertyProfileName] as? String, !profile.isEmpty {
+            text += " · " + profile
+        }
+        return text
     }
     
     // MARK: - Pre-compiled Validation Regular Expressions
@@ -219,7 +306,7 @@ public struct DeliverablesInspector: Sendable {
         }
         
         // 2. Aspect Ratio validation: matches 16x9, 9x16, 4x5, 5x4, 1x1, 4x3, 3x4, 21x9, square
-        if let regex = ratioRegex {
+        if width > 0, height > 0, let regex = ratioRegex {
             let nsString = lowerName as NSString
             let matches = regex.matches(in: lowerName, range: NSRange(location: 0, length: nsString.length))
             if let firstMatch = matches.first, firstMatch.numberOfRanges > 1 {

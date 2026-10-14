@@ -365,7 +365,7 @@ final class TimelinePlayheadNSView: NSView {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         // Bottom-up layer space: SwiftUI y (from the top) → bounds.height - y - height.
-        needleLayer.frame = CGRect(x: playheadX - needleWidth / 2, y: bounds.height - 2 - 43, width: needleWidth, height: 43)
+        needleLayer.frame = CGRect(x: playheadX - needleWidth / 2, y: 1, width: needleWidth, height: max(0, bounds.height - 3))
         headLayer.position = CGPoint(x: playheadX, y: bounds.height - 1 - Self.headSize.height / 2)
         CATransaction.commit()
     }
