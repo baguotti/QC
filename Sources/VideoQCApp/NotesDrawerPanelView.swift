@@ -52,6 +52,7 @@ struct NotesDrawerPanelView: View {
     @State private var inlineSelectedColor: String = "cyan"
     @State private var showClearConfirmation: Bool = false
     @State private var editingNoteID: UUID? = nil
+    @State private var editColorTag: String = "cyan"
     @State private var editText: String = ""
     @State private var replyingNoteID: UUID? = nil
     @State private var replyText: String = ""
@@ -1002,6 +1003,7 @@ struct NotesDrawerPanelView: View {
                 // Edit Button
                 Button(action: {
                     editText = note.text
+                    editColorTag = note.colorTag
                     editingNoteID = note.id
                 }) {
                     Image(systemName: "pencil")
@@ -1092,6 +1094,18 @@ struct NotesDrawerPanelView: View {
                 }
                 .onExitCommand { editingNoteID = nil }
             HStack(spacing: 6) {
+                ForEach(QCNoteTheme.availableColors, id: \.id) { option in
+                    Button(action: { editColorTag = option.id }) {
+                        Circle()
+                            .fill(option.color)
+                            .frame(width: 10, height: 10)
+                            .overlay(Circle().stroke(palette.textMain, lineWidth: editColorTag == option.id ? 1.5 : 0).padding(-2))
+                            .frame(width: 16, height: 16)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .help(option.name)
+                }
                 Spacer()
                 Button("Cancel") { editingNoteID = nil }
                     .buttonStyle(.plain)
@@ -1108,9 +1122,11 @@ struct NotesDrawerPanelView: View {
     private func commitEdit(note: QCFileNote) {
         let clean = editText.trimmingCharacters(in: .whitespacesAndNewlines)
         editingNoteID = nil
-        guard !clean.isEmpty, clean != note.text else { return }
+        guard !clean.isEmpty, clean != note.text || editColorTag != note.colorTag else { return }
         var updated = note
+        updated.colorTag = editColorTag
         updated.text = clean
+        // Also stamped for colour-only edits: .qcnotes imports keep the most recently edited version.
         updated.editedAt = Date()
         onUpdateNote(updated)
     }
