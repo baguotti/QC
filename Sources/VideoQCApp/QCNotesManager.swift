@@ -238,7 +238,8 @@ public actor QCNotesManager {
     /// Final Cut Pro 7 XML (xmeml) that Premiere Pro imports via File > Import: a sequence named after the clip,
     /// with the clip on V1 and every note as a sequence marker (also as clip markers, so they travel with the clip).
     public nonisolated static func generatePremiereXML(notes: [QCFileNote], mediaName: String, mediaURL: URL,
-                                                       fps: Double, width: Int, height: Int, totalFrames: Int) -> String {
+                                                       fps: Double, width: Int, height: Int, totalFrames: Int,
+                                                       audioChannels: Int = 0, audioSampleRate: Int = 48000) -> String {
         let sorted = notes.sorted { $0.frameIndex < $1.frameIndex }
         let safeFps = fps > 0 ? fps : 25.0
         let timebase = Int(safeFps.rounded())
@@ -251,8 +252,34 @@ public actor QCNotesManager {
         let markers = sorted.map { note -> String in
             let frame = min(max(0, note.frameIndex), duration - 1)
             let title = note.author.isEmpty ? "QC Note" : note.author
-            return "<marker><name>\(xmlEscape(title))</name><comment>\(xmlEscape(note.text))</comment><in>\(frame)</in><out>-1</out></marker>"
+            return "<marker><name>\(xmlEscape(title))</name><comment>\(xmlEscape(note.text))</comment><in>\(frame)</in><out>-1</out><pproColor>\(premiereMarkerColor(note.colorTag))</pproColor></marker>"
         }.joined(separator: "\n")
+        // Audio: one linked clip on A1 (mono, or stereo for 2+ channels), sharing the video clip's file.
+        let audioCharacteristics = "<samplecharacteristics><depth>16</depth><samplerate>\(audioSampleRate)</samplerate></samplecharacteristics>"
+        let hasAudio = audioChannels > 0
+        let links = hasAudio
+            ? "<link><linkclipref>qcpie-clipitem</linkclipref><mediatype>video</mediatype><trackindex>1</trackindex><clipindex>1</clipindex></link><link><linkclipref>qcpie-audioitem</linkclipref><mediatype>audio</mediatype><trackindex>1</trackindex><clipindex>1</clipindex><groupindex>1</groupindex></link>"
+            : ""
+        let fileAudio = hasAudio ? "<audio>\(audioCharacteristics)<channelcount>\(audioChannels)</channelcount></audio>" : ""
+        let audioSection = hasAudio ? """
+        <audio>
+        <numOutputChannels>2</numOutputChannels>
+        <format>\(audioCharacteristics)</format>
+        <track>
+        <clipitem id="qcpie-audioitem" premiereChannelType="\(audioChannels == 1 ? "mono" : "stereo")">
+        <name>\(name)</name>
+        <duration>\(duration)</duration>
+        \(rate)
+        <start>0</start><end>\(duration)</end><in>0</in><out>\(duration)</out>
+        <file id="qcpie-file"/>
+        <sourcetrack><mediatype>audio</mediatype><trackindex>1</trackindex></sourcetrack>
+        \(links)
+        </clipitem>
+        </track>
+        </audio>
+        """ : ""
+        // Without these Premiere assumes a non-square (D1/DV) pixel aspect ratio for the sequence.
+        let pixelFormat = "<width>\(width)</width><height>\(height)</height><anamorphic>FALSE</anamorphic><pixelaspectratio>square</pixelaspectratio><fielddominance>none</fielddominance>"
 
         return """
         <?xml version="1.0" encoding="UTF-8"?>
@@ -264,7 +291,7 @@ public actor QCNotesManager {
         \(rate)
         <timecode>\(rate)<string>00:00:00:00</string><frame>0</frame><displayformat>NDF</displayformat></timecode>
         <media><video>
-        <format><samplecharacteristics>\(rate)<width>\(width)</width><height>\(height)</height></samplecharacteristics></format>
+        <format><samplecharacteristics>\(rate)\(pixelFormat)</samplecharacteristics></format>
         <track>
         <clipitem id="qcpie-clipitem">
         <name>\(name)</name>
@@ -276,18 +303,31 @@ public actor QCNotesManager {
         <pathurl>\(pathURL)</pathurl>
         \(rate)
         <duration>\(duration)</duration>
-        <media><video><samplecharacteristics>\(rate)<width>\(width)</width><height>\(height)</height></samplecharacteristics></video></media>
+        <media><video><samplecharacteristics>\(rate)\(pixelFormat)</samplecharacteristics></video>\(fileAudio)</media>
         </file>
+        \(links)
         \(markers)
         </clipitem>
         </track>
-        </video></media>
-        \(markers)
+        </video>
+        \(audioSection)
+        </media>
         </sequence>
         </xmeml>
         """
     }
 
+    /// Premiere marker colours (`pproColor`, packed 0xAABBGGRR). Premiere has no purple: it maps to magenta.
+    private nonisolated static func premiereMarkerColor(_ tag: String) -> UInt32 {
+        switch tag {
+        case "yellow": return 4281049552
+        case "green": return 4281828977
+        case "purple": return 4289825711
+        case "red": return 4281740498
+        default: return 4292277273 // cyan
+        }
+    }
+    
     private nonisolated static func xmlEscape(_ s: String) -> String {
         s.replacingOccurrences(of: "&", with: "&amp;")
             .replacingOccurrences(of: "<", with: "&lt;")

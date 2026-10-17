@@ -1307,11 +1307,20 @@ struct NotesDrawerPanelView: View {
                 }
             }
             if let duration = try? await asset.load(.duration) { seconds = CMTimeGetSeconds(duration) }
+            var audioChannels = 0
+            var audioSampleRate = 48000
+            if let track = try? await asset.loadTracks(withMediaType: .audio).first,
+               let desc = try? await track.load(.formatDescriptions).first,
+               let asbd = CMAudioFormatDescriptionGetStreamBasicDescription(desc)?.pointee {
+                audioChannels = max(1, Int(asbd.mChannelsPerFrame))
+                if asbd.mSampleRate > 0 { audioSampleRate = Int(asbd.mSampleRate) }
+            }
             let totalFrames = max(1, Int((seconds * fps).rounded()))
 
             let xml = QCNotesManager.generatePremiereXML(
                 notes: exportNotes, mediaName: name, mediaURL: url,
-                fps: fps, width: Int(size.width), height: Int(size.height), totalFrames: totalFrames
+                fps: fps, width: Int(size.width), height: Int(size.height), totalFrames: totalFrames,
+                audioChannels: audioChannels, audioSampleRate: audioSampleRate
             )
             let panel = NSSavePanel()
             panel.title = "Export Premiere Pro Markers"
