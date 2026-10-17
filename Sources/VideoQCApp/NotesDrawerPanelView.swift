@@ -53,6 +53,8 @@ struct NotesDrawerPanelView: View {
     @State private var showClearConfirmation: Bool = false
     @State private var editingNoteID: UUID? = nil
     @State private var editColorTag: String = "cyan"
+    /// Colours shown in the list; empty shows every note.
+    @State private var colorFilter: Set<String> = []
     @State private var editText: String = ""
     @State private var replyingNoteID: UUID? = nil
     @State private var replyText: String = ""
@@ -314,9 +316,14 @@ struct NotesDrawerPanelView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .background(palette.bgMain)
             } else {
+                let presentColors = QCNoteTheme.availableColors.map(\.id).filter { id in notes.contains { $0.colorTag == id } }
+                let activeFilter = colorFilter.intersection(presentColors)
+                if presentColors.count > 1 {
+                    noteColorFilterBar(presentColors: presentColors, active: activeFilter)
+                }
                 ScrollView {
                     LazyVStack(spacing: 8) {
-                        ForEach(notes.sorted { $0.frameIndex < $1.frameIndex }) { note in
+                        ForEach(notes.filter { activeFilter.isEmpty || activeFilter.contains($0.colorTag) }.sorted { $0.frameIndex < $1.frameIndex }) { note in
                             noteCard(note: note)
                                 .transition(.asymmetric(
                                     insertion: .offset(y: 12).combined(with: .opacity),
@@ -1071,6 +1078,45 @@ struct NotesDrawerPanelView: View {
         }
         .padding(9)
         .studioBox(background: palette.bgCardSubtle, border: palette.borderLine)
+    }
+    
+    // MARK: - Colour Filter
+    
+    private func noteColorFilterBar(presentColors: [String], active: Set<String>) -> some View {
+        HStack(spacing: 4) {
+            Text("FILTER")
+                .font(.system(size: 8.5, weight: .black, design: .monospaced))
+                .foregroundColor(palette.textMuted)
+            ForEach(presentColors, id: \.self) { id in
+                let isOn = active.contains(id)
+                Button(action: {
+                    if isOn { colorFilter.remove(id) } else { colorFilter.insert(id) }
+                }) {
+                    HStack(spacing: 4) {
+                        Circle().fill(colorForTag(id)).frame(width: 8, height: 8)
+                        Text("\(notes.filter { $0.colorTag == id }.count)")
+                            .font(.system(size: 8.5, weight: .bold, design: .monospaced))
+                            .foregroundColor(isOn ? palette.textMain : palette.textMuted)
+                    }
+                    .padding(.horizontal, 6)
+                    .frame(height: 18)
+                    .studioBox(background: isOn ? colorForTag(id).opacity(0.2) : palette.bgSubtle,
+                               border: isOn ? colorForTag(id) : palette.borderLine, radius: 3)
+                }
+                .buttonStyle(.plain)
+                .help(isOn ? "Stop filtering by this colour" : "Show only notes of this colour (click more to combine)")
+            }
+            Spacer()
+            if !active.isEmpty {
+                Button("SHOW ALL") { colorFilter.removeAll() }
+                    .buttonStyle(.plain)
+                    .font(.system(size: 8.5, weight: .bold, design: .monospaced))
+                    .foregroundColor(palette.accentBlue)
+            }
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 6)
+        .background(palette.bgMain)
     }
     
     // MARK: - Note Editing & Replies
