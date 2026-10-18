@@ -14,6 +14,13 @@ public struct AppConfig {
     /// GitHub Repository Name
     public static let githubRepoName = "QC"
     
+    /// Notes sync Worker (`server/notes-sync`), e.g. "https://qcpie-notes-sync.<account>.workers.dev". Empty hides sync.
+    public static let notesSyncServer = "https://qcpie-notes-sync.fusetti-riccardo.workers.dev"
+
+    public static var notesSyncServerURL: URL? {
+        notesSyncServer.isEmpty ? nil : URL(string: notesSyncServer)
+    }
+    
     /// Web URL for releases
     public static var githubReleasesWebURL: URL {
         URL(string: "https://github.com/\(githubRepoOwner)/\(githubRepoName)/releases") ?? URL(fileURLWithPath: "/")

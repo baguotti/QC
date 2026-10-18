@@ -1,0 +1,9 @@
+name = "qcpie-notes-sync"
+main = "src/index.js"
+compatibility_date = "2025-01-01"
+workers_dev = true
+
+[[d1_databases]]
+binding = "DB"
+database_name = "qcpie-notes"
+database_id = "1ed92f9f-64d2-4e21-ae22-1ad9fa78c6cf"

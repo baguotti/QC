@@ -177,6 +177,14 @@
 
 ---
 
+## 8b. Notes Sync (`NotesSync.swift`, `server/notes-sync`)
+
+- Off unless `AppConfig.notesSyncServer` is set and a password is entered (Settings → 06 // NOTES SYNC). Room id, clip ids (HMAC of file name + size) and the ChaChaPoly key all derive from the password; the Worker stores opaque blobs with an optimistic `version` (409 → re-fetch, merge, retry).
+- Merge is three-way against the last synced notes (`Application Support/QCpie/NotesSync`): `QCNotesManager.threeWayMerge`. Plain `merge` cannot sync deletions or un-resolving.
+- Only the clip whose notes are shown is polled (10 s, `?since=` → 204 when unchanged); saves push via `ContentView.saveNotes`. All network, crypto and JSON run on the `NotesSync` actor; the main thread only receives `NotesSync.didMergeRemoteNotes` when notes actually changed. `NotesSyncStatus` publishes on state changes only and is observed only by the Settings modal.
+
+---
+
 ## 9. Pre-Commit Checklist for Future Amends
 
 Before committing any changes affecting `VideoViewportView.swift`, `PlayerEngine.swift`, `PlayerTransportDeckView.swift`, or `KeyboardShortcutRouter.swift`:

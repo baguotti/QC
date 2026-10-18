@@ -246,6 +246,9 @@ struct ContentView: View {
                     }
                 }
             }
+            .onReceive(NotificationCenter.default.publisher(for: NotesSync.didMergeRemoteNotes)) { notification in
+                if let change = notification.object as? NotesSync.Change { applySyncedNotes(change) }
+            }
             .onReceive(fileOpenManager.$pendingURLs) { urls in
                 guard !urls.isEmpty else { return }
                 let isInitial = fileOpenManager.isInitialLaunchBatch
@@ -257,6 +260,8 @@ struct ContentView: View {
                 setupKeyboardMonitor()
                 loadFinderTagsForQueue()
                 updateManager.checkForUpdates(userInitiated: false)
+                let syncPassword = UserDefaults.standard.string(forKey: NotesSync.passwordKey) ?? ""
+                Task { await NotesSync.shared.configure(password: syncPassword) }
                 if !fileOpenManager.pendingURLs.isEmpty {
                     let urls = fileOpenManager.pendingURLs
                     let isInitial = fileOpenManager.isInitialLaunchBatch
@@ -531,7 +536,7 @@ struct ContentView: View {
                                 .foregroundColor(themeManager.currentTheme.playColor)
                                 .frame(width: 16)
                             VStack(alignment: .leading, spacing: 1) {
-                                Text("Theme & Accents")
+                                Text("Theme, Accents & Sync")
                                     .font(.system(size: 11, weight: .bold, design: .monospaced))
                                     .foregroundColor(textMain)
                                 Text(themeManager.currentTheme.name)
@@ -2103,6 +2108,7 @@ struct ContentView: View {
         guard let url = url else {
             playerEngine.activeNotes = []
             playerEngine.activeNotesURL = nil
+            Task { await NotesSync.shared.setActive(nil) }
             return
         }
         Task { @MainActor in
@@ -2131,6 +2137,7 @@ struct ContentView: View {
             if targetURL == url {
                 self.playerEngine.activeNotes = notes
                 self.playerEngine.activeNotesURL = url
+                await NotesSync.shared.setActive(url)
             }
         }
     }
@@ -2295,7 +2302,19 @@ struct ContentView: View {
         let fps = isSameURL(url, playerEngine.slotB.url) ? playerEngine.slotB.fps : playerEngine.activeFps
         Task {
             await QCNotesManager.shared.saveNotes(notes, for: url, fps: fps)
+            await NotesSync.shared.push(url)
         }
+    }
+
+    /// Shows notes another Mac changed, keeping edits made here while that sync was in flight.
+    func applySyncedNotes(_ change: NotesSync.Change) {
+        guard let url = notesTargetURL, isSameURL(url, change.url) else { return }
+        let notes = QCNotesManager.threeWayMerge(local: playerEngine.activeNotes, remote: change.notes, base: change.localSnapshot)
+        withAnimation(.spring(response: 0.32, dampingFraction: 0.78)) {
+            playerEngine.activeNotes = notes
+            playerEngine.activeNotesURL = url
+        }
+        if Set(notes) != Set(change.notes) { saveNotes(notes, for: url) }
     }
 }
 
