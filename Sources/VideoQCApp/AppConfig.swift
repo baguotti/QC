@@ -15,7 +15,7 @@ public struct AppConfig {
     public static let githubRepoName = "QC"
     
     /// Notes sync Worker (`server/notes-sync`), e.g. "https://qcpie-notes-sync.<account>.workers.dev". Empty hides sync.
-    public static let notesSyncServer = ""
+    public static let notesSyncServer = "https://qcpie-notes-sync.fusetti-riccardo.workers.dev"
 
     public static var notesSyncServerURL: URL? {
         notesSyncServer.isEmpty ? nil : URL(string: notesSyncServer)

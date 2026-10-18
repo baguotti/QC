@@ -6,4 +6,4 @@ workers_dev = true
 [[d1_databases]]
 binding = "DB"
 database_name = "qcpie-notes"
-database_id = "PASTE_DATABASE_ID_HERE"
+database_id = "1ed92f9f-64d2-4e21-ae22-1ad9fa78c6cf"
