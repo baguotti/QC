@@ -114,6 +114,15 @@ public actor QCNotesManager {
         }
     }
     
+    /// Frame rate recorded in the sidecar, so a sync rewrite keeps it.
+    public func storedFps(for mediaURL: URL) -> Double? {
+        let hiddenURL = QCNotesManager.sidecarURL(for: mediaURL)
+        let visibleURL = QCNotesManager.visibleSidecarURL(for: mediaURL)
+        let url = FileManager.default.fileExists(atPath: hiddenURL.path) ? hiddenURL : visibleURL
+        guard let data = try? Data(contentsOf: url) else { return nil }
+        return (try? decoder.decode(QCNotesDocument.self, from: data))?.fps
+    }
+
     /// Saves notes atomically to the hidden companion `.<filename>.<ext>.qcnotes` sidecar file.
     @discardableResult
     public func saveNotes(_ notes: [QCFileNote], for mediaURL: URL, fps: Double) -> Bool {
@@ -211,6 +220,31 @@ public actor QCNotesManager {
             byID[note.id] = current
         }
         return (byID.values.sorted { $0.frameIndex < $1.frameIndex }, added, updated)
+    }
+
+    /// Sync merge against the notes both sides last agreed on (`base`): a note missing on one side that is in `base`
+    /// was deleted there; a note changed on one side only takes that side; changed on both falls back to `merge`.
+    public nonisolated static func threeWayMerge(local: [QCFileNote], remote: [QCFileNote], base: [QCFileNote]) -> [QCFileNote] {
+        let baseByID = Dictionary(base.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
+        let localByID = Dictionary(local.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
+        let remoteByID = Dictionary(remote.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
+        var result: [QCFileNote] = []
+        for id in Set(localByID.keys).union(remoteByID.keys) {
+            let original = baseByID[id]
+            switch (localByID[id], remoteByID[id]) {
+            case let (l?, r?):
+                if l == original { result.append(r) }
+                else if r == original { result.append(l) }
+                else { result.append(contentsOf: merge(existing: [l], incoming: [r]).notes) }
+            case let (l?, nil):
+                if original == nil { result.append(l) }
+            case let (nil, r?):
+                if original == nil { result.append(r) }
+            case (nil, nil):
+                break
+            }
+        }
+        return result.sorted { ($0.frameIndex, $0.createdAt) < ($1.frameIndex, $1.createdAt) }
     }
 
     // MARK: - Export Utilities
