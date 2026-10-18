@@ -639,7 +639,7 @@ struct ThemeSettingsModalView: View {
                     .foregroundColor(palette.textSubtle)
             } else if syncPassword.isEmpty {
                 HStack(spacing: 8) {
-                    TextField("Paste the sync password", text: $syncPasswordDraft)
+                    TextField("Type your own password or paste one", text: $syncPasswordDraft)
                         .textFieldStyle(.plain)
                         .font(.system(size: 11, design: .monospaced))
                         .padding(.horizontal, 8)
@@ -647,12 +647,12 @@ struct ThemeSettingsModalView: View {
                         .studioBox(background: palette.bgSubtle, border: palette.borderLine)
                         .onSubmit { connectNotesSync(syncPasswordDraft) }
                     
-                    syncButton("CONNECT", primary: true) { connectNotesSync(syncPasswordDraft) }
+                    syncButton("USE PASSWORD", primary: true) { connectNotesSync(syncPasswordDraft) }
                         .disabled(NotesSync.deriveKeys(password: syncPasswordDraft) == nil)
-                    syncButton("CREATE PASSWORD") { connectNotesSync(NotesSync.generatePassword(), copy: true) }
+                    syncButton("GENERATE") { connectNotesSync(NotesSync.generatePassword(), copy: true) }
                 }
                 
-                Text("Everyone using the same password shares notes. Create one here and send it to your collaborators, or paste the one you received.")
+                Text("Everyone using the same password shares notes. Type your own (8+ characters, not case-sensitive; longer is safer, since anyone who guesses it can read the notes), GENERATE a strong one, or paste the one you received.")
                     .font(.system(size: 9))
                     .foregroundColor(palette.textSubtle)
                     .fixedSize(horizontal: false, vertical: true)

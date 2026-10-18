@@ -28,8 +28,8 @@ Stores one encrypted blob per clip. The app derives everything from the sync pas
 ## Use
 
 Settings menu → **Theme, Accents & Sync** → **06 // NOTES SYNC**:
-- **CREATE PASSWORD** generates one and copies it; send it to your collaborators.
-- Collaborators paste it and press **CONNECT**. Nothing else to set up.
+- Type your own password (8+ characters, not case-sensitive) and press **USE PASSWORD**, or press **GENERATE** for a strong one (copied to the clipboard).
+- Send it to your collaborators; they paste it and press **USE PASSWORD**. Nothing else to set up.
 
 Anyone with the password can read and change the shared notes; to revoke access, everyone switches to a new password (old notes stay on the server under the old one).
 
