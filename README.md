@@ -106,6 +106,33 @@ QCpie is a high-performance native macOS application for video post-production t
 
 ---
 
+## NOTES SYNC (CLOUDFLARE)
+
+Notes sync between Macs through a Cloudflare Worker on the free plan (added in v0.8.10). Server code and full deploy steps: [`server/notes-sync`](server/notes-sync/README.md).
+
+### DEPLOYMENT
+| Item | Value |
+| :--- | :--- |
+| Cloudflare account | fusetti.riccardo@gmail.com (Google login) |
+| Worker | `qcpie-notes-sync` |
+| URL | https://qcpie-notes-sync.fusetti-riccardo.workers.dev (set in `AppConfig.notesSyncServer`) |
+| D1 database | `qcpie-notes`, id `1ed92f9f-64d2-4e21-ae22-1ad9fa78c6cf` (in `server/notes-sync/wrangler.toml`) |
+| Table | `clips (room, clip, version, data, updated_at)`: one encrypted blob per clip |
+
+### HOW IT WORKS
+- Settings → **Theme, Accents & Sync** → **06 // NOTES SYNC**: type a password (8+ characters, not case-sensitive) or **GENERATE** one. Everyone with the same password shares notes.
+- Notes are encrypted on each Mac (ChaChaPoly, key derived from the password); the server only stores unreadable blobs. Clips match by file name + size, so files can live in any folder.
+- The open clip is checked every 10 s and saves upload immediately; offline edits upload later. Free plan: 100k requests/day, about 8.6k per Mac per day while QCpie is open.
+
+### REDEPLOY AFTER CHANGING THE WORKER
+```bash
+cd server/notes-sync
+npx wrangler login
+npx wrangler deploy
+```
+
+---
+
 ## BUILD & COMPILATION
 
 ### SYSTEM REQUIREMENTS
