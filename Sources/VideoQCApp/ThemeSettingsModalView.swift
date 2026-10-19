@@ -9,10 +9,6 @@ struct ThemeSettingsModalView: View {
     @State private var isSavingPreset: Bool = false
     @State private var newPresetName: String = ""
     @State private var showUpdatedNotice: Bool = false
-    @AppStorage(NotesSync.passwordKey) private var syncPassword: String = ""
-    @ObservedObject private var syncStatus = NotesSyncStatus.shared
-    @State private var syncPasswordDraft: String = ""
-    @State private var revealSyncPassword: Bool = false
     
     private var palette: StudioPalette { StudioPalette(isLightMode) }
     
@@ -34,7 +30,7 @@ struct ThemeSettingsModalView: View {
                         Image(systemName: "paintpalette.fill")
                             .font(.system(size: 13, weight: .bold))
                             .foregroundColor(themeManager.currentTheme.playColor)
-                        Text("SETTINGS // QCpie")
+                        Text("APPEARANCE & THEME // QCpie")
                             .font(.system(size: 12, weight: .black, design: .monospaced))
                             .foregroundColor(palette.textMain)
                     }
@@ -75,9 +71,6 @@ struct ThemeSettingsModalView: View {
                         
                         // Section 5: Live UI Element Preview
                         previewSection
-                        
-                        // Section 6: Notes Sync
-                        notesSyncSection
                     }
                     .padding(20)
                 }
@@ -613,127 +606,6 @@ struct ThemeSettingsModalView: View {
             .cornerRadius(StudioTheme.cornerRadius)
         }
         .buttonStyle(.plain)
-    }
-    
-    // MARK: - Section 6: Notes Sync
-    
-    private var notesSyncSection: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack {
-                Text("06 // NOTES SYNC")
-                    .font(.system(size: 10, weight: .black, design: .monospaced))
-                    .foregroundColor(palette.textMuted)
-                    .tracking(0.5)
-                
-                Spacer()
-                
-                Text(syncStatusText)
-                    .font(.system(size: 9, weight: .bold, design: .monospaced))
-                    .foregroundColor(syncStatusColor)
-                    .lineLimit(1)
-            }
-            
-            if syncStatus.state == .unavailable {
-                Text("No sync server is configured in this build.")
-                    .font(.system(size: 10))
-                    .foregroundColor(palette.textSubtle)
-            } else if syncPassword.isEmpty {
-                HStack(spacing: 8) {
-                    TextField("Type your own password or paste one", text: $syncPasswordDraft)
-                        .textFieldStyle(.plain)
-                        .font(.system(size: 11, design: .monospaced))
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 6)
-                        .studioBox(background: palette.bgSubtle, border: palette.borderLine)
-                        .onSubmit { connectNotesSync(syncPasswordDraft) }
-                    
-                    syncButton("USE PASSWORD", primary: true) { connectNotesSync(syncPasswordDraft) }
-                        .disabled(NotesSync.deriveKeys(password: syncPasswordDraft) == nil)
-                    syncButton("GENERATE") { connectNotesSync(NotesSync.generatePassword(), copy: true) }
-                }
-                
-                Text("Everyone using the same password shares notes. Type your own (8+ characters, not case-sensitive; longer is safer, since anyone who guesses it can read the notes), GENERATE a strong one, or paste the one you received.")
-                    .font(.system(size: 9))
-                    .foregroundColor(palette.textSubtle)
-                    .fixedSize(horizontal: false, vertical: true)
-            } else {
-                HStack(spacing: 8) {
-                    Text(revealSyncPassword ? syncPassword : String(repeating: "•", count: syncPassword.count))
-                        .font(.system(size: 11, design: .monospaced))
-                        .foregroundColor(palette.textMain)
-                        .textSelection(.enabled)
-                        .lineLimit(1)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 6)
-                        .studioBox(background: palette.bgSubtle, border: palette.borderLine)
-                    
-                    syncButton(revealSyncPassword ? "HIDE" : "SHOW") { revealSyncPassword.toggle() }
-                    syncButton("COPY") { copyToPasteboard(syncPassword) }
-                    syncButton("TURN OFF") {
-                        syncPassword = ""
-                        syncPasswordDraft = ""
-                        Task { await NotesSync.shared.configure(password: "") }
-                    }
-                }
-                
-                Text("Notes are encrypted on this Mac with the password before upload. Clips match by file name and size, so each person can keep files in any folder.")
-                    .font(.system(size: 9))
-                    .foregroundColor(palette.textSubtle)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-        }
-    }
-    
-    private var syncStatusText: String {
-        switch syncStatus.state {
-        case .unavailable: return "UNAVAILABLE"
-        case .off: return "OFF"
-        case .on: return "ON"
-        case .upToDate:
-            if let date = syncStatus.lastReceived {
-                return "UP TO DATE · LAST CHANGE \(date.formatted(date: .omitted, time: .shortened))"
-            }
-            return "UP TO DATE"
-        case .offline: return "OFFLINE · SAVED LOCALLY"
-        case .failed(let message): return message.uppercased()
-        }
-    }
-    
-    private var syncStatusColor: Color {
-        switch syncStatus.state {
-        case .on, .upToDate: return themeManager.currentTheme.playColor
-        case .offline, .failed: return Color.orange
-        case .off, .unavailable: return palette.textSubtle
-        }
-    }
-    
-    private func syncButton(_ title: String, primary: Bool = false, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Text(title)
-                .font(.system(size: 10, weight: .bold, design: .monospaced))
-                .padding(.horizontal, 9)
-                .padding(.vertical, 6)
-                .foregroundColor(primary ? palette.primaryBtnFg : palette.textMain)
-                .studioBox(background: primary ? palette.primaryBtnBg : palette.bgSubtle, border: palette.borderLine)
-        }
-        .buttonStyle(.plain)
-    }
-    
-    private func connectNotesSync(_ password: String, copy: Bool = false) {
-        let password = password.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard NotesSync.deriveKeys(password: password) != nil else { return }
-        syncPassword = password
-        if copy {
-            copyToPasteboard(password)
-            revealSyncPassword = true
-        }
-        Task { await NotesSync.shared.configure(password: password) }
-    }
-    
-    private func copyToPasteboard(_ text: String) {
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(text, forType: .string)
     }
     
     // MARK: - Section 5: Live UI Element Preview

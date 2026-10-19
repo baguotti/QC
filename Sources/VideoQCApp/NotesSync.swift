@@ -6,9 +6,10 @@ import VideoQCLib
 /// Everything is derived from the shared password: the room id (server path), each clip id (HMAC of file name + size,
 /// so collaborators can keep files anywhere) and the ChaChaPoly key, so the server only stores opaque blobs.
 /// Only the clip whose notes are shown is polled; saves push immediately, failed pushes retry on the next poll.
+/// Several projects (passwords) can be connected at once: each clip belongs to the project that already has notes for it,
+/// otherwise to the default project once it gets notes, or to the one picked in the Notes drawer.
 actor NotesSync {
     static let shared = NotesSync()
-    static let passwordKey = "notesSyncPassword"
     static let didMergeRemoteNotes = Notification.Name("QCpieNotesSyncDidMergeRemoteNotes")
 
     /// Posted on the main thread as the notification's `object` when a sync changed a clip's notes on disk.
@@ -23,6 +24,11 @@ actor NotesSync {
         let room: String
         let clipKey: Data
         let sealKey: Data
+    }
+
+    private struct Connected {
+        let id: UUID
+        let keys: Keys
     }
 
     /// Notes as of the last successful sync of a clip: the base of the three-way merge.
@@ -43,7 +49,11 @@ actor NotesSync {
     }
 
     private let pollInterval: Duration = .seconds(10)
-    private var keys: Keys?
+    /// Connected projects, default first.
+    private var projects: [Connected] = []
+    /// Clip fingerprint (file name + size) → project id. Persisted so a clip keeps its project.
+    private var assignments: [String: UUID] = [:]
+    private var assignmentsLoaded = false
     private var activeURL: URL?
     private var pending: Set<URL> = []
     private var running: Set<URL> = []
@@ -75,32 +85,50 @@ actor NotesSync {
 
     // MARK: - Configuration
 
-    /// Applies the password from Settings (empty turns sync off) and starts or stops polling.
-    func configure(password: String) {
-        let newKeys = Self.deriveKeys(password: password)
-        guard newKeys?.room != keys?.room else { return }
-        keys = newKeys
-        bases = [:]
+    /// Applies the projects from Settings (none turns sync off) and starts or stops polling.
+    func configure(projects newProjects: [NotesSyncProject], defaultID: UUID?) async {
+        let ordered = newProjects.sorted { ($0.id == defaultID ? 0 : 1) < ($1.id == defaultID ? 0 : 1) }
+        let derived = ordered.compactMap { project in Self.deriveKeys(password: project.password).map { Connected(id: project.id, keys: $0) } }
+        let summaries = ordered.map { NotesSyncProjectSummary(id: $0.id, name: $0.displayName) }
+        await MainActor.run { NotesSyncStatus.shared.setProjects(summaries, defaultID: defaultID) }
+        guard derived.map({ "\($0.id)/\($0.keys.room)" }) != projects.map({ "\($0.id)/\($0.keys.room)" }) else { return }
+        projects = derived
         pending = []
         pollTask?.cancel()
         pollTask = nil
-        guard newKeys != nil, Self.isAvailable else {
-            Task { @MainActor in NotesSyncStatus.shared.update(Self.isAvailable ? .off : .unavailable) }
+        guard !derived.isEmpty, Self.isAvailable else {
+            await MainActor.run { NotesSyncStatus.shared.update(Self.isAvailable ? .off : .unavailable) }
             return
         }
-        Task { @MainActor in NotesSyncStatus.shared.update(.on) }
+        await MainActor.run { NotesSyncStatus.shared.update(.on) }
         pollTask = Task { [pollInterval] in
             while !Task.isCancelled {
                 await self.poll()
                 try? await Task.sleep(for: pollInterval)
             }
         }
+        if let activeURL { await publishActiveProject(for: activeURL) }
+    }
+
+    /// Moves a clip to another project (picked in the Notes drawer); its local notes are merged into that project.
+    func assign(_ url: URL, to projectID: UUID) async {
+        guard let fingerprint = Self.fingerprint(of: url) else { return }
+        loadAssignments()
+        assignments[fingerprint] = projectID
+        storeAssignments()
+        await publishActiveProject(for: url)
+        await sync(url)
     }
 
     /// The clip whose notes are on screen: synced now and on every poll.
     func setActive(_ url: URL?) async {
         activeURL = url
-        if let url { await sync(url) }
+        if let url {
+            await publishActiveProject(for: url)
+            await sync(url)
+        } else {
+            await MainActor.run { NotesSyncStatus.shared.setActiveProject(nil) }
+        }
     }
 
     /// Call after notes were saved to disk.
@@ -117,7 +145,8 @@ actor NotesSync {
     // MARK: - Sync
 
     private func sync(_ url: URL) async {
-        guard let keys, Self.isAvailable else { return }
+        guard !projects.isEmpty, Self.isAvailable else { return }
+        let rooms = projects.map { $0.keys.room }
         if running.contains(url) {
             rerun.insert(url)
             return
@@ -127,7 +156,9 @@ actor NotesSync {
         repeat {
             rerun.remove(url)
             do {
-                try await syncOnce(url, keys: keys)
+                if let keys = try await project(for: url)?.keys {
+                    try await syncOnce(url, keys: keys)
+                }
                 pending.remove(url)
                 await MainActor.run { NotesSyncStatus.shared.update(.upToDate) }
             } catch is CancellationError {
@@ -141,7 +172,39 @@ actor NotesSync {
                 pending.insert(url)
                 await MainActor.run { NotesSyncStatus.shared.update(.offline) }
             }
-        } while rerun.contains(url) && self.keys?.room == keys.room
+        } while rerun.contains(url) && projects.map({ $0.keys.room }) == rooms
+    }
+
+    /// The clip's project: its saved assignment, else the first project holding notes for it (default first),
+    /// else the default project once the clip has local notes. `nil` while nothing is known (re-checked each poll).
+    private func project(for url: URL) async throws -> Connected? {
+        guard let fingerprint = Self.fingerprint(of: url) else { return nil }
+        loadAssignments()
+        if let id = assignments[fingerprint], let match = projects.first(where: { $0.id == id }) { return match }
+        var found: Connected?
+        for candidate in projects {
+            guard let clip = Self.clipID(for: url, key: candidate.keys.clipKey) else { continue }
+            if case .document(let version, _) = try await fetch(room: candidate.keys.room, clip: clip, since: nil), version > 0 {
+                found = candidate
+                break
+            }
+        }
+        if found == nil, let fallback = projects.first {
+            let hasLocalNotes = !(await QCNotesManager.shared.loadNotes(for: url)).isEmpty
+            if hasLocalNotes { found = fallback }
+        }
+        guard let found else { return nil }
+        assignments[fingerprint] = found.id
+        storeAssignments()
+        if url == activeURL { await MainActor.run { NotesSyncStatus.shared.setActiveProject(found.id) } }
+        return found
+    }
+
+    private func publishActiveProject(for url: URL) async {
+        loadAssignments()
+        let id = Self.fingerprint(of: url).flatMap { assignments[$0] }
+        let known = projects.contains { $0.id == id } ? id : nil
+        await MainActor.run { NotesSyncStatus.shared.setActiveProject(known) }
     }
 
     private func syncOnce(_ url: URL, keys: Keys) async throws {
@@ -243,10 +306,15 @@ actor NotesSync {
         return stride(from: 0, to: chars.count, by: 5).map { String(chars[$0..<$0 + 5]) }.joined(separator: "-")
     }
 
-    private nonisolated static func clipID(for url: URL, key: Data) -> String? {
+    /// File name + size: how the same clip is recognised on every Mac.
+    private nonisolated static func fingerprint(of url: URL) -> String? {
         guard let size = (try? url.resourceValues(forKeys: [.fileSizeKey]))?.fileSize else { return nil }
-        let name = url.lastPathComponent.precomposedStringWithCanonicalMapping
-        let mac = HMAC<SHA256>.authenticationCode(for: Data("\(name)|\(size)".utf8), using: SymmetricKey(data: key))
+        return "\(url.lastPathComponent.precomposedStringWithCanonicalMapping)|\(size)"
+    }
+
+    private nonisolated static func clipID(for url: URL, key: Data) -> String? {
+        guard let fingerprint = fingerprint(of: url) else { return nil }
+        let mac = HMAC<SHA256>.authenticationCode(for: Data(fingerprint.utf8), using: SymmetricKey(data: key))
         return mac.withUnsafeBytes { hex(Data($0)) }
     }
 
@@ -275,21 +343,46 @@ actor NotesSync {
     }
 
     private func loadBase(clip: String, room: String) -> Base? {
-        if let cached = bases[clip] { return cached }
+        if let cached = bases["\(room)/\(clip)"] { return cached }
         guard let url = baseURL(clip: clip, room: room),
               let data = try? Data(contentsOf: url),
               let base = try? decoder.decode(Base.self, from: data)
         else { return nil }
-        bases[clip] = base
+        bases["\(room)/\(clip)"] = base
         return base
     }
 
+    private var assignmentsURL: URL? {
+        FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first?
+            .appendingPathComponent("QCpie/NotesSync/assignments.json")
+    }
+
+    private func loadAssignments() {
+        guard !assignmentsLoaded else { return }
+        assignmentsLoaded = true
+        guard let url = assignmentsURL, let data = try? Data(contentsOf: url),
+              let saved = try? decoder.decode([String: UUID].self, from: data)
+        else { return }
+        assignments = saved
+    }
+
+    private func storeAssignments() {
+        guard let url = assignmentsURL, let data = try? encoder.encode(assignments) else { return }
+        try? FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try? data.write(to: url, options: .atomic)
+    }
+
     private func storeBase(_ base: Base, clip: String, room: String) {
-        bases[clip] = base
+        bases["\(room)/\(clip)"] = base
         guard let url = baseURL(clip: clip, room: room), let data = try? encoder.encode(base) else { return }
         try? FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
         try? data.write(to: url, options: .atomic)
     }
+}
+
+struct NotesSyncProjectSummary: Identifiable, Equatable, Sendable {
+    let id: UUID
+    let name: String
 }
 
 /// Sync state for the Settings section. Publishes only when the state changes (not on every poll).
@@ -308,12 +401,75 @@ final class NotesSyncStatus: ObservableObject {
 
     @Published private(set) var state: State = NotesSync.isAvailable ? .off : .unavailable
     @Published private(set) var lastReceived: Date?
+    /// Connected projects, default first.
+    @Published private(set) var projects: [NotesSyncProjectSummary] = []
+    @Published private(set) var defaultProjectID: UUID?
+    /// Project of the clip whose notes are shown; `nil` until it has synced notes.
+    @Published private(set) var activeProjectID: UUID?
 
     func update(_ newState: State) {
         if state != newState { state = newState }
     }
 
+    func setProjects(_ newProjects: [NotesSyncProjectSummary], defaultID: UUID?) {
+        if projects != newProjects { projects = newProjects }
+        if defaultProjectID != defaultID { defaultProjectID = defaultID }
+    }
+
+    func setActiveProject(_ id: UUID?) {
+        if activeProjectID != id { activeProjectID = id }
+    }
+
     func noteReceived() {
         lastReceived = Date()
+    }
+}
+
+/// A notes sync project: everyone using the same password shares its notes. Stored in UserDefaults.
+struct NotesSyncProject: Codable, Identifiable, Equatable, Sendable {
+    var id = UUID()
+    var name: String
+    var password: String
+
+    var displayName: String {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? "Untitled Project" : trimmed
+    }
+
+    private static let projectsKey = "notesSyncProjects"
+    private static let defaultKey = "notesSyncDefaultProject"
+    /// v0.8.10 stored a single password.
+    private static let legacyPasswordKey = "notesSyncPassword"
+
+    static func loadAll() -> [NotesSyncProject] {
+        let defaults = UserDefaults.standard
+        if let data = defaults.data(forKey: projectsKey),
+           let projects = try? JSONDecoder().decode([NotesSyncProject].self, from: data) {
+            return projects
+        }
+        guard let legacy = defaults.string(forKey: legacyPasswordKey), !legacy.isEmpty else { return [] }
+        let migrated = [NotesSyncProject(name: "Project 1", password: legacy)]
+        save(migrated, defaultID: migrated[0].id)
+        defaults.removeObject(forKey: legacyPasswordKey)
+        return migrated
+    }
+
+    static func defaultID(in projects: [NotesSyncProject]) -> UUID? {
+        let stored = UserDefaults.standard.string(forKey: defaultKey).flatMap(UUID.init(uuidString:))
+        return projects.contains { $0.id == stored } ? stored : projects.first?.id
+    }
+
+    static func save(_ projects: [NotesSyncProject], defaultID: UUID?) {
+        if let data = try? JSONEncoder().encode(projects) {
+            UserDefaults.standard.set(data, forKey: projectsKey)
+        }
+        UserDefaults.standard.set(defaultID?.uuidString, forKey: defaultKey)
+    }
+
+    /// Loads the saved projects and (re)configures the sync engine.
+    static func applySaved() {
+        let projects = loadAll()
+        let defaultID = defaultID(in: projects)
+        Task { await NotesSync.shared.configure(projects: projects, defaultID: defaultID) }
     }
 }

@@ -463,7 +463,7 @@ public final class PlayerEngine: ObservableObject {
             compareMode = .sideBySide
         }
     }
-    @Published public var isLinked: Bool = true
+    @Published public var isLinked: Bool = UserPreferences.linkSlots
     @Published public var audioSlot: SlotTarget = .slotA {
         didSet {
             updateAudioVolumes()
@@ -484,8 +484,8 @@ public final class PlayerEngine: ObservableObject {
             }
         }
     }
-    @Published public var clipInfoOverlayMode: ClipInfoOverlayMode = .resolution
-    @Published public var showResolutionLabels: Bool = true
+    @Published public var clipInfoOverlayMode: ClipInfoOverlayMode = UserPreferences.clipInfoOverlay
+    @Published public var showResolutionLabels: Bool = UserPreferences.clipInfoOverlay != .off
     
     public func cycleClipInfoOverlayMode() {
         self.clipInfoOverlayMode = self.clipInfoOverlayMode.next
@@ -845,7 +845,7 @@ public final class PlayerEngine: ObservableObject {
             updateAudioVolumes()
         }
     }
-    @Published public var isMuted: Bool = false {
+    @Published public var isMuted: Bool = UserPreferences.startMuted {
         didSet {
             updateAudioVolumes()
         }

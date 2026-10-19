@@ -27,9 +27,9 @@ Stores one encrypted blob per clip. The app derives everything from the sync pas
 
 ## Use
 
-Settings menu → **Theme, Accents & Sync** → **06 // NOTES SYNC**:
-- Type your own password (8+ characters, not case-sensitive) and press **USE PASSWORD**, or press **GENERATE** for a strong one (copied to the clipboard).
-- Send it to your collaborators; they paste it and press **USE PASSWORD**. Nothing else to set up.
+Gear menu → **Synced Projects**:
+- Add a project: a name plus your own password (8+ characters, not case-sensitive) and **ADD**, or **GENERATE** a strong one (copied to the clipboard).
+- Send the password to your collaborators; they add it as a project too. Several projects can be connected at once.
 
 Anyone with the password can read and change the shared notes; to revoke access, everyone switches to a new password (old notes stay on the server under the old one).
 
