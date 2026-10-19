@@ -9,12 +9,6 @@ struct ThemeSettingsModalView: View {
     @State private var isSavingPreset: Bool = false
     @State private var newPresetName: String = ""
     @State private var showUpdatedNotice: Bool = false
-    @ObservedObject private var syncStatus = NotesSyncStatus.shared
-    @State private var syncProjects: [NotesSyncProject] = NotesSyncProject.loadAll()
-    @State private var defaultSyncProjectID: UUID? = NotesSyncProject.defaultID(in: NotesSyncProject.loadAll())
-    @State private var newProjectName: String = ""
-    @State private var syncPasswordDraft: String = ""
-    @State private var revealedProjectIDs: Set<UUID> = []
     
     private var palette: StudioPalette { StudioPalette(isLightMode) }
     
@@ -36,7 +30,7 @@ struct ThemeSettingsModalView: View {
                         Image(systemName: "paintpalette.fill")
                             .font(.system(size: 13, weight: .bold))
                             .foregroundColor(themeManager.currentTheme.playColor)
-                        Text("SETTINGS // QCpie")
+                        Text("APPEARANCE & THEME // QCpie")
                             .font(.system(size: 12, weight: .black, design: .monospaced))
                             .foregroundColor(palette.textMain)
                     }
@@ -77,9 +71,6 @@ struct ThemeSettingsModalView: View {
                         
                         // Section 5: Live UI Element Preview
                         previewSection
-                        
-                        // Section 6: Notes Sync
-                        notesSyncSection
                     }
                     .padding(20)
                 }
@@ -615,155 +606,6 @@ struct ThemeSettingsModalView: View {
             .cornerRadius(StudioTheme.cornerRadius)
         }
         .buttonStyle(.plain)
-    }
-    
-    // MARK: - Section 6: Notes Sync
-    
-    private var notesSyncSection: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack {
-                Text("06 // NOTES SYNC")
-                    .font(.system(size: 10, weight: .black, design: .monospaced))
-                    .foregroundColor(palette.textMuted)
-                    .tracking(0.5)
-                
-                Spacer()
-                
-                Text(syncStatusText)
-                    .font(.system(size: 9, weight: .bold, design: .monospaced))
-                    .foregroundColor(syncStatusColor)
-                    .lineLimit(1)
-            }
-            
-            if syncStatus.state == .unavailable {
-                Text("No sync server is configured in this build.")
-                    .font(.system(size: 10))
-                    .foregroundColor(palette.textSubtle)
-            } else {
-                ForEach(syncProjects) { project in
-                    syncProjectRow(project)
-                }
-                
-                HStack(spacing: 8) {
-                    syncField("Project name", text: $newProjectName)
-                        .frame(width: 150)
-                    syncField("Type a password or paste one", text: $syncPasswordDraft)
-                        .onSubmit { addSyncProject(password: syncPasswordDraft) }
-                    syncButton("ADD", primary: true) { addSyncProject(password: syncPasswordDraft) }
-                        .disabled(NotesSync.deriveKeys(password: syncPasswordDraft) == nil)
-                    syncButton("GENERATE") { addSyncProject(password: NotesSync.generatePassword(), copy: true) }
-                }
-                
-                Text("Each project has its own password; everyone using it shares that project's notes. Passwords are 8+ characters, not case-sensitive (longer is safer: anyone who guesses one can read its notes). A clip joins the project that already has notes for it, otherwise the DEFAULT project when it gets notes; change it from the Notes panel. Notes are encrypted on this Mac before upload. Clips match by file name and size, so each person can keep files in any folder.")
-                    .font(.system(size: 9))
-                    .foregroundColor(palette.textSubtle)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-        }
-    }
-    
-    private func syncProjectRow(_ project: NotesSyncProject) -> some View {
-        let isDefault = project.id == defaultSyncProjectID
-        let isRevealed = revealedProjectIDs.contains(project.id)
-        return HStack(spacing: 8) {
-            Text(project.displayName)
-                .font(.system(size: 11, weight: .bold, design: .monospaced))
-                .foregroundColor(palette.textMain)
-                .lineLimit(1)
-                .frame(width: 150, alignment: .leading)
-            Text(isRevealed ? project.password : String(repeating: "•", count: min(project.password.count, 16)))
-                .font(.system(size: 11, design: .monospaced))
-                .foregroundColor(palette.textMain)
-                .textSelection(.enabled)
-                .lineLimit(1)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, 8)
-                .padding(.vertical, 6)
-                .studioBox(background: palette.bgSubtle, border: palette.borderLine)
-            syncButton(isDefault ? "DEFAULT" : "MAKE DEFAULT", primary: isDefault) {
-                defaultSyncProjectID = project.id
-                saveSyncProjects()
-            }
-            syncButton(isRevealed ? "HIDE" : "SHOW") {
-                if isRevealed { revealedProjectIDs.remove(project.id) } else { revealedProjectIDs.insert(project.id) }
-            }
-            syncButton("COPY") { copyToPasteboard(project.password) }
-            syncButton("REMOVE") {
-                syncProjects.removeAll { $0.id == project.id }
-                if defaultSyncProjectID == project.id { defaultSyncProjectID = syncProjects.first?.id }
-                saveSyncProjects()
-            }
-        }
-    }
-    
-    private func syncField(_ placeholder: String, text: Binding<String>) -> some View {
-        TextField(placeholder, text: text)
-            .textFieldStyle(.plain)
-            .font(.system(size: 11, design: .monospaced))
-            .padding(.horizontal, 8)
-            .padding(.vertical, 6)
-            .studioBox(background: palette.bgSubtle, border: palette.borderLine)
-    }
-    
-    private var syncStatusText: String {
-        switch syncStatus.state {
-        case .unavailable: return "UNAVAILABLE"
-        case .off: return "OFF"
-        case .on: return "ON"
-        case .upToDate:
-            if let date = syncStatus.lastReceived {
-                return "UP TO DATE · LAST CHANGE \(date.formatted(date: .omitted, time: .shortened))"
-            }
-            return "UP TO DATE"
-        case .offline: return "OFFLINE · SAVED LOCALLY"
-        case .failed(let message): return message.uppercased()
-        }
-    }
-    
-    private var syncStatusColor: Color {
-        switch syncStatus.state {
-        case .on, .upToDate: return themeManager.currentTheme.playColor
-        case .offline, .failed: return Color.orange
-        case .off, .unavailable: return palette.textSubtle
-        }
-    }
-    
-    private func syncButton(_ title: String, primary: Bool = false, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Text(title)
-                .font(.system(size: 10, weight: .bold, design: .monospaced))
-                .padding(.horizontal, 9)
-                .padding(.vertical, 6)
-                .foregroundColor(primary ? palette.primaryBtnFg : palette.textMain)
-                .studioBox(background: primary ? palette.primaryBtnBg : palette.bgSubtle, border: palette.borderLine)
-        }
-        .buttonStyle(.plain)
-    }
-    
-    private func addSyncProject(password: String, copy: Bool = false) {
-        let password = password.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard NotesSync.deriveKeys(password: password) != nil else { return }
-        let name = newProjectName.trimmingCharacters(in: .whitespacesAndNewlines)
-        let project = NotesSyncProject(name: name.isEmpty ? "Project \(syncProjects.count + 1)" : name, password: password)
-        syncProjects.append(project)
-        if defaultSyncProjectID == nil { defaultSyncProjectID = project.id }
-        newProjectName = ""
-        syncPasswordDraft = ""
-        if copy {
-            copyToPasteboard(password)
-            revealedProjectIDs.insert(project.id)
-        }
-        saveSyncProjects()
-    }
-    
-    private func saveSyncProjects() {
-        NotesSyncProject.save(syncProjects, defaultID: defaultSyncProjectID)
-        NotesSyncProject.applySaved()
-    }
-    
-    private func copyToPasteboard(_ text: String) {
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(text, forType: .string)
     }
     
     // MARK: - Section 5: Live UI Element Preview

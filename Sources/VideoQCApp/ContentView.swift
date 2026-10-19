@@ -13,13 +13,15 @@ struct ContentView: View {
     @State var showShortcutsModal: Bool = false
     @State var showSettingsPopover: Bool = false
     @State var showThemeModal: Bool = false
+    @State var showSyncModal: Bool = false
+    @State var showUserSettingsModal: Bool = false
     @State var showPropertiesModal: Bool = false
     @State var showAddNoteModal: Bool = false
     @State var showNotesDrawer: Bool = false
     @State var playerDrawerTab: PlayerDrawerTab = .mediaInfo
     /// Notes another Mac added to the shown clip that haven't been seen in the Notes tab yet.
     @State var unseenSyncedNoteIDs: Set<UUID> = []
-    @State var showPlayerQueue: Bool = true
+    @State var showPlayerQueue: Bool = UserPreferences.showQueue
     @State var showSpecsControlPanel: Bool = true
     @AppStorage("reviewerName") var reviewerName: String = ""
     @AppStorage("queueDisplayMode") var queueDisplayMode: String = "inline"
@@ -176,6 +178,8 @@ struct ContentView: View {
             .animation(.easeInOut(duration: 0.15), value: showFeedbackModal)
             .animation(.easeInOut(duration: 0.15), value: showShortcutsModal)
             .animation(.easeInOut(duration: 0.15), value: showThemeModal)
+            .animation(.easeInOut(duration: 0.15), value: showSyncModal)
+            .animation(.easeInOut(duration: 0.15), value: showUserSettingsModal)
             .animation(.easeInOut(duration: 0.15), value: showPropertiesModal)
             .animation(.easeInOut(duration: 0.15), value: showAddNoteModal)
             .animation(.easeInOut(duration: 0.15), value: showNotesDrawer)
@@ -203,6 +207,8 @@ struct ContentView: View {
                 loadNotesForActiveURL(targetURL)
             }
             .onChange(of: showThemeModal) { _, newValue in if !newValue { dismissFocusReset() } }
+            .onChange(of: showSyncModal) { _, newValue in if !newValue { dismissFocusReset() } }
+            .onChange(of: showUserSettingsModal) { _, newValue in if !newValue { dismissFocusReset() } }
             .onChange(of: notesTabIsVisible) { _, visible in if visible { unseenSyncedNoteIDs = [] } }
             .onChange(of: showUserGuide) { _, newValue in if !newValue { dismissFocusReset() } }
             .onChange(of: showFeedbackModal) { _, newValue in if !newValue { dismissFocusReset() } }
@@ -383,6 +389,18 @@ struct ContentView: View {
                 .allowsHitTesting(showThemeModal)
         }
         
+        if showSyncModal {
+            NotesSyncModalView(isPresented: $showSyncModal)
+                .transition(.opacity.combined(with: .scale(scale: 0.98)))
+                .zIndex(158)
+        }
+        
+        if showUserSettingsModal {
+            UserSettingsModalView(isPresented: $showUserSettingsModal, engine: playerEngine)
+                .transition(.opacity.combined(with: .scale(scale: 0.98)))
+                .zIndex(158)
+        }
+        
         // Software Update Overlay Modal
         if updateManager.showModal {
             UpdateModalView(updateManager: updateManager, isPresented: $updateManager.showModal)
@@ -497,7 +515,7 @@ struct ContentView: View {
                 }
             }
             .buttonStyle(.plain)
-            .explain("Settings: Software Update, Theme, Shortcuts, Info & Guide, and Feedback.")
+            .explain("Settings: Software Update, User Settings, Theme, Synced Projects, Info & Guide, and Feedback.")
             .popover(isPresented: $showSettingsPopover, arrowEdge: .bottom) {
                 VStack(alignment: .leading, spacing: 4) {
                     Button(action: {
@@ -528,6 +546,32 @@ struct ContentView: View {
                         showSettingsPopover = false
                         DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) {
                             withAnimation(.easeInOut(duration: 0.15)) {
+                                showUserSettingsModal = true
+                            }
+                        }
+                    }) {
+                        HStack(spacing: 8) {
+                            Image(systemName: "person.crop.circle")
+                                .font(.system(size: 11, weight: .bold))
+                                .foregroundColor(textMain)
+                                .frame(width: 16)
+                            Text("User Settings")
+                                .font(.system(size: 11, weight: .bold, design: .monospaced))
+                                .foregroundColor(textMain)
+                        }
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 7)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    
+                    Rectangle().fill(borderLine).frame(height: 1)
+                    
+                    Button(action: {
+                        showSettingsPopover = false
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) {
+                            withAnimation(.easeInOut(duration: 0.15)) {
                                 showThemeModal = true
                             }
                         }
@@ -538,7 +582,7 @@ struct ContentView: View {
                                 .foregroundColor(themeManager.currentTheme.playColor)
                                 .frame(width: 16)
                             VStack(alignment: .leading, spacing: 1) {
-                                Text("Theme, Accents & Sync")
+                                Text("Theme & Accents")
                                     .font(.system(size: 11, weight: .bold, design: .monospaced))
                                     .foregroundColor(textMain)
                                 Text(themeManager.currentTheme.name)
@@ -553,6 +597,32 @@ struct ContentView: View {
                                 Circle().fill(themeManager.currentTheme.slotBColor).frame(width: 5, height: 5)
                                 Circle().fill(themeManager.currentTheme.warnColor).frame(width: 5, height: 5)
                             }
+                        }
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 7)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    
+                    Rectangle().fill(borderLine).frame(height: 1)
+                    
+                    Button(action: {
+                        showSettingsPopover = false
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) {
+                            withAnimation(.easeInOut(duration: 0.15)) {
+                                showSyncModal = true
+                            }
+                        }
+                    }) {
+                        HStack(spacing: 8) {
+                            Image(systemName: "icloud")
+                                .font(.system(size: 11, weight: .bold))
+                                .foregroundColor(textMain)
+                                .frame(width: 16)
+                            Text("Synced Projects")
+                                .font(.system(size: 11, weight: .bold, design: .monospaced))
+                                .foregroundColor(textMain)
                         }
                         .padding(.horizontal, 10)
                         .padding(.vertical, 7)
@@ -1524,7 +1594,7 @@ struct ContentView: View {
     }
     
     var isAnyModalActive: Bool {
-        showShortcutsModal || showThemeModal || showUserGuide || showFeedbackModal || updateManager.showModal || showPropertiesModal || showAddNoteModal
+        showShortcutsModal || showThemeModal || showSyncModal || showUserSettingsModal || showUserGuide || showFeedbackModal || updateManager.showModal || showPropertiesModal || showAddNoteModal
     }
     
     func dismissTopmostModalOrFullscreen() -> Bool {
@@ -1542,6 +1612,14 @@ struct ContentView: View {
         }
         if showThemeModal {
             withAnimation(.easeInOut(duration: 0.15)) { showThemeModal = false }
+            return true
+        }
+        if showSyncModal {
+            withAnimation(.easeInOut(duration: 0.15)) { showSyncModal = false }
+            return true
+        }
+        if showUserSettingsModal {
+            withAnimation(.easeInOut(duration: 0.15)) { showUserSettingsModal = false }
             return true
         }
         if showShortcutsModal {
