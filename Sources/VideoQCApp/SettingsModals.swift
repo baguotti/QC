@@ -1,5 +1,6 @@
 import SwiftUI
 import AppKit
+import VideoQCLib
 
 /// Shared chrome for the settings popups opened from the gear menu: scrim, header, scrolling body, DONE footer.
 struct SettingsModalShell<Content: View>: View {
@@ -272,10 +273,12 @@ enum UserPreferences {
     static let linkSlotsKey = "prefLinkSlots"
     static let clipInfoOverlayKey = "prefClipInfoOverlay"
     static let showQueueKey = "prefShowQueue"
+    static let zoomFollowsCursorKey = "prefZoomFollowsCursor"
 
     static var startMuted: Bool { UserDefaults.standard.bool(forKey: startMutedKey) }
     static var linkSlots: Bool { UserDefaults.standard.object(forKey: linkSlotsKey) as? Bool ?? true }
     static var showQueue: Bool { UserDefaults.standard.object(forKey: showQueueKey) as? Bool ?? true }
+    static var zoomFollowsCursor: Bool { UserDefaults.standard.bool(forKey: zoomFollowsCursorKey) }
     static var clipInfoOverlay: ClipInfoOverlayMode {
         UserDefaults.standard.string(forKey: clipInfoOverlayKey).flatMap(ClipInfoOverlayMode.init(rawValue:)) ?? .resolution
     }
@@ -292,6 +295,8 @@ struct UserSettingsModalView: View {
     @AppStorage(UserPreferences.startMutedKey) private var startMuted: Bool = false
     @AppStorage(UserPreferences.linkSlotsKey) private var linkSlots: Bool = true
     @AppStorage(UserPreferences.showQueueKey) private var showQueue: Bool = true
+    @AppStorage(UserPreferences.zoomFollowsCursorKey) private var zoomFollowsCursor: Bool = false
+    @AppStorage(ImageSequenceStore.defaultFPSKey) private var sequenceFPS: Double = 25
     @AppStorage(UserPreferences.clipInfoOverlayKey) private var clipInfoOverlay: String = ClipInfoOverlayMode.resolution.rawValue
     
     private var palette: StudioPalette { StudioPalette(isLightMode) }
@@ -319,6 +324,19 @@ struct UserSettingsModalView: View {
                 }
                 row("Link A / B", detail: "Slots A and B play and step together when QCpie opens.", launch: true) {
                     toggle($linkSlots)
+                }
+                row("Zoom to cursor", detail: "Scroll-wheel zoom keeps the point under the mouse in place (off: zooms from the centre).") {
+                    toggle($zoomFollowsCursor)
+                }
+                row("Image sequence rate", detail: "Frame rate for detected image sequences (right-click one in the queue to change just that one).") {
+                    Picker("", selection: $sequenceFPS) {
+                        ForEach(QueueSequenceInfo.rates, id: \.self) { rate in
+                            Text(QueueSequenceInfo.rateLabel(rate)).tag(rate)
+                        }
+                    }
+                    .labelsHidden()
+                    .pickerStyle(.menu)
+                    .frame(width: 130)
                 }
                 row("Clip info overlay", detail: "Overlay shown on the viewer when QCpie opens.", launch: true) {
                     Picker("", selection: $clipInfoOverlay) {

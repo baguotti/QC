@@ -125,7 +125,7 @@ struct ContentView: View {
     }
     
     nonisolated static func scanAssetInputs(_ urls: [URL]) -> [ScannedAssetInput] {
-        urls.compactMap { url in
+        let inputs: [ScannedAssetInput] = urls.compactMap { url in
             var isDir: ObjCBool = false
             guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDir) else { return nil }
             if isDir.boolValue {
@@ -133,6 +133,9 @@ struct ContentView: View {
             }
             return ScannedAssetInput(url: url, isDirectory: false, videos: QCUtilities.isSupportedMedia(url: url) ? [url] : [])
         }
+        // Image sequences read as one clip keep only their first frame (across all inputs: dropped frames too).
+        let kept = Set(ImageSequenceStore.shared.collapse(inputs.flatMap(\.videos)).map(\.path))
+        return inputs.map { ScannedAssetInput(url: $0.url, isDirectory: $0.isDirectory, videos: $0.videos.filter { kept.contains($0.path) }) }
     }
     
     enum FullscreenMode: Equatable {
@@ -1415,7 +1418,7 @@ struct ContentView: View {
             
             let activeExists = activeURL.map { FileManager.default.fileExists(atPath: $0.path) } ?? true
             let slotBExists = slotBURL.map { FileManager.default.fileExists(atPath: $0.path) } ?? true
-            return (refreshedVideos, activeExists, slotBExists)
+            return (ImageSequenceStore.shared.collapse(refreshedVideos), activeExists, slotBExists)
         }) { result in
             let refreshedVideos = result.videos
             self.videoFiles = refreshedVideos
@@ -2379,6 +2382,49 @@ struct ContentView: View {
         showToast("Imported \(result.added) new, \(result.updated) updated\(mismatch)")
     }
 
+    // MARK: - Image Sequences
+    
+    /// Shows a detected sequence as one clip or as its individual frames (remembered per sequence).
+    func setReadAsSequence(_ asSequence: Bool, for url: URL) {
+        let store = ImageSequenceStore.shared
+        guard let seq = store.sequence(containing: url) else { return }
+        store.setReadAsSequence(asSequence, for: seq)
+        let members = seq.frameURLs.dropFirst()
+        if asSequence {
+            let hidden = Set(members.map(\.path))
+            videoFiles.removeAll { hidden.contains($0.path) }
+        } else if let index = videoFiles.firstIndex(where: { $0.path == seq.firstURL.path }) {
+            let present = Set(videoFiles.map(\.path))
+            videoFiles.insert(contentsOf: members.filter { !present.contains($0.path) }, at: index + 1)
+        }
+        updatePlayerTreeNodes()
+        sequenceChanged(seq, specsURLs: asSequence ? [seq.firstURL] : seq.frameURLs)
+        showToast(asSequence ? "Reading \(seq.displayName) as a sequence" : "Showing \(seq.frameURLs.count) individual images")
+    }
+    
+    func setSequenceFPS(_ fps: Double, for url: URL) {
+        guard let seq = ImageSequenceStore.shared.sequence(for: url) else { return }
+        ImageSequenceStore.shared.setFPS(fps, for: seq)
+        sequenceChanged(seq, specsURLs: [seq.firstURL])
+    }
+    
+    /// Reloads slots showing the sequence's first frame and re-inspects its Specs rows.
+    private func sequenceChanged(_ seq: ImageSequence, specsURLs: [URL]) {
+        let first = seq.firstURL.path
+        if playerEngine.slotB.url?.path == first {
+            playerEngine.clearSlotB()
+            playerEngine.loadVideo(url: seq.firstURL, into: .slotB)
+        }
+        if playerEngine.slotA.url?.path == first {
+            playerEngine.clearSlotA()
+            playerEngine.loadVideo(url: seq.firstURL)
+        }
+        guard !specsState.deliverableAssets.isEmpty else { return }
+        let paths = Set(seq.frameURLs.map(\.path))
+        specsState.deliverableAssets.removeAll { paths.contains($0.fileURL.path) }
+        specsState.inspectDeliverablesBatch(urls: specsURLs, append: true)
+    }
+    
     func saveNotes(_ notes: [QCFileNote], for url: URL) {
         let fps = isSameURL(url, playerEngine.slotB.url) ? playerEngine.slotB.fps : playerEngine.activeFps
         Task {

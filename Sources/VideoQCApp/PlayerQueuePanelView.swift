@@ -54,6 +54,8 @@ public struct PlayerQueuePanelView: View, Equatable {
     public var onClearSlotB: () -> Void
     public var onOpenProperties: (_ url: URL) -> Void
     public var onOpenNotes: (_ url: URL) -> Void
+    public var onSetReadAsSequence: (_ url: URL, _ asSequence: Bool) -> Void = { _, _ in }
+    public var onSetSequenceFPS: (_ url: URL, _ fps: Double) -> Void = { _, _ in }
     public var onToggleTag: (_ tag: FinderTagColor, _ url: URL) -> Void
     public var onClearTag: (_ url: URL) -> Void
     public var onDrop: (_ providers: [NSItemProvider]) -> Bool
@@ -606,13 +608,16 @@ public struct PlayerQueuePanelView: View, Equatable {
             thumbnailSize: playerThumbnailSize,
             themeId: themeId,
             buttonZoom: buttonZoom,
+            sequenceInfo: QueueSequenceInfo.lookup(url),
             onLoadVideo: onLoadVideo,
             onClearSlotB: onClearSlotB,
             onSwapSlots: onSwapSlots,
             onOpenProperties: onOpenProperties,
             onOpenNotes: onOpenNotes,
             onToggleTag: onToggleTag,
-            onClearTag: onClearTag
+            onClearTag: onClearTag,
+            onSetReadAsSequence: onSetReadAsSequence,
+            onSetSequenceFPS: onSetSequenceFPS
         )
         .equatable()
     }

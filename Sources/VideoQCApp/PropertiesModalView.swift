@@ -65,6 +65,15 @@ public struct ExtendedMediaInfo: Sendable {
     
     public var fileModifiedDate: String = "--"
     public var tracks: [MediaTrackItem] = []
+    /// Stills only: label/value rows for the IMAGE card (empty for video and audio).
+    public var imageDetails: [ImageDetail] = []
+    public var isImage: Bool { !imageDetails.isEmpty }
+    
+    public struct ImageDetail: Sendable, Identifiable {
+        public let label: String
+        public let value: String
+        public var id: String { label }
+    }
     
     public init() {}
     
@@ -79,6 +88,13 @@ public struct ExtendedMediaInfo: Sendable {
             let df = DateFormatter()
             df.dateFormat = "yyyy-MM-dd HH:mm:ss"
             info.fileModifiedDate = df.string(from: modDate)
+        }
+        
+        if QCUtilities.mediaKind(of: url) == .image {
+            info.imageDetails = imageDetails(url: url)
+            let format = info.imageDetails.first { $0.label == "Format:" }?.value ?? url.pathExtension.uppercased()
+            info.tracks = [MediaTrackItem(id: 0, typeName: "IMAGE", format: format, codec: format, details: "", bitrate: "--", duration: "--", language: "Undetermined")]
+            return info
         }
         
         // 2. Video Tracks
@@ -344,6 +360,52 @@ public struct ExtendedMediaInfo: Sendable {
         return info
     }
     
+    /// Still-image properties via ImageIO (cheap: reads the header, not the pixels).
+    static func imageDetails(url: URL) -> [ImageDetail] {
+        guard let source = CGImageSourceCreateWithURL(url as CFURL, nil),
+              let props = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any] else { return [] }
+        var rows: [ImageDetail] = []
+        func add(_ label: String, _ value: String?) {
+            if let value, !value.isEmpty { rows.append(ImageDetail(label: label, value: value)) }
+        }
+        let rawW = props[kCGImagePropertyPixelWidth] as? Int ?? 0
+        let rawH = props[kCGImagePropertyPixelHeight] as? Int ?? 0
+        let orientation = props[kCGImagePropertyOrientation] as? Int ?? 1
+        let (w, h) = orientation >= 5 ? (rawH, rawW) : (rawW, rawH)
+        if let type = CGImageSourceGetType(source), let ext = UTType(type as String)?.preferredFilenameExtension {
+            add("Format:", ext.uppercased())
+        }
+        if w > 0, h > 0 {
+            add("Size:", "\(w)×\(h) (\(DeliverablesInspector.calculateAspectRatio(width: w, height: h)))")
+            add("Megapixels:", String(format: "%.1f MP", Double(w * h) / 1_000_000))
+        }
+        if let depth = props[kCGImagePropertyDepth] as? Int, depth > 0 {
+            add("Bit Depth:", "\(depth)-bit per channel" + ((props[kCGImagePropertyIsFloat] as? Bool) == true ? " (float)" : ""))
+        }
+        if let model = props[kCGImagePropertyColorModel] as? String {
+            let alpha = (props[kCGImagePropertyHasAlpha] as? Bool) == true
+            add("Colour Model:", model + (alpha ? " + Alpha" : ""))
+        }
+        add("Colour Profile:", props[kCGImagePropertyProfileName] as? String)
+        if let dpiX = props[kCGImagePropertyDPIWidth] as? Double, let dpiY = props[kCGImagePropertyDPIHeight] as? Double {
+            add("Resolution:", dpiX == dpiY ? "\(Int(dpiX.rounded())) dpi" : "\(Int(dpiX.rounded()))×\(Int(dpiY.rounded())) dpi")
+        }
+        if orientation != 1 {
+            let names = [2: "Mirrored", 3: "Rotated 180°", 4: "Mirrored, rotated 180°", 5: "Mirrored, rotated 90°", 6: "Rotated 90° CW", 7: "Mirrored, rotated 90° CCW", 8: "Rotated 90° CCW"]
+            add("Orientation:", "\(names[orientation] ?? "EXIF \(orientation)") (shown upright)")
+        }
+        let frames = CGImageSourceGetCount(source)
+        if frames > 1 { add("Frames / Pages:", "\(frames)") }
+        let tiff = props[kCGImagePropertyTIFFDictionary] as? [CFString: Any]
+        let exif = props[kCGImagePropertyExifDictionary] as? [CFString: Any]
+        let camera = [tiff?[kCGImagePropertyTIFFMake] as? String, tiff?[kCGImagePropertyTIFFModel] as? String]
+            .compactMap { $0?.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }.joined(separator: " ")
+        add("Camera:", camera)
+        add("Captured:", exif?[kCGImagePropertyExifDateTimeOriginal] as? String)
+        add("Software:", tiff?[kCGImagePropertyTIFFSoftware] as? String)
+        return rows
+    }
+    
     public static func containerType(for url: URL?) -> String {
         let ext = url?.pathExtension.uppercased() ?? "FILE"
         switch ext {
@@ -369,6 +431,12 @@ public struct ExtendedMediaInfo: Sendable {
         lines.append("File Path: \(asset.fileURL.path)")
         lines.append("Container: \(containerType(for: asset.fileURL))")
         lines.append("File Size: \(asset.formattedFileSize) (\(formattedByteString(asset.fileSizeBytes)))")
+        if let info, info.isImage {
+            lines += info.imageDetails.map { "\($0.label) \($0.value)" }
+            lines.append("Created: \(asset.formattedCreationDate)")
+            if info.fileModifiedDate != "--" { lines.append("Modified: \(info.fileModifiedDate)") }
+            return lines.joined(separator: "\n")
+        }
         lines.append("Resolution: \(asset.width) x \(asset.height) (\(asset.aspectRatioString))")
         lines.append("Frame Rate: \(info?.formattedFPS ?? String(format: "%.3f fps", asset.fps))")
         lines.append("Video Format: \(info?.videoFormat ?? asset.videoCodec)")
@@ -640,7 +708,9 @@ public struct PropertiesModalView: View {
                     }
                     
                     VStack(alignment: .leading, spacing: 5) {
-                        if track.typeName.contains("VIDEO") {
+                        if track.typeName == "IMAGE" {
+                            ForEach(info.imageDetails) { row in infoRow(label: row.label, value: row.value) }
+                        } else if track.typeName.contains("VIDEO") {
                             infoRow(label: "Format:", value: info.videoFormat)
                             infoRow(label: "Codec:", value: track.codec)
                             infoRow(label: "Size:", value: "\(asset.width)×\(asset.height) (\(asset.aspectRatioString))")

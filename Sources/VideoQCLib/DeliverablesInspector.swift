@@ -13,6 +13,9 @@ public struct DeliverablesInspector: Sendable {
     
     /// Inspects a single video file URL and extracts all delivery specifications
     public static func inspectFile(url: URL, calculateAudioLevels: Bool = false) async -> DeliverableAsset? {
+        if let seq = ImageSequenceStore.shared.sequence(for: url) {
+            return inspectSequence(seq)
+        }
         if QCUtilities.mediaKind(of: url) == .image {
             return inspectImage(url: url)
         }
@@ -179,6 +182,46 @@ public struct DeliverablesInspector: Sendable {
                                               expectedRatioString: ratioOnly.expectedRatioString,
                                               ratioMismatchDetail: ratioOnly.ratioMismatchDetail)
         )
+    }
+    
+    /// An image sequence as one deliverable: first frame's raster and format, duration at the sequence frame rate,
+    /// total size of all frames, and a validation flag when frames are missing.
+    public static func inspectSequence(_ seq: ImageSequence) -> DeliverableAsset? {
+        guard var asset = inspectImage(url: seq.firstURL) else { return nil }
+        let fps = ImageSequenceStore.shared.fps(for: seq)
+        let bytes = seq.frameURLs.reduce(Int64(0)) { $0 + Int64((try? $1.resourceValues(forKeys: [.fileSizeKey]))?.fileSize ?? 0) }
+        let seconds = Double(seq.length) / fps
+        let missing = seq.missingCount
+        let validation = DeliverableValidation(
+            isDurationMismatch: missing > 0,
+            durationMismatchDetail: missing > 0 ? "\(missing) MISSING FRAME\(missing == 1 ? "" : "S")" : nil,
+            isRatioMismatch: asset.validation.isRatioMismatch,
+            expectedRatioString: asset.validation.expectedRatioString,
+            ratioMismatchDetail: asset.validation.ratioMismatchDetail
+        )
+        asset = DeliverableAsset(
+            id: asset.id,
+            fileURL: seq.firstURL,
+            fileName: seq.displayName,
+            fileSizeBytes: bytes,
+            formattedFileSize: formatFileSize(bytes: bytes),
+            width: asset.width,
+            height: asset.height,
+            resolutionString: asset.resolutionString,
+            aspectRatioString: asset.aspectRatioString,
+            durationSeconds: seconds,
+            formattedDuration: String(format: "%.2fs", seconds),
+            totalFrames: seq.length,
+            timecode: TimecodeFormatter.format(frameIndex: seq.length, fps: fps),
+            fps: fps,
+            videoCodec: "\(asset.videoCodec) SEQUENCE",
+            audioConfig: "NONE",
+            container: "SEQ",
+            creationDate: asset.creationDate,
+            formattedCreationDate: asset.formattedCreationDate,
+            validation: validation
+        )
+        return asset
     }
     
     /// e.g. "PNG 16-bit RGBA · Display P3"

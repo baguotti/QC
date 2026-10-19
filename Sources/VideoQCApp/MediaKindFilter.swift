@@ -34,11 +34,16 @@ enum MediaKindFilter {
     static let storageKey = "mediaKindFilter"
     static let all = 7
 
+    /// An image sequence read as one clip plays like a video, so it filters as one.
+    static func kind(of url: URL) -> MediaKind? {
+        ImageSequenceStore.shared.sequence(for: url) != nil ? .video : QCUtilities.mediaKind(of: url)
+    }
+    
     /// Kinds present in a list, as a mask.
     static func presentMask(of urls: [URL]) -> Int {
         var mask = 0
         for url in urls {
-            mask |= QCUtilities.mediaKind(of: url)?.bit ?? 0
+            mask |= kind(of: url)?.bit ?? 0
             if mask == all { break }
         }
         return mask
@@ -50,7 +55,7 @@ enum MediaKindFilter {
     }
 
     static func allows(_ url: URL, mask: Int) -> Bool {
-        mask == all || (QCUtilities.mediaKind(of: url).map { mask & $0.bit != 0 } ?? true)
+        mask == all || (kind(of: url).map { mask & $0.bit != 0 } ?? true)
     }
 }
 

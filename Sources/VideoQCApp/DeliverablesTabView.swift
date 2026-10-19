@@ -1065,7 +1065,7 @@ extension ContentView {
                 }
                 
                 if specsDisplayMode != "thumbnail", let kind = QCUtilities.mediaKind(of: asset.fileURL) {
-                    Image(systemName: kind.symbolName)
+                    Image(systemName: asset.container == "SEQ" ? "photo.stack" : kind.symbolName)
                         .font(.system(size: 9, weight: .semibold))
                         .foregroundColor(textMuted)
                         .frame(width: 12)

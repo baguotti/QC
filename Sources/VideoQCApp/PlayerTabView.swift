@@ -330,6 +330,12 @@ extension ContentView {
             onOpenNotes: { url in
                 openNotesDrawer(for: url)
             },
+            onSetReadAsSequence: { url, asSequence in
+                setReadAsSequence(asSequence, for: url)
+            },
+            onSetSequenceFPS: { url, fps in
+                setSequenceFPS(fps, for: url)
+            },
             onToggleTag: { tag, url in
                 toggleFinderTag(tag, for: url)
             },

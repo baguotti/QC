@@ -481,7 +481,7 @@ struct NotesDrawerPanelView: View {
     
     private func drawerTracksView(info: ExtendedMediaInfo) -> some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("TRACK INVENTORY (\(info.tracks.count))")
+            Text(info.isImage ? "IMAGE" : "TRACK INVENTORY (\(info.tracks.count))")
                 .font(.system(size: 10, weight: .bold, design: .monospaced))
                 .foregroundColor(palette.textMain)
                 .tracking(0.8)
@@ -502,7 +502,9 @@ struct NotesDrawerPanelView: View {
                     }
                     
                     VStack(alignment: .leading, spacing: 4) {
-                        if track.typeName.contains("VIDEO") {
+                        if track.typeName == "IMAGE" {
+                            ForEach(info.imageDetails) { row in drawerInfoRow(label: row.label, value: row.value) }
+                        } else if track.typeName.contains("VIDEO") {
                             drawerInfoRow(label: "Format:", value: info.videoFormat)
                             drawerInfoRow(label: "Codec:", value: track.codec)
                             if let asset = effectiveAsset {
@@ -691,14 +693,16 @@ struct NotesDrawerPanelView: View {
             
             if let asset = effectiveAsset {
                 VStack(alignment: .leading, spacing: 6) {
-                    Text("TIMING & RASTER")
+                    Text(info.isImage ? "RASTER" : "TIMING & RASTER")
                         .font(.system(size: 10, weight: .bold, design: .monospaced))
                         .foregroundColor(palette.textMain)
                         .tracking(0.8)
                     
                     VStack(alignment: .leading, spacing: 4) {
-                        drawerInfoRow(label: "Duration:", value: "\(asset.timecode) (\(asset.formattedDuration))")
-                        drawerInfoRow(label: "Frames:", value: "\(asset.totalFrames) frames")
+                        if !info.isImage {
+                            drawerInfoRow(label: "Duration:", value: "\(asset.timecode) (\(asset.formattedDuration))")
+                            drawerInfoRow(label: "Frames:", value: "\(asset.totalFrames) frames")
+                        }
                         drawerInfoRow(label: "Aspect:", value: asset.aspectRatioString)
                         drawerInfoRow(label: "Pixel Aspect:", value: "1.0 (Square)")
                         if asset.validation.hasAnyMismatch {

@@ -23,6 +23,8 @@ public struct PlayerQueueFileRowView: View, Equatable {
     public let thumbnailSize: Double
     public let themeId: String
     public var buttonZoom: UIButtonZoomLevel = ThemeManager.shared.buttonZoom
+    /// Set when the file starts a sequence read as one clip, or is a frame of a sequence read as single images.
+    public var sequenceInfo: QueueSequenceInfo? = nil
     
     // Callbacks
     public let onLoadVideo: (_ url: URL, _ target: SlotTarget) -> Void
@@ -32,9 +34,12 @@ public struct PlayerQueueFileRowView: View, Equatable {
     public let onOpenNotes: (_ url: URL) -> Void
     public let onToggleTag: (_ tag: FinderTagColor, _ url: URL) -> Void
     public let onClearTag: (_ url: URL) -> Void
+    public var onSetReadAsSequence: (_ url: URL, _ asSequence: Bool) -> Void = { _, _ in }
+    public var onSetSequenceFPS: (_ url: URL, _ fps: Double) -> Void = { _, _ in }
     
     public nonisolated static func == (lhs: PlayerQueueFileRowView, rhs: PlayerQueueFileRowView) -> Bool {
         MainActor.assumeIsolated {
+            lhs.sequenceInfo == rhs.sequenceInfo &&
             lhs.buttonZoom == rhs.buttonZoom &&
             lhs.url == rhs.url &&
             lhs.depth == rhs.depth &&
@@ -137,6 +142,25 @@ public struct PlayerQueueFileRowView: View, Equatable {
             Button("Reveal in Finder") {
                 NSWorkspace.shared.activateFileViewerSelecting([url])
             }
+            if let info = sequenceInfo {
+                Divider()
+                if info.isReadAsSequence {
+                    Button("Show as Individual Images") { onSetReadAsSequence(url, false) }
+                    Menu("Frame Rate (\(QueueSequenceInfo.rateLabel(info.fps)))") {
+                        ForEach(QueueSequenceInfo.rates, id: \.self) { rate in
+                            Button(action: { onSetSequenceFPS(url, rate) }) {
+                                if abs(rate - info.fps) < 0.001 {
+                                    Label(QueueSequenceInfo.rateLabel(rate), systemImage: "checkmark")
+                                } else {
+                                    Text(QueueSequenceInfo.rateLabel(rate))
+                                }
+                            }
+                        }
+                    }
+                } else {
+                    Button("Read as Image Sequence (\(info.frameCount) frames)") { onSetReadAsSequence(url, true) }
+                }
+            }
             Divider()
             Button("Set as Slot A (Master)") {
                 onLoadVideo(url, .slotA)
@@ -211,10 +235,21 @@ public struct PlayerQueueFileRowView: View, Equatable {
     @ViewBuilder
     private func fileNameLabel(fontSize: CGFloat, isSelected: Bool) -> some View {
         HStack(spacing: 6) {
-            Text(url.lastPathComponent)
+            Text(sequenceInfo?.label ?? url.lastPathComponent)
                 .font(.system(size: fontSize, weight: isSelected ? .bold : .medium, design: .monospaced))
                 .foregroundColor(isSelected ? textMain : textSubtle)
                 .lineLimit(1)
+                .truncationMode(.middle)
+            
+            if let info = sequenceInfo, info.isReadAsSequence {
+                Text("SEQ \(info.frameCount)")
+                    .font(.system(size: 7.5, weight: .black, design: .monospaced))
+                    .foregroundColor(textMuted)
+                    .padding(.horizontal, 3)
+                    .padding(.vertical, 1)
+                    .overlay(RoundedRectangle(cornerRadius: 2).stroke(textMuted.opacity(0.6), lineWidth: 0.75))
+                    .fixedSize()
+            }
             
             if notesCount > 0 {
                 notesBadge
@@ -240,7 +275,7 @@ public struct PlayerQueueFileRowView: View, Equatable {
             }
             
             if let kind = QCUtilities.mediaKind(of: url) {
-                Image(systemName: kind.symbolName)
+                Image(systemName: sequenceInfo?.isReadAsSequence == true ? "photo.stack" : kind.symbolName)
                     .font(.system(size: 8.5, weight: .semibold))
                     .foregroundColor(isSlotA ? accentPositive : (isSlotB ? accentSlotB : textMuted))
                     .frame(width: 12)
@@ -431,5 +466,31 @@ public struct PlayerQueueFileRowView: View, Equatable {
             }
         }
         .padding(.trailing, StudioTheme.scale(6))
+    }
+}
+
+/// Queue row data for an image sequence (see `ImageSequenceStore`).
+public struct QueueSequenceInfo: Equatable, Sendable {
+    public let label: String?
+    public let frameCount: Int
+    public let fps: Double
+    public let isReadAsSequence: Bool
+    
+    static let rates: [Double] = [23.976, 24, 25, 29.97, 30, 48, 50, 59.94, 60]
+    
+    static func rateLabel(_ fps: Double) -> String {
+        fps.truncatingRemainder(dividingBy: 1) == 0 ? "\(Int(fps)) fps" : String(format: "%.3g fps", fps)
+    }
+    
+    @MainActor
+    static func lookup(_ url: URL) -> QueueSequenceInfo? {
+        let store = ImageSequenceStore.shared
+        if let seq = store.sequence(for: url) {
+            return QueueSequenceInfo(label: seq.displayName, frameCount: seq.frameURLs.count, fps: store.fps(for: seq), isReadAsSequence: true)
+        }
+        if let seq = store.sequence(containing: url) {
+            return QueueSequenceInfo(label: nil, frameCount: seq.frameURLs.count, fps: store.fps(for: seq), isReadAsSequence: false)
+        }
+        return nil
     }
 }

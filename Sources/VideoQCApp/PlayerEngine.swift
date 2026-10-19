@@ -186,6 +186,10 @@ public final class PlayerSlot: ObservableObject {
     @Published public var totalFrames: Int = 0
     @Published public var slipOffsetFrames: Int = 0
     @Published public var mediaKind: MediaKind = .video
+    /// Set when the slot plays an image sequence (mediaKind is then .video: it uses the normal video pipeline).
+    public var sequence: ImageSequence? = nil
+    /// The sequence's decoded-frame cache (shared with its compositor); paused frames are read from it directly.
+    var sequenceSource: SequenceFrameSource? = nil
     /// Images and the audio info card: shown on the still frame layer instead of decoded video frames.
     public var stillImage: CGImage? = nil
     public var lastDecodedFrame: CGImage? = nil
@@ -378,7 +382,7 @@ public final class PlaybackClock: ObservableObject {
 
 /// Exposure read by the video composition handler at render time, so EV changes never replace
 /// `AVPlayerItem.videoComposition` (a replacement rebuilds the render pipeline and drops frames).
-private final class ExposureValueBox: Sendable {
+final class ExposureValueBox: Sendable {
     private let state = OSAllocatedUnfairLock(initialState: 0.0)
     var value: Double { state.withLock { $0 } }
     func set(_ newValue: Double) { state.withLock { $0 = newValue } }
@@ -771,18 +775,21 @@ public final class PlayerEngine: ObservableObject {
             installExposureComposition(for: slotB)
             return
         }
-        guard slotA.player.currentItem?.videoComposition != nil || slotB.player.currentItem?.videoComposition != nil else { return }
+        // A sequence's composition is its compositor (it applies EV itself): never remove it.
+        let tearA = slotA.sequence == nil ? slotA.player.currentItem : nil
+        let tearB = slotB.sequence == nil ? slotB.player.currentItem : nil
+        guard tearA?.videoComposition != nil || tearB?.videoComposition != nil else { return }
         // Debounced so dragging EV through 0 doesn't rebuild the render pipeline twice.
         exposureTeardownTask = Task { @MainActor [weak self] in
             try? await Task.sleep(for: .milliseconds(400))
             guard let self, !Task.isCancelled, abs(self.exposureEV) < 0.001 else { return }
-            self.slotA.player.currentItem?.videoComposition = nil
-            self.slotB.player.currentItem?.videoComposition = nil
+            if self.slotA.sequence == nil { self.slotA.player.currentItem?.videoComposition = nil }
+            if self.slotB.sequence == nil { self.slotB.player.currentItem?.videoComposition = nil }
         }
     }
     
     private func installExposureComposition(for slot: PlayerSlot) {
-        guard abs(exposureEV) >= 0.001, slot.mediaKind == .video, let item = slot.player.currentItem, item.videoComposition == nil else { return }
+        guard abs(exposureEV) >= 0.001, slot.mediaKind == .video, slot.sequence == nil, let item = slot.player.currentItem, item.videoComposition == nil else { return }
         let box = exposureBox
         item.videoComposition = AVVideoComposition(asset: item.asset, applyingCIFiltersWithHandler: { @Sendable request in
             let ev = box.value
@@ -1024,7 +1031,8 @@ public final class PlayerEngine: ObservableObject {
         self.pendingSeekTolerance = nil
         self.pendingSeekCompletion = nil
         
-        slotA.mediaKind = QCUtilities.mediaKind(of: url) ?? .video
+        slotA.sequence = ImageSequenceStore.shared.sequence(for: stdURL)
+        slotA.mediaKind = slotA.sequence != nil ? .video : (QCUtilities.mediaKind(of: url) ?? .video)
         slotA.stillImage = nil
         refreshWaveform()
         if !hasTimeline {
@@ -1032,45 +1040,83 @@ public final class PlayerEngine: ObservableObject {
         }
         itemPresentationSizeCancellable = nil
         itemStatusCancellable = nil
+        if let seq = slotA.sequence { slotA.fileName = seq.displayName }
         let item = makePlayerItem(url: url, for: slotA)
         Task {
             await extractMetadata(url: url, asset: item?.asset as? AVURLAsset, for: .slotA)
         }
         updateAudioVolumes()
-        guard let item else { return }
-        
-        itemPresentationSizeCancellable = item.publisher(for: \.presentationSize)
+        if let item {
+            observeItem(item, for: .slotA)
+        }
+    }
+    
+    /// Load-time observers: the presentation size, and preroll / autoplay (slot B also re-syncs to A) once ready.
+    private func observeItem(_ item: AVPlayerItem, for target: SlotTarget) {
+        let slot = (target == .slotA) ? slotA : slotB
+        let url = slot.url
+        let sizeSink = item.publisher(for: \.presentationSize)
             .receive(on: DispatchQueue.main)
             .filter { $0.width > 0 && $0.height > 0 }
             .first()
             .sink { [weak self] size in
-                guard let self = self, self.slotA.url == url else { return }
-                self.slotA.videoSize = size
+                guard let self = self, slot.url == url else { return }
+                slot.videoSize = size
+                if target == .slotB { self.enforceCompatibleCompareMode() }
             }
-        
-        itemStatusCancellable = item.publisher(for: \.status)
+        let statusSink = item.publisher(for: \.status)
             .receive(on: DispatchQueue.main)
             .filter { $0 == .readyToPlay }
             .first()
             .sink { [weak self] _ in
                 guard let self = self else { return }
-                self.slotA.player.automaticallyWaitsToMinimizeStalling = false
-                self.slotA.player.preroll(atRate: 1.0) { _ in }
-                if self.pendingAutoplay {
-                    self.pendingAutoplay = false
+                slot.player.automaticallyWaitsToMinimizeStalling = false
+                slot.player.preroll(atRate: 1.0) { _ in }
+                if target == .slotB { self.syncSlotBToMaster() }
+                let autoplay = (target == .slotA) ? self.pendingAutoplay : self.pendingAutoplayB
+                if autoplay {
+                    if target == .slotA { self.pendingAutoplay = false } else { self.pendingAutoplayB = false }
                     self.seek(toTime: .zero) { [weak self] in
                         self?.play()
                     }
                 }
             }
+        if target == .slotA {
+            itemPresentationSizeCancellable = sizeSink
+            itemStatusCancellable = statusSink
+        } else {
+            itemPresentationSizeCancellableB = sizeSink
+            itemStatusCancellableB = statusSink
+        }
+    }
+    
+    /// Builds an image sequence's item off the main thread, then installs it like a freshly loaded video.
+    private func installSequenceItem(_ seq: ImageSequence, for target: SlotTarget) async {
+        let slot = (target == .slotA) ? slotA : slotB
+        let box = exposureBox
+        guard let item = await ImageSequencePlayback.makeItem(for: seq, fps: ImageSequenceStore.shared.fps(for: seq), exposure: { box.value }),
+              slot.sequence == seq else { return }
+        slot.sequenceSource = (item.videoComposition?.instructions.first as? SequenceInstruction)?.source
+        slot.attachVideoOutput(to: item)
+        slot.player.replaceCurrentItem(with: item)
+        slot.player.automaticallyWaitsToMinimizeStalling = false
+        observeItem(item, for: target)
+        await extractMetadata(url: seq.firstURL, asset: item.asset, for: target)
     }
     
     /// Images get no item (no player, no timeline); audio plays without video output, frame extractor or exposure.
     private func makePlayerItem(url: URL, for slot: PlayerSlot) -> AVPlayerItem? {
         slot.detachVideoOutput()
-        let isVideo = slot.mediaKind == .video
+        let isVideo = slot.mediaKind == .video && slot.sequence == nil
         Task { [slot] in
             await slot.frameExtractor.setURL(isVideo ? url : nil)
+        }
+        slot.sequenceSource = nil
+        if let seq = slot.sequence {
+            slot.player.replaceCurrentItem(with: nil)
+            let target: SlotTarget = (slot === slotA) ? .slotA : .slotB
+            Task { await installSequenceItem(seq, for: target) }
+            return nil
         }
         guard slot.mediaKind != .image else {
             slot.player.replaceCurrentItem(with: nil)
@@ -1121,49 +1167,29 @@ public final class PlayerEngine: ObservableObject {
             self.activeNotesURL = nil
         }
         
-        slotB.mediaKind = QCUtilities.mediaKind(of: stdURL) ?? .video
+        slotB.sequence = ImageSequenceStore.shared.sequence(for: stdURL)
+        slotB.mediaKind = slotB.sequence != nil ? .video : (QCUtilities.mediaKind(of: stdURL) ?? .video)
         slotB.stillImage = nil
         itemPresentationSizeCancellableB = nil
         itemStatusCancellableB = nil
+        if let seq = slotB.sequence { slotB.fileName = seq.displayName }
         let item = makePlayerItem(url: stdURL, for: slotB)
         Task {
             await extractMetadata(url: stdURL, asset: item?.asset as? AVURLAsset, for: .slotB)
         }
         enforceCompatibleCompareMode()
         updateAudioVolumes()
-        guard let item else { return }
-        
-        itemPresentationSizeCancellableB = item.publisher(for: \.presentationSize)
-            .receive(on: DispatchQueue.main)
-            .filter { $0.width > 0 && $0.height > 0 }
-            .first()
-            .sink { [weak self] size in
-                guard let self = self, self.slotB.url == url else { return }
-                self.slotB.videoSize = size
-                self.enforceCompatibleCompareMode()
-            }
-        
-        itemStatusCancellableB = item.publisher(for: \.status)
-            .receive(on: DispatchQueue.main)
-            .filter { $0 == .readyToPlay }
-            .first()
-            .sink { [weak self] _ in
-                guard let self = self else { return }
-                self.slotB.player.automaticallyWaitsToMinimizeStalling = false
-                self.slotB.player.preroll(atRate: 1.0) { _ in }
-                self.syncSlotBToMaster()
-                if self.pendingAutoplayB {
-                    self.pendingAutoplayB = false
-                    self.seek(toTime: .zero) { [weak self] in
-                        self?.play()
-                    }
-                }
-            }
+        if let item {
+            observeItem(item, for: .slotB)
+        }
     }
     
-    /// `asset` is nil for images (no player item).
-    private func extractMetadata(url fileURL: URL, asset: AVURLAsset?, for target: SlotTarget) async {
+    /// `asset` is nil for images (no player item); for a sequence it is the composition built by `installSequenceItem`.
+    private func extractMetadata(url fileURL: URL, asset: AVAsset?, for target: SlotTarget) async {
         let slot = (target == .slotA) ? slotA : slotB
+        let sequence = slot.sequence
+        // A sequence's item is built asynchronously; its metadata comes from `installSequenceItem`.
+        if sequence != nil && asset == nil { return }
         let kind = slot.mediaKind
         let fileSizeText = await Task.detached(priority: .utility) { PlayerSlot.fileSizeText(for: fileURL) }.value
         do {
@@ -1175,7 +1201,15 @@ public final class PlayerEngine: ObservableObject {
             var detectedSize = CGSize(width: 1920, height: 1080)
             var still: CGImage? = nil
             
-            if let asset {
+            if let asset, let sequence {
+                dur = try await asset.load(.duration)
+                detectedFps = ImageSequenceStore.shared.fps(for: sequence)
+                if let size = await Task.detached(priority: .userInitiated, operation: { ImageSequencePlayback.imageSize(sequence.firstURL) }).value {
+                    detectedSize = size
+                    resStr = "\(Int(size.width))x\(Int(size.height))"
+                }
+                codecStr = "\(sequence.ext.uppercased()) SEQ" + (sequence.missingCount > 0 ? " · \(sequence.missingCount) MISSING" : "")
+            } else if let asset {
                 dur = try await asset.load(.duration)
                 tracks = try await asset.loadTracks(withMediaType: .video)
             } else {
@@ -1197,7 +1231,7 @@ public final class PlayerEngine: ObservableObject {
                 still = MediaStills.audioCard(fileName: fileURL.lastPathComponent, details: details)
             }
             // A newer load replaced this file while its metadata was loading.
-            guard slot.url?.path == fileURL.standardizedFileURL.path else { return }
+            guard slot.url?.path == fileURL.standardizedFileURL.path, slot.sequence == sequence else { return }
             slot.stillImage = still
             
             if kind == .video, let vTrack = tracks.first {
@@ -1321,6 +1355,7 @@ public final class PlayerEngine: ObservableObject {
         let lastDecodedFrame: CGImage?
         let mediaKind: MediaKind
         let stillImage: CGImage?
+        let sequence: ImageSequence?
         
         init(from slot: PlayerSlot) {
             self.url = slot.url
@@ -1336,6 +1371,7 @@ public final class PlayerEngine: ObservableObject {
             self.lastDecodedFrame = slot.lastDecodedFrame
             self.mediaKind = slot.mediaKind
             self.stillImage = slot.stillImage
+            self.sequence = slot.sequence
         }
         
         func apply(to slot: PlayerSlot) {
@@ -1351,6 +1387,7 @@ public final class PlayerEngine: ObservableObject {
             slot.lastDecodedFrame = lastDecodedFrame
             slot.mediaKind = mediaKind
             slot.stillImage = stillImage
+            slot.sequence = sequence
         }
     }
     
@@ -1491,6 +1528,8 @@ public final class PlayerEngine: ObservableObject {
         slotB.lastDecodedFrame = nil
         slotB.mediaKind = .video
         slotB.stillImage = nil
+        slotB.sequence = nil
+        slotB.sequenceSource = nil
         Task { [slotB] in
             await slotB.frameExtractor.setURL(nil)
         }
@@ -1523,6 +1562,8 @@ public final class PlayerEngine: ObservableObject {
         slotA.lastDecodedFrame = nil
         slotA.mediaKind = .video
         slotA.stillImage = nil
+        slotA.sequence = nil
+        slotA.sequenceSource = nil
         refreshWaveform()
         clearSubtitles()
         Task { [slotA] in
@@ -2615,6 +2656,18 @@ public final class PlayerEngine: ObservableObject {
         let frameIdx = max(0, Int(floor(rawSecs * fps + 1e-4)))
         let targetSecs = (Double(frameIdx) + 0.5) / fps
         let centerTime = CMTime(seconds: targetSecs, preferredTimescale: 60000)
+        
+        // Sequences: the exact frame from the sequence's cache (decoded on a miss, reads ahead for stepping).
+        if let seq = currentSlot.sequence {
+            guard let source = currentSlot.sequenceSource else { return currentSlot.lastDecodedFrame }
+            let index = min(frameIdx, seq.length - 1)
+            guard let decoded = await Task.detached(priority: .userInitiated, operation: { source.displayImage(at: index) }).value else {
+                return currentSlot.lastDecodedFrame
+            }
+            let image = ExposureAdjuster.shared.applyExposure(to: decoded, ev: exposureEV)
+            currentSlot.lastDecodedFrame = image
+            return image
+        }
         
         // 1. Try frame extractor (decodes without the exposure composition, so apply it here)
         if let extracted = await currentSlot.frameExtractor.capture(at: centerTime, fallbackURL: url) {

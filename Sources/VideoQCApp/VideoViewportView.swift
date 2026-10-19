@@ -156,6 +156,9 @@ public final class PlayerContainerNSView: NSView {
     
     // Still frame inspection caching to eliminate AVPlayerLayer motion-downsampling
     private var lastCapturedTimeA: CMTime? = nil
+    /// EV a paused sequence still was rendered with (its frames come from the cache, not the composited output).
+    private var stillEVA: Double = 0
+    private var stillEVB: Double = 0
     private var lastCapturedTimeB: CMTime? = nil
     // Video output buffer currently on each still layer (identity-compared to skip redundant presents)
     private var presentedBufferA: CVPixelBuffer? = nil
@@ -542,6 +545,8 @@ public final class PlayerContainerNSView: NSView {
         if engine.isScrubbing { return }
         if slot == .slotB && engine.compareMode == .single && !engine.isBlinkCompareB { return }
         let slotState = (slot == .slotA) ? engine.slotA : engine.slotB
+        // Paused sequence frames come from the frame cache (ensureStillFrame): the compositor isn't re-run for 1-frame seeks.
+        if slotState.sequence != nil && !engine.isPlaying { return }
         guard let output = slotState.videoOutput else { return }
         
         CATransaction.begin()
@@ -1822,12 +1827,13 @@ public final class PlayerContainerNSView: NSView {
         // 1. Check if the still layer already displays the current frame
         let lastCaptured = (slot == .slotA) ? lastCapturedTimeA : lastCapturedTimeB
         let tolerance = min(0.03, (1.0 / max(1.0, slotState.fps)) * 0.5)
-        if let last = lastCaptured, abs(CMTimeGetSeconds(last) - CMTimeGetSeconds(time)) <= tolerance, stillLayer(for: slot).contents != nil {
+        let evMatches = slotState.sequence == nil || ((slot == .slotA) ? stillEVA : stillEVB) == engine.exposureEV
+        if let last = lastCaptured, abs(CMTimeGetSeconds(last) - CMTimeGetSeconds(time)) <= tolerance, stillLayer(for: slot).contents != nil, evMatches {
             return
         }
         
-        // 2. Direct VideoOutput pull (<0.15ms execution)
-        if let output = slotState.videoOutput {
+        // 2. Direct VideoOutput pull (<0.15ms execution). Not for paused sequences (see displayImmediateDecodedFrame).
+        if let output = slotState.videoOutput, slotState.sequence == nil {
             switch presentFrame(from: output, slot: slot, itemTime: time, requireFrame: frameIndex(of: time, fps: slotState.fps)) {
             case .exact:
                 return
@@ -1864,7 +1870,9 @@ public final class PlayerContainerNSView: NSView {
         Task { [weak self] in
             guard let self = self, let engine = self.engine else { return }
             // captureCurrentFrame returns the frame display-ready (exposure applied once).
+            let ev = engine.exposureEV
             let image = await engine.captureCurrentFrame(for: slot, at: time)
+            if slot == .slotA { self.stillEVA = ev } else { self.stillEVB = ev }
             if slot == .slotA {
                 self.isCapturingStillA = false
             } else {
@@ -2279,6 +2287,15 @@ public final class PlayerContainerNSView: NSView {
             let currentScale = engine.isFitZoom ? fitEquivalentZoomLevel() : engine.zoomScale
             let newScale = min(10.0, max(0.05, currentScale * factor))
             
+            if UserPreferences.zoomFollowsCursor, currentScale > 0 {
+                // Keep the image point under the cursor fixed: scale its offset from the canvas centre.
+                let cursor = convert(event.locationInWindow, from: nil)
+                let pan = engine.isFitZoom ? .zero : engine.panOffset
+                let center = CGPoint(x: bounds.midX + pan.width, y: bounds.midY + pan.height)
+                let ratio = newScale / currentScale
+                let newCenter = CGPoint(x: cursor.x - (cursor.x - center.x) * ratio, y: cursor.y - (cursor.y - center.y) * ratio)
+                engine.panOffset = CGSize(width: newCenter.x - bounds.midX, height: newCenter.y - bounds.midY)
+            }
             engine.isFitZoom = false
             engine.zoomScale = newScale
             layoutPlayerLayer()
