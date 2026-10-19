@@ -179,9 +179,9 @@
 
 ## 8b. Notes Sync (`NotesSync.swift`, `server/notes-sync`)
 
-- Off unless `AppConfig.notesSyncServer` is set and a password is entered (Settings → 06 // NOTES SYNC). Room id, clip ids (HMAC of file name + size) and the ChaChaPoly key all derive from the password; the Worker stores opaque blobs with an optimistic `version` (409 → re-fetch, merge, retry).
+- Off unless `AppConfig.notesSyncServer` is set and at least one project (name + password, `NotesSyncProject` in UserDefaults) is added (Settings → 06 // NOTES SYNC). Several projects can be connected at once; each clip is assigned to one (`assignments.json`, keyed by file name + size): the project that already has notes for it, else the default project once it has local notes, or the one picked in the Notes drawer's SYNC bar. Unassigned clips are probed in every project on each poll. Room id, clip ids (HMAC of file name + size) and the ChaChaPoly key all derive from the password; the Worker stores opaque blobs with an optimistic `version` (409 → re-fetch, merge, retry).
 - Merge is three-way against the last synced notes (`Application Support/QCpie/NotesSync`): `QCNotesManager.threeWayMerge`. Plain `merge` cannot sync deletions or un-resolving.
-- Only the clip whose notes are shown is polled (10 s, `?since=` → 204 when unchanged); saves push via `ContentView.saveNotes`. All network, crypto and JSON run on the `NotesSync` actor; the main thread only receives `NotesSync.didMergeRemoteNotes` when notes actually changed. `NotesSyncStatus` publishes on state changes only and is observed only by the Settings modal.
+- Only the clip whose notes are shown is polled (10 s, `?since=` → 204 when unchanged); saves push via `ContentView.saveNotes`. All network, crypto and JSON run on the `NotesSync` actor; the main thread only receives `NotesSync.didMergeRemoteNotes` when notes actually changed (new notes then show as a `+N` cloud badge on the Notes tab until it is viewed: `ContentView.unseenSyncedNoteIDs`). `NotesSyncStatus` publishes on state/project changes only and is observed only by the Settings modal and the drawer's `NotesSyncProjectBar`.
 
 ---
 

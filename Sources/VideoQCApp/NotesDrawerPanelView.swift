@@ -30,6 +30,9 @@ struct NotesDrawerPanelView: View {
     let subtitleEngine: PlayerEngine
     var hasSubtitles: Bool
     var subtitlesDirty: Bool
+    /// Notes another Mac added that haven't been seen yet (badge on the Notes tab).
+    var newSyncedNotesCount: Int
+    var onAssignSyncProject: (UUID) -> Void
     
     var onSeekToFrame: (Int) -> Void
     var onAddNote: () -> Void
@@ -158,7 +161,16 @@ struct NotesDrawerPanelView: View {
                                     .help("Unsaved subtitle changes")
                             }
                             
-                            if tab == .notes && !notes.isEmpty {
+                            if tab == .notes && newSyncedNotesCount > 0 && !isSelected {
+                                HStack(spacing: 2) {
+                                    Image(systemName: "icloud.and.arrow.down")
+                                        .font(.system(size: 8, weight: .bold))
+                                    Text("+\(newSyncedNotesCount)")
+                                        .font(.system(size: 9, weight: .bold, design: .monospaced))
+                                }
+                                .foregroundColor(palette.accentBlue)
+                                .help("\(newSyncedNotesCount) new note\(newSyncedNotesCount == 1 ? "" : "s") from your collaborators")
+                            } else if tab == .notes && !notes.isEmpty {
                                 Text("\(notes.count)")
                                     .font(.system(size: 9, weight: .bold, design: .monospaced))
                                     .padding(.horizontal, 4)
@@ -281,6 +293,8 @@ struct NotesDrawerPanelView: View {
             .background(palette.bgPanel)
             
             Rectangle().fill(palette.borderLine).frame(height: 1)
+            
+            NotesSyncProjectBar(isLightMode: isLightMode, onAssign: onAssignSyncProject)
             
             // Notes List or Empty State
             if notes.isEmpty {
@@ -1342,5 +1356,65 @@ struct NotesDrawerPanelView: View {
     private func copyToClipboard(_ text: String) {
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(text, forType: .string)
+    }
+}
+
+/// Which sync project the shown clip's notes go to; hidden while no project is connected.
+/// Observes only the sync status (changes rarely), so the drawer itself doesn't re-render on sync.
+private struct NotesSyncProjectBar: View {
+    @ObservedObject private var status = NotesSyncStatus.shared
+    var isLightMode: Bool
+    var onAssign: (UUID) -> Void
+    
+    private var palette: StudioPalette { StudioPalette(isLightMode) }
+    
+    private var label: String {
+        if let id = status.activeProjectID, let project = status.projects.first(where: { $0.id == id }) {
+            return project.name
+        }
+        let fallback = status.projects.first { $0.id == status.defaultProjectID }?.name ?? status.projects.first?.name ?? ""
+        return "\(fallback) (when notes are added)"
+    }
+    
+    var body: some View {
+        if !status.projects.isEmpty && status.state != .unavailable {
+            VStack(spacing: 0) {
+                HStack(spacing: 6) {
+                    Image(systemName: "icloud")
+                        .font(.system(size: 9, weight: .bold))
+                        .foregroundColor(palette.textMuted)
+                    Text("SYNC")
+                        .font(.system(size: 8, weight: .bold, design: .monospaced))
+                        .foregroundColor(palette.textMuted)
+                    Menu {
+                        ForEach(status.projects) { project in
+                            Button(action: { onAssign(project.id) }) {
+                                if project.id == status.activeProjectID {
+                                    Label(project.name, systemImage: "checkmark")
+                                } else {
+                                    Text(project.name)
+                                }
+                            }
+                        }
+                    } label: {
+                        Text(label)
+                            .font(.system(size: 9, weight: .bold, design: .monospaced))
+                            .foregroundColor(palette.textMain)
+                            .lineLimit(1)
+                    }
+                    .menuStyle(.button)
+                    .buttonStyle(.plain)
+                    .menuIndicator(.visible)
+                    .fixedSize()
+                    .help("Notes sync project for this clip. Pick another to move its notes there.")
+                    Spacer(minLength: 0)
+                }
+                .padding(.horizontal, 10)
+                .frame(height: 24)
+                .background(palette.bgPanel)
+                
+                Rectangle().fill(palette.borderLine).frame(height: 1)
+            }
+        }
     }
 }

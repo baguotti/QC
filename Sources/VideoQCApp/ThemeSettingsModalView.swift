@@ -9,10 +9,12 @@ struct ThemeSettingsModalView: View {
     @State private var isSavingPreset: Bool = false
     @State private var newPresetName: String = ""
     @State private var showUpdatedNotice: Bool = false
-    @AppStorage(NotesSync.passwordKey) private var syncPassword: String = ""
     @ObservedObject private var syncStatus = NotesSyncStatus.shared
+    @State private var syncProjects: [NotesSyncProject] = NotesSyncProject.loadAll()
+    @State private var defaultSyncProjectID: UUID? = NotesSyncProject.defaultID(in: NotesSyncProject.loadAll())
+    @State private var newProjectName: String = ""
     @State private var syncPasswordDraft: String = ""
-    @State private var revealSyncPassword: Bool = false
+    @State private var revealedProjectIDs: Set<UUID> = []
     
     private var palette: StudioPalette { StudioPalette(isLightMode) }
     
@@ -637,52 +639,70 @@ struct ThemeSettingsModalView: View {
                 Text("No sync server is configured in this build.")
                     .font(.system(size: 10))
                     .foregroundColor(palette.textSubtle)
-            } else if syncPassword.isEmpty {
-                HStack(spacing: 8) {
-                    TextField("Type your own password or paste one", text: $syncPasswordDraft)
-                        .textFieldStyle(.plain)
-                        .font(.system(size: 11, design: .monospaced))
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 6)
-                        .studioBox(background: palette.bgSubtle, border: palette.borderLine)
-                        .onSubmit { connectNotesSync(syncPasswordDraft) }
-                    
-                    syncButton("USE PASSWORD", primary: true) { connectNotesSync(syncPasswordDraft) }
-                        .disabled(NotesSync.deriveKeys(password: syncPasswordDraft) == nil)
-                    syncButton("GENERATE") { connectNotesSync(NotesSync.generatePassword(), copy: true) }
-                }
-                
-                Text("Everyone using the same password shares notes. Type your own (8+ characters, not case-sensitive; longer is safer, since anyone who guesses it can read the notes), GENERATE a strong one, or paste the one you received.")
-                    .font(.system(size: 9))
-                    .foregroundColor(palette.textSubtle)
-                    .fixedSize(horizontal: false, vertical: true)
             } else {
-                HStack(spacing: 8) {
-                    Text(revealSyncPassword ? syncPassword : String(repeating: "•", count: syncPassword.count))
-                        .font(.system(size: 11, design: .monospaced))
-                        .foregroundColor(palette.textMain)
-                        .textSelection(.enabled)
-                        .lineLimit(1)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 6)
-                        .studioBox(background: palette.bgSubtle, border: palette.borderLine)
-                    
-                    syncButton(revealSyncPassword ? "HIDE" : "SHOW") { revealSyncPassword.toggle() }
-                    syncButton("COPY") { copyToPasteboard(syncPassword) }
-                    syncButton("TURN OFF") {
-                        syncPassword = ""
-                        syncPasswordDraft = ""
-                        Task { await NotesSync.shared.configure(password: "") }
-                    }
+                ForEach(syncProjects) { project in
+                    syncProjectRow(project)
                 }
                 
-                Text("Notes are encrypted on this Mac with the password before upload. Clips match by file name and size, so each person can keep files in any folder.")
+                HStack(spacing: 8) {
+                    syncField("Project name", text: $newProjectName)
+                        .frame(width: 150)
+                    syncField("Type a password or paste one", text: $syncPasswordDraft)
+                        .onSubmit { addSyncProject(password: syncPasswordDraft) }
+                    syncButton("ADD", primary: true) { addSyncProject(password: syncPasswordDraft) }
+                        .disabled(NotesSync.deriveKeys(password: syncPasswordDraft) == nil)
+                    syncButton("GENERATE") { addSyncProject(password: NotesSync.generatePassword(), copy: true) }
+                }
+                
+                Text("Each project has its own password; everyone using it shares that project's notes. Passwords are 8+ characters, not case-sensitive (longer is safer: anyone who guesses one can read its notes). A clip joins the project that already has notes for it, otherwise the DEFAULT project when it gets notes; change it from the Notes panel. Notes are encrypted on this Mac before upload. Clips match by file name and size, so each person can keep files in any folder.")
                     .font(.system(size: 9))
                     .foregroundColor(palette.textSubtle)
                     .fixedSize(horizontal: false, vertical: true)
             }
         }
+    }
+    
+    private func syncProjectRow(_ project: NotesSyncProject) -> some View {
+        let isDefault = project.id == defaultSyncProjectID
+        let isRevealed = revealedProjectIDs.contains(project.id)
+        return HStack(spacing: 8) {
+            Text(project.displayName)
+                .font(.system(size: 11, weight: .bold, design: .monospaced))
+                .foregroundColor(palette.textMain)
+                .lineLimit(1)
+                .frame(width: 150, alignment: .leading)
+            Text(isRevealed ? project.password : String(repeating: "•", count: min(project.password.count, 16)))
+                .font(.system(size: 11, design: .monospaced))
+                .foregroundColor(palette.textMain)
+                .textSelection(.enabled)
+                .lineLimit(1)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 6)
+                .studioBox(background: palette.bgSubtle, border: palette.borderLine)
+            syncButton(isDefault ? "DEFAULT" : "MAKE DEFAULT", primary: isDefault) {
+                defaultSyncProjectID = project.id
+                saveSyncProjects()
+            }
+            syncButton(isRevealed ? "HIDE" : "SHOW") {
+                if isRevealed { revealedProjectIDs.remove(project.id) } else { revealedProjectIDs.insert(project.id) }
+            }
+            syncButton("COPY") { copyToPasteboard(project.password) }
+            syncButton("REMOVE") {
+                syncProjects.removeAll { $0.id == project.id }
+                if defaultSyncProjectID == project.id { defaultSyncProjectID = syncProjects.first?.id }
+                saveSyncProjects()
+            }
+        }
+    }
+    
+    private func syncField(_ placeholder: String, text: Binding<String>) -> some View {
+        TextField(placeholder, text: text)
+            .textFieldStyle(.plain)
+            .font(.system(size: 11, design: .monospaced))
+            .padding(.horizontal, 8)
+            .padding(.vertical, 6)
+            .studioBox(background: palette.bgSubtle, border: palette.borderLine)
     }
     
     private var syncStatusText: String {
@@ -720,15 +740,25 @@ struct ThemeSettingsModalView: View {
         .buttonStyle(.plain)
     }
     
-    private func connectNotesSync(_ password: String, copy: Bool = false) {
+    private func addSyncProject(password: String, copy: Bool = false) {
         let password = password.trimmingCharacters(in: .whitespacesAndNewlines)
         guard NotesSync.deriveKeys(password: password) != nil else { return }
-        syncPassword = password
+        let name = newProjectName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let project = NotesSyncProject(name: name.isEmpty ? "Project \(syncProjects.count + 1)" : name, password: password)
+        syncProjects.append(project)
+        if defaultSyncProjectID == nil { defaultSyncProjectID = project.id }
+        newProjectName = ""
+        syncPasswordDraft = ""
         if copy {
             copyToPasteboard(password)
-            revealSyncPassword = true
+            revealedProjectIDs.insert(project.id)
         }
-        Task { await NotesSync.shared.configure(password: password) }
+        saveSyncProjects()
+    }
+    
+    private func saveSyncProjects() {
+        NotesSyncProject.save(syncProjects, defaultID: defaultSyncProjectID)
+        NotesSyncProject.applySaved()
     }
     
     private func copyToPasteboard(_ text: String) {

@@ -120,7 +120,9 @@ Notes sync between Macs through a Cloudflare Worker on the free plan (added in v
 | Table | `clips (room, clip, version, data, updated_at)`: one encrypted blob per clip |
 
 ### HOW IT WORKS
-- Settings → **Theme, Accents & Sync** → **06 // NOTES SYNC**: type a password (8+ characters, not case-sensitive) or **GENERATE** one. Everyone with the same password shares notes.
+- Settings → **Theme, Accents & Sync** → **06 // NOTES SYNC**: add one or more projects, each with a name and a password (8+ characters, not case-sensitive) or a **GENERATE**d one. Everyone with the same password shares that project's notes.
+- Each clip belongs to one project: the one that already has notes for it, otherwise the **DEFAULT** project once it gets notes. Change it from the **SYNC** bar at the top of the Notes panel.
+- Notes added by collaborators show as a discreet **+N** cloud badge on the Notes tab until you open it.
 - Notes are encrypted on each Mac (ChaChaPoly, key derived from the password); the server only stores unreadable blobs. Clips match by file name + size, so files can live in any folder.
 - The open clip is checked every 10 s and saves upload immediately; offline edits upload later. Free plan: 100k requests/day, about 8.6k per Mac per day while QCpie is open.
 

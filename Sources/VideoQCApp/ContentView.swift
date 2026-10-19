@@ -17,6 +17,8 @@ struct ContentView: View {
     @State var showAddNoteModal: Bool = false
     @State var showNotesDrawer: Bool = false
     @State var playerDrawerTab: PlayerDrawerTab = .mediaInfo
+    /// Notes another Mac added to the shown clip that haven't been seen in the Notes tab yet.
+    @State var unseenSyncedNoteIDs: Set<UUID> = []
     @State var showPlayerQueue: Bool = true
     @State var showSpecsControlPanel: Bool = true
     @AppStorage("reviewerName") var reviewerName: String = ""
@@ -201,6 +203,7 @@ struct ContentView: View {
                 loadNotesForActiveURL(targetURL)
             }
             .onChange(of: showThemeModal) { _, newValue in if !newValue { dismissFocusReset() } }
+            .onChange(of: notesTabIsVisible) { _, visible in if visible { unseenSyncedNoteIDs = [] } }
             .onChange(of: showUserGuide) { _, newValue in if !newValue { dismissFocusReset() } }
             .onChange(of: showFeedbackModal) { _, newValue in if !newValue { dismissFocusReset() } }
             .onChange(of: showShortcutsModal) { _, newValue in if !newValue { dismissFocusReset() } }
@@ -260,8 +263,7 @@ struct ContentView: View {
                 setupKeyboardMonitor()
                 loadFinderTagsForQueue()
                 updateManager.checkForUpdates(userInitiated: false)
-                let syncPassword = UserDefaults.standard.string(forKey: NotesSync.passwordKey) ?? ""
-                Task { await NotesSync.shared.configure(password: syncPassword) }
+                NotesSyncProject.applySaved()
                 if !fileOpenManager.pendingURLs.isEmpty {
                     let urls = fileOpenManager.pendingURLs
                     let isInitial = fileOpenManager.isInitialLaunchBatch
@@ -2135,6 +2137,7 @@ struct ContentView: View {
             }
             let targetURL = (self.playerEngine.activeTarget == .slotB && self.playerEngine.slotB.url != nil) ? self.playerEngine.slotB.url : self.playerEngine.activeURL
             if targetURL == url {
+                if self.playerEngine.activeNotesURL != url { self.unseenSyncedNoteIDs = [] }
                 self.playerEngine.activeNotes = notes
                 self.playerEngine.activeNotesURL = url
                 await NotesSync.shared.setActive(url)
@@ -2306,10 +2309,19 @@ struct ContentView: View {
         }
     }
 
+    var notesTabIsVisible: Bool {
+        showNotesDrawer && playerDrawerTab == .notes
+    }
+
     /// Shows notes another Mac changed, keeping edits made here while that sync was in flight.
     func applySyncedNotes(_ change: NotesSync.Change) {
         guard let url = notesTargetURL, isSameURL(url, change.url) else { return }
+        let shownIDs = Set(playerEngine.activeNotes.map(\.id))
         let notes = QCNotesManager.threeWayMerge(local: playerEngine.activeNotes, remote: change.notes, base: change.localSnapshot)
+        if !notesTabIsVisible {
+            let current = Set(notes.map(\.id))
+            unseenSyncedNoteIDs = unseenSyncedNoteIDs.intersection(current).union(current.subtracting(shownIDs))
+        }
         withAnimation(.spring(response: 0.32, dampingFraction: 0.78)) {
             playerEngine.activeNotes = notes
             playerEngine.activeNotesURL = url

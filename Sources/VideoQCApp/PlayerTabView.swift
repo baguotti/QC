@@ -495,6 +495,11 @@ extension ContentView {
             subtitleEngine: playerEngine,
             hasSubtitles: !playerEngine.subtitleCues.isEmpty,
             subtitlesDirty: playerEngine.hasUnsavedSubtitleEdits,
+            newSyncedNotesCount: unseenSyncedNoteIDs.count,
+            onAssignSyncProject: { projectID in
+                guard let url = notesTargetURL else { return }
+                Task { await NotesSync.shared.assign(url, to: projectID) }
+            },
             onSeekToFrame: { frame in
                 seekToNoteFrame(frame)
             },
