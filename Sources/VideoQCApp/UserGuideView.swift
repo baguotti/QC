@@ -134,7 +134,7 @@ struct UserGuideView: View {
                 .padding(.horizontal, 12)
                 .padding(.vertical, 6)
                 .foregroundColor(isSel ? palette.textMain : palette.textMuted)
-                .studioBox(background: isSel ? (isLightMode ? Color.white : Color(white: 0.22)) : Color.clear, border: isSel ? palette.borderStrong : Color.clear)
+                .studioBox(background: isSel ? (isLightMode ? palette.bgPanel : Color(white: 0.22)) : Color.clear, border: isSel ? palette.borderStrong : Color.clear)
         }
         .buttonStyle(.plain)
     }

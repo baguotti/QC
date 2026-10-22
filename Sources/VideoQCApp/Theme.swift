@@ -61,7 +61,7 @@ struct StudioTheme {
     }
     
     static func bgPanel(_ isLight: Bool) -> Color {
-        isLight ? Color.white : Color(white: 0.137)
+        isLight ? Color(white: 0.98) : Color(white: 0.137)
     }
     
     static func bgSubtle(_ isLight: Bool) -> Color {
@@ -140,11 +140,11 @@ struct StudioTheme {
     static let droppedFrameRed = Color(hex: "#FF4365")
     
     static func primaryBtnBg(_ isLight: Bool) -> Color {
-        isLight ? Color.black : Color.white
+        isLight ? Color(white: 0.2) : Color.white
     }
     
     static func primaryBtnFg(_ isLight: Bool) -> Color {
-        isLight ? Color.white : Color.black
+        isLight ? Color(white: 0.98) : Color.black
     }
 }
 
@@ -224,10 +224,10 @@ struct StudioToggleStyle: ToggleStyle {
     func makeBody(configuration: Configuration) -> some View {
         Button(action: { configuration.isOn.toggle() }) {
             HStack(spacing: 5) {
-                Rectangle()
-                    .fill(configuration.isOn ? (isLight ? Color.black : Color.white) : Color.clear)
+                RoundedRectangle(cornerRadius: 2)
+                    .fill(configuration.isOn ? (isLight ? Color(white: 0.2) : Color.white) : Color.clear)
                     .frame(width: 8, height: 8)
-                    .border(isLight ? Color(white: 0.6) : Color(white: 0.4), width: 1)
+                    .overlay(RoundedRectangle(cornerRadius: 2).strokeBorder(isLight ? Color(white: 0.6) : Color(white: 0.4), lineWidth: 1))
                 configuration.label
             }
         }

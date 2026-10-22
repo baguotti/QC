@@ -658,6 +658,87 @@ public struct DeliverablesInspector: Sendable {
     }
     
     /// Analyzes audio levels for an array of deliverable assets in parallel with bounded concurrency and progress reporting
+    // MARK: - End Frame Check
+    
+    /// Decodes the last frame at full resolution (a small logo must not be averaged away): BLACK when ≤ 0.1% of pixels
+    /// are brighter than video black (luma 16, room for compression noise), otherwise NOT BLACK (a logo on black is not
+    /// black). Stills and audio-only files are unavailable.
+    public static func checkEndFrame(url: URL) async -> EndFrameCheck {
+        if let seq = ImageSequenceStore.shared.sequence(for: url) {
+            guard let last = seq.frameURLs.last,
+                  let source = CGImageSourceCreateWithURL(last as CFURL, nil),
+                  let image = CGImageSourceCreateImageAtIndex(source, 0, nil) else { return .unavailable }
+            let fps = ImageSequenceStore.shared.fps(for: seq)
+            return classifyEndFrame(image, timecode: TimecodeFormatter.format(frameIndex: seq.length - 1, fps: fps))
+        }
+        guard QCUtilities.mediaKind(of: url) == .video else { return .unavailable }
+        let asset = AVURLAsset(url: url, options: [AVURLAssetPreferPreciseDurationAndTimingKey: true])
+        guard let track = try? await asset.loadTracks(withMediaType: .video).first,
+              let duration = try? await asset.load(.duration), duration.isNumeric, duration.seconds > 0 else { return .unavailable }
+        let nominal = Double((try? await track.load(.nominalFrameRate)) ?? 25)
+        let fps = nominal > 0 ? nominal : 25
+        let frameDuration = CMTime(seconds: 1 / fps, preferredTimescale: 600_000)
+        // Aim inside the last frame; allow up to one frame earlier for files whose duration overshoots the last PTS.
+        let target = CMTimeSubtract(duration, CMTimeMultiplyByFloat64(frameDuration, multiplier: 0.5))
+        let generator = AVAssetImageGenerator(asset: asset)
+        generator.appliesPreferredTrackTransform = true
+        generator.requestedTimeToleranceBefore = CMTimeMultiplyByFloat64(frameDuration, multiplier: 1.5)
+        generator.requestedTimeToleranceAfter = .zero
+        guard let (image, actual) = try? await generator.image(at: target) else { return .unavailable }
+        let frameIndex = max(0, Int((actual.seconds * fps).rounded(.down)))
+        return classifyEndFrame(image, timecode: TimecodeFormatter.format(frameIndex: frameIndex, fps: fps))
+    }
+    
+    static func classifyEndFrame(_ image: CGImage, timecode: String) -> EndFrameCheck {
+        let width = image.width, height = image.height
+        guard width > 0, height > 0,
+              let context = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: width * 4,
+                                      space: CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB(),
+                                      bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue),
+              let data = context.data else { return .unavailable }
+        context.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
+        let pixels = data.assumingMemoryBound(to: UInt8.self)
+        var lit = 0
+        var sum = 0
+        for i in 0..<(width * height) {
+            let p = pixels + i * 4
+            let luma = (Int(p[0]) * 54 + Int(p[1]) * 183 + Int(p[2]) * 19) >> 8
+            sum += luma
+            if luma > 16 { lit += 1 }
+        }
+        let count = Double(width * height)
+        let mean = Double(sum) / count
+        let litPercent = Double(lit) / count * 100
+        let verdict: EndFrameCheck.Verdict = litPercent <= 0.1 ? .black : .notBlack
+        return EndFrameCheck(verdict: verdict, meanLuma: mean, litPercent: litPercent, timecode: timecode)
+    }
+    
+    /// Checks every asset's last frame, up to `maxConcurrency` at a time, reporting each result as it lands.
+    public static func checkBatchEndFrames(
+        urls: [URL],
+        maxConcurrency: Int = 4,
+        onResult: @escaping @Sendable (URL, EndFrameCheck, Int, Int) -> Void
+    ) async {
+        guard !urls.isEmpty else { return }
+        await withTaskGroup(of: (URL, EndFrameCheck).self) { group in
+            var next = 0
+            for _ in 0..<min(max(1, maxConcurrency), urls.count) {
+                let url = urls[next]
+                next += 1
+                group.addTask { (url, await checkEndFrame(url: url)) }
+            }
+            var completed = 0
+            for await (url, result) in group {
+                completed += 1
+                onResult(url, result, completed, urls.count)
+                guard next < urls.count, !Task.isCancelled else { continue }
+                let nextURL = urls[next]
+                next += 1
+                group.addTask { (nextURL, await checkEndFrame(url: nextURL)) }
+            }
+        }
+    }
+    
     public static func analyzeBatchAudioLevels(
         assets: [DeliverableAsset],
         maxConcurrency: Int = 4,
@@ -855,7 +936,7 @@ public struct DeliverablesInspector: Sendable {
     // MARK: - CSV Generator
     
     public static func generateManifestCSV(assets: [DeliverableAsset], rootFolderURL: URL? = nil) -> String {
-        var csv = "Folder,File Name,Status,Validation Notes,Timecode,Duration,Total Frames,Resolution,Aspect Ratio,FPS,File Size,Created Date,Subtitles / CC,Video Codec,Audio Codec,Audio Bitrate,Audio Details,Container,File Path\n"
+        var csv = "Folder,File Name,Status,Validation Notes,Timecode,Duration,Total Frames,Resolution,Aspect Ratio,FPS,File Size,Created Date,Subtitles / CC,Video Codec,Audio Codec,Audio Bitrate,Audio Details,End Frame,Container,File Path\n"
         
         for a in assets {
             var folderRel = ""
@@ -872,7 +953,7 @@ public struct DeliverablesInspector: Sendable {
             }
             let status = a.validation.hasAnyMismatch ? "MISMATCH FLAGGED" : "MATCHED"
             let notes = a.validation.summaryString
-            csv += "\(QCUtilities.escapeCSV(folderRel)),\(QCUtilities.escapeCSV(a.fileName)),\(QCUtilities.escapeCSV(status)),\(QCUtilities.escapeCSV(notes)),\(QCUtilities.escapeCSV(a.timecode)),\(QCUtilities.escapeCSV(a.formattedDuration)),\(a.totalFrames),\(QCUtilities.escapeCSV(a.resolutionString)),\(QCUtilities.escapeCSV(a.aspectRatioString)),\(String(format: "%.2f", a.fps)),\(QCUtilities.escapeCSV(a.formattedFileSize)),\(QCUtilities.escapeCSV(a.formattedCreationDate)),\(QCUtilities.escapeCSV(a.subtitlesInfo)),\(QCUtilities.escapeCSV(a.videoCodec)),\(QCUtilities.escapeCSV(a.audioCodec)),\(QCUtilities.escapeCSV(a.audioBitrate)),\(QCUtilities.escapeCSV(a.audioConfig)),\(QCUtilities.escapeCSV(a.container)),\(QCUtilities.escapeCSV(a.fileURL.path))\n"
+            csv += "\(QCUtilities.escapeCSV(folderRel)),\(QCUtilities.escapeCSV(a.fileName)),\(QCUtilities.escapeCSV(status)),\(QCUtilities.escapeCSV(notes)),\(QCUtilities.escapeCSV(a.timecode)),\(QCUtilities.escapeCSV(a.formattedDuration)),\(a.totalFrames),\(QCUtilities.escapeCSV(a.resolutionString)),\(QCUtilities.escapeCSV(a.aspectRatioString)),\(String(format: "%.2f", a.fps)),\(QCUtilities.escapeCSV(a.formattedFileSize)),\(QCUtilities.escapeCSV(a.formattedCreationDate)),\(QCUtilities.escapeCSV(a.subtitlesInfo)),\(QCUtilities.escapeCSV(a.videoCodec)),\(QCUtilities.escapeCSV(a.audioCodec)),\(QCUtilities.escapeCSV(a.audioBitrate)),\(QCUtilities.escapeCSV(a.audioConfig)),\(QCUtilities.escapeCSV(a.endFrame?.verdict.rawValue ?? "")),\(QCUtilities.escapeCSV(a.container)),\(QCUtilities.escapeCSV(a.fileURL.path))\n"
         }
         
         return csv
@@ -881,7 +962,7 @@ public struct DeliverablesInspector: Sendable {
     // MARK: - TSV Generator (Google Sheets / Clipboard)
     
     public static func generateManifestTSV(assets: [DeliverableAsset], rootFolderURL: URL? = nil) -> String {
-        var tsv = "Folder\tFile Name\tStatus\tValidation Notes\tTimecode\tDuration\tTotal Frames\tResolution\tAspect Ratio\tFPS\tFile Size\tCreated Date\tSubtitles / CC\tVideo Codec\tAudio Codec\tAudio Bitrate\tAudio Details\tContainer\tFile Path\n"
+        var tsv = "Folder\tFile Name\tStatus\tValidation Notes\tTimecode\tDuration\tTotal Frames\tResolution\tAspect Ratio\tFPS\tFile Size\tCreated Date\tSubtitles / CC\tVideo Codec\tAudio Codec\tAudio Bitrate\tAudio Details\tEnd Frame\tContainer\tFile Path\n"
         
         for a in assets {
             var folderRel = ""
@@ -898,7 +979,7 @@ public struct DeliverablesInspector: Sendable {
             }
             let status = a.validation.hasAnyMismatch ? "MISMATCH FLAGGED" : "MATCHED"
             let notes = a.validation.summaryString
-            tsv += "\(QCUtilities.escapeTSV(folderRel))\t\(QCUtilities.escapeTSV(a.fileName))\t\(QCUtilities.escapeTSV(status))\t\(QCUtilities.escapeTSV(notes))\t\(QCUtilities.escapeTSV(a.timecode))\t\(QCUtilities.escapeTSV(a.formattedDuration))\t\(a.totalFrames)\t\(QCUtilities.escapeTSV(a.resolutionString))\t\(QCUtilities.escapeTSV(a.aspectRatioString))\t\(String(format: "%.2f", a.fps))\t\(QCUtilities.escapeTSV(a.formattedFileSize))\t\(QCUtilities.escapeTSV(a.formattedCreationDate))\t\(QCUtilities.escapeTSV(a.subtitlesInfo))\t\(QCUtilities.escapeTSV(a.videoCodec))\t\(QCUtilities.escapeTSV(a.audioCodec))\t\(QCUtilities.escapeTSV(a.audioBitrate))\t\(QCUtilities.escapeTSV(a.audioConfig))\t\(QCUtilities.escapeTSV(a.container))\t\(QCUtilities.escapeTSV(a.fileURL.path))\n"
+            tsv += "\(QCUtilities.escapeTSV(folderRel))\t\(QCUtilities.escapeTSV(a.fileName))\t\(QCUtilities.escapeTSV(status))\t\(QCUtilities.escapeTSV(notes))\t\(QCUtilities.escapeTSV(a.timecode))\t\(QCUtilities.escapeTSV(a.formattedDuration))\t\(a.totalFrames)\t\(QCUtilities.escapeTSV(a.resolutionString))\t\(QCUtilities.escapeTSV(a.aspectRatioString))\t\(String(format: "%.2f", a.fps))\t\(QCUtilities.escapeTSV(a.formattedFileSize))\t\(QCUtilities.escapeTSV(a.formattedCreationDate))\t\(QCUtilities.escapeTSV(a.subtitlesInfo))\t\(QCUtilities.escapeTSV(a.videoCodec))\t\(QCUtilities.escapeTSV(a.audioCodec))\t\(QCUtilities.escapeTSV(a.audioBitrate))\t\(QCUtilities.escapeTSV(a.audioConfig))\t\(QCUtilities.escapeTSV(a.endFrame?.verdict.rawValue ?? ""))\t\(QCUtilities.escapeTSV(a.container))\t\(QCUtilities.escapeTSV(a.fileURL.path))\n"
         }
         
         return tsv

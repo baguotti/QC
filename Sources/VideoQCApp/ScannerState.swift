@@ -5,13 +5,13 @@ import VideoQCLib
 
 @MainActor
 public final class ScannerState: ObservableObject {
-    @Published public var hexCode: String = "#00FF00"
-    @Published public var sensitivityPercentage: Double = 50.0
-    @Published public var anyColor: Bool = false
-    @Published public var reportOffColorLines: Bool = true
-    @Published public var edgeDepth: Int = 12
+    @Published public var hexCode: String = UserPreferences.lineTargetHex
+    @Published public var sensitivityPercentage: Double = UserPreferences.lineSensitivity
+    @Published public var anyColor: Bool = UserPreferences.lineAnyColor
+    @Published public var reportOffColorLines: Bool = UserPreferences.lineOffColor
+    @Published public var edgeDepth: Int = UserPreferences.lineEdgeDepth
     @Published public var minSpanPercentage: Double = 25.0
-    @Published public var scanFullScreen: Bool = false
+    @Published public var scanFullScreen: Bool = UserPreferences.lineSplitSeams
     @Published public var enableExposureBoost: Bool = true
     @Published public var ignoreFullBlackFrames: Bool = true
     @Published public var enableHighlightExpansion: Bool = true

@@ -189,7 +189,7 @@ struct NotesDrawerPanelView: View {
                             Group {
                                 if isSelected {
                                     RoundedRectangle(cornerRadius: 6)
-                                        .fill(isLightMode ? Color.white : Color(white: 0.22))
+                                        .fill(isLightMode ? palette.bgPanel : Color(white: 0.22))
                                         .overlay(
                                             RoundedRectangle(cornerRadius: 6)
                                                 .stroke(isLightMode ? palette.borderStrong : Color.white.opacity(0.18), lineWidth: 1)
@@ -283,8 +283,8 @@ struct NotesDrawerPanelView: View {
                     }
                     .padding(.horizontal, 6)
                     .padding(.vertical, 3.5)
-                    .foregroundColor(palette.accentPositive)
-                    .studioBox(background: palette.accentPositive.opacity(0.14), border: palette.accentPositive.opacity(0.6))
+                    .foregroundColor(palette.accentBlue)
+                    .studioBox(background: palette.accentBlue.opacity(0.14), border: palette.accentBlue.opacity(0.6))
                 }
                 .buttonStyle(.plain)
             }
@@ -1178,7 +1178,7 @@ struct NotesDrawerPanelView: View {
                 Button("Save") { commitEdit(note: note) }
                     .buttonStyle(.plain)
                     .font(.ui(size: 9, weight: .semibold))
-                    .foregroundColor(palette.accentPositive)
+                    .foregroundColor(palette.accentBlue)
             }
         }
     }

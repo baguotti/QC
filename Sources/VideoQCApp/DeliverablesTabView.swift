@@ -209,6 +209,37 @@ extension ContentView {
                 .disabled(specsState.deliverableAssets.isEmpty)
                 .explain("Decodes audio tracks with Apple Accelerate SIMD to measure peak dBFS and detect silence.")
                 
+                // End Frame Check (on demand: one decoded frame per file)
+                Button(action: {
+                    if specsState.isCheckingEndFrames { specsState.cancelEndFrameCheck() } else { specsState.checkEndFrames() }
+                }) {
+                    HStack(spacing: 6) {
+                        if specsState.isCheckingEndFrames {
+                            ProgressView().controlSize(.mini).scaleEffect(0.65).frame(width: 10, height: 10)
+                            Text("CHECKING END FRAMES (\(specsState.checkedEndFrameCount)/\(specsState.totalEndFrameCount))")
+                                .font(.ui(size: 9.5, weight: .semibold))
+                                .foregroundColor(accentBlue)
+                            Spacer()
+                            Image(systemName: "xmark.circle.fill").font(.system(size: 9, weight: .bold)).foregroundColor(textMuted)
+                        } else {
+                            Image(systemName: "rectangle.lefthalf.inset.filled.arrow.left")
+                                .font(.system(size: 8.5, weight: .bold))
+                            Text(hasPendingEndFrameCheck ? "CHECK END FRAMES" : "RECHECK END FRAMES")
+                                .font(.ui(size: 9.5, weight: .semibold))
+                            Spacer()
+                        }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .center)
+                    .frame(height: 28)
+                    .padding(.horizontal, 8)
+                    .foregroundColor(specsState.deliverableAssets.isEmpty ? textMuted : (hasPendingEndFrameCheck ? textMain : textSubtle))
+                    .studioBox(background: hasPendingEndFrameCheck ? accentBlue.opacity(0.12) : bgSubtle,
+                               border: hasPendingEndFrameCheck ? accentBlue.opacity(0.5) : borderLine)
+                }
+                .buttonStyle(.plain)
+                .disabled(specsState.deliverableAssets.isEmpty)
+                .explain("Checks whether each video ends on a pure black frame (decodes only the last frame of each file).")
+                
                 // Subtitle Cross-Check (selection with 2+ files, otherwise the whole list)
                 let crossCheckTargets = subtitleCrossCheckTargets
                 Button(action: { crossCheckSubtitles(crossCheckTargets) }) {
@@ -470,6 +501,8 @@ extension ContentView {
                         .explain("Scan audio tracks with Apple Accelerate SIMD to measure peak dBFS and detect mute tracks.")
                     }
                     
+                    endFrameToolbarButton
+                    
                     // Button 1: Fit / Reset Name
                     Button(action: { autoFitFileNameColumnWidth() }) {
                         HStack(spacing: 4) {
@@ -487,7 +520,7 @@ extension ContentView {
                     .disabled(specsState.deliverableAssets.isEmpty)
                     .fixedSize()
                     .studioBox(
-                        background: isFileNameExpanded ? (isLightMode ? Color.white : bgCardHeader) : bgSubtle,
+                        background: isFileNameExpanded ? (isLightMode ? bgPanel : bgCardHeader) : bgSubtle,
                         border: isFileNameExpanded ? borderStrong : borderLine
                     )
                     .explain(isFileNameExpanded ? "Reset File Name column width back to default (220px)." : "Auto-fit File Name column to fit longest filename without truncation.")
@@ -578,7 +611,7 @@ extension ContentView {
                     }
                     .fixedSize()
                     .studioBox(
-                        background: showSpecsViewOptionsPopover ? (isLightMode ? Color.white : bgCardHeader) : bgSubtle,
+                        background: showSpecsViewOptionsPopover ? (isLightMode ? bgPanel : bgCardHeader) : bgSubtle,
                         border: showSpecsViewOptionsPopover ? borderStrong : borderLine
                     )
                 }
@@ -603,6 +636,7 @@ extension ContentView {
                             
                             sortableHeaderCell("FILE NAME", column: .name, alignment: .leading)
                             sortableHeaderCell("TIMECODE (TC)", column: .timecode)
+                            sortableHeaderCell("END FRAME", column: .endFrame)
                             sortableHeaderCell("RATIO & SIZE", column: .ratio)
                             sortableHeaderCell("FPS", column: .fps)
                             sortableHeaderCell("FILE SIZE", column: .size)
@@ -772,8 +806,9 @@ extension ContentView {
             CGFloat(specsState.columnWidth(for: .date)) +
             CGFloat(specsState.columnWidth(for: .videoCodec)) +
             CGFloat(specsState.columnWidth(for: .audioCodec)) +
+            CGFloat(specsState.columnWidth(for: .endFrame)) +
             CGFloat(specsState.columnWidth(for: .path)) +
-            (8 * 11) + 28
+            (8 * 12) + 28
         return CGFloat(effectiveFileNameColumnWidth) + otherColumnsWidth
     }
     
@@ -1136,6 +1171,9 @@ extension ContentView {
             }
             .frame(width: CGFloat(specsState.columnWidth(for: .timecode)), alignment: .center)
             
+            endFrameCell(asset.endFrame)
+                .frame(width: CGFloat(specsState.columnWidth(for: .endFrame)), alignment: .center)
+            
             // Ratio Cell with Warning
             VStack(alignment: .center, spacing: 3) {
                 HStack(spacing: 4) {
@@ -1239,11 +1277,11 @@ extension ContentView {
                         }
                         .padding(.horizontal, 5)
                         .padding(.vertical, 1.5)
-                        .foregroundColor(accentPositive)
-                        .background(accentPositive.opacity(0.12))
+                        .foregroundColor(alertRed)
+                        .background(alertRed.opacity(0.12))
                         .overlay(
                             RoundedRectangle(cornerRadius: 3)
-                                .stroke(accentPositive.opacity(0.35), lineWidth: 0.8)
+                                .stroke(alertRed.opacity(0.35), lineWidth: 0.8)
                         )
                         .cornerRadius(3)
                         .lineLimit(1)
@@ -1540,4 +1578,78 @@ struct EquatableRow<Key: Equatable, Content: View>: View, Equatable {
     }
     
     var body: some View { content() }
+}
+
+// MARK: - End Frame Column
+
+extension ContentView {
+    var hasPendingEndFrameCheck: Bool {
+        specsState.deliverableAssets.contains { $0.endFrame == nil }
+    }
+    
+    @ViewBuilder
+    func endFrameCell(_ check: EndFrameCheck?) -> some View {
+        if let check {
+            // Neutral on purpose: ending on black is a fact, not a pass or fail. A black swatch for BLACK, an empty one otherwise.
+            HStack(spacing: 5) {
+                if check.verdict != .unavailable {
+                    RoundedRectangle(cornerRadius: 1.5)
+                        .fill(check.verdict == .black ? Color.black : Color.clear)
+                        .frame(width: 8, height: 8)
+                        .overlay(RoundedRectangle(cornerRadius: 1.5).stroke(textMuted, lineWidth: 1))
+                }
+                Text(check.verdict.rawValue)
+                    .font(.ui(size: 9.5, weight: .semibold))
+                    .foregroundColor(check.verdict == .unavailable ? textMuted : textMain)
+                    .lineLimit(1)
+            }
+            .help(check.verdict == .unavailable
+                  ? "No last frame to check (still image, audio, or the frame couldn't be decoded)"
+                  : "Last frame \(check.timecode): \(String(format: "%.2f", 100 - check.litPercent))% black, \(String(format: "%.2f", check.litPercent))% picture/content (mean luma \(String(format: "%.1f", check.meanLuma)) / 255)")
+        } else {
+            Text("—")
+                .font(.ui(size: 9.5, weight: .semibold))
+                .foregroundColor(textMuted)
+                .help("Not checked yet: use CHECK END FRAMES")
+        }
+    }
+    
+    var endFrameToolbarButton: some View {
+        Group {
+            if specsState.isCheckingEndFrames {
+                HStack(spacing: 4) {
+                    ProgressView().controlSize(.mini).scaleEffect(0.65).frame(width: 10, height: 10)
+                    Text("END \(specsState.checkedEndFrameCount)/\(specsState.totalEndFrameCount)")
+                        .font(.ui(size: 9.5, weight: .semibold))
+                        .foregroundColor(accentBlue)
+                    Button(action: { specsState.cancelEndFrameCheck() }) {
+                        Image(systemName: "xmark.circle.fill").font(.system(size: 8.5, weight: .bold)).foregroundColor(textMuted)
+                    }
+                    .buttonStyle(.plain)
+                    .explain("Cancel the end-frame check")
+                }
+                .padding(.horizontal, 7)
+                .frame(height: 24)
+                .studioBox(background: accentBlue.opacity(0.15), border: accentBlue.opacity(0.6))
+            } else {
+                Button(action: { specsState.checkEndFrames() }) {
+                    HStack(spacing: 4) {
+                        Image(systemName: "rectangle.lefthalf.inset.filled.arrow.left").font(.system(size: 8.5, weight: .bold))
+                        Text(hasPendingEndFrameCheck ? "CHECK END" : "RECHECK END")
+                            .font(.ui(size: 9.5, weight: .semibold))
+                    }
+                    .padding(.horizontal, 8)
+                    .frame(height: 24)
+                    .contentShape(Rectangle())
+                    .foregroundColor(specsState.deliverableAssets.isEmpty ? textMuted : (hasPendingEndFrameCheck ? accentBlue : textSubtle))
+                }
+                .buttonStyle(.plain)
+                .disabled(specsState.deliverableAssets.isEmpty)
+                .fixedSize()
+                .studioBox(background: hasPendingEndFrameCheck ? accentBlue.opacity(0.12) : bgSubtle,
+                           border: hasPendingEndFrameCheck ? accentBlue.opacity(0.5) : borderLine)
+                .explain("Checks whether each video ends on a pure black frame (decodes only the last frame of each file).")
+            }
+        }
+    }
 }

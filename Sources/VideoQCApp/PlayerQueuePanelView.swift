@@ -228,7 +228,7 @@ public struct PlayerQueuePanelView: View, Equatable {
                         .frame(height: StudioTheme.scale(18))
                         .foregroundColor(textMain)
                         .studioBox(
-                            background: showViewOptionsPopover ? (isLightMode ? Color.white : bgCardHeader) : bgSubtle,
+                            background: showViewOptionsPopover ? (isLightMode ? bgPanel : bgCardHeader) : bgSubtle,
                             border: showViewOptionsPopover ? borderStrong : borderLine
                         )
                     }
@@ -279,7 +279,7 @@ public struct PlayerQueuePanelView: View, Equatable {
                                 mode: .character,
                                 direction: .up,
                                 font: .system(size: StudioTheme.scaleFont(8), weight: .black, design: .monospaced),
-                                foregroundColor: isAutoplayEnabled ? accentPositive : textMuted,
+                                foregroundColor: isAutoplayEnabled ? accentBlue : textMuted,
                                 tracking: 0.3,
                                 stagger: 0.018,
                                 rollDistance: 9,
@@ -288,9 +288,9 @@ public struct PlayerQueuePanelView: View, Equatable {
                         }
                         .padding(.horizontal, StudioTheme.scale(4))
                         .frame(height: StudioTheme.scale(18))
-                        .foregroundColor(isAutoplayEnabled ? accentPositive : textMuted)
-                        .studioBox(background: isAutoplayEnabled ? accentPositive.opacity(0.18) : bgSubtle,
-                                   border: isAutoplayEnabled ? accentPositive : borderLine)
+                        .foregroundColor(isAutoplayEnabled ? accentBlue : textMuted)
+                        .studioBox(background: isAutoplayEnabled ? accentBlue.opacity(0.18) : bgSubtle,
+                                   border: isAutoplayEnabled ? accentBlue : borderLine)
                     }
                     .buttonStyle(.plain)
                     .explain(isAutoplayEnabled ? "Autoplay: ON (Videos play from start when clicked or navigating with ↑/↓) [A]" : "Autoplay: OFF (Videos load paused at frame 0) [A]")
@@ -305,7 +305,7 @@ public struct PlayerQueuePanelView: View, Equatable {
                                 mode: .character,
                                 direction: .up,
                                 font: .system(size: StudioTheme.scaleFont(8), weight: .black, design: .monospaced),
-                                foregroundColor: drawsWaveforms ? accentPositive : textMuted,
+                                foregroundColor: drawsWaveforms ? accentBlue : textMuted,
                                 tracking: 0.3,
                                 stagger: 0.018,
                                 rollDistance: 9,
@@ -314,9 +314,9 @@ public struct PlayerQueuePanelView: View, Equatable {
                         }
                         .padding(.horizontal, StudioTheme.scale(4))
                         .frame(height: StudioTheme.scale(18))
-                        .foregroundColor(drawsWaveforms ? accentPositive : textMuted)
-                        .studioBox(background: drawsWaveforms ? accentPositive.opacity(0.18) : bgSubtle,
-                                   border: drawsWaveforms ? accentPositive : borderLine)
+                        .foregroundColor(drawsWaveforms ? accentBlue : textMuted)
+                        .studioBox(background: drawsWaveforms ? accentBlue.opacity(0.18) : bgSubtle,
+                                   border: drawsWaveforms ? accentBlue : borderLine)
                     }
                     .buttonStyle(.plain)
                     .explain(drawsWaveforms ? "Waveform: ON (audio waveform under the timeline; scroll over it to resize) [W]" : "Waveform: OFF (click to draw the audio waveform under the timeline) [W]")
@@ -470,7 +470,7 @@ public struct PlayerQueuePanelView: View, Equatable {
                     if !videoFiles.isEmpty {
                         HStack(spacing: StudioTheme.scale(4)) {
                             Circle()
-                                .fill(accentPositive)
+                                .fill(accentBlue)
                                 .frame(width: StudioTheme.scale(5), height: StudioTheme.scale(5))
                             Text("\(videoFiles.count) \(videoFiles.count == 1 ? "FILE" : "FILES")")
                                 .font(.ui(size: StudioTheme.scaleFont(9), weight: .semibold))

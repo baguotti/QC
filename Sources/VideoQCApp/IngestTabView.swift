@@ -158,12 +158,12 @@ extension ContentView {
                             Text(ingestState.manifest.addedToClientDrives ? "YES" : "NO")
                                 .font(.ui(size: 10, weight: .semibold))
                         }
-                        .foregroundColor(ingestState.manifest.addedToClientDrives ? accentPositive : textMuted)
+                        .foregroundColor(ingestState.manifest.addedToClientDrives ? accentBlue : textMuted)
                         .padding(.horizontal, 8)
                         .padding(.vertical, 4)
                         .studioBox(
-                            background: ingestState.manifest.addedToClientDrives ? accentPositive.opacity(0.12) : bgSubtle,
-                            border: ingestState.manifest.addedToClientDrives ? accentPositive.opacity(0.5) : borderLine
+                            background: ingestState.manifest.addedToClientDrives ? accentBlue.opacity(0.12) : bgSubtle,
+                            border: ingestState.manifest.addedToClientDrives ? accentBlue.opacity(0.5) : borderLine
                         )
                     }
                     .buttonStyle(.plain)

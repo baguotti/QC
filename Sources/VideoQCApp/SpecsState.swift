@@ -47,6 +47,12 @@ public final class SpecsState: ObservableObject {
     @Published public var totalAudioCount: Int = 0
     private var audioAnalysisTask: Task<Void, Never>? = nil
     
+    // End-frame check (on demand)
+    @Published public var isCheckingEndFrames: Bool = false
+    @Published public var checkedEndFrameCount: Int = 0
+    @Published public var totalEndFrameCount: Int = 0
+    private var endFrameTask: Task<Void, Never>? = nil
+    
     // MARK: - Multi-Selection
     
     public func isSelected(_ url: URL) -> Bool {
@@ -328,6 +334,17 @@ public final class SpecsState: ObservableObject {
                 } else {
                     order = a.videoCodec.localizedStandardCompare(b.videoCodec)
                 }
+            case .endFrame:
+                // Black first, then not black, unavailable, unchecked.
+                func rank(_ asset: DeliverableAsset) -> Int {
+                    switch asset.endFrame?.verdict {
+                    case .black: return 0
+                    case .notBlack: return 1
+                    case .unavailable: return 2
+                    case nil: return 3
+                    }
+                }
+                order = rank(a) == rank(b) ? .orderedSame : (rank(a) < rank(b) ? .orderedAscending : .orderedDescending)
             case .audioCodec:
                 let aAudio = "\(a.audioCodec) \(a.audioBitrate)"
                 let bAudio = "\(b.audioCodec) \(b.audioBitrate)"
@@ -370,6 +387,36 @@ public final class SpecsState: ObservableObject {
             self.isAnalyzingAudioLevels = false
             self.audioAnalysisTask = nil
         }
+    }
+    
+    /// Classifies the last frame of every listed deliverable (BLACK / NEAR BLACK / NOT BLACK).
+    public func checkEndFrames() {
+        guard !deliverableAssets.isEmpty else { return }
+        cancelEndFrameCheck()
+        let urls = deliverableAssets.map(\.fileURL)
+        totalEndFrameCount = urls.count
+        checkedEndFrameCount = 0
+        isCheckingEndFrames = true
+        endFrameTask = Task(priority: .utility) { @MainActor [weak self] in
+            guard let owner = self else { return }
+            await DeliverablesInspector.checkBatchEndFrames(urls: urls) { [weak owner] url, result, completed, _ in
+                Task { @MainActor [weak owner] in
+                    guard let owner else { return }
+                    if let index = owner.deliverableAssets.firstIndex(where: { $0.fileURL == url }) {
+                        owner.deliverableAssets[index].endFrame = result
+                    }
+                    owner.checkedEndFrameCount = completed
+                }
+            }
+            owner.isCheckingEndFrames = false
+            owner.endFrameTask = nil
+        }
+    }
+    
+    public func cancelEndFrameCheck() {
+        endFrameTask?.cancel()
+        endFrameTask = nil
+        isCheckingEndFrames = false
     }
     
     public func cancelAudioAnalysis() {

@@ -59,6 +59,7 @@ public enum SpecsSortColumn: String, CaseIterable, Equatable, Sendable {
     case date = "date"
     case videoCodec = "videoCodec"
     case audioCodec = "audioCodec"
+    case endFrame = "endFrame"
     case path = "path"
     
     public var displayName: String {
@@ -71,6 +72,7 @@ public enum SpecsSortColumn: String, CaseIterable, Equatable, Sendable {
         case .date: return "Creation Date"
         case .videoCodec: return "Video Codec"
         case .audioCodec: return "Audio Spec"
+        case .endFrame: return "End Frame"
         case .path: return "File Path"
         }
     }
@@ -85,6 +87,7 @@ public enum SpecsSortColumn: String, CaseIterable, Equatable, Sendable {
         case .date: return 110.0
         case .videoCodec: return 140.0
         case .audioCodec: return 145.0
+        case .endFrame: return 95.0
         case .path: return 160.0
         }
     }
@@ -99,6 +102,7 @@ public enum SpecsSortColumn: String, CaseIterable, Equatable, Sendable {
         case .date: return 70.0
         case .videoCodec: return 80.0
         case .audioCodec: return 80.0
+        case .endFrame: return 70.0
         case .path: return 100.0
         }
     }
@@ -113,6 +117,7 @@ public enum SpecsSortColumn: String, CaseIterable, Equatable, Sendable {
         case .date: return 250.0
         case .videoCodec: return 400.0
         case .audioCodec: return 400.0
+        case .endFrame: return 200.0
         case .path: return 2000.0
         }
     }
@@ -147,6 +152,8 @@ public struct DeliverableAsset: Identifiable, Sendable, Equatable {
     public let hasSubtitles: Bool
     public let subtitlesInfo: String
     public let validation: DeliverableValidation
+    /// Result of the on-demand last-frame check (nil until CHECK END FRAMES runs).
+    public var endFrame: EndFrameCheck? = nil
     
     public var hasAudio: Bool {
         audioConfig != "NONE" && audioCodec != "NONE"
@@ -158,7 +165,7 @@ public struct DeliverableAsset: Identifiable, Sendable, Equatable {
         levelString: String,
         validation: DeliverableValidation
     ) -> DeliverableAsset {
-        DeliverableAsset(
+        var copy = DeliverableAsset(
             id: self.id,
             fileURL: self.fileURL,
             fileName: self.fileName,
@@ -188,6 +195,8 @@ public struct DeliverableAsset: Identifiable, Sendable, Equatable {
             subtitlesInfo: self.subtitlesInfo,
             validation: validation
         )
+        copy.endFrame = endFrame
+        return copy
     }
     
     public init(
@@ -249,4 +258,29 @@ public struct DeliverableAsset: Identifiable, Sendable, Equatable {
         self.subtitlesInfo = subtitlesInfo
         self.validation = validation
     }
+}
+
+/// How the last frame of a deliverable ends (Specs → CHECK END FRAMES).
+public struct EndFrameCheck: Equatable, Sendable {
+    public enum Verdict: String, Sendable {
+        case black = "BLACK"
+        case notBlack = "NOT BLACK"
+        case unavailable = "—"
+    }
+    public let verdict: Verdict
+    /// Mean luma 0…255 of the last frame.
+    public let meanLuma: Double
+    /// Share of pixels brighter than video black (luma > 16), in percent.
+    public let litPercent: Double
+    /// Timecode of the frame checked.
+    public let timecode: String
+    
+    public init(verdict: Verdict, meanLuma: Double, litPercent: Double, timecode: String) {
+        self.verdict = verdict
+        self.meanLuma = meanLuma
+        self.litPercent = litPercent
+        self.timecode = timecode
+    }
+    
+    public static let unavailable = EndFrameCheck(verdict: .unavailable, meanLuma: 0, litPercent: 0, timecode: "--")
 }

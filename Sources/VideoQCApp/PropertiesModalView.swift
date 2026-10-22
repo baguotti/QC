@@ -661,7 +661,7 @@ public struct PropertiesModalView: View {
                         .foregroundColor(selectedTab == tab ? (isLightMode ? Color.black : Color.white) : palette.textMuted)
                         .background(
                             selectedTab == tab
-                                ? RoundedRectangle(cornerRadius: 12).fill(isLightMode ? Color.white : Color.white.opacity(0.22))
+                                ? RoundedRectangle(cornerRadius: 12).fill(isLightMode ? palette.bgPanel : Color.white.opacity(0.22))
                                 : RoundedRectangle(cornerRadius: 12).fill(Color.clear)
                         )
                         .contentShape(Rectangle())

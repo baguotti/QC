@@ -926,7 +926,7 @@ struct ContentView: View {
                     if !videoFiles.isEmpty {
                         HStack(spacing: 4) {
                             Circle()
-                                .fill(accentPositive)
+                                .fill(accentBlue)
                                 .frame(width: StudioTheme.scale(5), height: StudioTheme.scale(5))
                             Text("\(videoFiles.count) \(videoFiles.count == 1 ? "FILE" : "FILES")")
                                 .font(.ui(size: StudioTheme.scaleFont(9), weight: .semibold))

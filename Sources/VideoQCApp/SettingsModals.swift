@@ -274,11 +274,23 @@ enum UserPreferences {
     static let clipInfoOverlayKey = "prefClipInfoOverlay"
     static let showQueueKey = "prefShowQueue"
     static let zoomFollowsCursorKey = "prefZoomFollowsCursor"
+    static let lineTargetHexKey = "prefLineTargetHex"
+    static let lineSensitivityKey = "prefLineSensitivity"
+    static let lineOffColorKey = "prefLineOffColor"
+    static let lineAnyColorKey = "prefLineAnyColor"
+    static let lineSplitSeamsKey = "prefLineSplitSeams"
+    static let lineEdgeDepthKey = "prefLineEdgeDepth"
 
     static var startMuted: Bool { UserDefaults.standard.bool(forKey: startMutedKey) }
     static var linkSlots: Bool { UserDefaults.standard.object(forKey: linkSlotsKey) as? Bool ?? true }
     static var showQueue: Bool { UserDefaults.standard.object(forKey: showQueueKey) as? Bool ?? true }
     static var zoomFollowsCursor: Bool { UserDefaults.standard.bool(forKey: zoomFollowsCursorKey) }
+    static var lineTargetHex: String { UserDefaults.standard.string(forKey: lineTargetHexKey) ?? "#00FF00" }
+    static var lineSensitivity: Double { UserDefaults.standard.object(forKey: lineSensitivityKey) as? Double ?? 50 }
+    static var lineOffColor: Bool { UserDefaults.standard.object(forKey: lineOffColorKey) as? Bool ?? true }
+    static var lineAnyColor: Bool { UserDefaults.standard.bool(forKey: lineAnyColorKey) }
+    static var lineSplitSeams: Bool { UserDefaults.standard.bool(forKey: lineSplitSeamsKey) }
+    static var lineEdgeDepth: Int { UserDefaults.standard.object(forKey: lineEdgeDepthKey) as? Int ?? 12 }
     static var clipInfoOverlay: ClipInfoOverlayMode {
         UserDefaults.standard.string(forKey: clipInfoOverlayKey).flatMap(ClipInfoOverlayMode.init(rawValue:)) ?? .resolution
     }
@@ -298,6 +310,12 @@ struct UserSettingsModalView: View {
     @AppStorage(UserPreferences.zoomFollowsCursorKey) private var zoomFollowsCursor: Bool = false
     @AppStorage(ImageSequenceStore.defaultFPSKey) private var sequenceFPS: Double = 25
     @AppStorage(UserPreferences.clipInfoOverlayKey) private var clipInfoOverlay: String = ClipInfoOverlayMode.resolution.rawValue
+    @AppStorage(UserPreferences.lineTargetHexKey) private var lineTargetHex: String = "#00FF00"
+    @AppStorage(UserPreferences.lineSensitivityKey) private var lineSensitivity: Double = 50
+    @AppStorage(UserPreferences.lineOffColorKey) private var lineOffColor: Bool = true
+    @AppStorage(UserPreferences.lineAnyColorKey) private var lineAnyColor: Bool = false
+    @AppStorage(UserPreferences.lineSplitSeamsKey) private var lineSplitSeams: Bool = false
+    @AppStorage(UserPreferences.lineEdgeDepthKey) private var lineEdgeDepth: Int = 12
     
     private var palette: StudioPalette { StudioPalette(isLightMode) }
     
@@ -365,6 +383,42 @@ struct UserSettingsModalView: View {
                 }
             }
             
+            section("04 // LINE CHECK DEFAULTS") {
+                row("Target colour", detail: "Line colour selected when QCpie opens.", launch: true) {
+                    choice(lineTargets, selection: $lineTargetHex)
+                }
+                row("Sensitivity", detail: "Detection sensitivity selected when QCpie opens.", launch: true) {
+                    HStack(spacing: 8) {
+                        Slider(value: $lineSensitivity, in: 0...100, step: 5)
+                            .controlSize(.small)
+                            .frame(width: 120)
+                        Text("\(Int(lineSensitivity))%")
+                            .font(.ui(size: 10, weight: .semibold))
+                            .foregroundColor(palette.textMain)
+                            .frame(width: 34, alignment: .trailing)
+                    }
+                }
+                row("Off-colour lines", detail: "Also flag lines close to, but not exactly, the target colour.", launch: true) {
+                    toggle($lineOffColor)
+                }
+                row("Any colour", detail: "Ignore the target and flag edge lines of any colour.", launch: true) {
+                    toggle($lineAnyColor)
+                }
+                row("Split-screen seams", detail: "Scan the full frame for split-screen seams (slower).", launch: true) {
+                    toggle($lineSplitSeams)
+                }
+                row("Edge depth", detail: "How many pixels in from each edge are scanned.", launch: true) {
+                    HStack(spacing: 4) {
+                        Text("\(lineEdgeDepth) PX")
+                            .font(.ui(size: 10, weight: .semibold))
+                            .foregroundColor(palette.textMain)
+                        Stepper("", value: $lineEdgeDepth, in: 2...40)
+                            .labelsHidden()
+                            .controlSize(.small)
+                    }
+                }
+            }
+            
             Text("Settings marked NEXT LAUNCH apply the next time QCpie opens; the others apply immediately.")
                 .font(.system(size: 9))
                 .foregroundColor(palette.textSubtle)
@@ -421,6 +475,9 @@ struct UserSettingsModalView: View {
         let value: String
         let label: String
     }
+    
+    private let lineTargets = [Option(value: "#00FF00", label: "GREEN"), Option(value: "#FF00FF", label: "MAGENTA"),
+                               Option(value: "#000000", label: "BLACK"), Option(value: "#FFFFFF", label: "WHITE")]
     
     private let listOrThumbs = [Option(value: "inline", label: "LIST"), Option(value: "thumbnail", label: "THUMBS")]
     

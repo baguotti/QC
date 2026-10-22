@@ -52,8 +52,8 @@ struct AddNotePopoverView: View {
                         .font(.system(size: 11, weight: .black, design: .monospaced))
                         .padding(.horizontal, 7)
                         .padding(.vertical, 3)
-                        .foregroundColor(palette.accentPositive)
-                        .studioBox(background: palette.accentPositive.opacity(0.15), border: palette.accentPositive.opacity(0.6))
+                        .foregroundColor(palette.accentBlue)
+                        .studioBox(background: palette.accentBlue.opacity(0.15), border: palette.accentBlue.opacity(0.6))
                     
                     Button(action: { dismiss() }) {
                         Image(systemName: "xmark")
@@ -179,8 +179,8 @@ struct AddNotePopoverView: View {
                         }
                         .padding(.horizontal, 12)
                         .padding(.vertical, 6)
-                        .foregroundColor(palette.accentPositive)
-                        .studioBox(background: palette.accentPositive.opacity(0.18), border: palette.accentPositive)
+                        .foregroundColor(palette.accentBlue)
+                        .studioBox(background: palette.accentBlue.opacity(0.18), border: palette.accentBlue)
                     }
                     .buttonStyle(.plain)
                     .keyboardShortcut(.defaultAction)
