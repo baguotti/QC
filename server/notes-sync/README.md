@@ -37,3 +37,17 @@ Anyone with the password can read and change the shared notes; to revoke access,
 
 - `GET /v1/<room>/<clip>[?since=<version>]` → `200 {version, data}` (`version 0` when empty) or `204` when unchanged.
 - `PUT /v1/<room>/<clip>` with `{base, data}` → `200 {version}`, or `409` when another Mac wrote first (the app re-fetches, merges and retries).
+
+## Missed-line reports (Player → MISSED LINE)
+
+The same Worker stores the frames reviewers send with **MISSED LINE** (lossless PNG, kept 90 days in KV, random 32-hex ids). QCpie uploads the frame, then emails the details and the frame link through Web3Forms (the in-app feedback key, so it reaches the feedback address).
+
+One-time setup:
+```sh
+cd server/notes-sync
+npx wrangler kv namespace create qcpie-frames
+```
+Paste the printed `id` into `wrangler.toml` (replace `PASTE_KV_NAMESPACE_ID_HERE`), then `npx wrangler deploy`.
+
+- `POST /v1/frames` (body: PNG, `Content-Type: image/png`, ≤ 24 MB) → `200 {id}`
+- `GET /v1/frames/<id>` → the PNG (`404` after 90 days)

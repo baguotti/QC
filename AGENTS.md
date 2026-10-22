@@ -209,6 +209,12 @@
 
 ---
 
+## 8f. Missed Line Report (`MissedLineReporter.swift`, Player timecode bar)
+
+- MISSED LINE sends the frame on screen for the active slot (`notesTargetURL`), captured with `captureCurrentFrame(applyingExposure: false)` (original pixels; EV is noted in the email), as a lossless PNG to the notes-sync Worker (`POST /v1/frames`, KV binding `FRAMES`, 90-day TTL), then emails clip / timecode / settings / Line Check findings / reviewer / frame link via Web3Forms. Encoding runs off the main thread; nothing runs during playback (it pauses first).
+
+---
+
 ## 9. Pre-Commit Checklist for Future Amends
 
 Before committing any changes affecting `VideoViewportView.swift`, `PlayerEngine.swift`, `PlayerTransportDeckView.swift`, or `KeyboardShortcutRouter.swift`:

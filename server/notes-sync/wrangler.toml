@@ -7,3 +7,8 @@ workers_dev = true
 binding = "DB"
 database_name = "qcpie-notes"
 database_id = "1ed92f9f-64d2-4e21-ae22-1ad9fa78c6cf"
+
+# Missed-line report frames. Create once with `npx wrangler kv namespace create qcpie-frames` and paste the id.
+[[kv_namespaces]]
+binding = "FRAMES"
+id = "ecc2c8e9d2564f0c81d77097e606961e"

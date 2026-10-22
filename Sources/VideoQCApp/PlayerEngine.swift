@@ -2623,7 +2623,9 @@ public final class PlayerEngine: ObservableObject {
     // MARK: - Pixel-Perfect Still Frame Capture (For export)
     
     /// Returns the frame as displayed, i.e. with the current exposure applied exactly once.
-    public func captureCurrentFrame(for slot: SlotTarget = .slotA, at time: CMTime? = nil) async -> CGImage? {
+    /// `applyingExposure: false` returns the decoded pixels as they are (missed-line reports); the cached
+    /// `lastDecodedFrame` is only updated for display-ready (exposure-applied) frames.
+    public func captureCurrentFrame(for slot: SlotTarget = .slotA, at time: CMTime? = nil, applyingExposure: Bool = true) async -> CGImage? {
         let currentSlot = (slot == .slotA) ? slotA : slotB
         guard let url = currentSlot.url else { return currentSlot.lastDecodedFrame }
         guard currentSlot.mediaKind == .video else { return currentSlot.stillImage }
@@ -2664,6 +2666,7 @@ public final class PlayerEngine: ObservableObject {
             guard let decoded = await Task.detached(priority: .userInitiated, operation: { source.displayImage(at: index) }).value else {
                 return currentSlot.lastDecodedFrame
             }
+            guard applyingExposure else { return decoded }
             let image = ExposureAdjuster.shared.applyExposure(to: decoded, ev: exposureEV)
             currentSlot.lastDecodedFrame = image
             return image
@@ -2671,6 +2674,7 @@ public final class PlayerEngine: ObservableObject {
         
         // 1. Try frame extractor (decodes without the exposure composition, so apply it here)
         if let extracted = await currentSlot.frameExtractor.capture(at: centerTime, fallbackURL: url) {
+            guard applyingExposure else { return extracted }
             let image = ExposureAdjuster.shared.applyExposure(to: extracted, ev: exposureEV)
             currentSlot.lastDecodedFrame = image
             return image

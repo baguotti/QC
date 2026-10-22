@@ -56,6 +56,8 @@ struct ContentView: View {
     // MARK: - Tab 1: Player State
     @StateObject var playerEngine = PlayerEngine()
     @State var playerFilterText: String = ""
+    @State var isSendingMissedLine = false
+    @State var showMissedLineConfirm = false
     @AppStorage(MediaKindFilter.storageKey) var mediaKindFilter: Int = MediaKindFilter.all
     @State var playerCollapsedFolderIDs: Set<String> = []
     @State var fileTagsMap: [URL: FinderTagColor] = [:]
@@ -2246,6 +2248,59 @@ struct ContentView: View {
     }
     
     /// The clip whose notes are shown and edited: slot B when it is the active target, otherwise slot A.
+    // MARK: - Missed Line Report
+    
+    /// Sends the frame on screen (original pixels, no EV) plus its context to the developer, for lines Line Check missed.
+    func reportMissedLine() {
+        guard !isSendingMissedLine, let url = notesTargetURL else { return }
+        let slot: SlotTarget = notesTargetIsSlotB ? .slotB : .slotA
+        let slotState = slot == .slotA ? playerEngine.slotA : playerEngine.slotB
+        guard slotState.mediaKind != .audio else {
+            showToast("Missed-line reports need a picture (video or image)")
+            return
+        }
+        playerEngine.pause()
+        let frame = playerEngine.currentFrame
+        let timecode = playerEngine.currentTimecode
+        let fileName = slotState.sequence?.displayName ?? url.lastPathComponent
+        let scan = scannerState.scanResults.first { isSameURL($0.fileURL, url) }
+        let findings: String = {
+            guard let scan else { return "not scanned yet" }
+            guard !scan.glitchSegments.isEmpty else { return "scanned, nothing found" }
+            return scan.glitchSegments.prefix(6).map { "\($0.edge.rawValue) \($0.startTimecode)–\($0.endTimecode)\($0.isOffColor ? " (off-colour)" : "")" }.joined(separator: "; ")
+        }()
+        let reviewer = (UserDefaults.standard.string(forKey: "reviewerName")).flatMap { $0.isEmpty ? nil : $0 } ?? NSFullUserName()
+        let details = [
+            "A reviewer flagged a line the automatic Line Check missed.",
+            "",
+            "File: \(fileName)",
+            "Folder: \(url.deletingLastPathComponent().lastPathComponent)",
+            "Slot: \(slot == .slotA ? "A" : "B")",
+            "Timecode: \(timecode) (frame \(frame))",
+            "Clip: \(slotState.resolution) // \(String(format: "%.3f", slotState.fps)) fps // \(slotState.codec)",
+            "View: zoom \(playerEngine.isFitZoom ? "fit" : "\(Int(playerEngine.zoomScale * 100))%"), EV \(String(format: "%+.1f", playerEngine.exposureEV)) (frame sent without EV)",
+            "Line Check settings: target \(scannerState.anyColor ? "any colour" : scannerState.hexCode), sensitivity \(Int(scannerState.sensitivityPercentage))%, edge depth \(scannerState.edgeDepth) px, split screens \(scannerState.scanFullScreen ? "on" : "off")",
+            "Line Check on this file: \(findings)",
+            "Reviewer: \(reviewer)",
+            "QCpie \(AppVersionInfo.version) on macOS \(ProcessInfo.processInfo.operatingSystemVersionString)"
+        ]
+        isSendingMissedLine = true
+        showToast("Sending frame \(timecode)…")
+        Task { @MainActor in
+            defer { isSendingMissedLine = false }
+            guard let image = await playerEngine.captureCurrentFrame(for: slot, applyingExposure: false) else {
+                showToast("Couldn't capture the frame")
+                return
+            }
+            do {
+                try await MissedLineReporter.send(image: image, subject: "[QCpie] Missed line: \(fileName) @ \(timecode)", details: details)
+                showToast("Sent: thanks, this helps improve Line Check")
+            } catch {
+                showToast("Report not sent: \(error.localizedDescription)")
+            }
+        }
+    }
+    
     var notesTargetURL: URL? {
         (playerEngine.activeTarget == .slotB && playerEngine.slotB.url != nil) ? playerEngine.slotB.url : playerEngine.activeURL
     }

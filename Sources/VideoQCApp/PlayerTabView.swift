@@ -821,6 +821,91 @@ extension ContentView {
     }
     
     // 4. Finder Tags Button
+    /// Sends the frame on screen to the developer when Line Check missed a line.
+    private var missedLineButton: some View {
+        let hasPicture = playerEngine.activeURL != nil
+        return Button(action: {
+            playerEngine.pause()
+            showMissedLineConfirm = true
+        }) {
+            HStack(spacing: 4) {
+                if isSendingMissedLine {
+                    ProgressView().controlSize(.mini)
+                } else {
+                    Image(systemName: "paperplane.fill")
+                        .font(.system(size: StudioTheme.scaleFont(9), weight: .bold))
+                }
+                Text("MISSED LINE")
+                    .font(.ui(size: StudioTheme.scaleFont(9), weight: .semibold))
+            }
+            .frame(height: StudioTheme.scale(24))
+            .padding(.horizontal, 5)
+            .foregroundColor(hasPicture ? textMain.opacity(0.85) : textMuted)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(TransportIconButtonStyle())
+        .disabled(!hasPicture || isSendingMissedLine)
+        .explain("Spotted a line Line Check didn't flag? Sends this frame (original pixels) and its details to the developer to improve the detector. Asks before sending.")
+        .popover(isPresented: $showMissedLineConfirm, arrowEdge: .top) {
+            missedLineConfirmView
+        }
+    }
+    
+    /// Confirmation before a missed-line report leaves the Mac: what is sent, about which frame, and to whom.
+    private var missedLineConfirmView: some View {
+        let slotState = notesTargetIsSlotB ? playerEngine.slotB : playerEngine.slotA
+        let fileName = slotState.sequence?.displayName ?? notesTargetURL?.lastPathComponent ?? "This clip"
+        return VStack(alignment: .leading, spacing: 14) {
+            HStack(spacing: 8) {
+                Image(systemName: "paperplane.fill")
+                    .font(.system(size: 13, weight: .bold))
+                    .foregroundColor(accentBlue)
+                Text("Report a missed line")
+                    .font(.system(size: 14, weight: .bold))
+                    .foregroundColor(textMain)
+            }
+            if let frame = slotState.lastDecodedFrame {
+                Image(decorative: frame, scale: 1)
+                    .resizable()
+                    .aspectRatio(contentMode: .fit)
+                    .frame(maxWidth: .infinity, maxHeight: 150)
+                    .clipShape(RoundedRectangle(cornerRadius: 4))
+                    .overlay(RoundedRectangle(cornerRadius: 4).stroke(borderLine, lineWidth: 1))
+            }
+            VStack(alignment: .leading, spacing: 6) {
+                missedLineInfoRow("Clip", fileName)
+                missedLineInfoRow("Frame", "\(playerEngine.currentTimecode)  ·  #\(playerEngine.currentFrame)\(notesTargetIsSlotB ? "  ·  slot B" : "")")
+                missedLineInfoRow("Sends", "This frame (original pixels, no EV), clip details, Line Check settings and results, your name")
+                missedLineInfoRow("To", "The QCpie developer, to improve line detection")
+            }
+            HStack(spacing: 8) {
+                Spacer()
+                Button("Cancel") { showMissedLineConfirm = false }
+                    .keyboardShortcut(.cancelAction)
+                Button("Send Report") {
+                    showMissedLineConfirm = false
+                    reportMissedLine()
+                }
+                .keyboardShortcut(.defaultAction)
+            }
+        }
+        .padding(16)
+        .frame(width: 340)
+    }
+    
+    private func missedLineInfoRow(_ label: String, _ value: String) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 10) {
+            Text(label.uppercased())
+                .font(.ui(size: 9, weight: .semibold))
+                .foregroundColor(textMuted)
+                .frame(width: 44, alignment: .leading)
+            Text(value)
+                .font(.system(size: 11))
+                .foregroundColor(textMain)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+    
     private var playerTagsButton: some View {
         let activeURL = playerEngine.activeURL
         let activeTag = activeURL.flatMap { fileTagsMap[$0] }
@@ -883,42 +968,41 @@ extension ContentView {
             // Absolute Center: Shuttle Speed Indicator (hidden on 1x play and pause)
             playerCenterShuttleBadge
             
-            // Balanced Distribution Across the Bar
+            // Four equal columns: the review controls mirror each other around the exact centre (shuttle badge),
+            // timecode + zoom sit left, duration right, at any window width.
             HStack(spacing: 0) {
-                // Left: Timecode + Zoom (tightly paired with 8pt spacing)
-                HStack(spacing: 8) {
+                HStack(spacing: 12) {
                     playerTimecodeMenu
+                    Rectangle()
+                        .fill(borderLine.opacity(0.45))
+                        .frame(width: 1, height: 14)
                     playerZoomMenu
                 }
-                .frame(minWidth: 100, alignment: .leading)
+                .frame(maxWidth: .infinity, alignment: .leading)
                 
-                Spacer(minLength: 4)
-                
-                // Left-Center: Compact Review Notes Controls: [+ NOTE] and < 💬 count >
                 playerNotesGroup
+                    .frame(maxWidth: .infinity, alignment: .trailing)
                 
-                Spacer(minLength: 4)
-                
-                // Center Clearance Area for Shuttle Badge (ensures no collision when badge is visible)
-                Color.clear.frame(width: 48, height: 24)
+                // Clearance for the centred shuttle badge.
+                Color.clear
+                    .frame(width: 72, height: 24)
                     .allowsHitTesting(false)
                 
-                Spacer(minLength: 4)
-                
-                // Right-Center: Compact Line Finding Navigation & Tags
-                HStack(spacing: 6) {
+                HStack(spacing: 10) {
                     playerLineGlitchGroup
                     Rectangle()
                         .fill(borderLine.opacity(0.45))
                         .frame(width: 1, height: 14)
                     playerTagsButton
+                    Rectangle()
+                        .fill(borderLine.opacity(0.45))
+                        .frame(width: 1, height: 14)
+                    missedLineButton
                 }
+                .frame(maxWidth: .infinity, alignment: .leading)
                 
-                Spacer(minLength: 4)
-                
-                // Right: Duration Timecode / Total Frames
                 playerDurationLabel
-                    .frame(minWidth: 80, alignment: .trailing)
+                    .frame(maxWidth: .infinity, alignment: .trailing)
             }
         }
         .frame(height: 24)
