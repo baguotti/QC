@@ -35,9 +35,9 @@ public struct ReportWriter: Sendable {
                     let location: String
                     switch seg.edge {
                     case .top, .bottom, .left, .right:
-                        location = "\(seg.edge.rawValue.capitalized) Edge (\(seg.avgThickness)px)"
+                        location = "\(seg.edge.rawValue.capitalized) Edge (\(seg.avgThickness)px)\(seg.locationDetail.map { ", \($0)" } ?? "")\(seg.isOffColor ? " - off-colour" : "")"
                     case .splitHorizontal, .splitVertical:
-                        location = "\(seg.edge.rawValue) (\(seg.avgThickness)px)"
+                        location = "\(seg.edge.rawValue) (\(seg.avgThickness)px)\(seg.locationDetail.map { ", \($0)" } ?? "")"
                     }
                     let duration = seg.frameCount == 1 ? "1 frame (0.04s)" : "\(seg.frameCount) frames (\(String(format: "%.2f", seg.durationSeconds))s)"
                     let color = seg.detectedColor.hexString.uppercased()
@@ -72,9 +72,9 @@ public struct ReportWriter: Sendable {
                     let location: String
                     switch seg.edge {
                     case .top, .bottom, .left, .right:
-                        location = "\(seg.edge.rawValue.capitalized) Edge (\(seg.avgThickness)px)"
+                        location = "\(seg.edge.rawValue.capitalized) Edge (\(seg.avgThickness)px)\(seg.locationDetail.map { ", \($0)" } ?? "")\(seg.isOffColor ? " - off-colour" : "")"
                     case .splitHorizontal, .splitVertical:
-                        location = "\(seg.edge.rawValue) (\(seg.avgThickness)px)"
+                        location = "\(seg.edge.rawValue) (\(seg.avgThickness)px)\(seg.locationDetail.map { ", \($0)" } ?? "")"
                     }
                     let duration = seg.frameCount == 1 ? "1 frame (0.04s)" : "\(seg.frameCount) frames (\(String(format: "%.2f", seg.durationSeconds))s)"
                     let color = seg.detectedColor.hexString.uppercased()
@@ -603,7 +603,7 @@ public struct ReportWriter: Sendable {
                     html += """
                             <tr>
                                 <td style="color:var(--text-muted); font-family:var(--font-mono)">\(String(format: "%02d", idx + 1))</td>
-                                <td class="edge-box">\(seg.edge.rawValue.uppercased()) (\(seg.avgThickness)PX)</td>
+                                <td class="edge-box">\(seg.edge.rawValue.uppercased()) (\(seg.avgThickness)PX)\(seg.locationDetail.map { " · \($0.uppercased())" } ?? "")\(seg.isOffColor ? " · OFF-COLOUR" : "")</td>
                                 <td class="tc-text">\(tcDisplay)</td>
                                 <td class="dur-box">\(durationDisplay)</td>
                                 <td class="dur-box">[\(frameDisplay)]</td>

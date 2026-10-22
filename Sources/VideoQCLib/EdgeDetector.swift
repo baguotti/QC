@@ -4,6 +4,9 @@ import CoreVideo
 /// Line Finder v2. Each pixel near an edge is modelled as a blend of the target colour T and the picture R just
 /// inside the line: P ≈ α·T + (1 − α)·R. A line is a contiguous run of positions with α above the sensitivity
 /// threshold and a small residual, on depths that step back down to the picture further in.
+/// The residual must be small relative to the line's own strength (α·|T − R|): a line of another colour that merely
+/// moves towards T (a grey column under a green target, a green line under a white one) is not the target. Such
+/// lines are reported separately as off-colour, and only when they persist.
 public struct EdgeDetector: Sendable {
     
     public init() {}
@@ -191,8 +194,13 @@ struct LineRun: Equatable {
 
 private struct BlendLineModel {
     static let pass: Int8 = 1
+    /// Passes the loose blend test only: a line, but not of the target colour.
+    static let offColor: Int8 = 2
     static let fail: Int8 = -1
     static let skip: Int8 = 0
+    /// Strict colour match: residual within this fraction of the line's own strength α·|T − R| (or the noise floor).
+    static let colorResidualRatio: Float = 0.5
+    static let noiseFloor: Float = 24
     
     /// |T − R| below this says nothing about a line (picture already looks like the target).
     static let minContrast: Float = 40
@@ -208,6 +216,10 @@ private struct BlendLineModel {
     let strongAlpha: Float
     let edgeDepth: Int
     let minSpanRatio: Double
+    let reportOffColor: Bool
+    /// Black / white targets carry no hue: a partly blended seam looks like shading or a dark/bright straight edge in the
+    /// picture (window frames, table edges), so split seams must be near-solid to count at all.
+    let splitMinAlpha: Float
     
     init(config: QCConfig) {
         var lut = (0..<256).map { Float($0) }
@@ -229,6 +241,9 @@ private struct BlendLineModel {
         }
         self.edgeDepth = config.edgeDepth
         self.minSpanRatio = config.minSpanRatio
+        self.reportOffColor = config.reportOffColorLines && !config.anyColor
+        let hueless = !config.anyColor && (config.isBlackDetection || config.isWhiteDetection)
+        self.splitMinAlpha = hueless ? max(self.weakAlpha, 0.6) : self.weakAlpha
     }
     
     func scan(_ frame: BGRAFrame, config: QCConfig) -> [LineDetection] {
@@ -248,6 +263,17 @@ private struct BlendLineModel {
             guard depthCount >= 1 else { continue }
             if let detection = scanEdge(edge, walk: walk, frame: frame, depthCount: depthCount) {
                 detections.append(detection)
+                continue
+            }
+            // Letterbox / pillarbox: also scan where the picture starts, inside the bar (lines left by re-framing).
+            // Not for a black target: a black line against a black bar isn't visible.
+            let matte = matteThickness(frame, walk: walk, extent: extent)
+            guard matte > edgeDepth, !(target.map { $0.max() < 30 } ?? false) else { continue }
+            let inner = LineWalk(origin: walk.origin + matte * walk.depthStride, depthStride: walk.depthStride,
+                                 positionStride: walk.positionStride, length: walk.length)
+            let innerDepth = min(edgeDepth, (extent - 2 * matte) / 2 - 4)
+            if innerDepth >= 1, let detection = scanEdge(edge, walk: inner, frame: frame, depthCount: innerDepth) {
+                detections.append(detection.withPosition(matte))
             }
         }
         
@@ -280,7 +306,6 @@ private struct BlendLineModel {
         var states = [Int8](repeating: Self.skip, count: n * depthCount)
         var alphas = [Float](repeating: 0, count: n * depthCount)
         var targets: [SIMD3<Float>] = []
-        var runs: [LineRun] = []
         
         // Every depth is judged on its own: a line 1 px in, behind a half-blended outer row, still counts.
         for d in 0..<depthCount {
@@ -292,9 +317,24 @@ private struct BlendLineModel {
                 states[d * n + p] = state
                 alphas[d * n + p] = alpha
             }
-            runs.append(Self.longestRun(states, from: d * n, count: n))
         }
-        
+        if let line = bestBand(edge, walk: walk, ptr: ptr, refs: refs, states: states, alphas: alphas, targets: targets,
+                               depthCount: depthCount, minRun: minRun, offColor: false) {
+            return line
+        }
+        guard reportOffColor else { return nil }
+        return bestBand(edge, walk: walk, ptr: ptr, refs: refs, states: states, alphas: alphas, targets: targets,
+                        depthCount: depthCount, minRun: minRun, offColor: true)
+    }
+    
+    /// The strongest band of consecutive depths with a long run, that steps back to the picture before the band ends.
+    /// `offColor` also accepts loose-only positions and reports the line as off-colour (always weak: persistence-gated).
+    private func bestBand(_ edge: EdgeLocation, walk: LineWalk, ptr: UnsafePointer<UInt8>, refs: [SIMD3<Float>],
+                          states: [Int8], alphas: [Float], targets: [SIMD3<Float>],
+                          depthCount: Int, minRun: Int, offColor: Bool) -> LineDetection? {
+        let n = walk.length
+        let runs = (0..<depthCount).map { Self.longestRun(states, from: $0 * n, count: n, includeOffColor: offColor) }
+        func accepted(_ state: Int8) -> Bool { state == Self.pass || (offColor && state == Self.offColor) }
         var best: LineDetection?
         var lo = 0
         while lo < depthCount {
@@ -324,7 +364,7 @@ private struct BlendLineModel {
                 let i = core * n + p
                 if states[i] != Self.skip { lineAlphas.append(alphas[i]) }
                 if states[hi * n + p] != Self.skip { edgeAlphas.append(alphas[hi * n + p]) }
-                if states[i] == Self.pass {
+                if accepted(states[i]) {
                     sum &+= rawColor(ptr, coreOrigin + p * walk.positionStride)
                     passCount += 1
                 }
@@ -344,13 +384,36 @@ private struct BlendLineModel {
                 detectedColor: RGBColor(r: UInt8(avg.x), g: UInt8(avg.y), b: UInt8(avg.z)),
                 spanRatio: Double(run.length) / Double(n),
                 score: Double(lineAlpha),
-                isWeak: lineAlpha < strongAlpha
+                isWeak: offColor || lineAlpha < strongAlpha,
+                isOffColor: offColor
             )
             if best == nil || detection.score > best!.score {
                 best = detection
             }
         }
         return best
+    }
+    
+    // MARK: Mattes
+    
+    /// Rows (columns) of uniform near-black bar from this edge inwards, up to 30% of the frame; 0 when there is none.
+    private func matteThickness(_ frame: BGRAFrame, walk: LineWalk, extent: Int) -> Int {
+        let samples = 48
+        let step = max(1, walk.length / samples)
+        var depth = 0
+        while depth < extent * 3 / 10 {
+            let o = walk.origin + depth * walk.depthStride
+            var lo = 255, hi = 0
+            for i in Swift.stride(from: step / 2, to: walk.length, by: step) {
+                let p = frame.ptr + o + i * walk.positionStride
+                let luma = (Int(p[2]) * 54 + Int(p[1]) * 183 + Int(p[0]) * 19) >> 8
+                lo = min(lo, luma)
+                hi = max(hi, luma)
+            }
+            guard hi <= 24, hi - lo <= 12 else { break }
+            depth += 1
+        }
+        return depth
     }
     
     // MARK: Split Screens
@@ -367,7 +430,26 @@ private struct BlendLineModel {
         let samples = (positions + step - 1) / step
         let minRun = max(1, minimumRun(length: positions) / step)
         let offset = (edgeDepth + 1) * lineStride
+        // Thin seams are also compared with the picture 2 px away: 13 px away the texture alone can differ by more
+        // than the strict colour test allows. Thick seams still need the far reference (2 px lands inside them).
+        let nearOffset = 2 * lineStride
         let ptr = frame.ptr
+        /// A seam pixel is the target blended over the picture of one side: a strict colour match against that side,
+        /// and still a line (loose test) against the other, at the same reference distance (near or far).
+        func seam(_ p: SIMD3<Float>, at o: Int, target t: SIMD3<Float>) -> (state: Int8, alpha: Float) {
+            var bestAlpha: Float = 0
+            var anySkip = false
+            for d in [nearOffset, offset] {
+                let a = classify(p, ref: color(ptr, o - d), target: t)
+                let b = classify(p, ref: color(ptr, o + d), target: t)
+                let aLine = a.state == Self.pass || a.state == Self.offColor
+                let bLine = b.state == Self.pass || b.state == Self.offColor
+                if (a.state == Self.pass && bLine) || (b.state == Self.pass && aLine) { return (Self.pass, min(a.alpha, b.alpha)) }
+                if a.state == Self.skip || b.state == Self.skip { anySkip = true }
+                bestAlpha = max(bestAlpha, min(a.alpha, b.alpha))
+            }
+            return (anySkip ? Self.skip : Self.fail, bestAlpha)
+        }
         guard lineCount > 2 * (edgeDepth + 1) else { return [] }
         
         var detections: [LineDetection] = []
@@ -386,7 +468,7 @@ private struct BlendLineModel {
             var count = 0
             for s in best.run.start...best.run.end {
                 let o = best.line * lineStride + s * positionStride
-                if classify(color(ptr, o), ref: color(ptr, o - offset), target: best.target).state == Self.pass {
+                if seam(color(ptr, o), at: o, target: best.target).state == Self.pass {
                     sum &+= rawColor(ptr, o)
                     count += 1
                 }
@@ -398,33 +480,44 @@ private struct BlendLineModel {
                 detectedColor: RGBColor(r: UInt8(avg.x), g: UInt8(avg.y), b: UInt8(avg.z)),
                 spanRatio: Double(best.run.length) / Double(samples),
                 score: Double(best.alpha),
-                isWeak: best.alpha < strongAlpha
+                isWeak: best.alpha < max(strongAlpha, splitMinAlpha),
+                position: clusterStart
             ))
         }
         
         let first = edgeDepth + 1
         let last = lineCount - edgeDepth - 1
+        // Coarse pre-check: a seam long enough to count passes on most of these sparse samples too.
+        let coarseStep = 8
+        let coarseStride = positionStride * coarseStep
+        let coarseSamples = samples / coarseStep
+        let coarseNeeded = max(2, minRun / coarseStep / 2)
         for line in first..<last {
             let lineOrigin = line * lineStride
             let t = target ?? medianColor(ptr, origin: lineOrigin, stride: positionStride, count: samples)
+            var coarsePasses = 0
+            for c in 0..<coarseSamples {
+                let o = lineOrigin + c * coarseStride
+                if seam(color(ptr, o), at: o, target: t).state == Self.pass {
+                    coarsePasses += 1
+                }
+            }
+            guard coarsePasses >= coarseNeeded else {
+                if clusterStart >= 0 { closeCluster(at: line) }
+                continue
+            }
             for s in 0..<samples {
                 let o = lineOrigin + s * positionStride
-                let p = color(ptr, o)
-                let a = classify(p, ref: color(ptr, o - offset), target: t)
-                let b = classify(p, ref: color(ptr, o + offset), target: t)
-                if a.state == Self.skip || b.state == Self.skip {
-                    states[s] = Self.skip
-                } else {
-                    states[s] = (a.state == Self.pass && b.state == Self.pass) ? Self.pass : Self.fail
-                }
-                alphas[s] = min(a.alpha, b.alpha)
+                let result = seam(color(ptr, o), at: o, target: t)
+                states[s] = result.state
+                alphas[s] = result.alpha
             }
             let run = Self.longestRun(states, from: 0, count: samples)
             var isCandidate = false
             if run.passes >= minRun {
                 var runAlphas = (run.start...run.end).compactMap { states[$0] != Self.skip ? alphas[$0] : nil }
                 let alpha = Self.median(&runAlphas)
-                if alpha >= weakAlpha {
+                if alpha >= splitMinAlpha {
                     isCandidate = true
                     if clusterStart < 0 { clusterStart = line }
                     if clusterBest == nil || alpha > clusterBest!.alpha {
@@ -466,10 +559,13 @@ private struct BlendLineModel {
         guard contrastSq >= Self.minContrast * Self.minContrast else { return (Self.skip, 0) }
         let pr = p - r
         let alpha = (pr * tr).sum() / contrastSq
-        let residual = pr - alpha * tr
-        let tolerance = max(24, 0.3 * contrastSq.squareRoot())
-        let isLine = alpha >= weakAlpha && alpha <= Self.maxAlpha && (residual * residual).sum() <= tolerance * tolerance
-        return (isLine ? Self.pass : Self.fail, alpha)
+        guard alpha >= weakAlpha && alpha <= Self.maxAlpha else { return (Self.fail, alpha) }
+        let residualSq = { let e = pr - alpha * tr; return (e * e).sum() }()
+        let contrast = contrastSq.squareRoot()
+        let strict = max(Self.noiseFloor, Self.colorResidualRatio * alpha * contrast)
+        if residualSq <= strict * strict { return (Self.pass, alpha) }
+        let loose = max(Self.noiseFloor, 0.3 * contrast)
+        return (residualSq <= loose * loose ? Self.offColor : Self.fail, alpha)
     }
     
     private func median4(_ a: SIMD3<Float>, _ b: SIMD3<Float>, _ c: SIMD3<Float>, _ d: SIMD3<Float>) -> SIMD3<Float> {
@@ -478,11 +574,12 @@ private struct BlendLineModel {
         return (a + b + c + d - lo - hi) * 0.5
     }
     
-    /// "Any colour" target: per-channel median of the candidate line.
+    /// "Any colour" target: per-channel median of the candidate line (from ≤ 256 evenly spaced samples).
     private func medianColor(_ ptr: UnsafePointer<UInt8>, origin: Int, stride: Int, count: Int) -> SIMD3<Float> {
+        let step = max(1, count / 256)
         var r: [Float] = [], g: [Float] = [], b: [Float] = []
-        r.reserveCapacity(count); g.reserveCapacity(count); b.reserveCapacity(count)
-        for i in 0..<count {
+        r.reserveCapacity(count / step + 1); g.reserveCapacity(count / step + 1); b.reserveCapacity(count / step + 1)
+        for i in Swift.stride(from: 0, to: count, by: step) {
             let c = color(ptr, origin + i * stride)
             r.append(c.x); g.append(c.y); b.append(c.z)
         }
@@ -497,7 +594,7 @@ private struct BlendLineModel {
     
     /// Longest run of passing positions, bridging gaps of up to `maxGap` failing positions. Uninformative
     /// positions neither break nor extend a run. Runs with fewer than 75% passes are ignored.
-    static func longestRun(_ states: [Int8], from start: Int, count: Int) -> LineRun {
+    static func longestRun(_ states: [Int8], from start: Int, count: Int, includeOffColor: Bool = false) -> LineRun {
         var best = LineRun()
         var current = LineRun()
         var inRun = false
@@ -512,7 +609,9 @@ private struct BlendLineModel {
         }
         
         for i in 0..<count {
-            switch states[start + i] {
+            var state = states[start + i]
+            if state == offColor { state = includeOffColor ? pass : fail }
+            switch state {
             case pass:
                 if inRun {
                     current.passes += 1

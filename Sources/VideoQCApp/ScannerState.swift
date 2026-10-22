@@ -8,17 +8,14 @@ public final class ScannerState: ObservableObject {
     @Published public var hexCode: String = "#00FF00"
     @Published public var sensitivityPercentage: Double = 50.0
     @Published public var anyColor: Bool = false
+    @Published public var reportOffColorLines: Bool = true
     @Published public var edgeDepth: Int = 12
     @Published public var minSpanPercentage: Double = 25.0
     @Published public var scanFullScreen: Bool = false
     @Published public var enableExposureBoost: Bool = true
-    @Published public var exposureMultiplier: Double = 10.0
     @Published public var ignoreFullBlackFrames: Bool = true
-    @Published public var maxBlackVariance: Double = 2.0
     @Published public var enableHighlightExpansion: Bool = true
-    @Published public var highlightMultiplier: Double = 8.0
     @Published public var ignoreFullWhiteFrames: Bool = true
-    @Published public var maxWhiteVariance: Double = 2.0
     
     @Published public var tagInFinder: Bool {
         didSet { UserDefaults.standard.set(tagInFinder, forKey: "tagInFinder") }
@@ -92,14 +89,11 @@ public final class ScannerState: ObservableObject {
             scanFullScreen: scanFullScreen,
             sensitivity: sensitivityPercentage / 100.0,
             anyColor: anyColor,
+            reportOffColorLines: reportOffColorLines,
             enableExposureBoost: enableExposureBoost,
-            exposureMultiplier: exposureMultiplier,
             ignoreFullBlackFrames: ignoreFullBlackFrames,
-            maxBlackVariance: maxBlackVariance,
             enableHighlightExpansion: enableHighlightExpansion,
-            highlightMultiplier: highlightMultiplier,
-            ignoreFullWhiteFrames: ignoreFullWhiteFrames,
-            maxWhiteVariance: maxWhiteVariance
+            ignoreFullWhiteFrames: ignoreFullWhiteFrames
         )
         
         isScanning = true

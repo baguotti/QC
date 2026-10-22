@@ -207,9 +207,9 @@ struct SubtitlesPanelView: View {
 
             Button(action: goToNextIssue) {
                 HStack(spacing: 3) {
-                    Image(systemName: spelling.issueCount == 0 ? "checkmark.seal" : "textformat.abc.dottedunderline")
+                    Image(systemName: spelling.issueCount == 0 ? "checkmark.seal" : "text.badge.xmark")
                         .font(.system(size: 9, weight: .bold))
-                    Text(spelling.issueCount == 0 ? "SPELLING OK" : "\(spelling.issueCount)")
+                    Text(spelling.issueCount == 0 ? "SPELLING OK" : "\(spelling.issueCount) TYPO\(spelling.issueCount == 1 ? "" : "S")")
                         .font(.ui(size: 8.5, weight: .semibold))
                 }
                 .padding(.horizontal, 6)
@@ -220,7 +220,7 @@ struct SubtitlesPanelView: View {
             }
             .buttonStyle(.plain)
             .disabled(spelling.issueCount == 0)
-            .help(spelling.issueCount == 0 ? "No spelling issues found" : "\(spelling.issueCount) possible spelling issues — click to go to the next one")
+            .help(spelling.issueCount == 0 ? "No spelling issues found" : "\(spelling.issueCount) possible spelling mistakes — click to go to the next one")
 
             Button(action: save) {
                 Text("SAVE")

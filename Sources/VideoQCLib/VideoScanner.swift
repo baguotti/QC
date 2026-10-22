@@ -218,6 +218,9 @@ public actor VideoScanner {
         var candidateFrames: [FrameError] = []
         var hasStrongDetection = false
         var frameCount = 0
+        // Frame numbers come from each sample's timestamp (like the Player: floor(seconds × fps)), not from counting
+        // decoded samples, so dropped or duplicated samples don't shift every later timecode.
+        var firstPTS: CMTime?
         let startTime = CFAbsoluteTimeGetCurrent()
         var lastProgressDispatchTime: CFAbsoluteTime = 0.0
         
@@ -231,11 +234,18 @@ public actor VideoScanner {
                 }
                 
                 if let imageBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) {
+                    let pts = CMSampleBufferGetPresentationTimeStamp(sampleBuffer)
+                    if firstPTS == nil, pts.isNumeric { firstPTS = pts }
+                    var frameIndex = frameCount
+                    if let start = firstPTS, pts.isNumeric {
+                        let secs = CMTimeGetSeconds(CMTimeSubtract(pts, start))
+                        if secs.isFinite && secs >= 0 { frameIndex = Int(floor(secs * fps + 1e-4)) }
+                    }
                     let detections = detector.scanPixelBuffer(imageBuffer, config: config)
                     if !detections.isEmpty {
-                        let timecode = TimecodeFormatter.format(frameIndex: frameCount, fps: fps)
+                        let timecode = TimecodeFormatter.format(frameIndex: frameIndex, fps: fps)
                         let oriented = transform.isIdentity ? detections : detections.map { $0.withEdge($0.edge.oriented(by: transform)) }
-                        candidateFrames.append(FrameError(frameIndex: frameCount, timecode: timecode, detections: oriented))
+                        candidateFrames.append(FrameError(frameIndex: frameIndex, timecode: timecode, detections: oriented))
                         hasStrongDetection = hasStrongDetection || detections.contains { !$0.isWeak }
                     }
                 }

@@ -2134,9 +2134,9 @@ struct ContentView: View {
                 
                 if result.isFlagged && !result.glitchSegments.isEmpty {
                     for seg in result.glitchSegments {
-                        let edgePos = seg.edge.rawValue.contains("Screen") ? seg.edge.rawValue : "\(seg.edge.rawValue) Edge"
+                        let edgePos = (seg.edge.rawValue.contains("Screen") ? seg.edge.rawValue : "\(seg.edge.rawValue) Edge") + (seg.locationDetail.map { ", \($0)" } ?? "")
                         let durationInfo = seg.frameCount > 1 ? " (\(seg.frameCount) frames, \(String(format: "%.2fs", seg.durationSeconds)))" : ""
-                        let noteText = "\(edgePos) (\(seg.avgThickness)px) — Line glitch detected [\(seg.detectedColor.hexString.uppercased())]\(durationInfo)"
+                        let noteText = "\(edgePos) (\(seg.avgThickness)px) — \(seg.lineDescription) detected [\(seg.detectedColor.hexString.uppercased())]\(durationInfo)"
                         
                         let note = QCFileNote(
                             frameIndex: seg.startFrame,
@@ -2195,9 +2195,9 @@ struct ContentView: View {
                 let hasQCNotes = notes.contains { $0.author == "Line QC" }
                 if !hasQCNotes {
                     for seg in result.glitchSegments {
-                        let edgePos = seg.edge.rawValue.contains("Screen") ? seg.edge.rawValue : "\(seg.edge.rawValue) Edge"
+                        let edgePos = (seg.edge.rawValue.contains("Screen") ? seg.edge.rawValue : "\(seg.edge.rawValue) Edge") + (seg.locationDetail.map { ", \($0)" } ?? "")
                         let durationInfo = seg.frameCount > 1 ? " (\(seg.frameCount) frames, \(String(format: "%.2fs", seg.durationSeconds)))" : ""
-                        let noteText = "\(edgePos) (\(seg.avgThickness)px) — Line glitch detected [\(seg.detectedColor.hexString.uppercased())]\(durationInfo)"
+                        let noteText = "\(edgePos) (\(seg.avgThickness)px) — \(seg.lineDescription) detected [\(seg.detectedColor.hexString.uppercased())]\(durationInfo)"
                         notes.append(QCFileNote(
                             frameIndex: seg.startFrame,
                             timecode: seg.startTimecode,

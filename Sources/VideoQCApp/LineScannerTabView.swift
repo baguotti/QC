@@ -130,6 +130,13 @@ extension ContentView {
                     .explain("How faint a line may be. Higher values also flag semi-transparent and blended lines; faint lines are only flagged when they hold for 6 frames.")
             }
             
+            Toggle("ALSO FLAG OFF-COLOUR LINES", isOn: $scannerState.reportOffColorLines)
+                .toggleStyle(StudioToggleStyle(isLight: isLightMode))
+                .font(.ui(size: 10, weight: .semibold))
+                .foregroundColor(textMain)
+                .disabled(scannerState.isScanning || scannerState.anyColor)
+                .explain("Also report lines of another colour than the target (e.g. a grey edge column), when they persist for 6+ frames. Listed separately as OFF-COLOUR.")
+            
             Toggle("ANY COLOUR (IGNORE TARGET)", isOn: $scannerState.anyColor)
                 .toggleStyle(StudioToggleStyle(isLight: isLightMode))
                 .font(.ui(size: 10, weight: .semibold))
@@ -152,11 +159,11 @@ extension ContentView {
                     .foregroundColor(textMain)
             }
             
-            Toggle("10X EXPOSURE BOOST MULTIPLIER", isOn: $scannerState.enableExposureBoost)
+            Toggle("SHADOW EXPANSION", isOn: $scannerState.enableExposureBoost)
                 .font(.ui(size: 10, weight: .semibold))
                 .toggleStyle(StudioToggleStyle(isLight: isLightMode))
                 .disabled(scannerState.isScanning)
-                .explain("Amplifies shadow levels 10X to avoid false flags on naturally dark scenes.")
+                .explain("Expands shadow levels so a render-black line stands apart from naturally dark picture (black target only).")
             
             Toggle("IGNORE FULL-FRAME BLACK SLATES", isOn: $scannerState.ignoreFullBlackFrames)
                 .font(.ui(size: 10, weight: .semibold))
@@ -556,10 +563,23 @@ extension ContentView {
                 )
                 .frame(width: 76, alignment: .leading)
                 
-                Text("\(seg.edge.rawValue.uppercased()) (\(seg.avgThickness)PX)")
-                    .frame(width: 140, alignment: .leading)
-                    .fontWeight(.bold)
-                    .foregroundColor(textMain)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text("\(seg.edge.rawValue.uppercased()) (\(seg.avgThickness)PX)")
+                        .fontWeight(.bold)
+                        .foregroundColor(textMain)
+                    if let detail = seg.locationDetail {
+                        Text(detail.uppercased())
+                            .font(.ui(size: 8, weight: .semibold))
+                            .foregroundColor(textMuted)
+                    }
+                    if seg.isOffColor {
+                        Text("OFF-COLOUR")
+                            .font(.ui(size: 8, weight: .semibold))
+                            .foregroundColor(textMuted)
+                            .help("A line of another colour than the target, flagged because it persists")
+                    }
+                }
+                .frame(width: 140, alignment: .leading)
                 
                 Text(seg.startTimecode == seg.endTimecode ? seg.startTimecode : "\(seg.startTimecode) -> \(seg.endTimecode)")
                     .frame(width: 155, alignment: .leading)

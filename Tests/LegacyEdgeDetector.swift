@@ -418,7 +418,7 @@ struct LegacyEdgeDetector: Sendable {
         let isWhite = config.isWhiteDetection
         let useBoost = isBlack && config.enableExposureBoost
         let useHighlightExpansion = isWhite && config.enableHighlightExpansion
-        let multiplier = useBoost ? config.exposureMultiplier : (useHighlightExpansion ? config.highlightMultiplier : 1.0)
+        let multiplier = useBoost ? LegacyDefaults.exposureMultiplier : (useHighlightExpansion ? LegacyDefaults.highlightMultiplier : 1.0)
         
         let tr = Int(targetRGB.r)
         let tg = Int(targetRGB.g)
@@ -587,13 +587,13 @@ struct LegacyEdgeDetector: Sendable {
         if isBlack && blackCount > 10 {
             let variance = blackM2 / Double(blackCount)
             let stdDev = sqrt(max(0.0, variance))
-            if stdDev > config.maxBlackVariance {
+            if stdDev > LegacyDefaults.maxBlackVariance {
                 return nil
             }
         } else if isWhite && whiteCount > 10 {
             let variance = whiteM2 / Double(whiteCount)
             let stdDev = sqrt(max(0.0, variance))
-            if stdDev > config.maxWhiteVariance {
+            if stdDev > LegacyDefaults.maxWhiteVariance {
                 return nil
             }
         } else if isSaturatedTarget && colorCount > 10 {
@@ -634,7 +634,7 @@ struct LegacyEdgeDetector: Sendable {
         let isWhite = config.isWhiteDetection
         let useBoost = isBlack && config.enableExposureBoost
         let useHighlightExpansion = isWhite && config.enableHighlightExpansion
-        let multiplier = useBoost ? config.exposureMultiplier : (useHighlightExpansion ? config.highlightMultiplier : 1.0)
+        let multiplier = useBoost ? LegacyDefaults.exposureMultiplier : (useHighlightExpansion ? LegacyDefaults.highlightMultiplier : 1.0)
         
         let tr = Int(targetRGB.r)
         let tg = Int(targetRGB.g)
@@ -801,13 +801,13 @@ struct LegacyEdgeDetector: Sendable {
         if isBlack && blackCount > 10 {
             let variance = blackM2 / Double(blackCount)
             let stdDev = sqrt(max(0.0, variance))
-            if stdDev > config.maxBlackVariance {
+            if stdDev > LegacyDefaults.maxBlackVariance {
                 return nil
             }
         } else if isWhite && whiteCount > 10 {
             let variance = whiteM2 / Double(whiteCount)
             let stdDev = sqrt(max(0.0, variance))
-            if stdDev > config.maxWhiteVariance {
+            if stdDev > LegacyDefaults.maxWhiteVariance {
                 return nil
             }
         } else if isSaturatedTarget && colorCount > 10 {
@@ -823,4 +823,12 @@ struct LegacyEdgeDetector: Sendable {
         let avgB = UInt8(sumB / UInt64(matchCount))
         return (matchCount, RGBColor(r: avgR, g: avgG, b: avgB))
     }
+}
+
+/// v1 tuning values that were QCConfig settings until v2 stopped using them.
+enum LegacyDefaults {
+    static let exposureMultiplier = 10.0
+    static let highlightMultiplier = 8.0
+    static let maxBlackVariance = 2.0
+    static let maxWhiteVariance = 2.0
 }

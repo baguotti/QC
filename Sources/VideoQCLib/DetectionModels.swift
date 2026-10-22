@@ -50,18 +50,30 @@ public struct LineDetection: Identifiable, Sendable {
     public let score: Double
     /// Below the sensitivity threshold: only reported when it persists (`QCConfig.persistenceFrames`).
     public let isWeak: Bool
+    /// A line, but not of the target colour (always weak).
+    public let isOffColor: Bool
+    /// Split seams: first row (H) or column (V) of the seam; edges: depth of the letterbox / pillarbox bar the line sits
+    /// inside (nil when the line is at the frame edge itself).
+    public let position: Int?
 
-    public init(edge: EdgeLocation, thickness: Int, detectedColor: RGBColor, spanRatio: Double, score: Double = 1, isWeak: Bool = false) {
+    public init(edge: EdgeLocation, thickness: Int, detectedColor: RGBColor, spanRatio: Double, score: Double = 1, isWeak: Bool = false, isOffColor: Bool = false, position: Int? = nil) {
         self.edge = edge
         self.thickness = thickness
         self.detectedColor = detectedColor
         self.spanRatio = spanRatio
         self.score = score
         self.isWeak = isWeak
+        self.isOffColor = isOffColor
+        self.position = position
     }
 
     public func withEdge(_ edge: EdgeLocation) -> LineDetection {
-        LineDetection(edge: edge, thickness: thickness, detectedColor: detectedColor, spanRatio: spanRatio, score: score, isWeak: isWeak)
+        LineDetection(edge: edge, thickness: thickness, detectedColor: detectedColor, spanRatio: spanRatio, score: score, isWeak: isWeak, isOffColor: isOffColor, position: position)
+    }
+
+    /// Same line found `matte` px in, at the picture edge inside a letterbox / pillarbox bar.
+    public func withPosition(_ position: Int) -> LineDetection {
+        LineDetection(edge: edge, thickness: thickness, detectedColor: detectedColor, spanRatio: spanRatio, score: score, isWeak: isWeak, isOffColor: isOffColor, position: position)
     }
 }
 
@@ -139,6 +151,23 @@ public struct GlitchSegment: Identifiable, Sendable {
     public let detectedColor: RGBColor
     public let frameCount: Int
     public let durationSeconds: Double
+    /// Every frame of the segment is an off-colour line (not the target colour).
+    public let isOffColor: Bool
+    /// Split seams: row (H) / column (V) of the seam; edges: bar depth when the line is inside a letterbox / pillarbox.
+    public let position: Int?
+    
+    /// "Line glitch" or "Off-colour line", for notes and reports.
+    public var lineDescription: String { isOffColor ? "Off-colour line" : "Line glitch" }
+    
+    /// Where the line is, beyond its edge: "row 540" / "column 960" for split seams, "inside 140 px bar" for letterboxes.
+    public var locationDetail: String? {
+        guard let position else { return nil }
+        switch edge {
+        case .splitHorizontal: return "row \(position)"
+        case .splitVertical: return "column \(position)"
+        default: return "inside \(position) px bar"
+        }
+    }
     
     public init(
         startFrame: Int,
@@ -148,7 +177,9 @@ public struct GlitchSegment: Identifiable, Sendable {
         edge: EdgeLocation,
         avgThickness: Int,
         detectedColor: RGBColor,
-        fps: Double
+        fps: Double,
+        isOffColor: Bool = false,
+        position: Int? = nil
     ) {
         self.startFrame = startFrame
         self.endFrame = endFrame
@@ -159,6 +190,8 @@ public struct GlitchSegment: Identifiable, Sendable {
         self.detectedColor = detectedColor
         self.frameCount = max(1, endFrame - startFrame + 1)
         self.durationSeconds = fps > 0 ? Double(self.frameCount) / fps : 0
+        self.isOffColor = isOffColor
+        self.position = position
     }
 }
 
@@ -218,6 +251,7 @@ public struct VideoQCResult: Identifiable, Sendable {
             var currentEnd = edgeFrames[0]
             var thicknessSum = edgeFrames[0].detection.thickness
             var count = 1
+            var allOffColor = edgeFrames[0].detection.isOffColor
             
             for i in 1..<edgeFrames.count {
                 let item = edgeFrames[i]
@@ -226,6 +260,7 @@ public struct VideoQCResult: Identifiable, Sendable {
                     currentEnd = item
                     thicknessSum += item.detection.thickness
                     count += 1
+                    allOffColor = allOffColor && item.detection.isOffColor
                 } else {
                     // Gap encountered -> finalize segment
                     let avgThick = max(1, thicknessSum / count)
@@ -237,13 +272,16 @@ public struct VideoQCResult: Identifiable, Sendable {
                         edge: edge,
                         avgThickness: avgThick,
                         detectedColor: currentStart.detection.detectedColor,
-                        fps: fps
+                        fps: fps,
+                        isOffColor: allOffColor,
+                        position: currentStart.detection.position
                     ))
                     
                     currentStart = item
                     currentEnd = item
                     thicknessSum = item.detection.thickness
                     count = 1
+                    allOffColor = item.detection.isOffColor
                 }
             }
             
@@ -257,7 +295,9 @@ public struct VideoQCResult: Identifiable, Sendable {
                 edge: edge,
                 avgThickness: avgThick,
                 detectedColor: currentStart.detection.detectedColor,
-                fps: fps
+                fps: fps,
+                isOffColor: allOffColor,
+                position: currentStart.detection.position
             ))
         }
         
@@ -274,18 +314,15 @@ public struct QCConfig: Sendable {
     public var sensitivity: Double = 0.5 // 0...1, maps to the blend factor α a line needs
     public var anyColor: Bool = false // Target = median colour of each candidate line instead of `targetHex`
     public var persistenceFrames: Int = 6 // Weak lines are flagged once they hold this many consecutive frames
+    public var reportOffColorLines: Bool = true // Also report persistent lines of another colour (separately)
     
     // Enhanced Black Line Detection options
     public var enableExposureBoost: Bool = true
-    public var exposureMultiplier: Double = 10.0
     public var ignoreFullBlackFrames: Bool = true
-    public var maxBlackVariance: Double = 2.0 // Strict row uniformity check for digital black
     
     // Enhanced White Line Detection options (High-Key / White Cove)
     public var enableHighlightExpansion: Bool = true
-    public var highlightMultiplier: Double = 8.0
     public var ignoreFullWhiteFrames: Bool = true
-    public var maxWhiteVariance: Double = 2.0 // Strict row uniformity check for digital white
     
     public init(
         targetHex: String = "#00FF00",
@@ -296,14 +333,11 @@ public struct QCConfig: Sendable {
         sensitivity: Double = 0.5,
         anyColor: Bool = false,
         persistenceFrames: Int = 6,
+        reportOffColorLines: Bool = true,
         enableExposureBoost: Bool = true,
-        exposureMultiplier: Double = 10.0,
         ignoreFullBlackFrames: Bool = true,
-        maxBlackVariance: Double = 2.0,
         enableHighlightExpansion: Bool = true,
-        highlightMultiplier: Double = 8.0,
-        ignoreFullWhiteFrames: Bool = true,
-        maxWhiteVariance: Double = 2.0
+        ignoreFullWhiteFrames: Bool = true
     ) {
         self.targetHex = targetHex
         self.tolerance = tolerance
@@ -313,14 +347,11 @@ public struct QCConfig: Sendable {
         self.sensitivity = sensitivity
         self.anyColor = anyColor
         self.persistenceFrames = persistenceFrames
+        self.reportOffColorLines = reportOffColorLines
         self.enableExposureBoost = enableExposureBoost
-        self.exposureMultiplier = exposureMultiplier
         self.ignoreFullBlackFrames = ignoreFullBlackFrames
-        self.maxBlackVariance = maxBlackVariance
         self.enableHighlightExpansion = enableHighlightExpansion
-        self.highlightMultiplier = highlightMultiplier
         self.ignoreFullWhiteFrames = ignoreFullWhiteFrames
-        self.maxWhiteVariance = maxWhiteVariance
     }
     
     public var targetRGB: RGBColor? {
