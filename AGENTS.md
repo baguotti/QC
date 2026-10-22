@@ -191,13 +191,21 @@
 
 ---
 
-## 8d. Line Finder (`EdgeDetector.swift`, `VideoScanner.swift`)
+## 8d. Glitch Finder → Line Check (`EdgeDetector.swift`, `VideoScanner.swift`)
 
 - **Benchmark before and after every detector change**: `scripts/LineFinderBench/run.sh` (Command Line Tools only; the swift-testing suite needs Xcode). It runs the synthetic v1/v2 cases (`Tests/LineFinderScenes.swift`, shared with `LineDetectorTests`), per-frame cost, and real-footage ground truth from `_TEST` (local, git-ignored). It must print ALL PASSED.
 - **Colour rule**: a pixel is the target only if its residual is within `colorResidualRatio` (0.5) of the line's own strength α·|T − R| (or the noise floor). The old loose rule (0.3·|T − R|) let grey columns pass as green and green lines as white; lines passing only the loose rule are **off-colour**: reported separately, always weak (persistence-gated), toggle `reportOffColorLines`.
 - **Split seams**: compared with the picture 2 px and `edgeDepth + 1` px away; a seam pixel needs a strict match on one side and a loose match on the other (a blended seam's base belongs to one side). A coarse pre-check (every 8th sample) skips rows/columns that can't hold a seam (11.5 → ~2 ms/frame at 1080p). Black/white targets need α ≥ 0.6 for seams: partial dark/bright seams are indistinguishable from window frames and table edges.
 - **Letterbox / pillarbox**: when an edge has a uniform near-black bar thicker than `edgeDepth`, the picture edge inside the bar is scanned too (not for a black target); `LineDetection.position` holds the bar depth (edges) or the seam row/column (splits, buffer coordinates).
 - Frame numbers come from sample timestamps (floor(seconds × fps), as in the Player), not from counting decoded samples. Timecodes stay 0-based NDF like the rest of the app.
+
+---
+
+## 8e. Glitch Finder → Stutter Check (`StutterDetector.swift`)
+
+- **Benchmark**: `scripts/StutterBench/run.sh` renders clips with known conversions (24→25 repeats, 25→24 / 30→25 skips, 3:2 pulldown, 24→25 blending, hold + cut, static, one-off repeat), scans them and checks the verdicts; it then reports the `_TEST` clips. Must print ALL PASSED. Real ground truth: CK_HOME26 E3.0 (25 fps) = 1 repeat every 24 frames (23.976 material); everything else in `_TEST` is smooth.
+- Decode is hardware-scaled to 192 px (420v, luma only), ~750–3000 fps; per frame: **motion** (90th-percentile 8×8 block difference: a repeat reads ≤ 0.2), **speed** (region brightness-profile shift in px: grows with distance, so a skip reads ~2×; block difference saturates on texture and cannot see skips), **blend ratio** (|F − avg(neighbours)| / |neighbour difference| over changing pixels).
+- Repeats: ≤ max(0.35, 0.08 × local motion) between moving frames (a slow shot's quieter frame reads ~0.3×, not a repeat); runs are holds. Skips: ≥ 1.7× local speed in a steady move; one-off skips are not flagged (fast action). Blends are reported **only as a cycle** (detrended autocorrelation ≥ 0.7 at P and ≤ −0.5 at P/2): single blended frames are dissolves, and slow sub-pixel motion makes natural frames the average of their neighbours. Cadence (≥ 4 events, ≥ 60% regular spacing) gives the likely source rate.
 
 ---
 

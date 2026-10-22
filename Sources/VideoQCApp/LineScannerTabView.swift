@@ -3,30 +3,30 @@ import VideoQCLib
 
 extension ContentView {
     
-    // MARK: ==================== TAB 3: LINE FINDER ====================
+    // MARK: ==================== TAB 3: GLITCH FINDER ====================
     
     var lineScannerTabView: some View {
         HSplitView {
             // Left Panel: Configuration
-            VStack(alignment: .leading, spacing: 18) {
-                deliveryAssetsSection(forTab: .lineFinder)
-                colorSettingsSection
-                if scannerState.isTargetBlack {
-                    blackLineModeSection
-                } else if scannerState.isTargetWhite {
-                    whiteLineModeSection
+            ScrollView {
+                VStack(alignment: .leading, spacing: 22) {
+                    deliveryAssetsSection(forTab: .lineFinder)
+                    lineCheckSection
+                    stutterFinderSection
                 }
-                edgeSettingsSection
-                actionSection
-                Spacer(minLength: 0)
+                .padding(22)
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
-            .padding(22)
             .frame(minWidth: 360, idealWidth: 400, maxWidth: 440)
             .background(bgPanel)
             
             // Right Panel: Results / Live Progress / Empty State
             VStack(alignment: .leading, spacing: 0) {
-                if scannerState.isScanning {
+                if scannerState.isStutterScanning {
+                    stutterProgressView
+                } else if scannerState.showsStutterResults && (!scannerState.stutterResults.isEmpty || scannerState.wasStutterScanCancelled) {
+                    stutterResultsView
+                } else if scannerState.isScanning {
                     activeScanProgressView
                 } else if !scannerState.scanResults.isEmpty {
                     resultsSummaryView
@@ -34,317 +34,207 @@ extension ContentView {
                     emptyStateView
                 }
             }
-            .frame(minWidth: 540)
+            // Fill the rest: when the shown view is narrow (a progress view before its first update) the split view would
+            // otherwise hand the space to the left panel, whose capped content then jumps to the middle.
+            .frame(minWidth: 540, maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             .background(bgMain)
         }
     }
     
-    var colorSettingsSection: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            sectionHeader(num: "02", title: "TARGET ERROR COLOR")
-            
-            HStack(spacing: 8) {
-                // Interactive Color Swatch
-                Button(action: { scannerState.openColorPanel() }) {
-                    RoundedRectangle(cornerRadius: StudioTheme.cornerRadius)
-                        .fill(scannerState.colorFromHex(scannerState.hexCode))
-                        .frame(width: 28, height: 28)
-                        .overlay(RoundedRectangle(cornerRadius: StudioTheme.cornerRadius).stroke(borderStrong, lineWidth: 1))
-                }
-                .buttonStyle(.plain)
-                .disabled(scannerState.isScanning)
-                .explain("Interactive color swatch: click to open macOS color wheel.")
-                
-                TextField("#HEX", text: $scannerState.hexCode)
-                    .textFieldStyle(.plain)
-                    .font(.ui(size: 13, weight: .semibold))
-                    .foregroundColor(textMain)
-                    .padding(6)
-                    .foregroundColor(textMain)
-                    .studioBox(background: bgSubtle, border: borderLine)
-                    .frame(width: 95)
-                    .disabled(scannerState.isScanning)
-                    .explain("Hex color value to search for on frame boundaries. Can be edited at all times.")
-                
-                // Custom Color Button
-                Button(action: { scannerState.openColorPanel() }) {
-                    HStack(spacing: 4) {
-                        Image(systemName: "paintpalette.fill")
-                            .font(.system(size: 9))
-                        Text("CUSTOM")
-                    }
-                    .font(.ui(size: 9, weight: .semibold))
-                    .padding(.horizontal, 7)
-                    .frame(height: 28)
-                    .foregroundColor(scannerState.isCustomColor ? primaryBtnFg : textMain)
-                    .studioBox(background: scannerState.isCustomColor ? primaryBtnBg : bgSubtle, border: borderLine)
-                }
-                .buttonStyle(.plain)
-                .disabled(scannerState.isScanning)
-                .explain("Opens macOS color wheel / palette to choose any custom color.")
-                
-                Spacer()
-                
-                Text(scannerState.anyColor ? "ANY COLOUR" : "\(Int(scannerState.sensitivityPercentage))% SENS")
-                    .font(.ui(size: 11, weight: .semibold))
-                    .foregroundColor(textSubtle)
-            }
-            
-            HStack(spacing: 5) {
-                ForEach(scannerState.colorPresets, id: \.1) { name, code in
-                    Button(action: {
-                        scannerState.hexCode = code
-                    }) {
-                        HStack(spacing: 4) {
-                            RoundedRectangle(cornerRadius: 1)
-                                .fill(scannerState.colorFromHex(code))
-                                .frame(width: 8, height: 8)
-                                .overlay(RoundedRectangle(cornerRadius: 1).stroke(borderLine, lineWidth: 0.5))
-                            Text(name)
-                        }
-                        .font(.ui(size: 9, weight: .semibold))
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 5)
-                        .foregroundColor(scannerState.hexCode.uppercased() == code ? primaryBtnFg : textMain)
-                        .studioBox(background: scannerState.hexCode.uppercased() == code ? primaryBtnBg : bgSubtle, border: borderLine)
-                    }
-                    .buttonStyle(.plain)
-                    .disabled(scannerState.isScanning)
-                    .explain("Sets target color to \(name) (\(code)).")
-                }
-            }
-            
-            VStack(alignment: .leading, spacing: 4) {
-                HStack {
-                    Text("SENSITIVITY")
-                        .font(.ui(size: 9, weight: .semibold))
-                        .foregroundColor(textMuted)
-                    Spacer()
-                    Text("\(Int(scannerState.sensitivityPercentage))%")
-                        .font(.ui(size: 10, weight: .semibold))
-                        .foregroundColor(textMain)
-                }
-                Slider(value: $scannerState.sensitivityPercentage, in: 0...100, step: 5)
-                    .tint(primaryBtnBg)
-                    .disabled(scannerState.isScanning || scannerState.anyColor)
-                    .explain("How faint a line may be. Higher values also flag semi-transparent and blended lines; faint lines are only flagged when they hold for 6 frames.")
-            }
-            
-            Toggle("ALSO FLAG OFF-COLOUR LINES", isOn: $scannerState.reportOffColorLines)
-                .toggleStyle(StudioToggleStyle(isLight: isLightMode))
-                .font(.ui(size: 10, weight: .semibold))
-                .foregroundColor(textMain)
-                .disabled(scannerState.isScanning || scannerState.anyColor)
-                .explain("Also report lines of another colour than the target (e.g. a grey edge column), when they persist for 6+ frames. Listed separately as OFF-COLOUR.")
-            
-            Toggle("ANY COLOUR (IGNORE TARGET)", isOn: $scannerState.anyColor)
-                .toggleStyle(StudioToggleStyle(isLight: isLightMode))
-                .font(.ui(size: 10, weight: .semibold))
-                .foregroundColor(textMain)
-                .disabled(scannerState.isScanning)
-                .explain("Flags solid lines of any colour that stand out from the picture next to them, instead of only the target color.")
+    // MARK: - Left Panel Building Blocks
+    
+    /// A group of settings rows separated by hairlines.
+    func checkCard<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            content()
         }
+        .padding(.horizontal, 12)
+        .studioBox(background: bgCardSubtle, border: borderLine)
     }
     
-    var blackLineModeSection: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack {
-                Text("DARK SCENE OPTIMIZATION")
-                    .font(.system(size: 10, weight: .heavy, design: .monospaced))
-                    .foregroundColor(textMain)
-                    .tracking(0.5)
-                Spacer()
-                Text("[ACTIVE]")
+    func checkRow<Content: View>(_ label: String, divider: Bool = true, @ViewBuilder _ content: () -> Content) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            if divider { Rectangle().fill(borderLine).frame(height: 1) }
+            VStack(alignment: .leading, spacing: 8) {
+                Text(label)
                     .font(.ui(size: 9, weight: .semibold))
-                    .foregroundColor(textMain)
-            }
-            
-            Toggle("SHADOW EXPANSION", isOn: $scannerState.enableExposureBoost)
-                .font(.ui(size: 10, weight: .semibold))
-                .toggleStyle(StudioToggleStyle(isLight: isLightMode))
-                .disabled(scannerState.isScanning)
-                .explain("Expands shadow levels so a render-black line stands apart from naturally dark picture (black target only).")
-            
-            Toggle("IGNORE FULL-FRAME BLACK SLATES", isOn: $scannerState.ignoreFullBlackFrames)
-                .font(.ui(size: 10, weight: .semibold))
-                .toggleStyle(StudioToggleStyle(isLight: isLightMode))
-                .disabled(scannerState.isScanning)
-                .explain("Skips solid black frames such as slates, head countdowns, and scene fades.")
-        }
-        .padding(10)
-        .studioBox(background: bgCardSubtle, border: borderStrong)
-    }
-    
-    var whiteLineModeSection: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack {
-                Text("HIGH-KEY / WHITE COVE OPTIMIZATION")
-                    .font(.system(size: 10, weight: .heavy, design: .monospaced))
-                    .foregroundColor(textMain)
-                    .tracking(0.5)
-                Spacer()
-                Text("[ACTIVE]")
-                    .font(.ui(size: 9, weight: .semibold))
-                    .foregroundColor(textMain)
-            }
-            
-            Toggle("HIGHLIGHT EXPANSION FILTER", isOn: $scannerState.enableHighlightExpansion)
-                .font(.ui(size: 10, weight: .semibold))
-                .toggleStyle(StudioToggleStyle(isLight: isLightMode))
-                .disabled(scannerState.isScanning)
-                .explain("Amplifies highlight separation so natural white cove backdrops and studio lighting are not flagged.")
-            
-            Toggle("IGNORE FULL-FRAME WHITE SLATES", isOn: $scannerState.ignoreFullWhiteFrames)
-                .font(.ui(size: 10, weight: .semibold))
-                .toggleStyle(StudioToggleStyle(isLight: isLightMode))
-                .disabled(scannerState.isScanning)
-                .explain("Skips solid white logo cards, slates, and white flash transitions.")
-        }
-        .padding(10)
-        .studioBox(background: bgCardSubtle, border: borderStrong)
-    }
-    
-    var edgeSettingsSection: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            sectionHeader(num: "03", title: "EDGE BOUNDS")
-            
-            HStack {
-                Text("EDGE SCAN DEPTH:")
-                    .font(.ui(size: 10, weight: .semibold))
                     .foregroundColor(textMuted)
-                Spacer()
-                Text("\(scannerState.edgeDepth) PX")
-                    .font(.ui(size: 11, weight: .semibold))
-                    .foregroundColor(textMain)
-                Stepper("", value: $scannerState.edgeDepth, in: 2...40)
-                    .labelsHidden()
-                    .disabled(scannerState.isScanning)
-                    .explain("Depth in pixels from outer frame boundaries to inspect for colored edge lines (all borders).")
+                    .tracking(0.5)
+                content()
             }
-            
-            Toggle("SCAN FULL SCREEN (SPLIT SCREENS)", isOn: $scannerState.scanFullScreen)
-                .toggleStyle(StudioToggleStyle(isLight: isLightMode))
-                .font(.ui(size: 10, weight: .semibold))
-                .foregroundColor(textMain)
-                .disabled(scannerState.isScanning)
-                .explain("Inspects the entire frame for internal dividing line artifacts and split-screen seams.")
-            
-            Toggle("MARK FLAGGED IN FINDER", isOn: $scannerState.tagInFinder)
-                .toggleStyle(StudioToggleStyle(isLight: isLightMode))
-                .font(.ui(size: 10, weight: .semibold))
-                .foregroundColor(textMain)
-                .disabled(scannerState.isScanning)
-                .explain("Applies a red Finder tag/label to any video file flagged with edge line artifacts.")
+            .padding(.vertical, 11)
         }
     }
     
-    var actionSection: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            sectionHeader(num: "04", title: "EXECUTION")
+    func checkToggle(_ title: String, isOn: Binding<Bool>, disabled: Bool = false, help: String) -> some View {
+        Toggle(title, isOn: isOn)
+            .toggleStyle(StudioToggleStyle(isLight: isLightMode))
+            .font(.ui(size: 10, weight: .semibold))
+            .foregroundColor(textMain)
+            .disabled(scannerState.isScanning || disabled)
+            .explain(help)
+    }
+    
+    /// Flat full-width run button (primary colours, no glow) shared by both checks.
+    func runButton(_ title: String, icon: String, isReady: Bool, help: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack(spacing: 7) {
+                Image(systemName: icon).font(.system(size: 11, weight: .bold))
+                Text(title).font(.system(size: 11, weight: .heavy, design: .monospaced)).tracking(0.5)
+            }
+            .frame(maxWidth: .infinity)
+            .frame(height: 36)
+            .foregroundColor(isReady ? primaryBtnFg : textMuted)
+            .background(RoundedRectangle(cornerRadius: 5).fill(isReady ? primaryBtnBg : bgSubtle.opacity(0.6)))
+            .overlay(RoundedRectangle(cornerRadius: 5).stroke(isReady ? primaryBtnBg : borderLine.opacity(0.5), lineWidth: 1))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(!isReady)
+        .explain(help)
+    }
+    
+    func stopButton(_ title: String, help: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack(spacing: 7) {
+                Image(systemName: "stop.fill").font(.system(size: 10, weight: .bold))
+                Text(title).font(.system(size: 11, weight: .heavy, design: .monospaced)).tracking(0.5)
+            }
+            .frame(maxWidth: .infinity)
+            .frame(height: 36)
+            .foregroundColor(.white)
+            .background(RoundedRectangle(cornerRadius: 5).fill(alertRed))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .explain(help)
+    }
+    
+    // MARK: - 02 // LINE CHECK
+    
+    var lineCheckSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            sectionHeader(num: "02", title: "LINE CHECK")
+            
+            checkCard {
+                checkRow("TARGET COLOUR", divider: false) {
+                    HStack(spacing: 8) {
+                        Button(action: { scannerState.openColorPanel() }) {
+                            RoundedRectangle(cornerRadius: StudioTheme.cornerRadius)
+                                .fill(scannerState.colorFromHex(scannerState.hexCode))
+                                .frame(width: 26, height: 26)
+                                .overlay(RoundedRectangle(cornerRadius: StudioTheme.cornerRadius).stroke(borderStrong, lineWidth: 1))
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(scannerState.isScanning || scannerState.anyColor)
+                        .explain("Click to pick any colour from the macOS colour wheel.")
+                        
+                        TextField("#HEX", text: $scannerState.hexCode)
+                            .textFieldStyle(.plain)
+                            .font(.ui(size: 12, weight: .semibold))
+                            .foregroundColor(textMain)
+                            .padding(.horizontal, 7)
+                            .frame(width: 92, height: 26)
+                            .studioBox(background: bgSubtle, border: borderLine)
+                            .disabled(scannerState.isScanning || scannerState.anyColor)
+                            .explain("Hex value of the line colour to look for.")
+                        
+                        Spacer()
+                        if scannerState.anyColor {
+                            Text("ANY COLOUR")
+                                .font(.ui(size: 9, weight: .semibold))
+                                .foregroundColor(accentBlue)
+                        }
+                    }
+                    HStack(spacing: 5) {
+                        ForEach(scannerState.colorPresets, id: \.1) { name, code in
+                            let isOn = scannerState.hexCode.uppercased() == code
+                            Button(action: { scannerState.hexCode = code }) {
+                                HStack(spacing: 4) {
+                                    RoundedRectangle(cornerRadius: 1)
+                                        .fill(scannerState.colorFromHex(code))
+                                        .frame(width: 8, height: 8)
+                                        .overlay(RoundedRectangle(cornerRadius: 1).stroke(borderLine, lineWidth: 0.5))
+                                    Text(name)
+                                }
+                                .font(.ui(size: 9, weight: .semibold))
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 5)
+                                .foregroundColor(isOn ? primaryBtnFg : textMain)
+                                .studioBox(background: isOn ? primaryBtnBg : bgSubtle, border: borderLine)
+                            }
+                            .buttonStyle(.plain)
+                            .disabled(scannerState.isScanning || scannerState.anyColor)
+                            .explain("Sets the target colour to \(name) (\(code)).")
+                        }
+                    }
+                    .opacity(scannerState.anyColor ? 0.5 : 1)
+                }
+                
+                checkRow("SENSITIVITY") {
+                    HStack(spacing: 10) {
+                        Slider(value: $scannerState.sensitivityPercentage, in: 0...100, step: 5)
+                            .tint(primaryBtnBg)
+                            .disabled(scannerState.isScanning || scannerState.anyColor)
+                            .explain("How faint a line may be. Higher values also flag semi-transparent and blended lines; faint lines are only flagged when they hold for 6 frames.")
+                        Text("\(Int(scannerState.sensitivityPercentage))%")
+                            .font(.ui(size: 10, weight: .semibold))
+                            .foregroundColor(textMain)
+                            .frame(width: 34, alignment: .trailing)
+                    }
+                }
+                
+                checkRow("DETECTION") {
+                    checkToggle("ALSO FLAG OFF-COLOUR LINES", isOn: $scannerState.reportOffColorLines, disabled: scannerState.anyColor,
+                                help: "Also report lines of another colour than the target (e.g. a grey edge column), when they persist for 6+ frames. Listed separately as OFF-COLOUR.")
+                    checkToggle("ANY COLOUR (IGNORE TARGET)", isOn: $scannerState.anyColor,
+                                help: "Flags solid lines of any colour that stand out from the picture next to them, instead of only the target colour.")
+                    checkToggle("SPLIT-SCREEN SEAMS (FULL FRAME)", isOn: $scannerState.scanFullScreen,
+                                help: "Also inspects the whole frame for split-screen seams and internal dividing lines.")
+                    HStack {
+                        Text("EDGE DEPTH")
+                            .font(.ui(size: 10, weight: .semibold))
+                            .foregroundColor(textMain)
+                        Spacer()
+                        Text("\(scannerState.edgeDepth) PX")
+                            .font(.ui(size: 10, weight: .semibold))
+                            .foregroundColor(textMain)
+                        Stepper("", value: $scannerState.edgeDepth, in: 2...40)
+                            .labelsHidden()
+                            .controlSize(.small)
+                            .disabled(scannerState.isScanning)
+                    }
+                    .explain("How far in from each frame edge to look for lines, in pixels.")
+                }
+                
+                if scannerState.isTargetBlack && !scannerState.anyColor {
+                    checkRow("DARK SCENES") {
+                        checkToggle("SHADOW EXPANSION", isOn: $scannerState.enableExposureBoost,
+                                    help: "Expands shadow levels so a render-black line stands apart from naturally dark picture.")
+                        checkToggle("IGNORE FULL-FRAME BLACK", isOn: $scannerState.ignoreFullBlackFrames,
+                                    help: "Skips solid black frames such as slates, countdowns and fades.")
+                    }
+                } else if scannerState.isTargetWhite && !scannerState.anyColor {
+                    checkRow("BRIGHT SCENES") {
+                        checkToggle("HIGHLIGHT EXPANSION", isOn: $scannerState.enableHighlightExpansion,
+                                    help: "Expands highlight levels so white cove backdrops and studio lighting are not flagged.")
+                        checkToggle("IGNORE FULL-FRAME WHITE", isOn: $scannerState.ignoreFullWhiteFrames,
+                                    help: "Skips solid white logo cards, slates and white flashes.")
+                    }
+                }
+                
+                checkRow("RESULTS") {
+                    checkToggle("MARK FLAGGED FILES IN FINDER", isOn: $scannerState.tagInFinder,
+                                help: "Applies a red Finder tag to every file with line glitches.")
+                }
+            }
             
             if scannerState.isScanning {
-                Button(action: cancelScan) {
-                    HStack(spacing: 7) {
-                        Image(systemName: "stop.fill")
-                            .font(.system(size: 10, weight: .bold))
-                        SlotText(
-                            scannerState.isCancelling ? "STOPPING..." : "CANCEL AUDIT",
-                            mode: .character,
-                            direction: .down,
-                            font: .system(size: 11, weight: .heavy, design: .monospaced),
-                            foregroundColor: .white,
-                            tracking: 0.5,
-                            stagger: 0.015,
-                            rollDistance: 13
-                        )
-                    }
-                    .frame(maxWidth: .infinity)
-                    .frame(height: 38)
-                    .foregroundColor(.white)
-                    .background(
-                        RoundedRectangle(cornerRadius: 5)
-                            .fill(alertRed)
-                            .shadow(color: alertRed.opacity(0.35), radius: 8, x: 0, y: 0)
-                    )
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 5)
-                            .stroke(Color.white.opacity(0.35), lineWidth: 1)
-                    )
-                }
-                .buttonStyle(.plain)
-                .explain("Aborts the active video scan in progress.")
+                stopButton(scannerState.isCancelling ? "STOPPING..." : "STOP LINE CHECK", help: "Stops the line check in progress.", action: cancelScan)
             } else {
-                let isReady = !videoFiles.isEmpty && RGBColor(hex: scannerState.hexCode) != nil
-                Button(action: startScan) {
-                    HStack(spacing: 7) {
-                        Image(systemName: "viewfinder")
-                            .font(.system(size: 11, weight: .bold))
-                            .scaleEffect(scannerState.isAuditBtnHovered && isReady ? 1.08 : 1.0)
-                        
-                        SlotText(
-                            "START LINE QC AUDIT",
-                            mode: .character,
-                            direction: .up,
-                            font: .system(size: 11, weight: .heavy, design: .monospaced),
-                            foregroundColor: !isReady ? textMuted : (isLightMode ? Color.white : Color(white: 0.08)),
-                            tracking: 0.5,
-                            stagger: 0.015,
-                            rollDistance: 13,
-                            trigger: scannerState.isAuditBtnHovered
-                        )
-                    }
-                    .frame(maxWidth: .infinity)
-                    .frame(height: 38)
-                    .foregroundColor(!isReady ? textMuted : (isLightMode ? Color.white : Color(white: 0.08)))
-                    .background(
-                        Group {
-                            if !isReady {
-                                RoundedRectangle(cornerRadius: 5)
-                                    .fill(bgSubtle.opacity(0.6))
-                            } else if isLightMode {
-                                RoundedRectangle(cornerRadius: 5)
-                                    .fill(
-                                        LinearGradient(
-                                            colors: scannerState.isAuditBtnHovered
-                                                ? [Color(white: 0.20), Color(white: 0.12)]
-                                                : [Color(white: 0.14), Color(white: 0.08)],
-                                            startPoint: .top,
-                                            endPoint: .bottom
-                                        )
-                                    )
-                                    .shadow(color: Color.black.opacity(scannerState.isAuditBtnHovered ? 0.25 : 0.10), radius: scannerState.isAuditBtnHovered ? 6 : 3, x: 0, y: 1)
-                            } else {
-                                RoundedRectangle(cornerRadius: 5)
-                                    .fill(
-                                        LinearGradient(
-                                            colors: scannerState.isAuditBtnHovered
-                                                ? [Color.white, Color(white: 0.92)]
-                                                : [Color(white: 0.95), Color(white: 0.88)],
-                                            startPoint: .top,
-                                            endPoint: .bottom
-                                        )
-                                    )
-                                    .shadow(color: scannerState.isAuditBtnHovered ? Color.white.opacity(0.18) : Color.clear, radius: 8, x: 0, y: 0)
-                            }
-                        }
-                    )
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 5)
-                            .stroke(
-                                !isReady
-                                    ? borderLine.opacity(0.5)
-                                    : (isLightMode ? borderStrong.opacity(0.6) : Color.white.opacity(scannerState.isAuditBtnHovered ? 0.9 : 0.5)),
-                                lineWidth: 1
-                            )
-                    )
-                    .animation(.spring(response: 0.24, dampingFraction: 0.8), value: scannerState.isAuditBtnHovered)
-                }
-                .buttonStyle(.plain)
-                .disabled(!isReady)
-                .onHover { hovering in
-                    scannerState.isAuditBtnHovered = hovering
-                }
-                .explain("Starts frame-by-frame edge analysis across all files in the batch.")
+                runButton("RUN LINE CHECK", icon: "viewfinder",
+                          isReady: !videoFiles.isEmpty && RGBColor(hex: scannerState.hexCode) != nil && !scannerState.isStutterScanning,
+                          help: "Checks every frame of every video in the batch for edge lines and split-screen seams.", action: startScan)
             }
         }
     }
@@ -671,12 +561,12 @@ extension ContentView {
         VStack(alignment: .leading, spacing: 18) {
             Spacer()
             
-            Text("STATUS // READY TO AUDIT")
+            Text("STATUS // READY TO CHECK")
                 .font(.system(size: 32, weight: .black, design: .default))
                 .foregroundColor(textMain)
                 .tracking(1.0)
             
-            Text("CHOOSE A DELIVERY FOLDER OR VIDEO FILES ON THE LEFT TO BEGIN FRAME-BY-FRAME ANALYSIS.\nDETECTS COLORED EDGE LINES.")
+            Text("CHOOSE A DELIVERY FOLDER OR VIDEO FILES ON THE LEFT, THEN RUN A CHECK.\nLINE CHECK: EDGE LINES AND SPLIT-SCREEN SEAMS. STUTTER CHECK: REPEATED, SKIPPED AND BLENDED FRAMES.")
                 .font(.ui(size: 12, weight: .medium))
                 .foregroundColor(textMuted)
                 .lineSpacing(4)
@@ -696,5 +586,205 @@ extension ContentView {
             Spacer()
         }
         .padding(40)
+    }
+}
+
+// MARK: - Stutter Finder
+
+extension ContentView {
+    
+    private var stutterVideoCount: Int { videoFiles.filter { QCUtilities.mediaKind(of: $0) == .video }.count }
+    
+    var stutterFinderSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            sectionHeader(num: "03", title: "STUTTER CHECK")
+            
+            checkCard {
+                checkRow("WHAT IT FINDS", divider: false) {
+                    Text("Repeated, skipped and blended frames, and the regular pattern a frame-rate mismatch leaves (e.g. 24 fps material exported at 25 fps).")
+                        .font(.ui(size: 10))
+                        .foregroundColor(textSubtle)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                if !scannerState.stutterResults.isEmpty && !scannerState.showsStutterResults && !scannerState.isStutterScanning {
+                    checkRow("LAST RESULTS") {
+                        Button(action: { scannerState.showsStutterResults = true }) {
+                            Text("SHOW STUTTER RESULTS")
+                                .font(.ui(size: 9, weight: .semibold))
+                                .foregroundColor(accentBlue)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+            }
+            
+            if scannerState.isStutterScanning {
+                stopButton(scannerState.wasStutterScanCancelled ? "STOPPING..." : "STOP STUTTER CHECK",
+                           help: "Stops the stutter check; files already checked keep their results.") {
+                    scannerState.cancelStutterScan()
+                }
+            } else {
+                runButton("RUN STUTTER CHECK", icon: "waveform.path.ecg",
+                          isReady: stutterVideoCount > 0 && !scannerState.isScanning,
+                          help: "Checks the motion of every video in the batch (fast, low resolution) for frame-rate conversion stutters.") {
+                    scannerState.startStutterScan(videoFiles: videoFiles)
+                }
+            }
+        }
+    }
+    
+    var stutterProgressView: some View {
+        VStack(alignment: .leading, spacing: 24) {
+            Text("CHECKING MOTION")
+                .font(.system(size: 28, weight: .heavy))
+                .foregroundColor(textMain)
+                .tracking(1.0)
+            if let p = scannerState.stutterProgress {
+                VStack(alignment: .leading, spacing: 16) {
+                    Text(p.fileName.uppercased())
+                        .font(.system(size: 18, weight: .heavy, design: .monospaced))
+                        .foregroundColor(textMain)
+                        .lineLimit(1)
+                    HStack(spacing: 20) {
+                        statItem(label: "BATCH PROGRESS", val: "FILE \(String(format: "%02d", p.fileIndex)) / \(String(format: "%02d", p.totalFiles))", width: 140)
+                        statItem(label: "FRAME", val: "\(p.frame) / \(p.totalFrames)", width: 140)
+                    }
+                    GeometryReader { geo in
+                        let ratio = (Double(p.fileIndex - 1) + Double(p.frame) / Double(max(1, p.totalFrames))) / Double(max(1, p.totalFiles))
+                        ZStack(alignment: .leading) {
+                            Rectangle().fill(borderLine).frame(height: 4)
+                            Rectangle().fill(primaryBtnBg).frame(width: geo.size.width * CGFloat(min(1, max(0, ratio))), height: 4)
+                        }
+                    }
+                    .frame(height: 4)
+                }
+                .padding(24)
+                .studioBox(background: bgPanel, border: borderLine)
+            }
+            Spacer()
+        }
+        .padding(28)
+    }
+    
+    var stutterResultsView: some View {
+        let results = scannerState.stutterResults
+        let flagged = results.filter(\.isFlagged)
+        return VStack(alignment: .leading, spacing: 20) {
+            HStack {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(scannerState.wasStutterScanCancelled ? "STUTTER CHECK STOPPED" : "STUTTER CHECK COMPLETE")
+                        .font(.system(size: 28, weight: .black))
+                        .foregroundColor(textMain)
+                        .tracking(1.0)
+                    Text("\(results.count) VIDEOS ANALYZED\(scannerState.wasStutterScanCancelled ? " (PARTIAL)" : "")")
+                        .font(.ui(size: 11, weight: .semibold))
+                        .foregroundColor(textMuted)
+                }
+                Spacer()
+                if !scannerState.scanResults.isEmpty {
+                    Button(action: { scannerState.showsStutterResults = false }) {
+                        Text("SHOW LINE QC RESULTS")
+                            .font(.ui(size: 10, weight: .semibold))
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 7)
+                            .foregroundColor(textMain)
+                            .studioBox(background: bgSubtle, border: borderLine)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            HStack(spacing: 12) {
+                statBox(title: "TOTAL SCANNED", val: String(format: "%02d", results.count))
+                statBox(title: "STUTTERING", val: String(format: "%02d", flagged.count), isRed: !flagged.isEmpty)
+                statBox(title: "SMOOTH", val: String(format: "%02d", results.count - flagged.count), isPositive: results.count > flagged.count)
+            }
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 16) {
+                    if flagged.isEmpty {
+                        VStack(spacing: 8) {
+                            Text("STATUS // ALL VIDEOS SMOOTH")
+                                .font(.system(size: 16, weight: .black, design: .monospaced))
+                                .foregroundColor(accentPositive)
+                            Text("NO REPEATED, SKIPPED OR BLENDED FRAME PATTERNS DETECTED.")
+                                .font(.ui(size: 11, weight: .medium))
+                                .foregroundColor(textMuted)
+                        }
+                        .frame(maxWidth: .infinity)
+                        .padding(40)
+                        .studioBox(background: bgPanel, border: borderLine)
+                    } else {
+                        ForEach(flagged) { result in
+                            stutterResultCard(result)
+                        }
+                    }
+                }
+            }
+        }
+        .padding(28)
+    }
+    
+    private func stutterResultCard(_ result: StutterResult) -> some View {
+        // Flagged events only: one-off skips (fast action) and dissolve blends are not listed.
+        let events = result.events.filter { $0.inCadence || $0.kind == .repeated || $0.kind == .timing }
+        let shown = Array(events.prefix(12))
+        return VStack(alignment: .leading, spacing: 0) {
+            HStack(alignment: .top) {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(result.fileName.uppercased())
+                        .font(.system(size: 14, weight: .heavy, design: .monospaced))
+                        .foregroundColor(textMain)
+                    Text("\(StutterAnalyzer.rateLabel(result.fps).uppercased()) // \(result.totalFrames) FRAMES")
+                        .font(.system(size: 10, weight: .bold, design: .monospaced))
+                        .foregroundColor(textMuted)
+                }
+                Spacer()
+                Text(result.verdict.uppercased())
+                    .font(.ui(size: 10, weight: .semibold))
+                    .foregroundColor(alertRed)
+                    .multilineTextAlignment(.trailing)
+                    .frame(maxWidth: 320, alignment: .trailing)
+            }
+            .padding(14)
+            .background(bgCardHeader)
+            .explain(result.fileURL.path)
+            
+            Rectangle().fill(borderLine).frame(height: 1)
+            ForEach(Array(shown.enumerated()), id: \.element.id) { idx, event in
+                Button(action: { jumpToGlitchInPlayer(fileURL: result.fileURL, frameIndex: event.frameIndex) }) {
+                    HStack(spacing: 8) {
+                        Text(String(format: "%02d", idx + 1)).frame(width: 25, alignment: .leading).foregroundColor(textMuted)
+                        Text(event.kind.rawValue.uppercased()).frame(width: 150, alignment: .leading).fontWeight(.bold).foregroundColor(textMain)
+                        Text(event.timecode).frame(width: 110, alignment: .leading).fontWeight(.heavy).foregroundColor(textMain)
+                        Text("[\(event.frameIndex)]").frame(width: 70, alignment: .leading).foregroundColor(textMuted)
+                        Text(event.inCadence ? "IN PATTERN" : "ONE-OFF").frame(width: 90, alignment: .leading).foregroundColor(textSubtle)
+                        Spacer()
+                        HStack(spacing: 4) {
+                            Image(systemName: "play.fill").font(.system(size: 8, weight: .bold))
+                            Text("INSPECT").font(.ui(size: 9, weight: .semibold))
+                        }
+                        .padding(.horizontal, 7)
+                        .padding(.vertical, 3)
+                        .foregroundColor(primaryBtnFg)
+                        .studioBox(background: primaryBtnBg, border: primaryBtnBg)
+                    }
+                    .font(.ui(size: 11))
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 7)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .explain("Open \(event.timecode) in the Player (step with ← → to see the stutter).")
+                if idx < shown.count - 1 { Rectangle().fill(borderLine.opacity(0.6)).frame(height: 1) }
+            }
+            if events.count > shown.count {
+                Text("+ \(events.count - shown.count) MORE IN THE SAME PATTERN")
+                    .font(.ui(size: 9, weight: .semibold))
+                    .foregroundColor(textMuted)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 8)
+            }
+        }
+        .studioBox(background: bgPanel, border: borderLine)
+        .overlay(RoundedRectangle(cornerRadius: StudioTheme.cornerRadius).stroke(alertRed, lineWidth: 1))
     }
 }

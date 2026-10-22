@@ -62,7 +62,7 @@ struct UserGuideView: View {
                 HStack(spacing: 0) {
                     guideTabButton(title: "PLAYER", index: 0)
                     guideTabButton(title: "SPECS", index: 1)
-                    guideTabButton(title: "LINE FINDER", index: 2)
+                    guideTabButton(title: "GLITCH FINDER", index: 2)
                     Spacer()
                 }
                 .padding(.horizontal, 14)
@@ -166,7 +166,7 @@ struct UserGuideView: View {
             guideRow(name: "SEAMLESS LOOP (⌘L)", desc: "Toggles automatic looping. Reaching the end seamlessly restarts from the beginning without stopping.")
             guideRow(name: "AUDIO & MUTE", desc: "Master playback volume slider and instant audio mute button.")
             guideRow(name: "TOGGLE SLEEVES & PANELS (⌘⇧← / ⌘⇧→)", desc: "Press ⌘⇧← to show or hide the Assets & Queue panel. Drag the divider to resize the queue panel, or double-click to reset width (360px). Press ⌘⇧→ to show or hide the Review sleeve (Media Info & Notes). ⌘I inspects Media Info directly.")
-            guideRow(name: "WORKSPACE NAVIGATION (⇧1, ⇧2, ⇧3)", desc: "Jump directly to any workspace: ⇧1 for Player, ⇧2 for Specs, ⇧3 for Line Finder.")
+            guideRow(name: "WORKSPACE NAVIGATION (⇧1, ⇧2, ⇧3)", desc: "Jump directly to any workspace: ⇧1 for Player, ⇧2 for Specs, ⇧3 for Glitch Finder.")
         }
     }
     
@@ -193,7 +193,7 @@ struct UserGuideView: View {
         }
     }
     
-    // MARK: - Tab 3 Guide // LINE FINDER
+    // MARK: - Tab 3 Guide // GLITCH FINDER
     
     private var lineScannerGuide: some View {
         VStack(alignment: .leading, spacing: 10) {

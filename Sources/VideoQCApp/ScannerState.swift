@@ -25,13 +25,21 @@ public final class ScannerState: ObservableObject {
     @Published public var isCancelling: Bool = false
     
     @Published public var isScanning: Bool = false
-    @Published public var isAuditBtnHovered: Bool = false
     @Published public var progressInfo: VideoScanner.ScanProgress? = nil
     @Published public var scanResults: [VideoQCResult] = []
     @Published public var lastScanConfig: QCConfig? = nil
     @Published public var generatedReportURL: URL? = nil
     @Published public var generatedCSVURL: URL? = nil
     @Published public var scannerActor: VideoScanner? = nil
+    
+    // Stutter Finder
+    @Published public var isStutterScanning: Bool = false
+    @Published public var stutterProgress: StutterScanner.ScanProgress? = nil
+    @Published public var stutterResults: [StutterResult] = []
+    /// The right panel shows the stutter results (set by a stutter scan, cleared by a line audit).
+    @Published public var showsStutterResults: Bool = false
+    @Published public var wasStutterScanCancelled: Bool = false
+    private var stutterScanner: StutterScanner? = nil
     
     public init() {
         self.tagInFinder = UserDefaults.standard.bool(forKey: "tagInFinder")
@@ -53,10 +61,6 @@ public final class ScannerState: ObservableObject {
         ("BLACK", "#000000"),
         ("WHITE", "#FFFFFF")
     ]
-    
-    public var isCustomColor: Bool {
-        !colorPresets.contains { $0.1.uppercased() == hexCode.uppercased() }
-    }
     
     public func openColorPanel() {
         NSColorPanel.setPickerMask(.wheelModeMask)
@@ -99,6 +103,7 @@ public final class ScannerState: ObservableObject {
         isScanning = true
         isCancelling = false
         wasScanCancelled = false
+        showsStutterResults = false
         scanResults = []
         lastScanTagInFinder = tagInFinder
         generatedReportURL = nil
@@ -152,6 +157,35 @@ public final class ScannerState: ObservableObject {
                 onComplete(results, config)
             }
         }
+    }
+    
+    /// Scans the files' motion for repeated, skipped and blended frames (frame-rate conversion stutters). Videos only.
+    public func startStutterScan(videoFiles: [URL]) {
+        let videos = videoFiles.filter { QCUtilities.mediaKind(of: $0) == .video }
+        guard !videos.isEmpty, !isStutterScanning, !isScanning else { return }
+        isStutterScanning = true
+        wasStutterScanCancelled = false
+        stutterResults = []
+        stutterProgress = nil
+        showsStutterResults = true
+        let scanner = StutterScanner()
+        stutterScanner = scanner
+        Task(priority: .utility) {
+            let results = await scanner.scanBatch(videos) { progress in
+                DispatchQueue.main.async { self.stutterProgress = progress }
+            }
+            await MainActor.run {
+                self.stutterResults = results
+                self.isStutterScanning = false
+                self.stutterScanner = nil
+            }
+        }
+    }
+    
+    public func cancelStutterScan() {
+        guard isStutterScanning else { return }
+        wasStutterScanCancelled = true
+        stutterScanner?.cancel()
     }
     
     public func cancelScan() {

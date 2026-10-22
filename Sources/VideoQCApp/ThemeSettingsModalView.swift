@@ -652,11 +652,11 @@ struct ThemeSettingsModalView: View {
                     .padding(.vertical, 6)
                     .foregroundColor(palette.textMuted.opacity(0.7))
                     
-                    // Inactive Tab: LINE FINDER
+                    // Inactive Tab: GLITCH FINDER
                     HStack(spacing: 5) {
                         Image(systemName: "viewfinder")
                             .font(.system(size: 8.5, weight: .medium))
-                        Text("LINE FINDER")
+                        Text("GLITCH FINDER")
                             .font(.ui(size: 9, weight: .semibold))
                     }
                     .padding(.horizontal, 8)

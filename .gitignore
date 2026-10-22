@@ -9,3 +9,6 @@ _TEST/
 .DS_Store
 *.swp
 *~
+
+# Cloudflare Wrangler local state (notes-sync Worker)
+server/notes-sync/.wrangler/

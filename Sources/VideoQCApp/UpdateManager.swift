@@ -37,9 +37,6 @@ public final class UpdateManager: NSObject, ObservableObject {
         return URLSession(configuration: config, delegate: self, delegateQueue: .main)
     }()
     
-    private let repoOwner = AppConfig.githubRepoOwner
-    private let repoName = AppConfig.githubRepoName
-    
     private override init() {
         super.init()
     }
@@ -60,7 +57,7 @@ public final class UpdateManager: NSObject, ObservableObject {
     }
     
     private func performCheck(userInitiated: Bool) async {
-        guard let apiURL = URL(string: "https://api.github.com/repos/\(repoOwner)/\(repoName)/releases/latest") else {
+        guard let apiURL = URL(string: "https://api.github.com/repos/\(AppConfig.githubRepoOwner)/\(AppConfig.githubRepoName)/releases/latest") else {
             if userInitiated {
                 state = .failed("Invalid repository API URL.")
             }

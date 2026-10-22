@@ -837,7 +837,7 @@ struct ContentView: View {
                         .explain(
                             tab == .player ? "PLAYER: High-performance delivery playback with J-K-L shuttle, timeline scrubbing, and zoom." :
                             (tab == .specs ? "SPECS: Reads container resolution, timecode, audio, and codecs." :
-                             (tab == .lineFinder ? "LINE FINDER: Scans video frames for edge line glitches and blanking errors." :
+                             (tab == .lineFinder ? "GLITCH FINDER: Finds edge lines, split-screen seams and frame-rate stutters." :
                               "INGEST: Intake checklist, automatic metadata aggregation, and DIT cross-referencing."))
                         )
                     }

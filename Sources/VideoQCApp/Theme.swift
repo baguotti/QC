@@ -18,7 +18,7 @@ enum AppTab: Int, CaseIterable, Identifiable {
         switch self {
         case .player: return "PLAYER"
         case .specs: return "SPECS"
-        case .lineFinder: return "LINE FINDER"
+        case .lineFinder: return "GLITCH FINDER"
         case .ingest: return "INGEST"
         }
     }
