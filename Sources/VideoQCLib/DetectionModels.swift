@@ -46,12 +46,72 @@ public struct LineDetection: Identifiable, Sendable {
     public let thickness: Int
     public let detectedColor: RGBColor
     public let spanRatio: Double
-    
-    public init(edge: EdgeLocation, thickness: Int, detectedColor: RGBColor, spanRatio: Double) {
+    /// Median blend factor α of the line against the picture inside it (1 = solid target colour).
+    public let score: Double
+    /// Below the sensitivity threshold: only reported when it persists (`QCConfig.persistenceFrames`).
+    public let isWeak: Bool
+
+    public init(edge: EdgeLocation, thickness: Int, detectedColor: RGBColor, spanRatio: Double, score: Double = 1, isWeak: Bool = false) {
         self.edge = edge
         self.thickness = thickness
         self.detectedColor = detectedColor
         self.spanRatio = spanRatio
+        self.score = score
+        self.isWeak = isWeak
+    }
+
+    public func withEdge(_ edge: EdgeLocation) -> LineDetection {
+        LineDetection(edge: edge, thickness: thickness, detectedColor: detectedColor, spanRatio: spanRatio, score: score, isWeak: isWeak)
+    }
+}
+
+extension EdgeLocation {
+    /// Where this buffer edge appears once the track's `preferredTransform` is applied (rotated clips).
+    public func oriented(by transform: CGAffineTransform) -> EdgeLocation {
+        let normal: CGPoint
+        switch self {
+        case .top: normal = CGPoint(x: 0, y: -1)
+        case .bottom: normal = CGPoint(x: 0, y: 1)
+        case .left: normal = CGPoint(x: -1, y: 0)
+        case .right: normal = CGPoint(x: 1, y: 0)
+        case .splitHorizontal, .splitVertical:
+            let quarterTurn = abs(transform.b) > abs(transform.a)
+            guard quarterTurn else { return self }
+            return self == .splitHorizontal ? .splitVertical : .splitHorizontal
+        }
+        let x = transform.a * normal.x + transform.c * normal.y
+        let y = transform.b * normal.x + transform.d * normal.y
+        if abs(x) > abs(y) {
+            return x > 0 ? .right : .left
+        }
+        return y > 0 ? .bottom : .top
+    }
+}
+
+/// Temporal hysteresis: strong detections are kept on their own; weak ones only when the same edge
+/// has candidates in at least `minRun` consecutive frames (faint but persistent lines).
+public enum LineHysteresis {
+    public static func filter(_ frames: [FrameError], minRun: Int) -> [FrameError] {
+        let sorted = frames.sorted { $0.frameIndex < $1.frameIndex }
+        var persistent: [EdgeLocation: Set<Int>] = [:]
+        
+        for edge in EdgeLocation.allCases {
+            var run: [Int] = []
+            func close() {
+                if run.count >= minRun { persistent[edge, default: []].formUnion(run) }
+                run.removeAll(keepingCapacity: true)
+            }
+            for frame in sorted where frame.detections.contains(where: { $0.edge == edge }) {
+                if let last = run.last, frame.frameIndex != last + 1 { close() }
+                run.append(frame.frameIndex)
+            }
+            close()
+        }
+        
+        return sorted.compactMap { frame in
+            let kept = frame.detections.filter { !$0.isWeak || persistent[$0.edge]?.contains(frame.frameIndex) == true }
+            return kept.isEmpty ? nil : FrameError(frameIndex: frame.frameIndex, timecode: frame.timecode, detections: kept)
+        }
     }
 }
 
@@ -207,10 +267,13 @@ public struct VideoQCResult: Identifiable, Sendable {
 
 public struct QCConfig: Sendable {
     public var targetHex: String = "#00FF00"
-    public var tolerance: Double = 0.25 // 25% tolerance default (optimal for video compression chroma bleed)
+    public var tolerance: Double = 0.25 // Colour distance for full-frame suppression (slates, chroma backdrops)
     public var edgeDepth: Int = 12 // Scan outer 12 pixels
-    public var minSpanRatio: Double = 0.70 // Must span at least 70% of row/column
+    public var minSpanRatio: Double = 0.25 // Longest contiguous run must cover 25% of the edge (and at least 64 px)
     public var scanFullScreen: Bool = false // When true, scans entire frame for internal split screen lines
+    public var sensitivity: Double = 0.5 // 0...1, maps to the blend factor α a line needs
+    public var anyColor: Bool = false // Target = median colour of each candidate line instead of `targetHex`
+    public var persistenceFrames: Int = 6 // Weak lines are flagged once they hold this many consecutive frames
     
     // Enhanced Black Line Detection options
     public var enableExposureBoost: Bool = true
@@ -228,8 +291,11 @@ public struct QCConfig: Sendable {
         targetHex: String = "#00FF00",
         tolerance: Double = 0.25,
         edgeDepth: Int = 12,
-        minSpanRatio: Double = 0.70,
+        minSpanRatio: Double = 0.25,
         scanFullScreen: Bool = false,
+        sensitivity: Double = 0.5,
+        anyColor: Bool = false,
+        persistenceFrames: Int = 6,
         enableExposureBoost: Bool = true,
         exposureMultiplier: Double = 10.0,
         ignoreFullBlackFrames: Bool = true,
@@ -244,6 +310,9 @@ public struct QCConfig: Sendable {
         self.edgeDepth = edgeDepth
         self.minSpanRatio = minSpanRatio
         self.scanFullScreen = scanFullScreen
+        self.sensitivity = sensitivity
+        self.anyColor = anyColor
+        self.persistenceFrames = persistenceFrames
         self.enableExposureBoost = enableExposureBoost
         self.exposureMultiplier = exposureMultiplier
         self.ignoreFullBlackFrames = ignoreFullBlackFrames
@@ -256,6 +325,16 @@ public struct QCConfig: Sendable {
     
     public var targetRGB: RGBColor? {
         RGBColor(hex: targetHex)
+    }
+
+    /// Blend factor α at which a single frame is flagged (sensitivity 0.5 → 0.275).
+    public var strongAlpha: Double {
+        0.45 - 0.35 * min(1, max(0, sensitivity))
+    }
+
+    /// Lower α that is flagged only when it persists for `persistenceFrames`.
+    public var weakAlpha: Double {
+        strongAlpha * 0.7
     }
     
     /// True if searching for pure black or near-black

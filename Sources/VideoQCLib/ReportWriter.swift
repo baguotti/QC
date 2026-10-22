@@ -106,7 +106,7 @@ public struct ReportWriter: Sendable {
         let totalSegments = flaggedVideos.reduce(0) { $0 + $1.glitchSegments.count }
         
         let targetHex = config.targetHex.uppercased()
-        let tolPercent = Int(config.tolerance * 100)
+        let targetLabel = config.anyColor ? "ANY COLOUR" : "\(targetHex) (\(Int(config.sensitivity * 100))% SENS)"
         
         let rawCSV = generateCSVReport(results: results)
         let rawTSV = generateTSVReport(results: results)
@@ -526,7 +526,7 @@ public struct ReportWriter: Sendable {
                         <div class="meta-label">TARGET COLOR</div>
                         <div class="meta-value">
                             <span class="color-sq" style="background:\(targetHex)"></span>
-                            \(targetHex) (\(tolPercent)%)
+                            \(targetLabel)
                         </div>
                     </div>
                     <div class="meta-cell">

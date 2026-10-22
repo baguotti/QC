@@ -85,16 +85,15 @@ extension ContentView {
                 
                 Spacer()
                 
-                Text("\(Int(scannerState.tolerancePercentage))% TOL")
+                Text(scannerState.anyColor ? "ANY COLOUR" : "\(Int(scannerState.sensitivityPercentage))% SENS")
                     .font(.system(size: 11, weight: .bold, design: .monospaced))
                     .foregroundColor(textSubtle)
             }
             
             HStack(spacing: 5) {
-                ForEach(scannerState.colorPresets, id: \.1) { name, code, defaultTol in
+                ForEach(scannerState.colorPresets, id: \.1) { name, code in
                     Button(action: {
                         scannerState.hexCode = code
-                        scannerState.tolerancePercentage = defaultTol
                     }) {
                         HStack(spacing: 4) {
                             RoundedRectangle(cornerRadius: 1)
@@ -111,25 +110,32 @@ extension ContentView {
                     }
                     .buttonStyle(.plain)
                     .disabled(scannerState.isScanning)
-                    .explain("Sets target color to \(name) (\(code)) with \(Int(defaultTol))% tolerance.")
+                    .explain("Sets target color to \(name) (\(code)).")
                 }
             }
             
             VStack(alignment: .leading, spacing: 4) {
                 HStack {
-                    Text("TOLERANCE THRESHOLD")
+                    Text("SENSITIVITY")
                         .font(.system(size: 9, weight: .bold, design: .monospaced))
                         .foregroundColor(textMuted)
                     Spacer()
-                    Text("\(Int(scannerState.tolerancePercentage))%")
+                    Text("\(Int(scannerState.sensitivityPercentage))%")
                         .font(.system(size: 10, weight: .bold, design: .monospaced))
                         .foregroundColor(textMain)
                 }
-                Slider(value: $scannerState.tolerancePercentage, in: (scannerState.isTargetBlack || scannerState.isTargetWhite) ? 1...15 : 5...50, step: 1)
+                Slider(value: $scannerState.sensitivityPercentage, in: 0...100, step: 5)
                     .tint(primaryBtnBg)
-                    .disabled(scannerState.isScanning)
-                    .explain("Color match sensitivity. Lower values match strictly; higher values match broader shades.")
+                    .disabled(scannerState.isScanning || scannerState.anyColor)
+                    .explain("How faint a line may be. Higher values also flag semi-transparent and blended lines; faint lines are only flagged when they hold for 6 frames.")
             }
+            
+            Toggle("ANY COLOUR (IGNORE TARGET)", isOn: $scannerState.anyColor)
+                .toggleStyle(StudioToggleStyle(isLight: isLightMode))
+                .font(.system(size: 10, weight: .bold, design: .monospaced))
+                .foregroundColor(textMain)
+                .disabled(scannerState.isScanning)
+                .explain("Flags solid lines of any colour that stand out from the picture next to them, instead of only the target color.")
         }
     }
     

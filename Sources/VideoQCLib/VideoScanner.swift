@@ -172,6 +172,7 @@ public actor VideoScanner {
         }
         
         let size = (try? await videoTrack.load(.naturalSize)) ?? .zero
+        let transform = (try? await videoTrack.load(.preferredTransform)) ?? .identity
         let nominalFps = (try? await videoTrack.load(.nominalFrameRate)) ?? 25.0
         let fps = Double(nominalFps > 0 ? nominalFps : 25.0)
         let duration = (try? await asset.load(.duration)) ?? .zero
@@ -213,7 +214,9 @@ public actor VideoScanner {
             )
         }
         
-        var errorFrames: [FrameError] = []
+        // Includes weak candidates; `LineHysteresis` keeps those only where they persist.
+        var candidateFrames: [FrameError] = []
+        var hasStrongDetection = false
         var frameCount = 0
         let startTime = CFAbsoluteTimeGetCurrent()
         var lastProgressDispatchTime: CFAbsoluteTime = 0.0
@@ -231,7 +234,9 @@ public actor VideoScanner {
                     let detections = detector.scanPixelBuffer(imageBuffer, config: config)
                     if !detections.isEmpty {
                         let timecode = TimecodeFormatter.format(frameIndex: frameCount, fps: fps)
-                        errorFrames.append(FrameError(frameIndex: frameCount, timecode: timecode, detections: detections))
+                        let oriented = transform.isIdentity ? detections : detections.map { $0.withEdge($0.edge.oriented(by: transform)) }
+                        candidateFrames.append(FrameError(frameIndex: frameCount, timecode: timecode, detections: oriented))
+                        hasStrongDetection = hasStrongDetection || detections.contains { !$0.isWeak }
                     }
                 }
             }
@@ -256,7 +261,7 @@ public actor VideoScanner {
                     currentFrame: frameCount,
                     totalFramesInFile: max(totalEstimatedFrames, frameCount),
                     fps: currentFps,
-                    flaggedVideosCount: flaggedSoFar + (errorFrames.isEmpty ? 0 : 1)
+                    flaggedVideosCount: flaggedSoFar + (hasStrongDetection ? 1 : 0)
                 )
                 progressHandler?(progress)
             }
@@ -273,7 +278,7 @@ public actor VideoScanner {
             fps: fps,
             totalFrames: frameCount,
             durationSeconds: durationSeconds,
-            errorFrames: errorFrames
+            errorFrames: LineHysteresis.filter(candidateFrames, minRun: config.persistenceFrames)
         )
     }
 }

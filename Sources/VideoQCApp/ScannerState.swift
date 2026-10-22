@@ -6,9 +6,10 @@ import VideoQCLib
 @MainActor
 public final class ScannerState: ObservableObject {
     @Published public var hexCode: String = "#00FF00"
-    @Published public var tolerancePercentage: Double = 25.0
+    @Published public var sensitivityPercentage: Double = 50.0
+    @Published public var anyColor: Bool = false
     @Published public var edgeDepth: Int = 12
-    @Published public var minSpanPercentage: Double = 70.0
+    @Published public var minSpanPercentage: Double = 25.0
     @Published public var scanFullScreen: Bool = false
     @Published public var enableExposureBoost: Bool = true
     @Published public var exposureMultiplier: Double = 10.0
@@ -50,10 +51,10 @@ public final class ScannerState: ObservableObject {
     }
     
     public let colorPresets = [
-        ("GREEN", "#00FF00", 25.0),
-        ("MAGENTA", "#FF00B4", 25.0),
-        ("BLACK", "#000000", 3.0),
-        ("WHITE", "#FFFFFF", 3.0)
+        ("GREEN", "#00FF00"),
+        ("MAGENTA", "#FF00B4"),
+        ("BLACK", "#000000"),
+        ("WHITE", "#FFFFFF")
     ]
     
     public var isCustomColor: Bool {
@@ -85,10 +86,12 @@ public final class ScannerState: ObservableObject {
         
         let config = QCConfig(
             targetHex: hexCode,
-            tolerance: tolerancePercentage / 100.0,
+            tolerance: (isTargetBlack || isTargetWhite) ? 0.03 : 0.25,
             edgeDepth: edgeDepth,
             minSpanRatio: minSpanPercentage / 100.0,
             scanFullScreen: scanFullScreen,
+            sensitivity: sensitivityPercentage / 100.0,
+            anyColor: anyColor,
             enableExposureBoost: enableExposureBoost,
             exposureMultiplier: exposureMultiplier,
             ignoreFullBlackFrames: ignoreFullBlackFrames,

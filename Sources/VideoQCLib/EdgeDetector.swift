@@ -1,13 +1,17 @@
 import Foundation
 import CoreVideo
 
+/// Line Finder v2. Each pixel near an edge is modelled as a blend of the target colour T and the picture R just
+/// inside the line: P ≈ α·T + (1 − α)·R. A line is a contiguous run of positions with α above the sensitivity
+/// threshold and a small residual, on depths that step back down to the picture further in.
 public struct EdgeDetector: Sendable {
     
     public init() {}
     
-    /// Detects colored lines at frame edges and internal split-screens from a CVPixelBuffer (BGRA format)
+    /// Detects target-colour lines at frame edges and internal split-screens from a CVPixelBuffer (BGRA format)
     public func scanPixelBuffer(_ pixelBuffer: CVPixelBuffer, config: QCConfig) -> [LineDetection] {
-        guard let targetRGB = config.targetRGB else { return [] }
+        let targetRGB = config.targetRGB
+        guard config.anyColor || targetRGB != nil else { return [] }
         
         CVPixelBufferLockBaseAddress(pixelBuffer, .readOnly)
         defer {
@@ -18,27 +22,33 @@ public struct EdgeDetector: Sendable {
             return []
         }
         
-        let width = CVPixelBufferGetWidth(pixelBuffer)
-        let height = CVPixelBufferGetHeight(pixelBuffer)
+        let bufferWidth = CVPixelBufferGetWidth(pixelBuffer)
+        let bufferHeight = CVPixelBufferGetHeight(pixelBuffer)
         let bytesPerRow = CVPixelBufferGetBytesPerRow(pixelBuffer)
-        let bufferPtr = baseAddress.assumingMemoryBound(to: UInt8.self)
+        
+        // Decoded buffers can carry padding (e.g. 1088 rows for 1080p); only the clean aperture is picture.
+        // The clean rect's origin is bottom-up.
+        var originX = 0, originY = 0, width = bufferWidth, height = bufferHeight
+        let clean = CVImageBufferGetCleanRect(pixelBuffer)
+        if clean.width >= 1 && clean.height >= 1 {
+            originX = min(bufferWidth, max(0, Int(clean.minX.rounded())))
+            originY = min(bufferHeight, max(0, bufferHeight - Int(clean.maxY.rounded())))
+            width = min(bufferWidth - originX, Int(clean.width.rounded()))
+            height = min(bufferHeight - originY, Int(clean.height.rounded()))
+        }
+        guard width > 0 && height > 0 else { return [] }
+        let bufferPtr = UnsafePointer(baseAddress.assumingMemoryBound(to: UInt8.self) + originY * bytesPerRow + originX * 4)
         
         // Verify if the entire frame is dark/black OR dominated by the target color (e.g. green screen, white card, slate)
-        let shouldCheckFrameWideSuppression = config.isWhiteDetection ? config.ignoreFullWhiteFrames : config.ignoreFullBlackFrames
-        if shouldCheckFrameWideSuppression {
-            if isEntireFrameTargetColorOrDarkBGRA(ptr: bufferPtr, width: width, height: height, bytesPerRow: bytesPerRow, targetRGB: targetRGB, config: config) {
+        if !config.anyColor, let targetRGB {
+            let shouldCheckFrameWideSuppression = config.isWhiteDetection ? config.ignoreFullWhiteFrames : config.ignoreFullBlackFrames
+            if shouldCheckFrameWideSuppression && isEntireFrameTargetColorOrDarkBGRA(ptr: bufferPtr, width: width, height: height, bytesPerRow: bytesPerRow, targetRGB: targetRGB, config: config) {
                 return []
             }
         }
         
-        return scanRawBGRA(
-            ptr: bufferPtr,
-            width: width,
-            height: height,
-            bytesPerRow: bytesPerRow,
-            targetRGB: targetRGB,
-            config: config
-        )
+        let frame = BGRAFrame(ptr: bufferPtr, width: width, height: height, bytesPerRow: bytesPerRow)
+        return BlendLineModel(config: config).scan(frame, config: config)
     }
     
     // MARK: - Frame-Wide Suppression Check (Fades, Slates, Cards & Chroma Backdrops)
@@ -151,671 +161,377 @@ public struct EdgeDetector: Sendable {
         }
     }
     
-    // MARK: - Core Scanning Engine (BGRA - AVFoundation native)
+}
+
+// MARK: - Blend Model Engine
+
+private struct BGRAFrame {
+    let ptr: UnsafePointer<UInt8>
+    let width: Int
+    let height: Int
+    let bytesPerRow: Int
+}
+
+/// One row/column of positions along an edge (or a split-screen seam), addressed in bytes.
+private struct LineWalk {
+    let origin: Int
+    let depthStride: Int
+    let positionStride: Int
+    let length: Int
+}
+
+struct LineRun: Equatable {
+    var start = 0
+    var end = -1
+    var passes = 0
+    var fails = 0
     
-    private func scanRawBGRA(
-        ptr: UnsafePointer<UInt8>,
-        width: Int,
-        height: Int,
-        bytesPerRow: Int,
-        targetRGB: RGBColor,
-        config: QCConfig
-    ) -> [LineDetection] {
+    var length: Int { end - start + 1 }
+}
+
+private struct BlendLineModel {
+    static let pass: Int8 = 1
+    static let fail: Int8 = -1
+    static let skip: Int8 = 0
+    
+    /// |T − R| below this says nothing about a line (picture already looks like the target).
+    static let minContrast: Float = 40
+    static let maxAlpha: Float = 1.35
+    static let maxGap = 8
+    /// The picture just inside a line must fall back to at most this fraction of the innermost line row's α.
+    static let maxInnerAlphaRatio: Float = 0.6
+    static let anyColorMinAlpha: Float = 0.6
+    
+    let lut: [Float]
+    let target: SIMD3<Float>?
+    let weakAlpha: Float
+    let strongAlpha: Float
+    let edgeDepth: Int
+    let minSpanRatio: Double
+    
+    init(config: QCConfig) {
+        var lut = (0..<256).map { Float($0) }
+        if !config.anyColor && config.isBlackDetection && config.enableExposureBoost {
+            // Shadow expansion: separates render black from dark picture without clipping bright content.
+            lut = lut.map { 255 * ($0 / 255).squareRoot() }
+        } else if !config.anyColor && config.isWhiteDetection && config.enableHighlightExpansion {
+            lut = lut.map { 255 - 255 * ((255 - $0) / 255).squareRoot() }
+        }
+        self.lut = lut
+        if !config.anyColor, let rgb = config.targetRGB {
+            self.target = SIMD3(lut[Int(rgb.r)], lut[Int(rgb.g)], lut[Int(rgb.b)])
+            self.weakAlpha = Float(config.weakAlpha)
+            self.strongAlpha = Float(config.strongAlpha)
+        } else {
+            self.target = nil
+            self.weakAlpha = Self.anyColorMinAlpha
+            self.strongAlpha = Self.anyColorMinAlpha
+        }
+        self.edgeDepth = config.edgeDepth
+        self.minSpanRatio = config.minSpanRatio
+    }
+    
+    func scan(_ frame: BGRAFrame, config: QCConfig) -> [LineDetection] {
+        let w = frame.width
+        let h = frame.height
+        let bpr = frame.bytesPerRow
         var detections: [LineDetection] = []
-        let maxDist = config.maxDistance
-        let edgeDepth = min(config.edgeDepth, min(width / 2, height / 2))
-        guard edgeDepth > 0 else { return [] }
         
-        // Helper to check inward continuity beyond edgeDepth.
-        func isHorizontallyContinuous(startRow: Int, stepDirection: Int) -> Bool {
-            let lookaheadCount = min(max(3, edgeDepth / 2), min(16, (height / 2) - edgeDepth))
-            guard lookaheadCount > 0 else { return false }
-            var matches = 0
-            for i in 0..<lookaheadCount {
-                let testY = startRow + (i * stepDirection)
-                guard testY >= 0 && testY < height else { break }
-                if checkHorizontalRowBGRA(ptr: ptr, y: testY, width: width, bytesPerRow: bytesPerRow, targetRGB: targetRGB, maxDist: maxDist, config: config) != nil {
-                    matches += 1
-                }
-            }
-            return matches >= min(2, lookaheadCount)
-        }
-        
-        func isVerticallyContinuous(startCol: Int, stepDirection: Int) -> Bool {
-            let lookaheadCount = min(max(3, edgeDepth / 2), min(16, (width / 2) - edgeDepth))
-            guard lookaheadCount > 0 else { return false }
-            var matches = 0
-            for i in 0..<lookaheadCount {
-                let testX = startCol + (i * stepDirection)
-                guard testX >= 0 && testX < width else { break }
-                if checkVerticalColumnBGRA(ptr: ptr, x: testX, height: height, bytesPerRow: bytesPerRow, targetRGB: targetRGB, maxDist: maxDist, config: config) != nil {
-                    matches += 1
-                }
-            }
-            return matches >= min(2, lookaheadCount)
-        }
-        
-        // Helper to verify that an edge line candidate has a clear contrast step against the adjacent picture content.
-        let minStepDist = config.isWhiteDetection ? 14.0 : 22.0
-        
-        func hasBoundaryContrastHorizontal(lineColor: RGBColor, adjacentY: Int) -> Bool {
-            guard adjacentY >= 0 && adjacentY < height else { return true }
-            let rowStart = ptr + (adjacentY * bytesPerRow)
-            let samples = 32
-            let stepX = max(1, width / samples)
-            var sumR: UInt64 = 0
-            var sumG: UInt64 = 0
-            var sumB: UInt64 = 0
-            var count = 0
-            for i in 0..<samples {
-                let x = min(width - 1, i * stepX)
-                let offset = x * 4
-                sumB += UInt64(rowStart[offset + 0])
-                sumG += UInt64(rowStart[offset + 1])
-                sumR += UInt64(rowStart[offset + 2])
-                count += 1
-            }
-            guard count > 0 else { return true }
-            let adjR = Double(sumR) / Double(count)
-            let adjG = Double(sumG) / Double(count)
-            let adjB = Double(sumB) / Double(count)
-            let dr = Double(lineColor.r) - adjR
-            let dg = Double(lineColor.g) - adjG
-            let db = Double(lineColor.b) - adjB
-            let stepDist = sqrt(dr * dr + dg * dg + db * db)
-            return stepDist >= minStepDist
-        }
-        
-        func hasBoundaryContrastVertical(lineColor: RGBColor, adjacentX: Int) -> Bool {
-            guard adjacentX >= 0 && adjacentX < width else { return true }
-            let samples = 32
-            let stepY = max(1, height / samples)
-            var sumR: UInt64 = 0
-            var sumG: UInt64 = 0
-            var sumB: UInt64 = 0
-            var count = 0
-            for i in 0..<samples {
-                let y = min(height - 1, i * stepY)
-                let offset = y * bytesPerRow + (adjacentX * 4)
-                sumB += UInt64(ptr[offset + 0])
-                sumG += UInt64(ptr[offset + 1])
-                sumR += UInt64(ptr[offset + 2])
-                count += 1
-            }
-            guard count > 0 else { return true }
-            let adjR = Double(sumR) / Double(count)
-            let adjG = Double(sumG) / Double(count)
-            let adjB = Double(sumB) / Double(count)
-            let dr = Double(lineColor.r) - adjR
-            let dg = Double(lineColor.g) - adjG
-            let db = Double(lineColor.b) - adjB
-            let stepDist = sqrt(dr * dr + dg * dg + db * db)
-            return stepDist >= minStepDist
-        }
-        
-        // 1. Bottom Edge (rows: height - 1 down to height - edgeDepth)
-        var bottomRows: [(row: Int, count: Int, avgColor: RGBColor)] = []
-        for d in 0..<edgeDepth {
-            let y = height - 1 - d
-            if let match = checkHorizontalRowBGRA(ptr: ptr, y: y, width: width, bytesPerRow: bytesPerRow, targetRGB: targetRGB, maxDist: maxDist, config: config) {
-                bottomRows.append((y, match.count, match.avgColor))
-            } else {
-                break
-            }
-        }
-        if !bottomRows.isEmpty {
-            let isContinuous = (bottomRows.count == edgeDepth && isHorizontallyContinuous(startRow: height - 1 - edgeDepth, stepDirection: -1))
-            let avgColor = bottomRows.first?.avgColor ?? targetRGB
-            let hasContrast = hasBoundaryContrastHorizontal(lineColor: avgColor, adjacentY: height - 1 - bottomRows.count)
-            if !isContinuous && hasContrast {
-                let spanRatio = Double(bottomRows.map(\.count).max() ?? 0) / Double(width)
-                detections.append(LineDetection(edge: .bottom, thickness: bottomRows.count, detectedColor: avgColor, spanRatio: spanRatio))
+        let edges: [(EdgeLocation, LineWalk, Int)] = [
+            (.bottom, LineWalk(origin: (h - 1) * bpr, depthStride: -bpr, positionStride: 4, length: w), h),
+            (.top, LineWalk(origin: 0, depthStride: bpr, positionStride: 4, length: w), h),
+            (.left, LineWalk(origin: 0, depthStride: 4, positionStride: bpr, length: h), w),
+            (.right, LineWalk(origin: (w - 1) * 4, depthStride: -4, positionStride: bpr, length: h), w)
+        ]
+        for (edge, walk, extent) in edges {
+            let depthCount = min(edgeDepth, extent / 2 - 4)
+            guard depthCount >= 1 else { continue }
+            if let detection = scanEdge(edge, walk: walk, frame: frame, depthCount: depthCount) {
+                detections.append(detection)
             }
         }
         
-        // 2. Top Edge (rows: 0 to edgeDepth - 1)
-        var topRows: [(row: Int, count: Int, avgColor: RGBColor)] = []
-        for y in 0..<edgeDepth {
-            if let match = checkHorizontalRowBGRA(ptr: ptr, y: y, width: width, bytesPerRow: bytesPerRow, targetRGB: targetRGB, maxDist: maxDist, config: config) {
-                topRows.append((y, match.count, match.avgColor))
-            } else {
-                break
-            }
-        }
-        if !topRows.isEmpty {
-            let isContinuous = (topRows.count == edgeDepth && isHorizontallyContinuous(startRow: edgeDepth, stepDirection: 1))
-            let avgColor = topRows.first?.avgColor ?? targetRGB
-            let hasContrast = hasBoundaryContrastHorizontal(lineColor: avgColor, adjacentY: topRows.count)
-            if !isContinuous && hasContrast {
-                let spanRatio = Double(topRows.map(\.count).max() ?? 0) / Double(width)
-                detections.append(LineDetection(edge: .top, thickness: topRows.count, detectedColor: avgColor, spanRatio: spanRatio))
-            }
-        }
-        
-        // 3. Left Edge (columns: 0 to edgeDepth - 1)
-        var leftCols: [(col: Int, count: Int, avgColor: RGBColor)] = []
-        for x in 0..<edgeDepth {
-            if let match = checkVerticalColumnBGRA(ptr: ptr, x: x, height: height, bytesPerRow: bytesPerRow, targetRGB: targetRGB, maxDist: maxDist, config: config) {
-                leftCols.append((x, match.count, match.avgColor))
-            } else {
-                break
-            }
-        }
-        if !leftCols.isEmpty {
-            let isContinuous = (leftCols.count == edgeDepth && isVerticallyContinuous(startCol: edgeDepth, stepDirection: 1))
-            let avgColor = leftCols.first?.avgColor ?? targetRGB
-            let hasContrast = hasBoundaryContrastVertical(lineColor: avgColor, adjacentX: leftCols.count)
-            if !isContinuous && hasContrast {
-                let spanRatio = Double(leftCols.map(\.count).max() ?? 0) / Double(height)
-                detections.append(LineDetection(edge: .left, thickness: leftCols.count, detectedColor: avgColor, spanRatio: spanRatio))
-            }
-        }
-        
-        // 4. Right Edge (columns: width - 1 down to width - edgeDepth)
-        var rightCols: [(col: Int, count: Int, avgColor: RGBColor)] = []
-        for d in 0..<edgeDepth {
-            let x = width - 1 - d
-            if let match = checkVerticalColumnBGRA(ptr: ptr, x: x, height: height, bytesPerRow: bytesPerRow, targetRGB: targetRGB, maxDist: maxDist, config: config) {
-                rightCols.append((x, match.count, match.avgColor))
-            } else {
-                break
-            }
-        }
-        if !rightCols.isEmpty {
-            let isContinuous = (rightCols.count == edgeDepth && isVerticallyContinuous(startCol: width - 1 - edgeDepth, stepDirection: -1))
-            let avgColor = rightCols.first?.avgColor ?? targetRGB
-            let hasContrast = hasBoundaryContrastVertical(lineColor: avgColor, adjacentX: width - 1 - rightCols.count)
-            if !isContinuous && hasContrast {
-                let spanRatio = Double(rightCols.map(\.count).max() ?? 0) / Double(height)
-                detections.append(LineDetection(edge: .right, thickness: rightCols.count, detectedColor: avgColor, spanRatio: spanRatio))
-            }
-        }
-        
-        // 5. Full Screen Scan for Split Screens (internal rows & columns)
         if config.scanFullScreen {
-            let startY = edgeDepth
-            let endY = height - edgeDepth
-            if startY < endY {
-                var currentCluster: [(row: Int, count: Int, avgColor: RGBColor)] = []
-                for y in startY..<endY {
-                    if let match = checkHorizontalRowBGRA(ptr: ptr, y: y, width: width, bytesPerRow: bytesPerRow, targetRGB: targetRGB, maxDist: maxDist, config: config) {
-                        currentCluster.append((y, match.count, match.avgColor))
-                    } else {
-                        if !currentCluster.isEmpty {
-                            if currentCluster.count <= edgeDepth {
-                                let avgColor = currentCluster.first?.avgColor ?? targetRGB
-                                let spanRatio = Double(currentCluster.map(\.count).max() ?? 0) / Double(width)
-                                detections.append(LineDetection(edge: .splitHorizontal, thickness: currentCluster.count, detectedColor: avgColor, spanRatio: spanRatio))
-                            }
-                            currentCluster.removeAll(keepingCapacity: true)
-                        }
-                    }
-                }
-                if !currentCluster.isEmpty && currentCluster.count <= edgeDepth {
-                    let avgColor = currentCluster.first?.avgColor ?? targetRGB
-                    let spanRatio = Double(currentCluster.map(\.count).max() ?? 0) / Double(width)
-                    detections.append(LineDetection(edge: .splitHorizontal, thickness: currentCluster.count, detectedColor: avgColor, spanRatio: spanRatio))
-                }
-            }
-            
-            let startX = edgeDepth
-            let endX = width - edgeDepth
-            if startX < endX {
-                var currentCluster: [(col: Int, count: Int, avgColor: RGBColor)] = []
-                for x in startX..<endX {
-                    if let match = checkVerticalColumnBGRA(ptr: ptr, x: x, height: height, bytesPerRow: bytesPerRow, targetRGB: targetRGB, maxDist: maxDist, config: config) {
-                        currentCluster.append((x, match.count, match.avgColor))
-                    } else {
-                        if !currentCluster.isEmpty {
-                            if currentCluster.count <= edgeDepth {
-                                let avgColor = currentCluster.first?.avgColor ?? targetRGB
-                                let spanRatio = Double(currentCluster.map(\.count).max() ?? 0) / Double(height)
-                                detections.append(LineDetection(edge: .splitVertical, thickness: currentCluster.count, detectedColor: avgColor, spanRatio: spanRatio))
-                            }
-                            currentCluster.removeAll(keepingCapacity: true)
-                        }
-                    }
-                }
-                if !currentCluster.isEmpty && currentCluster.count <= edgeDepth {
-                    let avgColor = currentCluster.first?.avgColor ?? targetRGB
-                    let spanRatio = Double(currentCluster.map(\.count).max() ?? 0) / Double(height)
-                    detections.append(LineDetection(edge: .splitVertical, thickness: currentCluster.count, detectedColor: avgColor, spanRatio: spanRatio))
-                }
-            }
+            detections += scanSplits(.splitHorizontal, frame: frame)
+            detections += scanSplits(.splitVertical, frame: frame)
         }
-        
         return detections
     }
     
-    // MARK: - Row & Column Match Helpers (BGRA)
+    // MARK: Edges
     
-    @inline(__always)
-    private func checkHorizontalRowBGRA(
-        ptr: UnsafePointer<UInt8>,
-        y: Int,
-        width: Int,
-        bytesPerRow: Int,
-        targetRGB: RGBColor,
-        maxDist: Double,
-        config: QCConfig
-    ) -> (count: Int, avgColor: RGBColor)? {
-        let rowStart = ptr + (y * bytesPerRow)
-        var matchCount = 0
-        var sumR: UInt64 = 0
-        var sumG: UInt64 = 0
-        var sumB: UInt64 = 0
+    private func scanEdge(_ edge: EdgeLocation, walk: LineWalk, frame: BGRAFrame, depthCount: Int) -> LineDetection? {
+        let n = walk.length
+        let ptr = frame.ptr
+        let minRun = minimumRun(length: n)
         
-        let minMatchesRequired = Int(ceil(Double(width) * config.minSpanRatio))
-        let maxAllowedMisses = width - minMatchesRequired
-        var missCount = 0
+        // R(p): median of the 4 depths just past the scanned band.
+        var refs = [SIMD3<Float>](repeating: .zero, count: n)
+        for p in 0..<n {
+            let o = walk.origin + p * walk.positionStride + depthCount * walk.depthStride
+            refs[p] = median4(
+                color(ptr, o),
+                color(ptr, o + walk.depthStride),
+                color(ptr, o + 2 * walk.depthStride),
+                color(ptr, o + 3 * walk.depthStride)
+            )
+        }
         
-        let isBlack = config.isBlackDetection
-        let isWhite = config.isWhiteDetection
-        let useBoost = isBlack && config.enableExposureBoost
-        let useHighlightExpansion = isWhite && config.enableHighlightExpansion
-        let multiplier = useBoost ? config.exposureMultiplier : (useHighlightExpansion ? config.highlightMultiplier : 1.0)
+        var states = [Int8](repeating: Self.skip, count: n * depthCount)
+        var alphas = [Float](repeating: 0, count: n * depthCount)
+        var targets: [SIMD3<Float>] = []
+        var runs: [LineRun] = []
         
-        let tr = Int(targetRGB.r)
-        let tg = Int(targetRGB.g)
-        let tb = Int(targetRGB.b)
-        let maxDistSqInt = Int(round(maxDist * maxDist))
-        
-        // Chromatic saturation of target
-        let targetMax = max(tr, max(tg, tb))
-        let targetMin = min(tr, min(tg, tb))
-        let targetSat = targetMax > 0 ? Double(targetMax - targetMin) / Double(targetMax) : 0.0
-        let isSaturatedTarget = targetSat >= 0.50
-        
-        // Primary & secondary color targets
-        let isGreenTarget = tg - tr >= 70 && tg - tb >= 70
-        let isMagentaTarget = tr - tg >= 70 && tb - tg >= 70
-        let isRedTarget = tr - tg >= 70 && tr - tb >= 70
-        let isBlueTarget = tb - tr >= 70 && tb - tg >= 70
-        let isCyanTarget = tg - tr >= 70 && tb - tr >= 70
-        let isYellowTarget = tr - tb >= 70 && tg - tb >= 70
-        
-        var blackCount = 0
-        var blackMean = 0.0
-        var blackM2 = 0.0
-        
-        var whiteCount = 0
-        var whiteMean = 0.0
-        var whiteM2 = 0.0
-        
-        var colorCount = 0
-        var colorMean = 0.0
-        var colorM2 = 0.0
-        
-        for x in 0..<width {
-            let offset = x * 4
-            var b = Int(rowStart[offset + 0])
-            var g = Int(rowStart[offset + 1])
-            var r = Int(rowStart[offset + 2])
-            
-            let originalR = r
-            let originalG = g
-            let originalB = b
-            
-            if useBoost {
-                r = min(255, Int(Double(r) * multiplier))
-                g = min(255, Int(Double(g) * multiplier))
-                b = min(255, Int(Double(b) * multiplier))
-            } else if useHighlightExpansion {
-                let dr = 255 - r
-                let dg = 255 - g
-                let db = 255 - b
-                r = max(0, 255 - Int(Double(dr) * multiplier))
-                g = max(0, 255 - Int(Double(dg) * multiplier))
-                b = max(0, 255 - Int(Double(db) * multiplier))
+        // Every depth is judged on its own: a line 1 px in, behind a half-blended outer row, still counts.
+        for d in 0..<depthCount {
+            let rowOrigin = walk.origin + d * walk.depthStride
+            let t = target ?? medianColor(ptr, origin: rowOrigin, stride: walk.positionStride, count: n)
+            targets.append(t)
+            for p in 0..<n {
+                let (state, alpha) = classify(color(ptr, rowOrigin + p * walk.positionStride), ref: refs[p], target: t)
+                states[d * n + p] = state
+                alphas[d * n + p] = alpha
             }
+            runs.append(Self.longestRun(states, from: d * n, count: n))
+        }
+        
+        var best: LineDetection?
+        var lo = 0
+        while lo < depthCount {
+            guard runs[lo].passes >= minRun else {
+                lo += 1
+                continue
+            }
+            var hi = lo
+            while hi + 1 < depthCount && runs[hi + 1].passes >= minRun { hi += 1 }
+            defer { lo = hi + 1 }
             
-            let dr = r - tr
-            let dg = g - tg
-            let db = b - tb
-            var distSq = dr * dr + dg * dg + db * db
+            // Reaches the end of the band: letterbox / pillarbox or picture content, not a line.
+            guard hi < depthCount - 1 else { continue }
             
-            // Chroma bleed compensation for video compression (YUV 4:2:0 averaging against light backgrounds)
-            if distSq > maxDistSqInt {
-                if isGreenTarget && g > r && g > b {
-                    let neutral = min(r, b)
-                    let bleed = (neutral * 166) >> 8 // ~65% neutral background bleed removal
-                    let rc = max(0, r - bleed)
-                    let bc = max(0, b - bleed)
-                    let drc = rc - tr
-                    let dbc = bc - tb
-                    let compDistSq = drc * drc + dg * dg + dbc * dbc
-                    if compDistSq < distSq { distSq = compDistSq }
-                } else if isMagentaTarget && r > g && b > g {
-                    let neutral = g
-                    let bleed = (neutral * 166) >> 8
-                    let gc = max(0, g - bleed)
-                    let dgc = gc - tg
-                    let compDistSq = dr * dr + dgc * dgc + db * db
-                    if compDistSq < distSq { distSq = compDistSq }
-                } else if isRedTarget && r > g && r > b {
-                    let neutral = min(g, b)
-                    let bleed = (neutral * 166) >> 8
-                    let gc = max(0, g - bleed)
-                    let bc = max(0, b - bleed)
-                    let dgc = gc - tg
-                    let dbc = bc - tb
-                    let compDistSq = dr * dr + dgc * dgc + dbc * dbc
-                    if compDistSq < distSq { distSq = compDistSq }
-                } else if isBlueTarget && b > r && b > g {
-                    let neutral = min(r, g)
-                    let bleed = (neutral * 166) >> 8
-                    let rc = max(0, r - bleed)
-                    let gc = max(0, g - bleed)
-                    let drc = rc - tr
-                    let dgc = gc - tg
-                    let compDistSq = drc * drc + dgc * dgc + db * db
-                    if compDistSq < distSq { distSq = compDistSq }
-                } else if isCyanTarget && g > r && b > r {
-                    let neutral = r
-                    let bleed = (neutral * 166) >> 8
-                    let rc = max(0, r - bleed)
-                    let drc = rc - tr
-                    let compDistSq = drc * drc + dg * dg + db * db
-                    if compDistSq < distSq { distSq = compDistSq }
-                } else if isYellowTarget && r > b && g > b {
-                    let neutral = b
-                    let bleed = (neutral * 166) >> 8
-                    let bc = max(0, b - bleed)
-                    let dbc = bc - tb
-                    let compDistSq = dr * dr + dg * dg + dbc * dbc
-                    if compDistSq < distSq { distSq = compDistSq }
+            let core = (lo...hi).max { runs[$0].passes < runs[$1].passes } ?? lo
+            let run = runs[core]
+            let t = targets[core]
+            
+            var lineAlphas: [Float] = []
+            var edgeAlphas: [Float] = []
+            var innerAlphas: [Float] = []
+            var sum = SIMD3<Int>(repeating: 0)
+            var passCount = 0
+            let innerOrigin = walk.origin + (hi + 1) * walk.depthStride
+            let coreOrigin = walk.origin + core * walk.depthStride
+            for p in run.start...run.end {
+                let i = core * n + p
+                if states[i] != Self.skip { lineAlphas.append(alphas[i]) }
+                if states[hi * n + p] != Self.skip { edgeAlphas.append(alphas[hi * n + p]) }
+                if states[i] == Self.pass {
+                    sum &+= rawColor(ptr, coreOrigin + p * walk.positionStride)
+                    passCount += 1
+                }
+                let (innerState, innerAlpha) = classify(color(ptr, innerOrigin + p * walk.positionStride), ref: refs[p], target: t)
+                if innerState != Self.skip { innerAlphas.append(innerAlpha) }
+            }
+            let lineAlpha = Self.median(&lineAlphas)
+            let innerAlpha = Self.median(&innerAlphas)
+            // Step at the line's inner boundary: a gradient fades out gradually, a line stops.
+            let edgeAlpha = Self.median(&edgeAlphas)
+            guard passCount > 0, lineAlpha >= weakAlpha, innerAlpha <= edgeAlpha * Self.maxInnerAlphaRatio else { continue }
+            
+            let avg = sum / passCount
+            let detection = LineDetection(
+                edge: edge,
+                thickness: hi - lo + 1,
+                detectedColor: RGBColor(r: UInt8(avg.x), g: UInt8(avg.y), b: UInt8(avg.z)),
+                spanRatio: Double(run.length) / Double(n),
+                score: Double(lineAlpha),
+                isWeak: lineAlpha < strongAlpha
+            )
+            if best == nil || detection.score > best!.score {
+                best = detection
+            }
+        }
+        return best
+    }
+    
+    // MARK: Split Screens
+    
+    /// Internal seams: each row (column) is compared against the picture `edgeDepth + 1` px away on both sides,
+    /// sampling every 2nd pixel along it. Clusters thicker than `edgeDepth` are picture content.
+    private func scanSplits(_ kind: EdgeLocation, frame: BGRAFrame) -> [LineDetection] {
+        let alongRows = kind == .splitHorizontal
+        let lineCount = alongRows ? frame.height : frame.width
+        let positions = alongRows ? frame.width : frame.height
+        let lineStride = alongRows ? frame.bytesPerRow : 4
+        let step = 2
+        let positionStride = (alongRows ? 4 : frame.bytesPerRow) * step
+        let samples = (positions + step - 1) / step
+        let minRun = max(1, minimumRun(length: positions) / step)
+        let offset = (edgeDepth + 1) * lineStride
+        let ptr = frame.ptr
+        guard lineCount > 2 * (edgeDepth + 1) else { return [] }
+        
+        var detections: [LineDetection] = []
+        var states = [Int8](repeating: Self.skip, count: samples)
+        var alphas = [Float](repeating: 0, count: samples)
+        var clusterStart = -1
+        var clusterBest: (alpha: Float, run: LineRun, line: Int, target: SIMD3<Float>)?
+        
+        func closeCluster(at line: Int) {
+            defer {
+                clusterStart = -1
+                clusterBest = nil
+            }
+            guard clusterStart >= 0, let best = clusterBest, line - clusterStart <= edgeDepth else { return }
+            var sum = SIMD3<Int>(repeating: 0)
+            var count = 0
+            for s in best.run.start...best.run.end {
+                let o = best.line * lineStride + s * positionStride
+                if classify(color(ptr, o), ref: color(ptr, o - offset), target: best.target).state == Self.pass {
+                    sum &+= rawColor(ptr, o)
+                    count += 1
                 }
             }
-            
-            if distSq <= maxDistSqInt {
-                if isSaturatedTarget {
-                    let pixMax = max(originalR, max(originalG, originalB))
-                    let pixMin = min(originalR, min(originalG, originalB))
-                    let pixSat = pixMax > 0 ? Double(pixMax - pixMin) / Double(pixMax) : 0.0
-                    // Reject washed-out neutral / grayish pixels for saturated targets
-                    if pixSat < 0.22 {
-                        missCount += 1
-                        if missCount > maxAllowedMisses { return nil }
-                        continue
+            let avg = sum / max(1, count)
+            detections.append(LineDetection(
+                edge: kind,
+                thickness: line - clusterStart,
+                detectedColor: RGBColor(r: UInt8(avg.x), g: UInt8(avg.y), b: UInt8(avg.z)),
+                spanRatio: Double(best.run.length) / Double(samples),
+                score: Double(best.alpha),
+                isWeak: best.alpha < strongAlpha
+            ))
+        }
+        
+        let first = edgeDepth + 1
+        let last = lineCount - edgeDepth - 1
+        for line in first..<last {
+            let lineOrigin = line * lineStride
+            let t = target ?? medianColor(ptr, origin: lineOrigin, stride: positionStride, count: samples)
+            for s in 0..<samples {
+                let o = lineOrigin + s * positionStride
+                let p = color(ptr, o)
+                let a = classify(p, ref: color(ptr, o - offset), target: t)
+                let b = classify(p, ref: color(ptr, o + offset), target: t)
+                if a.state == Self.skip || b.state == Self.skip {
+                    states[s] = Self.skip
+                } else {
+                    states[s] = (a.state == Self.pass && b.state == Self.pass) ? Self.pass : Self.fail
+                }
+                alphas[s] = min(a.alpha, b.alpha)
+            }
+            let run = Self.longestRun(states, from: 0, count: samples)
+            var isCandidate = false
+            if run.passes >= minRun {
+                var runAlphas = (run.start...run.end).compactMap { states[$0] != Self.skip ? alphas[$0] : nil }
+                let alpha = Self.median(&runAlphas)
+                if alpha >= weakAlpha {
+                    isCandidate = true
+                    if clusterStart < 0 { clusterStart = line }
+                    if clusterBest == nil || alpha > clusterBest!.alpha {
+                        clusterBest = (alpha, run, line, t)
                     }
                 }
-                
-                matchCount += 1
-                sumR += UInt64(originalR)
-                sumG += UInt64(originalG)
-                sumB += UInt64(originalB)
-                
-                if isBlack {
-                    let intensity = Double(originalR + originalG + originalB) / 3.0
-                    blackCount += 1
-                    let delta = intensity - blackMean
-                    blackMean += delta / Double(blackCount)
-                    let delta2 = intensity - blackMean
-                    blackM2 += delta * delta2
-                } else if isWhite {
-                    let intensity = Double(originalR + originalG + originalB) / 3.0
-                    whiteCount += 1
-                    let delta = intensity - whiteMean
-                    whiteMean += delta / Double(whiteCount)
-                    let delta2 = intensity - whiteMean
-                    whiteM2 += delta * delta2
-                } else if isSaturatedTarget {
-                    let intensity = Double(originalR + originalG + originalB) / 3.0
-                    colorCount += 1
-                    let delta = intensity - colorMean
-                    colorMean += delta / Double(colorCount)
-                    let delta2 = intensity - colorMean
-                    colorM2 += delta * delta2
-                }
-            } else {
-                missCount += 1
-                if missCount > maxAllowedMisses {
-                    return nil
-                }
+            }
+            if !isCandidate && clusterStart >= 0 {
+                closeCluster(at: line)
             }
         }
-        
-        let ratio = Double(matchCount) / Double(width)
-        guard ratio >= config.minSpanRatio, matchCount > 0 else { return nil }
-        
-        // In black detection mode, enforce strict uniformity (render blanking has ~0 variance)
-        if isBlack && blackCount > 10 {
-            let variance = blackM2 / Double(blackCount)
-            let stdDev = sqrt(max(0.0, variance))
-            if stdDev > config.maxBlackVariance {
-                return nil
-            }
-        } else if isWhite && whiteCount > 10 {
-            let variance = whiteM2 / Double(whiteCount)
-            let stdDev = sqrt(max(0.0, variance))
-            if stdDev > config.maxWhiteVariance {
-                return nil
-            }
-        } else if isSaturatedTarget && colorCount > 10 {
-            let variance = colorM2 / Double(colorCount)
-            let stdDev = sqrt(max(0.0, variance))
-            // Reject natural multi-tone organic scenery (foliage, fabrics, flowers have high variance > 25)
-            if stdDev > 22.0 {
-                return nil
-            }
+        if clusterStart >= 0 {
+            closeCluster(at: last)
         }
-        
-        let avgR = UInt8(sumR / UInt64(matchCount))
-        let avgG = UInt8(sumG / UInt64(matchCount))
-        let avgB = UInt8(sumB / UInt64(matchCount))
-        return (matchCount, RGBColor(r: avgR, g: avgG, b: avgB))
+        return detections
+    }
+    
+    // MARK: Pixel Model
+    
+    private func minimumRun(length: Int) -> Int {
+        max(Int((Double(length) * minSpanRatio).rounded(.up)), min(64, length))
     }
     
     @inline(__always)
-    private func checkVerticalColumnBGRA(
-        ptr: UnsafePointer<UInt8>,
-        x: Int,
-        height: Int,
-        bytesPerRow: Int,
-        targetRGB: RGBColor,
-        maxDist: Double,
-        config: QCConfig
-    ) -> (count: Int, avgColor: RGBColor)? {
-        var matchCount = 0
-        var sumR: UInt64 = 0
-        var sumG: UInt64 = 0
-        var sumB: UInt64 = 0
+    private func color(_ ptr: UnsafePointer<UInt8>, _ offset: Int) -> SIMD3<Float> {
+        SIMD3(lut[Int(ptr[offset + 2])], lut[Int(ptr[offset + 1])], lut[Int(ptr[offset])])
+    }
+    
+    @inline(__always)
+    private func rawColor(_ ptr: UnsafePointer<UInt8>, _ offset: Int) -> SIMD3<Int> {
+        SIMD3(Int(ptr[offset + 2]), Int(ptr[offset + 1]), Int(ptr[offset]))
+    }
+    
+    /// α = ((P − R)·(T − R)) / |T − R|², residual = |P − R − α(T − R)|.
+    @inline(__always)
+    private func classify(_ p: SIMD3<Float>, ref r: SIMD3<Float>, target t: SIMD3<Float>) -> (state: Int8, alpha: Float) {
+        let tr = t - r
+        let contrastSq = (tr * tr).sum()
+        guard contrastSq >= Self.minContrast * Self.minContrast else { return (Self.skip, 0) }
+        let pr = p - r
+        let alpha = (pr * tr).sum() / contrastSq
+        let residual = pr - alpha * tr
+        let tolerance = max(24, 0.3 * contrastSq.squareRoot())
+        let isLine = alpha >= weakAlpha && alpha <= Self.maxAlpha && (residual * residual).sum() <= tolerance * tolerance
+        return (isLine ? Self.pass : Self.fail, alpha)
+    }
+    
+    private func median4(_ a: SIMD3<Float>, _ b: SIMD3<Float>, _ c: SIMD3<Float>, _ d: SIMD3<Float>) -> SIMD3<Float> {
+        let lo = pointwiseMin(pointwiseMin(a, b), pointwiseMin(c, d))
+        let hi = pointwiseMax(pointwiseMax(a, b), pointwiseMax(c, d))
+        return (a + b + c + d - lo - hi) * 0.5
+    }
+    
+    /// "Any colour" target: per-channel median of the candidate line.
+    private func medianColor(_ ptr: UnsafePointer<UInt8>, origin: Int, stride: Int, count: Int) -> SIMD3<Float> {
+        var r: [Float] = [], g: [Float] = [], b: [Float] = []
+        r.reserveCapacity(count); g.reserveCapacity(count); b.reserveCapacity(count)
+        for i in 0..<count {
+            let c = color(ptr, origin + i * stride)
+            r.append(c.x); g.append(c.y); b.append(c.z)
+        }
+        return SIMD3(Self.median(&r), Self.median(&g), Self.median(&b))
+    }
+    
+    private static func median(_ values: inout [Float]) -> Float {
+        guard !values.isEmpty else { return 0 }
+        values.sort()
+        return values[values.count / 2]
+    }
+    
+    /// Longest run of passing positions, bridging gaps of up to `maxGap` failing positions. Uninformative
+    /// positions neither break nor extend a run. Runs with fewer than 75% passes are ignored.
+    static func longestRun(_ states: [Int8], from start: Int, count: Int) -> LineRun {
+        var best = LineRun()
+        var current = LineRun()
+        var inRun = false
+        var pendingFails = 0
         
-        let minMatchesRequired = Int(ceil(Double(height) * config.minSpanRatio))
-        let maxAllowedMisses = height - minMatchesRequired
-        var missCount = 0
-        
-        let isBlack = config.isBlackDetection
-        let isWhite = config.isWhiteDetection
-        let useBoost = isBlack && config.enableExposureBoost
-        let useHighlightExpansion = isWhite && config.enableHighlightExpansion
-        let multiplier = useBoost ? config.exposureMultiplier : (useHighlightExpansion ? config.highlightMultiplier : 1.0)
-        
-        let tr = Int(targetRGB.r)
-        let tg = Int(targetRGB.g)
-        let tb = Int(targetRGB.b)
-        let maxDistSqInt = Int(round(maxDist * maxDist))
-        
-        // Chromatic saturation of target
-        let targetMax = max(tr, max(tg, tb))
-        let targetMin = min(tr, min(tg, tb))
-        let targetSat = targetMax > 0 ? Double(targetMax - targetMin) / Double(targetMax) : 0.0
-        let isSaturatedTarget = targetSat >= 0.50
-        
-        // Primary & secondary color targets
-        let isGreenTarget = tg - tr >= 70 && tg - tb >= 70
-        let isMagentaTarget = tr - tg >= 70 && tb - tg >= 70
-        let isRedTarget = tr - tg >= 70 && tr - tb >= 70
-        let isBlueTarget = tb - tr >= 70 && tb - tg >= 70
-        let isCyanTarget = tg - tr >= 70 && tb - tr >= 70
-        let isYellowTarget = tr - tb >= 70 && tg - tb >= 70
-        
-        var blackCount = 0
-        var blackMean = 0.0
-        var blackM2 = 0.0
-        
-        var whiteCount = 0
-        var whiteMean = 0.0
-        var whiteM2 = 0.0
-        
-        var colorCount = 0
-        var colorMean = 0.0
-        var colorM2 = 0.0
-        
-        for y in 0..<height {
-            let rowOffset = y * bytesPerRow + (x * 4)
-            var b = Int(ptr[rowOffset + 0])
-            var g = Int(ptr[rowOffset + 1])
-            var r = Int(ptr[rowOffset + 2])
-            
-            let originalR = r
-            let originalG = g
-            let originalB = b
-            
-            if useBoost {
-                r = min(255, Int(Double(r) * multiplier))
-                g = min(255, Int(Double(g) * multiplier))
-                b = min(255, Int(Double(b) * multiplier))
-            } else if useHighlightExpansion {
-                let dr = 255 - r
-                let dg = 255 - g
-                let db = 255 - b
-                r = max(0, 255 - Int(Double(dr) * multiplier))
-                g = max(0, 255 - Int(Double(dg) * multiplier))
-                b = max(0, 255 - Int(Double(db) * multiplier))
+        func finish() {
+            if current.passes > best.passes && current.passes * 4 >= (current.passes + current.fails) * 3 {
+                best = current
             }
-            
-            let dr = r - tr
-            let dg = g - tg
-            let db = b - tb
-            var distSq = dr * dr + dg * dg + db * db
-            
-            // Chroma bleed compensation for video compression (YUV 4:2:0 averaging against light backgrounds)
-            if distSq > maxDistSqInt {
-                if isGreenTarget && g > r && g > b {
-                    let neutral = min(r, b)
-                    let bleed = (neutral * 166) >> 8
-                    let rc = max(0, r - bleed)
-                    let bc = max(0, b - bleed)
-                    let drc = rc - tr
-                    let dbc = bc - tb
-                    let compDistSq = drc * drc + dg * dg + dbc * dbc
-                    if compDistSq < distSq { distSq = compDistSq }
-                } else if isMagentaTarget && r > g && b > g {
-                    let neutral = g
-                    let bleed = (neutral * 166) >> 8
-                    let gc = max(0, g - bleed)
-                    let dgc = gc - tg
-                    let compDistSq = dr * dr + dgc * dgc + db * db
-                    if compDistSq < distSq { distSq = compDistSq }
-                } else if isRedTarget && r > g && r > b {
-                    let neutral = min(g, b)
-                    let bleed = (neutral * 166) >> 8
-                    let gc = max(0, g - bleed)
-                    let bc = max(0, b - bleed)
-                    let dgc = gc - tg
-                    let dbc = bc - tb
-                    let compDistSq = dr * dr + dgc * dgc + dbc * dbc
-                    if compDistSq < distSq { distSq = compDistSq }
-                } else if isBlueTarget && b > r && b > g {
-                    let neutral = min(r, g)
-                    let bleed = (neutral * 166) >> 8
-                    let rc = max(0, r - bleed)
-                    let gc = max(0, g - bleed)
-                    let drc = rc - tr
-                    let dgc = gc - tg
-                    let compDistSq = drc * drc + dgc * dgc + db * db
-                    if compDistSq < distSq { distSq = compDistSq }
-                } else if isCyanTarget && g > r && b > r {
-                    let neutral = r
-                    let bleed = (neutral * 166) >> 8
-                    let rc = max(0, r - bleed)
-                    let drc = rc - tr
-                    let compDistSq = drc * drc + dg * dg + db * db
-                    if compDistSq < distSq { distSq = compDistSq }
-                } else if isYellowTarget && r > b && g > b {
-                    let neutral = b
-                    let bleed = (neutral * 166) >> 8
-                    let bc = max(0, b - bleed)
-                    let dbc = bc - tb
-                    let compDistSq = dr * dr + dg * dg + dbc * dbc
-                    if compDistSq < distSq { distSq = compDistSq }
-                }
-            }
-            
-            if distSq <= maxDistSqInt {
-                if isSaturatedTarget {
-                    let pixMax = max(originalR, max(originalG, originalB))
-                    let pixMin = min(originalR, min(originalG, originalB))
-                    let pixSat = pixMax > 0 ? Double(pixMax - pixMin) / Double(pixMax) : 0.0
-                    if pixSat < 0.22 {
-                        missCount += 1
-                        if missCount > maxAllowedMisses { return nil }
-                        continue
-                    }
-                }
-                
-                matchCount += 1
-                sumR += UInt64(originalR)
-                sumG += UInt64(originalG)
-                sumB += UInt64(originalB)
-                
-                if isBlack {
-                    let intensity = Double(originalR + originalG + originalB) / 3.0
-                    blackCount += 1
-                    let delta = intensity - blackMean
-                    blackMean += delta / Double(blackCount)
-                    let delta2 = intensity - blackMean
-                    blackM2 += delta * delta2
-                } else if isWhite {
-                    let intensity = Double(originalR + originalG + originalB) / 3.0
-                    whiteCount += 1
-                    let delta = intensity - whiteMean
-                    whiteMean += delta / Double(whiteCount)
-                    let delta2 = intensity - whiteMean
-                    whiteM2 += delta * delta2
-                } else if isSaturatedTarget {
-                    let intensity = Double(originalR + originalG + originalB) / 3.0
-                    colorCount += 1
-                    let delta = intensity - colorMean
-                    colorMean += delta / Double(colorCount)
-                    let delta2 = intensity - colorMean
-                    colorM2 += delta * delta2
-                }
-            } else {
-                missCount += 1
-                if missCount > maxAllowedMisses {
-                    return nil
-                }
-            }
+            inRun = false
+            pendingFails = 0
         }
         
-        let ratio = Double(matchCount) / Double(height)
-        guard ratio >= config.minSpanRatio, matchCount > 0 else { return nil }
-        
-        if isBlack && blackCount > 10 {
-            let variance = blackM2 / Double(blackCount)
-            let stdDev = sqrt(max(0.0, variance))
-            if stdDev > config.maxBlackVariance {
-                return nil
-            }
-        } else if isWhite && whiteCount > 10 {
-            let variance = whiteM2 / Double(whiteCount)
-            let stdDev = sqrt(max(0.0, variance))
-            if stdDev > config.maxWhiteVariance {
-                return nil
-            }
-        } else if isSaturatedTarget && colorCount > 10 {
-            let variance = colorM2 / Double(colorCount)
-            let stdDev = sqrt(max(0.0, variance))
-            if stdDev > 22.0 {
-                return nil
+        for i in 0..<count {
+            switch states[start + i] {
+            case pass:
+                if inRun {
+                    current.passes += 1
+                    current.fails += pendingFails
+                    current.end = i
+                } else {
+                    current = LineRun(start: i, end: i, passes: 1, fails: 0)
+                    inRun = true
+                }
+                pendingFails = 0
+            case fail:
+                guard inRun else { break }
+                pendingFails += 1
+                if pendingFails > maxGap { finish() }
+            default:
+                break
             }
         }
-        
-        let avgR = UInt8(sumR / UInt64(matchCount))
-        let avgG = UInt8(sumG / UInt64(matchCount))
-        let avgB = UInt8(sumB / UInt64(matchCount))
-        return (matchCount, RGBColor(r: avgR, g: avgG, b: avgB))
+        if inRun { finish() }
+        return best
     }
 }
