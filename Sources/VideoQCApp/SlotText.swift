@@ -41,7 +41,7 @@ public struct SlotText: View {
         _ text: String,
         mode: SlotRollMode = .character,
         direction: SlotRollDirection = .down,
-        font: Font = .system(size: 10, weight: .bold, design: .monospaced),
+        font: Font = .ui(size: 10, weight: .semibold),
         foregroundColor: Color = .primary,
         tracking: CGFloat = 0.5,
         stagger: Double = 0.025,

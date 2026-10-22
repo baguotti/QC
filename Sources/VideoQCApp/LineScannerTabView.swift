@@ -57,7 +57,7 @@ extension ContentView {
                 
                 TextField("#HEX", text: $scannerState.hexCode)
                     .textFieldStyle(.plain)
-                    .font(.system(size: 13, weight: .bold, design: .monospaced))
+                    .font(.ui(size: 13, weight: .semibold))
                     .foregroundColor(textMain)
                     .padding(6)
                     .foregroundColor(textMain)
@@ -73,7 +73,7 @@ extension ContentView {
                             .font(.system(size: 9))
                         Text("CUSTOM")
                     }
-                    .font(.system(size: 9, weight: .bold, design: .monospaced))
+                    .font(.ui(size: 9, weight: .semibold))
                     .padding(.horizontal, 7)
                     .frame(height: 28)
                     .foregroundColor(scannerState.isCustomColor ? primaryBtnFg : textMain)
@@ -86,7 +86,7 @@ extension ContentView {
                 Spacer()
                 
                 Text(scannerState.anyColor ? "ANY COLOUR" : "\(Int(scannerState.sensitivityPercentage))% SENS")
-                    .font(.system(size: 11, weight: .bold, design: .monospaced))
+                    .font(.ui(size: 11, weight: .semibold))
                     .foregroundColor(textSubtle)
             }
             
@@ -102,7 +102,7 @@ extension ContentView {
                                 .overlay(RoundedRectangle(cornerRadius: 1).stroke(borderLine, lineWidth: 0.5))
                             Text(name)
                         }
-                        .font(.system(size: 9, weight: .bold, design: .monospaced))
+                        .font(.ui(size: 9, weight: .semibold))
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 5)
                         .foregroundColor(scannerState.hexCode.uppercased() == code ? primaryBtnFg : textMain)
@@ -117,11 +117,11 @@ extension ContentView {
             VStack(alignment: .leading, spacing: 4) {
                 HStack {
                     Text("SENSITIVITY")
-                        .font(.system(size: 9, weight: .bold, design: .monospaced))
+                        .font(.ui(size: 9, weight: .semibold))
                         .foregroundColor(textMuted)
                     Spacer()
                     Text("\(Int(scannerState.sensitivityPercentage))%")
-                        .font(.system(size: 10, weight: .bold, design: .monospaced))
+                        .font(.ui(size: 10, weight: .semibold))
                         .foregroundColor(textMain)
                 }
                 Slider(value: $scannerState.sensitivityPercentage, in: 0...100, step: 5)
@@ -132,7 +132,7 @@ extension ContentView {
             
             Toggle("ANY COLOUR (IGNORE TARGET)", isOn: $scannerState.anyColor)
                 .toggleStyle(StudioToggleStyle(isLight: isLightMode))
-                .font(.system(size: 10, weight: .bold, design: .monospaced))
+                .font(.ui(size: 10, weight: .semibold))
                 .foregroundColor(textMain)
                 .disabled(scannerState.isScanning)
                 .explain("Flags solid lines of any colour that stand out from the picture next to them, instead of only the target color.")
@@ -148,18 +148,18 @@ extension ContentView {
                     .tracking(0.5)
                 Spacer()
                 Text("[ACTIVE]")
-                    .font(.system(size: 9, weight: .bold, design: .monospaced))
+                    .font(.ui(size: 9, weight: .semibold))
                     .foregroundColor(textMain)
             }
             
             Toggle("10X EXPOSURE BOOST MULTIPLIER", isOn: $scannerState.enableExposureBoost)
-                .font(.system(size: 10, weight: .bold, design: .monospaced))
+                .font(.ui(size: 10, weight: .semibold))
                 .toggleStyle(StudioToggleStyle(isLight: isLightMode))
                 .disabled(scannerState.isScanning)
                 .explain("Amplifies shadow levels 10X to avoid false flags on naturally dark scenes.")
             
             Toggle("IGNORE FULL-FRAME BLACK SLATES", isOn: $scannerState.ignoreFullBlackFrames)
-                .font(.system(size: 10, weight: .bold, design: .monospaced))
+                .font(.ui(size: 10, weight: .semibold))
                 .toggleStyle(StudioToggleStyle(isLight: isLightMode))
                 .disabled(scannerState.isScanning)
                 .explain("Skips solid black frames such as slates, head countdowns, and scene fades.")
@@ -177,18 +177,18 @@ extension ContentView {
                     .tracking(0.5)
                 Spacer()
                 Text("[ACTIVE]")
-                    .font(.system(size: 9, weight: .bold, design: .monospaced))
+                    .font(.ui(size: 9, weight: .semibold))
                     .foregroundColor(textMain)
             }
             
             Toggle("HIGHLIGHT EXPANSION FILTER", isOn: $scannerState.enableHighlightExpansion)
-                .font(.system(size: 10, weight: .bold, design: .monospaced))
+                .font(.ui(size: 10, weight: .semibold))
                 .toggleStyle(StudioToggleStyle(isLight: isLightMode))
                 .disabled(scannerState.isScanning)
                 .explain("Amplifies highlight separation so natural white cove backdrops and studio lighting are not flagged.")
             
             Toggle("IGNORE FULL-FRAME WHITE SLATES", isOn: $scannerState.ignoreFullWhiteFrames)
-                .font(.system(size: 10, weight: .bold, design: .monospaced))
+                .font(.ui(size: 10, weight: .semibold))
                 .toggleStyle(StudioToggleStyle(isLight: isLightMode))
                 .disabled(scannerState.isScanning)
                 .explain("Skips solid white logo cards, slates, and white flash transitions.")
@@ -203,11 +203,11 @@ extension ContentView {
             
             HStack {
                 Text("EDGE SCAN DEPTH:")
-                    .font(.system(size: 10, weight: .bold, design: .monospaced))
+                    .font(.ui(size: 10, weight: .semibold))
                     .foregroundColor(textMuted)
                 Spacer()
                 Text("\(scannerState.edgeDepth) PX")
-                    .font(.system(size: 11, weight: .bold, design: .monospaced))
+                    .font(.ui(size: 11, weight: .semibold))
                     .foregroundColor(textMain)
                 Stepper("", value: $scannerState.edgeDepth, in: 2...40)
                     .labelsHidden()
@@ -217,14 +217,14 @@ extension ContentView {
             
             Toggle("SCAN FULL SCREEN (SPLIT SCREENS)", isOn: $scannerState.scanFullScreen)
                 .toggleStyle(StudioToggleStyle(isLight: isLightMode))
-                .font(.system(size: 10, weight: .bold, design: .monospaced))
+                .font(.ui(size: 10, weight: .semibold))
                 .foregroundColor(textMain)
                 .disabled(scannerState.isScanning)
                 .explain("Inspects the entire frame for internal dividing line artifacts and split-screen seams.")
             
             Toggle("MARK FLAGGED IN FINDER", isOn: $scannerState.tagInFinder)
                 .toggleStyle(StudioToggleStyle(isLight: isLightMode))
-                .font(.system(size: 10, weight: .bold, design: .monospaced))
+                .font(.ui(size: 10, weight: .semibold))
                 .foregroundColor(textMain)
                 .disabled(scannerState.isScanning)
                 .explain("Applies a red Finder tag/label to any video file flagged with edge line artifacts.")
@@ -351,7 +351,7 @@ extension ContentView {
                     .tracking(1.0)
                 Spacer()
                 Text("PROCESSING")
-                    .font(.system(size: 10, weight: .bold, design: .monospaced))
+                    .font(.ui(size: 10, weight: .semibold))
                     .foregroundColor(textMain)
                     .padding(.horizontal, 8)
                     .padding(.vertical, 4)
@@ -362,7 +362,7 @@ extension ContentView {
                 VStack(alignment: .leading, spacing: 16) {
                     VStack(alignment: .leading, spacing: 4) {
                         Text("CURRENT ASSET")
-                            .font(.system(size: 10, weight: .bold, design: .monospaced))
+                            .font(.ui(size: 10, weight: .semibold))
                             .foregroundColor(textMuted)
                         Text(p.currentFileName.uppercased())
                             .font(.system(size: 18, weight: .heavy, design: .monospaced))
@@ -412,7 +412,7 @@ extension ContentView {
                         .foregroundColor(textMain)
                         .tracking(1.0)
                     Text("\(scannerState.scanResults.count) ASSETS ANALYZED\(scannerState.wasScanCancelled ? " (PARTIAL)" : "")")
-                        .font(.system(size: 11, weight: .bold, design: .monospaced))
+                        .font(.ui(size: 11, weight: .semibold))
                         .foregroundColor(textMuted)
                 }
                 Spacer()
@@ -445,7 +445,7 @@ extension ContentView {
                     } label: {
                         HStack(spacing: 5) {
                             Text("EXPORT")
-                                .font(.system(size: 11, weight: .bold, design: .monospaced))
+                                .font(.ui(size: 11, weight: .semibold))
                                 .foregroundColor(isLightMode ? Color.black : Color.white)
                             Image(systemName: "chevron.down")
                                 .font(.system(size: 8, weight: .bold))
@@ -478,7 +478,7 @@ extension ContentView {
                                 .font(.system(size: 16, weight: .black, design: .monospaced))
                                 .foregroundColor(accentPositive)
                             Text("NO COLORED EDGE LINES OR MATTE ARTIFACTS DETECTED.")
-                                .font(.system(size: 11, weight: .medium, design: .monospaced))
+                                .font(.ui(size: 11, weight: .medium))
                                 .foregroundColor(textMuted)
                         }
                         .frame(maxWidth: .infinity)
@@ -504,7 +504,7 @@ extension ContentView {
                                     Text("COLOR").frame(width: 75, alignment: .trailing)
                                     Text("PLAYER").frame(width: 75, alignment: .trailing)
                                 }
-                                .font(.system(size: 9, weight: .bold, design: .monospaced))
+                                .font(.ui(size: 9, weight: .semibold))
                                 .foregroundColor(textMuted)
                                 .padding(.horizontal, 14)
                                 .padding(.vertical, 8)
@@ -582,7 +582,7 @@ extension ContentView {
                         .frame(width: 10, height: 10)
                         .border(borderStrong, width: 1)
                     Text(seg.detectedColor.hexString.uppercased())
-                        .font(.system(size: 10, weight: .bold, design: .monospaced))
+                        .font(.ui(size: 10, weight: .semibold))
                         .foregroundColor(textMain)
                 }
                 .frame(width: 75, alignment: .trailing)
@@ -592,7 +592,7 @@ extension ContentView {
                     Image(systemName: "play.fill")
                         .font(.system(size: 8, weight: .bold))
                     Text("INSPECT")
-                        .font(.system(size: 9, weight: .bold, design: .monospaced))
+                        .font(.ui(size: 9, weight: .semibold))
                 }
                 .padding(.horizontal, 7)
                 .padding(.vertical, 3)
@@ -600,7 +600,7 @@ extension ContentView {
                 .studioBox(background: primaryBtnBg, border: primaryBtnBg)
                 .frame(width: 75, alignment: .trailing)
             }
-            .font(.system(size: 11, design: .monospaced))
+            .font(.ui(size: 11))
             .padding(.horizontal, 14)
             .padding(.vertical, 8)
             .contentShape(Rectangle())
@@ -623,11 +623,11 @@ extension ContentView {
             
             VStack(alignment: .trailing, spacing: 3) {
                 Text("[\(segmentsCount) OCCURRENCE(S) // \(result.errorFrames.count) FRAMES]")
-                    .font(.system(size: 10, weight: .bold, design: .monospaced))
+                    .font(.ui(size: 10, weight: .semibold))
                     .foregroundColor(alertRed)
                 if scannerState.lastScanTagInFinder {
                     Text("FINDER RED TAG APPLIED")
-                        .font(.system(size: 8, weight: .bold, design: .monospaced))
+                        .font(.ui(size: 8, weight: .semibold))
                         .foregroundColor(textMuted)
                 }
             }
@@ -657,7 +657,7 @@ extension ContentView {
                 .tracking(1.0)
             
             Text("CHOOSE A DELIVERY FOLDER OR VIDEO FILES ON THE LEFT TO BEGIN FRAME-BY-FRAME ANALYSIS.\nDETECTS COLORED EDGE LINES.")
-                .font(.system(size: 12, weight: .medium, design: .monospaced))
+                .font(.ui(size: 12, weight: .medium))
                 .foregroundColor(textMuted)
                 .lineSpacing(4)
             

@@ -66,7 +66,7 @@ extension ContentView {
                             Image(systemName: ingestState.intakeFolderURL == nil ? "folder.badge.plus" : "arrow.triangle.2.circlepath")
                                 .font(.system(size: StudioTheme.scaleFont(9), weight: .bold))
                             Text(ingestState.intakeFolderURL == nil ? "SELECT INTAKE FOLDER" : "CHANGE FOLDER")
-                                .font(.system(size: StudioTheme.scaleFont(9), weight: .bold, design: .monospaced))
+                                .font(.ui(size: StudioTheme.scaleFont(9), weight: .semibold))
                                 .lineLimit(1)
                         }
                         .frame(maxWidth: .infinity)
@@ -95,7 +95,7 @@ extension ContentView {
                             .font(.system(size: 10))
                             .foregroundColor(textMuted)
                         Text(folder.lastPathComponent)
-                            .font(.system(size: 10.5, weight: .bold, design: .monospaced))
+                            .font(.ui(size: 10.5, weight: .semibold))
                             .foregroundColor(textMain)
                             .lineLimit(1)
                             .truncationMode(.middle)
@@ -129,7 +129,7 @@ extension ContentView {
                     
                     VStack(alignment: .leading, spacing: 3) {
                         Text("DATE INGESTED")
-                            .font(.system(size: 8, weight: .bold, design: .monospaced))
+                            .font(.ui(size: 8, weight: .semibold))
                             .foregroundColor(textMuted)
                         
                         DatePicker("", selection: $ingestState.manifest.dateIngested, displayedComponents: [.date])
@@ -148,7 +148,7 @@ extension ContentView {
                 // Added to Client Drives Toggle
                 HStack {
                     Text("ADDED TO CLIENT DRIVES")
-                        .font(.system(size: 8.5, weight: .bold, design: .monospaced))
+                        .font(.ui(size: 8.5, weight: .semibold))
                         .foregroundColor(textMuted)
                     Spacer()
                     Button(action: { ingestState.manifest.addedToClientDrives.toggle() }) {
@@ -156,7 +156,7 @@ extension ContentView {
                             Image(systemName: ingestState.manifest.addedToClientDrives ? "checkmark.square.fill" : "square")
                                 .font(.system(size: 11, weight: .bold))
                             Text(ingestState.manifest.addedToClientDrives ? "YES" : "NO")
-                                .font(.system(size: 10, weight: .bold, design: .monospaced))
+                                .font(.ui(size: 10, weight: .semibold))
                         }
                         .foregroundColor(ingestState.manifest.addedToClientDrives ? accentPositive : textMuted)
                         .padding(.horizontal, 8)
@@ -227,14 +227,14 @@ extension ContentView {
                     .frame(width: 14)
                 
                 Text(title)
-                    .font(.system(size: 10.5, weight: .medium, design: .monospaced))
+                    .font(.ui(size: 10.5, weight: .medium))
                     .foregroundColor(textMain)
                 
                 Spacer()
                 
                 if count > 0 {
                     Text("\(count)")
-                        .font(.system(size: 9.5, weight: .bold, design: .monospaced))
+                        .font(.ui(size: 9.5, weight: .semibold))
                         .padding(.horizontal, 6)
                         .padding(.vertical, 2)
                         .foregroundColor(textMain)
@@ -293,13 +293,13 @@ extension ContentView {
                 // VFX Project Toggle
                 HStack {
                     Text("IS THIS A VFX PROJECT?")
-                        .font(.system(size: 8.5, weight: .bold, design: .monospaced))
+                        .font(.ui(size: 8.5, weight: .semibold))
                         .foregroundColor(textMuted)
                     Spacer()
                     HStack(spacing: 4) {
                         Button(action: { ingestState.manifest.isVFXProject = true }) {
                             Text("YES")
-                                .font(.system(size: 9.5, weight: .bold, design: .monospaced))
+                                .font(.ui(size: 9.5, weight: .semibold))
                                 .padding(.horizontal, 8)
                                 .padding(.vertical, 4)
                                 .foregroundColor(ingestState.manifest.isVFXProject ? textMain : textMuted)
@@ -312,7 +312,7 @@ extension ContentView {
                         
                         Button(action: { ingestState.manifest.isVFXProject = false }) {
                             Text("NO")
-                                .font(.system(size: 9.5, weight: .bold, design: .monospaced))
+                                .font(.ui(size: 9.5, weight: .semibold))
                                 .padding(.horizontal, 8)
                                 .padding(.vertical, 4)
                                 .foregroundColor(!ingestState.manifest.isVFXProject ? textMain : textMuted)
@@ -333,11 +333,11 @@ extension ContentView {
                 // Free text Flags & Notes
                 VStack(alignment: .leading, spacing: 3) {
                     Text("FLAGS & REMARKS")
-                        .font(.system(size: 8, weight: .bold, design: .monospaced))
+                        .font(.ui(size: 8, weight: .semibold))
                         .foregroundColor(textMuted)
                     
                     TextField("Enter any notes, issues, or missing elements...", text: $ingestState.manifest.flagNotes)
-                        .font(.system(size: 10.5, weight: .medium, design: .monospaced))
+                        .font(.ui(size: 10.5, weight: .medium))
                         .textFieldStyle(.plain)
                         .foregroundColor(textMain)
                         .padding(.horizontal, 8)
@@ -363,11 +363,11 @@ extension ContentView {
                             .foregroundColor(textMuted)
                         VStack(alignment: .leading, spacing: 1) {
                             Text(url.lastPathComponent)
-                                .font(.system(size: 9.5, weight: .bold, design: .monospaced))
+                                .font(.ui(size: 9.5, weight: .semibold))
                                 .foregroundColor(textMain)
                                 .lineLimit(1)
                             Text("\(ingestState.ditRecords.count) clips &bull; \(ingestState.flags.count) flags")
-                                .font(.system(size: 8.5, design: .monospaced))
+                                .font(.ui(size: 8.5))
                                 .foregroundColor(ingestState.flags.isEmpty ? accentPositive : alertRed)
                         }
                         Spacer()
@@ -387,7 +387,7 @@ extension ContentView {
                             Image(systemName: "square.and.arrow.down")
                                 .font(.system(size: 9, weight: .bold))
                             Text("CROSS-REFERENCE DIT REPORT (CSV / RTF / TXT)")
-                                .font(.system(size: 9, weight: .bold, design: .monospaced))
+                                .font(.ui(size: 9, weight: .semibold))
                                 .lineLimit(1)
                         }
                         .frame(maxWidth: .infinity)
@@ -406,7 +406,7 @@ extension ContentView {
                             Image(systemName: "doc.text")
                                 .font(.system(size: 8.5, weight: .bold))
                             Text("SAVE CSV")
-                                .font(.system(size: 9, weight: .bold, design: .monospaced))
+                                .font(.ui(size: 9, weight: .semibold))
                         }
                         .frame(maxWidth: .infinity)
                         .frame(height: 28)
@@ -421,7 +421,7 @@ extension ContentView {
                             Image(systemName: "safari")
                                 .font(.system(size: 8.5, weight: .bold))
                             Text("OPEN HTML")
-                                .font(.system(size: 9, weight: .bold, design: .monospaced))
+                                .font(.ui(size: 9, weight: .semibold))
                         }
                         .frame(maxWidth: .infinity)
                         .frame(height: 28)
@@ -439,7 +439,7 @@ extension ContentView {
                             Image(systemName: "doc.on.clipboard")
                                 .font(.system(size: 8.5, weight: .bold))
                             Text("COPY")
-                                .font(.system(size: 9, weight: .bold, design: .monospaced))
+                                .font(.ui(size: 9, weight: .semibold))
                         }
                         .frame(maxWidth: .infinity)
                         .frame(height: 28)
@@ -458,11 +458,11 @@ extension ContentView {
     private func ingestFormField<Content: View>(label: String, placeholder: String, @ViewBuilder content: () -> Content) -> some View {
         VStack(alignment: .leading, spacing: 3) {
             Text(label)
-                .font(.system(size: 8, weight: .bold, design: .monospaced))
+                .font(.ui(size: 8, weight: .semibold))
                 .foregroundColor(textMuted)
             
             content()
-                .font(.system(size: 10.5, weight: .medium, design: .monospaced))
+                .font(.ui(size: 10.5, weight: .medium))
                 .textFieldStyle(.plain)
                 .foregroundColor(textMain)
                 .padding(.horizontal, 8)
@@ -485,7 +485,7 @@ extension ContentView {
                 .foregroundColor(textMain)
             
             Text(ingestState.scanStatusMessage)
-                .font(.system(size: 11, design: .monospaced))
+                .font(.ui(size: 11))
                 .foregroundColor(textMuted)
             Spacer()
         }
@@ -508,7 +508,7 @@ extension ContentView {
                 .tracking(1.0)
             
             Text("Automatically catalog raw footage, transcodes, camera reports, audio, and LUTs.\nExtracts technical metadata and cross-references against DIT documentation.")
-                .font(.system(size: 11, design: .monospaced))
+                .font(.ui(size: 11))
                 .foregroundColor(textMuted)
                 .multilineTextAlignment(.center)
                 .lineSpacing(4)
@@ -519,7 +519,7 @@ extension ContentView {
                     Image(systemName: "folder.badge.plus")
                         .font(.system(size: 10, weight: .bold))
                     Text("SELECT INTAKE FOLDER")
-                        .font(.system(size: 10, weight: .bold, design: .monospaced))
+                        .font(.ui(size: 10, weight: .semibold))
                 }
                 .padding(.horizontal, 16)
                 .padding(.vertical, 8)
@@ -574,7 +574,7 @@ extension ContentView {
                         .foregroundColor(textMuted)
                     
                     TextField("FILTER INGEST ITEMS...", text: $ingestState.filterText)
-                        .font(.system(size: 10.5, weight: .medium, design: .monospaced))
+                        .font(.ui(size: 10.5, weight: .medium))
                         .textFieldStyle(.plain)
                         .foregroundColor(textMain)
                     
@@ -648,11 +648,11 @@ extension ContentView {
                                             .cornerRadius(3)
                                         
                                         Text(flag.fileName)
-                                            .font(.system(size: 10, weight: .bold, design: .monospaced))
+                                            .font(.ui(size: 10, weight: .semibold))
                                             .foregroundColor(textMain)
                                         
                                         Text("&bull; \(flag.title): \(flag.detail)")
-                                            .font(.system(size: 10, design: .monospaced))
+                                            .font(.ui(size: 10))
                                             .foregroundColor(textMuted)
                                         
                                         Spacer()
@@ -699,9 +699,9 @@ extension ContentView {
         return Button(action: { ingestState.selectedCategoryFilter = category }) {
             HStack(spacing: 4) {
                 Text(title)
-                    .font(.system(size: 8.5, weight: .bold, design: .monospaced))
+                    .font(.ui(size: 8.5, weight: .semibold))
                 Text("(\(count))")
-                    .font(.system(size: 8, design: .monospaced))
+                    .font(.ui(size: 8))
             }
             .padding(.horizontal, 7)
             .padding(.vertical, 4)
@@ -740,7 +740,7 @@ extension ContentView {
         Button(action: { ingestState.toggleSort(column) }) {
             HStack(spacing: 3) {
                 Text(title)
-                    .font(.system(size: 8.5, weight: .bold, design: .monospaced))
+                    .font(.ui(size: 8.5, weight: .semibold))
                     .foregroundColor(ingestState.sortColumn == column ? textMain : textMuted)
                 if ingestState.sortColumn == column {
                     Image(systemName: ingestState.sortAscending ? "chevron.up" : "chevron.down")
@@ -764,7 +764,7 @@ extension ContentView {
                     .font(.system(size: 9))
                     .foregroundColor(textMuted)
                 Text(item.fileCategory.rawValue)
-                    .font(.system(size: 9.5, weight: .bold, design: .monospaced))
+                    .font(.ui(size: 9.5, weight: .semibold))
                     .foregroundColor(textMain)
                     .lineLimit(1)
             }
@@ -772,7 +772,7 @@ extension ContentView {
             
             // Name
             Text(item.fileName)
-                .font(.system(size: 10, weight: .bold, design: .monospaced))
+                .font(.ui(size: 10, weight: .semibold))
                 .foregroundColor(textMain)
                 .lineLimit(1)
                 .truncationMode(.middle)
@@ -780,7 +780,7 @@ extension ContentView {
             
             // Relative Path
             Text(item.relativePath)
-                .font(.system(size: 9.5, design: .monospaced))
+                .font(.ui(size: 9.5))
                 .foregroundColor(textMuted)
                 .lineLimit(1)
                 .truncationMode(.middle)
@@ -788,13 +788,13 @@ extension ContentView {
             
             // Size
             Text(item.formattedFileSize)
-                .font(.system(size: 9.5, design: .monospaced))
+                .font(.ui(size: 9.5))
                 .foregroundColor(textMuted)
                 .frame(width: 75, alignment: .leading)
             
             // Resolution
             Text(item.mediaMetadata?.resolutionString ?? "--")
-                .font(.system(size: 9.5, design: .monospaced))
+                .font(.ui(size: 9.5))
                 .foregroundColor(textMuted)
                 .frame(width: 100, alignment: .leading)
             
@@ -806,20 +806,20 @@ extension ContentView {
             
             // Duration
             Text(item.mediaMetadata?.formattedDuration ?? "--")
-                .font(.system(size: 9.5, design: .monospaced))
+                .font(.ui(size: 9.5))
                 .foregroundColor(textMuted)
                 .frame(width: 70, alignment: .leading)
             
             // Codec
             Text(item.mediaMetadata?.videoCodec ?? "--")
-                .font(.system(size: 9.5, design: .monospaced))
+                .font(.ui(size: 9.5))
                 .foregroundColor(textMuted)
                 .lineLimit(1)
                 .frame(width: 120, alignment: .leading)
             
             // Audio
             Text(item.mediaMetadata.map { "\($0.audioCodec) \($0.audioConfig)" } ?? "--")
-                .font(.system(size: 9.5, design: .monospaced))
+                .font(.ui(size: 9.5))
                 .foregroundColor(textMuted)
                 .lineLimit(1)
                 .frame(maxWidth: .infinity, alignment: .leading)

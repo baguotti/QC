@@ -151,7 +151,7 @@ struct NotesDrawerPanelView: View {
                     }) {
                         HStack(spacing: 5) {
                             Text(tab.rawValue)
-                                .font(.system(size: 11, weight: isSelected ? .bold : .medium, design: .monospaced))
+                                .font(.ui(size: 11, weight: isSelected ? .semibold : .medium))
                                 .lineLimit(1)
                             
                             if tab == .subtitles && subtitlesDirty {
@@ -166,13 +166,13 @@ struct NotesDrawerPanelView: View {
                                     Image(systemName: "icloud.and.arrow.down")
                                         .font(.system(size: 8, weight: .bold))
                                     Text("+\(newSyncedNotesCount)")
-                                        .font(.system(size: 9, weight: .bold, design: .monospaced))
+                                        .font(.ui(size: 9, weight: .semibold))
                                 }
                                 .foregroundColor(palette.accentBlue)
                                 .help("\(newSyncedNotesCount) new note\(newSyncedNotesCount == 1 ? "" : "s") from your collaborators")
                             } else if tab == .notes && !notes.isEmpty {
                                 Text("\(notes.count)")
-                                    .font(.system(size: 9, weight: .bold, design: .monospaced))
+                                    .font(.ui(size: 9, weight: .semibold))
                                     .padding(.horizontal, 4)
                                     .padding(.vertical, 1)
                                     .background(
@@ -243,13 +243,13 @@ struct NotesDrawerPanelView: View {
                         "\(notes.count)",
                         mode: .character,
                         direction: .up,
-                        font: .system(size: 10, weight: .bold, design: .monospaced),
+                        font: .ui(size: 10, weight: .semibold),
                         foregroundColor: palette.textMain,
                         tracking: 0.5
                     )
                     Text(")")
                 }
-                .font(.system(size: 10, weight: .bold, design: .monospaced))
+                .font(.ui(size: 10, weight: .semibold))
                 .foregroundColor(palette.textMain)
                 .lineLimit(1)
                 
@@ -261,7 +261,7 @@ struct NotesDrawerPanelView: View {
                             Image(systemName: "trash")
                                 .font(.system(size: 7.5, weight: .bold))
                             Text("CLEAR ALL")
-                                .font(.system(size: 8, weight: .bold, design: .monospaced))
+                                .font(.ui(size: 8, weight: .semibold))
                                 .lineLimit(1)
                         }
                         .padding(.horizontal, 6)
@@ -278,7 +278,7 @@ struct NotesDrawerPanelView: View {
                         Image(systemName: "plus")
                             .font(.system(size: 7.5, weight: .bold))
                         Text("ADD (N)")
-                            .font(.system(size: 8, weight: .bold, design: .monospaced))
+                            .font(.ui(size: 8, weight: .semibold))
                             .lineLimit(1)
                     }
                     .padding(.horizontal, 6)
@@ -304,7 +304,7 @@ struct NotesDrawerPanelView: View {
                         .font(.system(size: 28))
                         .foregroundColor(palette.textMuted.opacity(0.5))
                     Text("NO REVIEW NOTES")
-                        .font(.system(size: 11, weight: .bold, design: .monospaced))
+                        .font(.ui(size: 11, weight: .semibold))
                         .foregroundColor(palette.textMain)
                     Text("Pause on any frame and type below or press N to log a timecoded note.")
                         .font(.system(size: 10, design: .monospaced))
@@ -317,7 +317,7 @@ struct NotesDrawerPanelView: View {
                             Image(systemName: "plus.circle.fill")
                             Text("ADD FIRST NOTE")
                         }
-                        .font(.system(size: 10, weight: .bold, design: .monospaced))
+                        .font(.ui(size: 10, weight: .semibold))
                         .padding(.horizontal, 12)
                         .padding(.vertical, 6)
                         .foregroundColor(palette.textMain)
@@ -383,7 +383,7 @@ struct NotesDrawerPanelView: View {
                             .font(.system(size: 9, weight: .bold))
                             .foregroundColor(palette.textMain)
                         Text("EXPORT")
-                            .font(.system(size: 9, weight: .bold, design: .monospaced))
+                            .font(.ui(size: 9, weight: .semibold))
                             .foregroundColor(palette.textMain)
                         Image(systemName: "chevron.down")
                             .font(.system(size: 7, weight: .bold))
@@ -404,7 +404,7 @@ struct NotesDrawerPanelView: View {
                         Image(systemName: "square.and.arrow.down")
                             .font(.system(size: 9, weight: .bold))
                         Text("IMPORT")
-                            .font(.system(size: 9, weight: .bold, design: .monospaced))
+                            .font(.ui(size: 9, weight: .semibold))
                     }
                     .padding(.horizontal, 8)
                     .padding(.vertical, 5)
@@ -417,7 +417,7 @@ struct NotesDrawerPanelView: View {
                 Spacer()
                 
                 Text("\(notes.filter { $0.isResolved }.count)/\(notes.count) RESOLVED")
-                    .font(.system(size: 9, weight: .bold, design: .monospaced))
+                    .font(.ui(size: 9, weight: .semibold))
                     .foregroundColor(palette.textSubtle)
             }
             .padding(.horizontal, 14)
@@ -436,7 +436,7 @@ struct NotesDrawerPanelView: View {
                     ProgressView()
                         .scaleEffect(0.9)
                     Text("READING MEDIA INFO...")
-                        .font(.system(size: 10, weight: .bold, design: .monospaced))
+                        .font(.ui(size: 10, weight: .semibold))
                         .foregroundColor(palette.textMuted)
                     Spacer()
                 }
@@ -462,10 +462,10 @@ struct NotesDrawerPanelView: View {
                         .font(.system(size: 26))
                         .foregroundColor(palette.textMuted.opacity(0.4))
                     Text("NO MEDIA LOADED")
-                        .font(.system(size: 11, weight: .bold, design: .monospaced))
+                        .font(.ui(size: 11, weight: .semibold))
                         .foregroundColor(palette.textMain)
                     Text("Load a deliverable in Slot A or B to inspect container tracks and metadata.")
-                        .font(.system(size: 10, design: .monospaced))
+                        .font(.ui(size: 10))
                         .foregroundColor(palette.textSubtle)
                         .multilineTextAlignment(.center)
                         .padding(.horizontal, 24)
@@ -482,7 +482,7 @@ struct NotesDrawerPanelView: View {
     private func drawerTracksView(info: ExtendedMediaInfo) -> some View {
         VStack(alignment: .leading, spacing: 12) {
             Text(info.isImage ? "IMAGE" : "TRACK INVENTORY (\(info.tracks.count))")
-                .font(.system(size: 10, weight: .bold, design: .monospaced))
+                .font(.ui(size: 10, weight: .semibold))
                 .foregroundColor(palette.textMain)
                 .tracking(0.8)
             
@@ -490,11 +490,11 @@ struct NotesDrawerPanelView: View {
                 VStack(alignment: .leading, spacing: 6) {
                     HStack {
                         Text(track.typeName)
-                            .font(.system(size: 9.5, weight: .bold, design: .monospaced))
+                            .font(.ui(size: 9.5, weight: .semibold))
                             .foregroundColor(track.typeName.contains("VIDEO") ? palette.accentPositive : (track.typeName.contains("AUDIO") ? palette.accentSlotB : palette.textMain))
                         Spacer()
                         Text(track.format.uppercased())
-                            .font(.system(size: 8.5, weight: .bold, design: .monospaced))
+                            .font(.ui(size: 8.5, weight: .semibold))
                             .padding(.horizontal, 6)
                             .padding(.vertical, 2)
                             .foregroundColor(palette.textMain)
@@ -558,7 +558,7 @@ struct NotesDrawerPanelView: View {
         VStack(alignment: .leading, spacing: 14) {
             VStack(alignment: .leading, spacing: 6) {
                 Text("FILE SYSTEM")
-                    .font(.system(size: 10, weight: .bold, design: .monospaced))
+                    .font(.ui(size: 10, weight: .semibold))
                     .foregroundColor(palette.textMain)
                     .tracking(0.8)
                 
@@ -567,14 +567,14 @@ struct NotesDrawerPanelView: View {
                     let fileName = effectiveAsset?.fileName ?? effectiveURL?.lastPathComponent ?? "UNKNOWN"
                     HStack(alignment: .top, spacing: 6) {
                         Text("File Name:")
-                            .font(.system(size: 10, weight: .bold, design: .monospaced))
+                            .font(.ui(size: 10, weight: .semibold))
                             .foregroundColor(palette.textMuted)
                             .frame(width: 84, alignment: .leading)
                         
                         if let url = effectiveURL {
                             Button(action: { revealInFinder(url) }) {
                                 Text(fileName)
-                                    .font(.system(size: 10, weight: .bold, design: .monospaced))
+                                    .font(.ui(size: 10, weight: .semibold))
                                     .foregroundColor(palette.textMain)
                                     .multilineTextAlignment(.leading)
                                     .fixedSize(horizontal: false, vertical: true)
@@ -586,7 +586,7 @@ struct NotesDrawerPanelView: View {
                             .help("Left click to reveal in Finder")
                         } else {
                             Text(fileName)
-                                .font(.system(size: 10, weight: .bold, design: .monospaced))
+                                .font(.ui(size: 10, weight: .semibold))
                                 .foregroundColor(palette.textMain)
                                 .multilineTextAlignment(.leading)
                                 .fixedSize(horizontal: false, vertical: true)
@@ -611,7 +611,7 @@ struct NotesDrawerPanelView: View {
                     VStack(alignment: .leading, spacing: 3) {
                         HStack {
                             Text("Path:")
-                                .font(.system(size: 10, weight: .bold, design: .monospaced))
+                                .font(.ui(size: 10, weight: .semibold))
                                 .foregroundColor(palette.textMuted)
                             
                             Spacer()
@@ -625,7 +625,7 @@ struct NotesDrawerPanelView: View {
                                         Image(systemName: "doc.on.doc")
                                             .font(.system(size: 8))
                                         Text("COPY")
-                                            .font(.system(size: 8, weight: .bold, design: .monospaced))
+                                            .font(.ui(size: 8, weight: .semibold))
                                     }
                                     .foregroundColor(palette.textMuted)
                                     .padding(.horizontal, 4)
@@ -646,7 +646,7 @@ struct NotesDrawerPanelView: View {
                                         .foregroundColor(palette.accentBlue)
                                     
                                     Text(url.path)
-                                        .font(.system(size: 9.5, weight: .medium, design: .monospaced))
+                                        .font(.ui(size: 9.5, weight: .medium))
                                         .foregroundColor(palette.textMain)
                                         .lineLimit(3)
                                         .truncationMode(.middle)
@@ -694,7 +694,7 @@ struct NotesDrawerPanelView: View {
             if let asset = effectiveAsset {
                 VStack(alignment: .leading, spacing: 6) {
                     Text(info.isImage ? "RASTER" : "TIMING & RASTER")
-                        .font(.system(size: 10, weight: .bold, design: .monospaced))
+                        .font(.ui(size: 10, weight: .semibold))
                         .foregroundColor(palette.textMain)
                         .tracking(0.8)
                     
@@ -723,12 +723,12 @@ struct NotesDrawerPanelView: View {
     private func drawerInfoRow(label: String, value: String, copyable: Bool = false) -> some View {
         HStack(alignment: .top, spacing: 6) {
             Text(label)
-                .font(.system(size: 10, weight: .bold, design: .monospaced))
+                .font(.ui(size: 10, weight: .semibold))
                 .foregroundColor(palette.textMuted)
                 .frame(width: 84, alignment: .leading)
             
             Text(value)
-                .font(.system(size: 10, weight: .medium, design: .monospaced))
+                .font(.ui(size: 10, weight: .medium))
                 .foregroundColor(palette.textMain)
                 .multilineTextAlignment(.leading)
                 .fixedSize(horizontal: false, vertical: true)
@@ -754,13 +754,13 @@ struct NotesDrawerPanelView: View {
     private func drawerAudioLevelRow(levelString: String, isMute: Bool) -> some View {
         HStack(alignment: .center, spacing: 6) {
             Text("Levels:")
-                .font(.system(size: 10, weight: .bold, design: .monospaced))
+                .font(.ui(size: 10, weight: .semibold))
                 .foregroundColor(palette.textMuted)
                 .frame(width: 84, alignment: .leading)
             
             HStack(spacing: 5) {
                 Text(levelString.isEmpty ? (isMute ? "MUTE" : "--") : levelString)
-                    .font(.system(size: 9.5, weight: .bold, design: .monospaced))
+                    .font(.ui(size: 9.5, weight: .semibold))
                     .foregroundColor(isMute ? palette.alertRed : palette.accentPositive)
                     .padding(.horizontal, 5)
                     .padding(.vertical, 1.5)
@@ -775,11 +775,11 @@ struct NotesDrawerPanelView: View {
                 
                 if isMute {
                     Text("SILENT")
-                        .font(.system(size: 8.5, weight: .bold, design: .monospaced))
+                        .font(.ui(size: 8.5, weight: .semibold))
                         .foregroundColor(palette.alertRed)
                 } else {
                     Text("Peak")
-                        .font(.system(size: 8.5, weight: .medium, design: .monospaced))
+                        .font(.ui(size: 8.5, weight: .medium))
                         .foregroundColor(palette.textMuted)
                 }
             }
@@ -812,7 +812,7 @@ struct NotesDrawerPanelView: View {
                         Image(systemName: "doc.on.doc")
                             .font(.system(size: 8.5, weight: .bold))
                         Text("SPECS")
-                            .font(.system(size: 8.5, weight: .bold, design: .monospaced))
+                            .font(.ui(size: 8.5, weight: .semibold))
                     }
                     .padding(.horizontal, 7)
                     .padding(.vertical, 5)
@@ -831,7 +831,7 @@ struct NotesDrawerPanelView: View {
                         Image(systemName: "folder")
                             .font(.system(size: 8.5, weight: .bold))
                         Text("REVEAL")
-                            .font(.system(size: 8.5, weight: .bold, design: .monospaced))
+                            .font(.ui(size: 8.5, weight: .semibold))
                     }
                     .padding(.horizontal, 7)
                     .padding(.vertical, 5)
@@ -906,7 +906,7 @@ struct NotesDrawerPanelView: View {
                         }
                     }
                     .textFieldStyle(.plain)
-                    .font(.system(size: 11, design: .monospaced))
+                    .font(.ui(size: 11))
                     .foregroundColor(palette.textMain)
                     .focused($isInlineInputFocused)
                     .onSubmit {
@@ -1053,7 +1053,7 @@ struct NotesDrawerPanelView: View {
             } else {
             // Note Text with Clickable Links and File Paths
             Text(attributedText)
-                .font(.system(size: 10, design: .monospaced))
+                .font(.ui(size: 10))
                 .strikethrough(note.isResolved, color: palette.textMuted)
                 .textSelection(.enabled)
                 .lineSpacing(2)
@@ -1064,7 +1064,7 @@ struct NotesDrawerPanelView: View {
             
             if let editedAt = note.editedAt {
                 Text("edited \(editedAt.formatted(date: .abbreviated, time: .shortened))")
-                    .font(.system(size: 8, design: .monospaced))
+                    .font(.ui(size: 8))
                     .foregroundColor(palette.textSubtle)
             }
             }
@@ -1078,7 +1078,7 @@ struct NotesDrawerPanelView: View {
                                 Image(systemName: item.iconName)
                                     .font(.system(size: 8, weight: .bold))
                                 Text(item.label)
-                                    .font(.system(size: 8.5, weight: .bold, design: .monospaced))
+                                    .font(.ui(size: 8.5, weight: .semibold))
                                     .lineLimit(1)
                             }
                             .padding(.horizontal, 6)
@@ -1113,7 +1113,7 @@ struct NotesDrawerPanelView: View {
                     HStack(spacing: 4) {
                         Circle().fill(colorForTag(id)).frame(width: 8, height: 8)
                         Text("\(notes.filter { $0.colorTag == id }.count)")
-                            .font(.system(size: 8.5, weight: .bold, design: .monospaced))
+                            .font(.ui(size: 8.5, weight: .semibold))
                             .foregroundColor(isOn ? palette.textMain : palette.textMuted)
                     }
                     .padding(.horizontal, 6)
@@ -1128,7 +1128,7 @@ struct NotesDrawerPanelView: View {
             if !active.isEmpty {
                 Button("SHOW ALL") { colorFilter.removeAll() }
                     .buttonStyle(.plain)
-                    .font(.system(size: 8.5, weight: .bold, design: .monospaced))
+                    .font(.ui(size: 8.5, weight: .semibold))
                     .foregroundColor(palette.accentBlue)
             }
         }
@@ -1147,7 +1147,7 @@ struct NotesDrawerPanelView: View {
     private func noteEditor(note: QCFileNote) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             TextField("Note", text: $editText, axis: .vertical)
-                .font(.system(size: 10, design: .monospaced))
+                .font(.ui(size: 10))
                 .textFieldStyle(.plain)
                 .lineLimit(1...8)
                 .padding(6)
@@ -1173,11 +1173,11 @@ struct NotesDrawerPanelView: View {
                 Spacer()
                 Button("Cancel") { editingNoteID = nil }
                     .buttonStyle(.plain)
-                    .font(.system(size: 9, weight: .bold, design: .monospaced))
+                    .font(.ui(size: 9, weight: .semibold))
                     .foregroundColor(palette.textMuted)
                 Button("Save") { commitEdit(note: note) }
                     .buttonStyle(.plain)
-                    .font(.system(size: 9, weight: .bold, design: .monospaced))
+                    .font(.ui(size: 9, weight: .semibold))
                     .foregroundColor(palette.accentPositive)
             }
         }
@@ -1203,14 +1203,14 @@ struct NotesDrawerPanelView: View {
                     VStack(alignment: .leading, spacing: 2) {
                         HStack(spacing: 5) {
                             Text(reply.author)
-                                .font(.system(size: 8.5, weight: .bold, design: .monospaced))
+                                .font(.ui(size: 8.5, weight: .semibold))
                                 .foregroundColor(palette.textMain)
                             Text(reply.createdAt.formatted(date: .abbreviated, time: .shortened))
-                                .font(.system(size: 8, design: .monospaced))
+                                .font(.ui(size: 8))
                                 .foregroundColor(palette.textSubtle)
                         }
                         Text(reply.text)
-                            .font(.system(size: 9.5, design: .monospaced))
+                            .font(.ui(size: 9.5))
                             .foregroundColor(palette.textMuted)
                             .textSelection(.enabled)
                     }
@@ -1224,7 +1224,7 @@ struct NotesDrawerPanelView: View {
         if replyingNoteID == note.id {
             HStack(spacing: 6) {
                 TextField("Reply…", text: $replyText)
-                    .font(.system(size: 9.5, design: .monospaced))
+                    .font(.ui(size: 9.5))
                     .textFieldStyle(.plain)
                     .padding(5)
                     .studioBox(background: palette.bgMain, border: palette.borderLine)
@@ -1235,7 +1235,7 @@ struct NotesDrawerPanelView: View {
                     .onExitCommand { replyingNoteID = nil }
                 Button("Send") { commitReply(note: note) }
                     .buttonStyle(.plain)
-                    .font(.system(size: 9, weight: .bold, design: .monospaced))
+                    .font(.ui(size: 9, weight: .semibold))
                     .foregroundColor(palette.accentBlue)
             }
         } else {
@@ -1247,7 +1247,7 @@ struct NotesDrawerPanelView: View {
                     Image(systemName: "arrowshape.turn.up.left")
                         .font(.system(size: 8, weight: .bold))
                     Text(note.replies.isEmpty ? "REPLY" : "REPLY (\(note.replies.count))")
-                        .font(.system(size: 8, weight: .bold, design: .monospaced))
+                        .font(.ui(size: 8, weight: .semibold))
                 }
                 .foregroundColor(palette.textMuted)
             }
@@ -1388,7 +1388,7 @@ private struct NotesSyncProjectBar: View {
                         .font(.system(size: 9, weight: .bold))
                         .foregroundColor(palette.textMuted)
                     Text("SYNC")
-                        .font(.system(size: 8, weight: .bold, design: .monospaced))
+                        .font(.ui(size: 8, weight: .semibold))
                         .foregroundColor(palette.textMuted)
                     Menu {
                         ForEach(status.projects) { project in
@@ -1402,7 +1402,7 @@ private struct NotesSyncProjectBar: View {
                         }
                     } label: {
                         Text(label)
-                            .font(.system(size: 9, weight: .bold, design: .monospaced))
+                            .font(.ui(size: 9, weight: .semibold))
                             .foregroundColor(palette.textMain)
                             .lineLimit(1)
                     }

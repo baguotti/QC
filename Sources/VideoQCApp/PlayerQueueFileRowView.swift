@@ -212,7 +212,7 @@ public struct PlayerQueueFileRowView: View, Equatable {
                 Image(systemName: "bubble.left.fill")
                     .font(.system(size: 7.5, weight: .bold))
                 Text("\(notesCount)")
-                    .font(.system(size: 8.5, weight: .bold, design: .monospaced))
+                    .font(.ui(size: 8.5, weight: .semibold))
             }
             .foregroundColor(badgeTextColor)
             .padding(.horizontal, 5)
@@ -236,7 +236,7 @@ public struct PlayerQueueFileRowView: View, Equatable {
     private func fileNameLabel(fontSize: CGFloat, isSelected: Bool) -> some View {
         HStack(spacing: 6) {
             Text(sequenceInfo?.label ?? url.lastPathComponent)
-                .font(.system(size: fontSize, weight: isSelected ? .bold : .medium, design: .monospaced))
+                .font(.ui(size: fontSize, weight: isSelected ? .semibold : .medium))
                 .foregroundColor(isSelected ? textMain : textSubtle)
                 .lineLimit(1)
                 .truncationMode(.middle)
@@ -285,12 +285,12 @@ public struct PlayerQueueFileRowView: View, Equatable {
             
             if isSlotA && !slotAResolution.isEmpty {
                 Text("• \(slotAResolution) \(slotACodec)")
-                    .font(.system(size: 8, weight: .bold, design: .monospaced))
+                    .font(.ui(size: 8, weight: .semibold))
                     .foregroundColor(accentPositive)
                     .lineLimit(1)
             } else if isSlotB && !slotBResolution.isEmpty {
                 Text("• \(slotBResolution) \(slotBCodec)")
-                    .font(.system(size: 8, weight: .bold, design: .monospaced))
+                    .font(.ui(size: 8, weight: .semibold))
                     .foregroundColor(accentSlotB)
                     .lineLimit(1)
             }
@@ -335,17 +335,17 @@ public struct PlayerQueueFileRowView: View, Equatable {
                 
                 if isSlotA && !slotAResolution.isEmpty {
                     Text(Self.specLine(slotAResolution, slotAFps, slotACodec))
-                        .font(.system(size: isLarge ? 8.5 : 8, weight: .bold, design: .monospaced))
+                        .font(.ui(size: isLarge ? 8.5 : 8, weight: .semibold))
                         .foregroundColor(accentPositive)
                         .lineLimit(1)
                 } else if isSlotB && !slotBResolution.isEmpty {
                     Text(Self.specLine(slotBResolution, slotBFps, slotBCodec))
-                        .font(.system(size: isLarge ? 8.5 : 8, weight: .bold, design: .monospaced))
+                        .font(.ui(size: isLarge ? 8.5 : 8, weight: .semibold))
                         .foregroundColor(accentSlotB)
                         .lineLimit(1)
                 } else {
                     Text(url.pathExtension.uppercased())
-                        .font(.system(size: 8, weight: .bold, design: .monospaced))
+                        .font(.ui(size: 8, weight: .semibold))
                         .foregroundColor(textMuted.opacity(0.8))
                         .lineLimit(1)
                 }
@@ -388,17 +388,17 @@ public struct PlayerQueueFileRowView: View, Equatable {
                 
                 if isSlotA && !slotAResolution.isEmpty {
                     Text(Self.specLine(slotAResolution, slotAFps, slotACodec))
-                        .font(.system(size: 8.5, weight: .bold, design: .monospaced))
+                        .font(.ui(size: 8.5, weight: .semibold))
                         .foregroundColor(accentPositive)
                         .lineLimit(1)
                 } else if isSlotB && !slotBResolution.isEmpty {
                     Text(Self.specLine(slotBResolution, slotBFps, slotBCodec))
-                        .font(.system(size: 8.5, weight: .bold, design: .monospaced))
+                        .font(.ui(size: 8.5, weight: .semibold))
                         .foregroundColor(accentSlotB)
                         .lineLimit(1)
                 } else {
                     Text(url.pathExtension.uppercased())
-                        .font(.system(size: 8, weight: .bold, design: .monospaced))
+                        .font(.ui(size: 8, weight: .semibold))
                         .foregroundColor(textMuted.opacity(0.8))
                         .lineLimit(1)
                 }
@@ -424,7 +424,7 @@ public struct PlayerQueueFileRowView: View, Equatable {
             } else {
                 Button(action: { onLoadVideo(url, .slotA) }) {
                     Text("+A")
-                        .font(.system(size: StudioTheme.scaleFont(8), weight: .bold, design: .monospaced))
+                        .font(.ui(size: StudioTheme.scaleFont(8), weight: .semibold))
                         .padding(.horizontal, StudioTheme.scale(4))
                         .padding(.vertical, displayMode == "inline" ? StudioTheme.scale(1) : StudioTheme.scale(2))
                         .foregroundColor(textMuted)
@@ -455,7 +455,7 @@ public struct PlayerQueueFileRowView: View, Equatable {
             } else {
                 Button(action: { onLoadVideo(url, .slotB) }) {
                     Text("+B")
-                        .font(.system(size: StudioTheme.scaleFont(8), weight: .bold, design: .monospaced))
+                        .font(.ui(size: StudioTheme.scaleFont(8), weight: .semibold))
                         .padding(.horizontal, StudioTheme.scale(4))
                         .padding(.vertical, displayMode == "inline" ? StudioTheme.scale(1) : StudioTheme.scale(2))
                         .foregroundColor(textMuted)

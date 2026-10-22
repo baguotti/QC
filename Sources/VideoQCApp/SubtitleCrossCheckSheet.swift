@@ -30,7 +30,7 @@ struct SubtitleCrossCheckSheet: View {
             Rectangle().fill(palette.borderLine).frame(height: 1)
             HStack {
                 Text("Click a difference to open that file at the line.")
-                    .font(.system(size: 9.5, design: .monospaced))
+                    .font(.ui(size: 9.5))
                     .foregroundColor(palette.textSubtle)
                 Spacer()
                 Button("Done", action: onClose)
@@ -57,7 +57,7 @@ struct SubtitleCrossCheckSheet: View {
             Spacer()
             Label(total == 0 ? "All \(report.files.count) files match" : "\(total) difference\(total == 1 ? "" : "s") in \(report.mismatchedVideos.count) of \(others) file\(others == 1 ? "" : "s")",
                   systemImage: total == 0 ? "checkmark.seal.fill" : "exclamationmark.triangle.fill")
-                .font(.system(size: 10.5, weight: .bold, design: .monospaced))
+                .font(.ui(size: 10.5, weight: .semibold))
                 .foregroundColor(total == 0 ? palette.accentPositive : palette.alertRed)
         }
         .padding(.horizontal, 14)
@@ -74,7 +74,7 @@ struct SubtitleCrossCheckSheet: View {
                 }
             } label: {
                 Text("Reference: \(report.referenceVideo.lastPathComponent)")
-                    .font(.system(size: 10, weight: .semibold, design: .monospaced))
+                    .font(.ui(size: 10, weight: .medium))
                     .lineLimit(1)
                     .truncationMode(.middle)
             }
@@ -91,7 +91,7 @@ struct SubtitleCrossCheckSheet: View {
                 set: { frames in update { $0.options.timingTolerance = (Double(max(0, frames)) + 0.01) / refFps } }
             ), in: 0...25) {
                 Text("Timing ±\(toleranceFrames)f")
-                    .font(.system(size: 10, weight: .semibold, design: .monospaced))
+                    .font(.ui(size: 10, weight: .medium))
             }
             .fixedSize()
             .help("In/out times may differ by this many frames before it is reported")
@@ -103,7 +103,7 @@ struct SubtitleCrossCheckSheet: View {
 
     private func optionToggle(_ title: String, _ isOn: Bool, _ change: @escaping (inout SubtitleCrossCheckReport) -> Void) -> some View {
         Toggle(isOn: Binding(get: { isOn }, set: { _ in update(change) })) {
-            Text(title).font(.system(size: 10, weight: .semibold, design: .monospaced))
+            Text(title).font(.ui(size: 10, weight: .medium))
         }
         .toggleStyle(.checkbox)
     }
@@ -123,12 +123,12 @@ struct SubtitleCrossCheckSheet: View {
         return VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 6) {
                 Text(file.videoURL.lastPathComponent)
-                    .font(.system(size: 11, weight: .bold, design: .monospaced))
+                    .font(.ui(size: 11, weight: .semibold))
                     .foregroundColor(palette.textMain)
                     .lineLimit(1)
                     .truncationMode(.middle)
                 Text("· \(file.srtURL.lastPathComponent) · \(file.cues.count) lines")
-                    .font(.system(size: 9.5, design: .monospaced))
+                    .font(.ui(size: 9.5))
                     .foregroundColor(palette.textSubtle)
                     .lineLimit(1)
                     .truncationMode(.middle)

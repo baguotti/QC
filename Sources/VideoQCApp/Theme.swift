@@ -10,6 +10,10 @@ enum AppTab: Int, CaseIterable, Identifiable {
     case ingest = 3
     
     var id: Int { rawValue }
+    
+    /// Tabs shown in the tab bar. Ingest is hidden for now (code kept).
+    static let visibleTabs: [AppTab] = [.player, .specs, .lineFinder]
+    
     var title: String {
         switch self {
         case .player: return "PLAYER"
@@ -29,6 +33,16 @@ enum AppTab: Int, CaseIterable, Identifiable {
     }
 }
 
+// MARK: - Typography
+
+extension Font {
+    /// Body/UI text: SF Pro (Finder style) with tabular digits so values stay aligned.
+    /// Titles (heavy/black weights, section headers, tabs) and timecodes keep SF Mono.
+    public static func ui(size: CGFloat, weight: Font.Weight = .regular) -> Font {
+        .system(size: size, weight: weight).monospacedDigit()
+    }
+}
+
 // MARK: - Dynamic Studio Palette & Styling Tokens
 
 @MainActor
@@ -43,43 +57,43 @@ struct StudioTheme {
     static func scaleFont(_ size: CGFloat) -> CGFloat { ThemeManager.shared.scaleFont(size) }
     
     static func bgMain(_ isLight: Bool) -> Color {
-        isLight ? Color(white: 0.96) : Color(red: 0.04, green: 0.04, blue: 0.04)
+        isLight ? Color(white: 0.96) : Color(white: 0.114)
     }
     
     static func bgPanel(_ isLight: Bool) -> Color {
-        isLight ? Color.white : Color(red: 0.07, green: 0.07, blue: 0.07)
+        isLight ? Color.white : Color(white: 0.137)
     }
     
     static func bgSubtle(_ isLight: Bool) -> Color {
-        isLight ? Color(white: 0.92) : Color(white: 0.12)
+        isLight ? Color(white: 0.92) : Color(white: 0.19)
     }
     
     static func bgCardHeader(_ isLight: Bool) -> Color {
-        isLight ? Color(white: 0.94) : Color(white: 0.08)
+        isLight ? Color(white: 0.94) : Color(white: 0.16)
     }
     
     static func bgCardSubtle(_ isLight: Bool) -> Color {
-        isLight ? Color(white: 0.97) : Color(white: 0.05)
+        isLight ? Color(white: 0.97) : Color(white: 0.125)
     }
     
     static func borderLine(_ isLight: Bool) -> Color {
-        isLight ? Color(white: 0.82) : Color(white: 0.16)
+        isLight ? Color(white: 0.82) : Color(white: 0.22)
     }
     
     static func borderStrong(_ isLight: Bool) -> Color {
-        isLight ? Color(white: 0.65) : Color(white: 0.24)
+        isLight ? Color(white: 0.65) : Color(white: 0.30)
     }
     
     static func textMain(_ isLight: Bool) -> Color {
-        isLight ? Color(white: 0.06) : Color.white
+        isLight ? Color(white: 0.06) : Color(white: 0.90)
     }
     
     static func textMuted(_ isLight: Bool) -> Color {
-        isLight ? Color(white: 0.28) : Color(white: 0.50)
+        isLight ? Color(white: 0.28) : Color(white: 0.58)
     }
     
     static func textSubtle(_ isLight: Bool) -> Color {
-        isLight ? Color(white: 0.30) : Color(white: 0.65)
+        isLight ? Color(white: 0.30) : Color(white: 0.72)
     }
     
     // MARK: - Dynamic Core Accents (Customizable via ThemeManager)

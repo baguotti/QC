@@ -245,7 +245,7 @@ public struct GlitchThumbnailView: View {
             HStack(spacing: 8) {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(fileURL.lastPathComponent)
-                        .font(.system(size: 10, weight: .bold, design: .monospaced))
+                        .font(.ui(size: 10, weight: .semibold))
                         .foregroundColor(.white)
                         .lineLimit(1)
                     
@@ -277,7 +277,7 @@ public struct GlitchThumbnailView: View {
                             .frame(width: 10, height: 10)
                             .border(Color.white.opacity(0.4), width: 1)
                         Text(c.hexString.uppercased())
-                            .font(.system(size: 9, weight: .bold, design: .monospaced))
+                            .font(.ui(size: 9, weight: .semibold))
                             .foregroundColor(.white)
                     }
                 }

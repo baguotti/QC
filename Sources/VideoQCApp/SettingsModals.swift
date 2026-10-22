@@ -33,7 +33,7 @@ struct SettingsModalShell<Content: View>: View {
                     Spacer()
                     Button(action: { dismiss() }) {
                         Text("CLOSE (ESC)")
-                            .font(.system(size: 10, weight: .bold, design: .monospaced))
+                            .font(.ui(size: 10, weight: .semibold))
                             .padding(.horizontal, 9)
                             .padding(.vertical, 5)
                             .foregroundColor(palette.textMain)
@@ -127,7 +127,7 @@ struct NotesSyncModalView: View {
                 Spacer()
                 
                 Text(syncStatusText)
-                    .font(.system(size: 9, weight: .bold, design: .monospaced))
+                    .font(.ui(size: 9, weight: .semibold))
                     .foregroundColor(syncStatusColor)
                     .lineLimit(1)
             }
@@ -164,12 +164,12 @@ struct NotesSyncModalView: View {
         let isRevealed = revealedProjectIDs.contains(project.id)
         return HStack(spacing: 8) {
             Text(project.displayName)
-                .font(.system(size: 11, weight: .bold, design: .monospaced))
+                .font(.ui(size: 11, weight: .semibold))
                 .foregroundColor(palette.textMain)
                 .lineLimit(1)
                 .frame(width: 150, alignment: .leading)
             Text(isRevealed ? project.password : String(repeating: "•", count: min(project.password.count, 16)))
-                .font(.system(size: 11, design: .monospaced))
+                .font(.ui(size: 11))
                 .foregroundColor(palette.textMain)
                 .textSelection(.enabled)
                 .lineLimit(1)
@@ -196,7 +196,7 @@ struct NotesSyncModalView: View {
     private func syncField(_ placeholder: String, text: Binding<String>) -> some View {
         TextField(placeholder, text: text)
             .textFieldStyle(.plain)
-            .font(.system(size: 11, design: .monospaced))
+            .font(.ui(size: 11))
             .padding(.horizontal, 8)
             .padding(.vertical, 6)
             .studioBox(background: palette.bgSubtle, border: palette.borderLine)
@@ -228,7 +228,7 @@ struct NotesSyncModalView: View {
     private func syncButton(_ title: String, primary: Bool = false, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Text(title)
-                .font(.system(size: 10, weight: .bold, design: .monospaced))
+                .font(.ui(size: 10, weight: .semibold))
                 .padding(.horizontal, 9)
                 .padding(.vertical, 6)
                 .foregroundColor(primary ? palette.primaryBtnFg : palette.textMain)
@@ -307,7 +307,7 @@ struct UserSettingsModalView: View {
                 row("Your name", detail: "Shown as the author of your notes and replies.") {
                     TextField("Your name", text: $reviewerName)
                         .textFieldStyle(.plain)
-                        .font(.system(size: 11, design: .monospaced))
+                        .font(.ui(size: 11))
                         .padding(.horizontal, 8)
                         .padding(.vertical, 5)
                         .frame(width: 200)
@@ -389,11 +389,11 @@ struct UserSettingsModalView: View {
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 6) {
                     Text(title.uppercased())
-                        .font(.system(size: 10, weight: .bold, design: .monospaced))
+                        .font(.ui(size: 10, weight: .semibold))
                         .foregroundColor(palette.textMain)
                     if launch {
                         Text("NEXT LAUNCH")
-                            .font(.system(size: 7, weight: .bold, design: .monospaced))
+                            .font(.ui(size: 7, weight: .semibold))
                             .foregroundColor(palette.textSubtle)
                     }
                 }

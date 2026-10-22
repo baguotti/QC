@@ -29,7 +29,7 @@ struct PlaybackClockText: View {
 
     var body: some View {
         Text(template)
-            .font(.system(size: fontSize, weight: .bold, design: .monospaced))
+            .font(.ui(size: fontSize, weight: .semibold))
             .monospacedDigit()
             .tracking(tracking)
             .lineLimit(1)

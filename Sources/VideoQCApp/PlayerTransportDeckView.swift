@@ -313,7 +313,7 @@ struct PlayerTransportDeckView: View, Equatable {
                                 Image(systemName: "plus")
                                     .font(.system(size: iconSize(9), weight: .bold))
                                 Text("NOTE")
-                                    .font(.system(size: iconSize(9), weight: .bold, design: .monospaced))
+                                    .font(.ui(size: iconSize(9), weight: .semibold))
                             }
                             .frame(height: btnHeight)
                             .padding(.horizontal, 5)
@@ -350,7 +350,7 @@ struct PlayerTransportDeckView: View, Equatable {
                                         hasNotes ? "\(notesCount)" : "NOTES",
                                         mode: hasNotes ? .character : .word,
                                         direction: .up,
-                                        font: .system(size: iconSize(9), weight: .bold, design: .monospaced),
+                                        font: .ui(size: iconSize(9), weight: .semibold),
                                         foregroundColor: isNotesDrawerOpen ? accentBlue : (hasNotes ? textMain : textMuted)
                                     )
                                 }
@@ -367,7 +367,7 @@ struct PlayerTransportDeckView: View, Equatable {
                                 hasNotes ? "\(notesCount)" : "NOTE",
                                 mode: hasNotes ? .character : .word,
                                 direction: .up,
-                                font: .system(size: iconSize(9), weight: .bold, design: .monospaced),
+                                font: .ui(size: iconSize(9), weight: .semibold),
                                foregroundColor: hasNotes ? textMain : textMuted
                             )
                             .padding(.horizontal, 3)
@@ -411,7 +411,7 @@ struct PlayerTransportDeckView: View, Equatable {
                         )
                         
                         Text("LINE")
-                            .font(.system(size: iconSize(9), weight: .bold, design: .monospaced))
+                            .font(.ui(size: iconSize(9), weight: .semibold))
                             .foregroundColor(hasGlitches ? alertRed : textMuted)
                             .padding(.horizontal, 3)
                         

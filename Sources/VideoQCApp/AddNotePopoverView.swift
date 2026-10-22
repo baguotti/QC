@@ -75,7 +75,7 @@ struct AddNotePopoverView: View {
                     // Author / Reviewer Name Row
                     VStack(alignment: .leading, spacing: 5) {
                         Text("REVIEWER NAME")
-                            .font(.system(size: 9, weight: .bold, design: .monospaced))
+                            .font(.ui(size: 9, weight: .semibold))
                             .foregroundColor(palette.textMuted)
                         
                         HStack {
@@ -84,7 +84,7 @@ struct AddNotePopoverView: View {
                                 .foregroundColor(palette.textMuted)
                             
                             TextField("Enter your name...", text: $author, prompt: Text("Enter your name...").foregroundColor(isLightMode ? Color(white: 0.35) : Color(white: 0.65)))
-                                .font(.system(size: 11, weight: .semibold, design: .monospaced))
+                                .font(.ui(size: 11, weight: .medium))
                                 .textFieldStyle(.plain)
                                 .foregroundColor(isLightMode ? Color.black : Color.white)
                                 .onChange(of: author) { _, newName in
@@ -99,7 +99,7 @@ struct AddNotePopoverView: View {
                     // Color Tag Row
                     VStack(alignment: .leading, spacing: 5) {
                         Text("CATEGORY / COLOR")
-                            .font(.system(size: 9, weight: .bold, design: .monospaced))
+                            .font(.ui(size: 9, weight: .semibold))
                             .foregroundColor(palette.textMuted)
                         
                         HStack(spacing: 8) {
@@ -110,7 +110,7 @@ struct AddNotePopoverView: View {
                                             .fill(item.color)
                                             .frame(width: 8, height: 8)
                                         Text(item.name.uppercased())
-                                            .font(.system(size: 9, weight: .bold, design: .monospaced))
+                                            .font(.ui(size: 9, weight: .semibold))
                                     }
                                     .padding(.horizontal, 8)
                                     .padding(.vertical, 5)
@@ -128,11 +128,11 @@ struct AddNotePopoverView: View {
                     // Note Text
                     VStack(alignment: .leading, spacing: 5) {
                         Text("FEEDBACK / QC COMMENT")
-                            .font(.system(size: 9, weight: .bold, design: .monospaced))
+                            .font(.ui(size: 9, weight: .semibold))
                             .foregroundColor(palette.textMuted)
                         
                         TextField("Type your review note here...", text: $noteText, prompt: Text("Type your review note here...").foregroundColor(isLightMode ? Color(white: 0.35) : Color(white: 0.65)), axis: .vertical)
-                            .font(.system(size: 11, design: .monospaced))
+                            .font(.ui(size: 11))
                             .textFieldStyle(.plain)
                             .foregroundColor(isLightMode ? Color.black : Color.white)
                             .lineLimit(3...5)
@@ -162,7 +162,7 @@ struct AddNotePopoverView: View {
                     
                     Button(action: { dismiss() }) {
                         Text("CANCEL (ESC)")
-                            .font(.system(size: 10, weight: .bold, design: .monospaced))
+                            .font(.ui(size: 10, weight: .semibold))
                             .padding(.horizontal, 10)
                             .padding(.vertical, 6)
                             .foregroundColor(palette.textMuted)

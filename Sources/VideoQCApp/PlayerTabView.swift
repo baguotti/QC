@@ -56,7 +56,7 @@ struct ExposureScrubberView: View {
             
             // Drag-Scrub Number
             Text(formattedEV)
-                .font(.system(size: StudioTheme.scaleFont(11), weight: .bold, design: .monospaced))
+                .font(.ui(size: StudioTheme.scaleFont(11), weight: .semibold))
                 .foregroundColor(scrubberBlue)
                 .frame(height: StudioTheme.scale(26))
                 .contentShape(Rectangle())
@@ -440,7 +440,7 @@ extension ContentView {
                                     .font(.system(size: 13, weight: .black, design: .monospaced))
                                     .foregroundColor(textMain)
                                 Text("Click a file from the queue on the left to begin inspecting.")
-                                    .font(.system(size: 10, design: .monospaced))
+                                    .font(.ui(size: 10))
                                     .foregroundColor(textSubtle)
                             }
                             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -453,7 +453,7 @@ extension ContentView {
                     }
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .studioBox(background: isLightMode ? Color(white: 0.88) : Color(white: 0.08), border: borderLine)
+                .studioBox(background: isLightMode ? Color(white: 0.88) : Color(white: 0.16), border: borderLine)
                 
                 // Timeline Scrubber & Transport Controls (Rigidly locked height to prevent any layout jitter)
                 VStack(spacing: 8) {
@@ -598,7 +598,7 @@ extension ContentView {
                     
                     if !playerEngine.activeResolution.isEmpty {
                         Text(playerEngine.slotA.infoLine)
-                            .font(.system(size: 9, weight: .bold, design: .monospaced))
+                            .font(.ui(size: 9, weight: .semibold))
                             .foregroundColor(textMuted)
                     }
                 }
@@ -674,7 +674,7 @@ extension ContentView {
                     Image(systemName: "plus")
                         .font(.system(size: StudioTheme.scaleFont(9), weight: .bold))
                     Text("NOTE")
-                        .font(.system(size: StudioTheme.scaleFont(9), weight: .bold, design: .monospaced))
+                        .font(.ui(size: StudioTheme.scaleFont(9), weight: .semibold))
                 }
                 .frame(height: StudioTheme.scale(24))
                 .padding(.horizontal, StudioTheme.scale(5))
@@ -718,7 +718,7 @@ extension ContentView {
                             hasNotes ? "\(notesCount)" : "NOTES",
                             mode: hasNotes ? .character : .word,
                             direction: .up,
-                            font: .system(size: StudioTheme.scaleFont(9), weight: .bold, design: .monospaced),
+                            font: .ui(size: StudioTheme.scaleFont(9), weight: .semibold),
                             foregroundColor: isNotesActive ? accentBlue : (hasNotes ? textMain : textMuted)
                         )
                     }
@@ -753,7 +753,7 @@ extension ContentView {
                 Image(systemName: icon)
                     .font(.system(size: 10, weight: .bold))
                 Text(text)
-                    .font(.system(size: 11, weight: .bold, design: .monospaced))
+                    .font(.ui(size: 11, weight: .semibold))
                     .monospacedDigit()
             }
             .foregroundColor(accentBlue)
@@ -801,7 +801,7 @@ extension ContentView {
             )
             
             Text("LINE")
-                .font(.system(size: StudioTheme.scaleFont(9), weight: .bold, design: .monospaced))
+                .font(.ui(size: StudioTheme.scaleFont(9), weight: .semibold))
                 .foregroundColor(hasGlitches ? alertRed : textMuted)
                 .padding(.horizontal, 3)
             
@@ -837,7 +837,7 @@ extension ContentView {
                         .font(.system(size: StudioTheme.scaleFont(9), weight: .bold))
                 }
                 Text("TAGS")
-                    .font(.system(size: StudioTheme.scaleFont(9), weight: .bold, design: .monospaced))
+                    .font(.ui(size: StudioTheme.scaleFont(9), weight: .semibold))
             }
             .frame(height: StudioTheme.scale(24))
             .padding(.horizontal, 5)
@@ -1372,7 +1372,7 @@ struct PlayerComparisonBar: View {
                         Image(systemName: "xmark")
                             .font(.system(size: StudioTheme.scaleFont(9), weight: .bold))
                         Text("CLEAR B")
-                            .font(.system(size: StudioTheme.scaleFont(9), weight: .bold, design: .monospaced))
+                            .font(.ui(size: StudioTheme.scaleFont(9), weight: .semibold))
                     }
                     .frame(height: StudioTheme.scale(26))
                     .padding(.horizontal, StudioTheme.scale(4))
@@ -1700,7 +1700,7 @@ struct PlayerZoomMenuView: View {
         } label: {
             HStack(spacing: 4) {
                 Text(playerEngine.isFitZoom ? "Fit" : "\(Int(round(playerEngine.zoomScale * 100)))%")
-                    .font(.system(size: 11, weight: .medium, design: .monospaced))
+                    .font(.ui(size: 11, weight: .medium))
                     .foregroundColor(textMain)
                     .lineLimit(1)
                     .frame(maxWidth: .infinity, alignment: .center)

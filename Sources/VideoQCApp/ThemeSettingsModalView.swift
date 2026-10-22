@@ -39,7 +39,7 @@ struct ThemeSettingsModalView: View {
                     
                     Button(action: { dismissModal() }) {
                         Text("CLOSE (ESC)")
-                            .font(.system(size: 10, weight: .bold, design: .monospaced))
+                            .font(.ui(size: 10, weight: .semibold))
                             .padding(.horizontal, 9)
                             .padding(.vertical, 5)
                             .foregroundColor(palette.textMain)
@@ -91,7 +91,7 @@ struct ThemeSettingsModalView: View {
                             Image(systemName: "arrow.counterclockwise")
                                 .font(.system(size: 10, weight: .bold))
                             Text("RESET TO DEFAULT")
-                                .font(.system(size: 10, weight: .bold, design: .monospaced))
+                                .font(.ui(size: 10, weight: .semibold))
                         }
                         .padding(.horizontal, 11)
                         .padding(.vertical, 6)
@@ -245,7 +245,7 @@ struct ThemeSettingsModalView: View {
                 Spacer()
                 
                 Text("(\(themeManager.allThemes.count)/\(ThemeManager.maxTotalPresets) TOTAL)")
-                    .font(.system(size: 9, weight: .bold, design: .monospaced))
+                    .font(.ui(size: 9, weight: .semibold))
                     .foregroundColor(palette.textSubtle)
             }
             
@@ -265,7 +265,7 @@ struct ThemeSettingsModalView: View {
                             .foregroundColor(palette.textSubtle)
                         TextField("PRESET NAME", text: $newPresetName)
                             .textFieldStyle(.plain)
-                            .font(.system(size: 10, weight: .bold, design: .monospaced))
+                            .font(.ui(size: 10, weight: .semibold))
                             .foregroundColor(palette.textMain)
                             .onSubmit {
                                 saveNewPreset()
@@ -294,7 +294,7 @@ struct ThemeSettingsModalView: View {
                         newPresetName = ""
                     }) {
                         Text("CANCEL")
-                            .font(.system(size: 9, weight: .bold, design: .monospaced))
+                            .font(.ui(size: 9, weight: .semibold))
                             .padding(.horizontal, 9)
                             .padding(.vertical, 6)
                             .foregroundColor(palette.textMuted)
@@ -344,7 +344,7 @@ struct ThemeSettingsModalView: View {
                             Image(systemName: "plus")
                                 .font(.system(size: 9, weight: .bold))
                             Text("SAVE AS NEW")
-                                .font(.system(size: 9, weight: .bold, design: .monospaced))
+                                .font(.ui(size: 9, weight: .semibold))
                         }
                         .padding(.horizontal, 10)
                         .padding(.vertical, 6)
@@ -367,7 +367,7 @@ struct ThemeSettingsModalView: View {
                             Image(systemName: "arrow.counterclockwise")
                                 .font(.system(size: 8, weight: .bold))
                             Text("REVERT")
-                                .font(.system(size: 9, weight: .bold, design: .monospaced))
+                                .font(.ui(size: 9, weight: .semibold))
                         }
                         .padding(.horizontal, 8)
                         .padding(.vertical, 6)
@@ -389,7 +389,7 @@ struct ThemeSettingsModalView: View {
                             Image(systemName: "plus")
                                 .font(.system(size: 9, weight: .bold))
                             Text("SAVE CURRENT AS PRESET")
-                                .font(.system(size: 9, weight: .bold, design: .monospaced))
+                                .font(.ui(size: 9, weight: .semibold))
                         }
                         .padding(.horizontal, 10)
                         .padding(.vertical, 6)
@@ -404,7 +404,7 @@ struct ThemeSettingsModalView: View {
                     
                     if !themeManager.canSaveMorePresets {
                         Text("PRESET LIMIT REACHED (\(ThemeManager.maxTotalPresets) TOTAL)")
-                            .font(.system(size: 8, weight: .bold, design: .monospaced))
+                            .font(.ui(size: 8, weight: .semibold))
                             .foregroundColor(themeManager.currentTheme.warnColor)
                     }
                     
@@ -461,7 +461,7 @@ struct ThemeSettingsModalView: View {
                         }
                         
                         Text(preset.isPreset ? "FACTORY PRESET" : (isModified ? "USER PRESET (MODIFIED)" : "USER PRESET"))
-                            .font(.system(size: 7, weight: .medium, design: .monospaced))
+                            .font(.ui(size: 7, weight: .medium))
                             .foregroundColor(isModified ? themeManager.currentTheme.playColor : palette.textSubtle)
                     }
                     
@@ -515,7 +515,7 @@ struct ThemeSettingsModalView: View {
                 Spacer()
                 
                 Text("CLICK SWATCH OR EDIT HEX")
-                    .font(.system(size: 8, weight: .bold, design: .monospaced))
+                    .font(.ui(size: 8, weight: .semibold))
                     .foregroundColor(palette.textSubtle)
             }
             
@@ -540,7 +540,7 @@ struct ThemeSettingsModalView: View {
                 Spacer()
                 
                 Text("SHORTCUTS: ⌘- / ⌘+")
-                    .font(.system(size: 9, weight: .bold, design: .monospaced))
+                    .font(.ui(size: 9, weight: .semibold))
                     .foregroundColor(palette.textSubtle)
             }
             
@@ -578,7 +578,7 @@ struct ThemeSettingsModalView: View {
                             .font(.system(size: 10, weight: isSelected ? .black : .bold, design: .monospaced))
                             .foregroundColor(isSelected ? palette.textMain : palette.textMuted)
                         Text("(\(String(format: "%.1fx", level.scaleFactor)))")
-                            .font(.system(size: 8, weight: .bold, design: .monospaced))
+                            .font(.ui(size: 8, weight: .semibold))
                             .foregroundColor(isSelected ? themeManager.currentTheme.playColor : palette.textSubtle)
                     }
                     
@@ -646,7 +646,7 @@ struct ThemeSettingsModalView: View {
                         Image(systemName: "doc.text")
                             .font(.system(size: 8.5, weight: .medium))
                         Text("SPECS")
-                            .font(.system(size: 9, weight: .bold, design: .monospaced))
+                            .font(.ui(size: 9, weight: .semibold))
                     }
                     .padding(.horizontal, 8)
                     .padding(.vertical, 6)
@@ -657,7 +657,7 @@ struct ThemeSettingsModalView: View {
                         Image(systemName: "viewfinder")
                             .font(.system(size: 8.5, weight: .medium))
                         Text("LINE FINDER")
-                            .font(.system(size: 9, weight: .bold, design: .monospaced))
+                            .font(.ui(size: 9, weight: .semibold))
                     }
                     .padding(.horizontal, 8)
                     .padding(.vertical, 6)
@@ -668,7 +668,7 @@ struct ThemeSettingsModalView: View {
                         Image(systemName: "tray.and.arrow.down")
                             .font(.system(size: 8.5, weight: .medium))
                         Text("INGEST")
-                            .font(.system(size: 9, weight: .bold, design: .monospaced))
+                            .font(.ui(size: 9, weight: .semibold))
                     }
                     .padding(.horizontal, 8)
                     .padding(.vertical, 6)
@@ -682,7 +682,7 @@ struct ThemeSettingsModalView: View {
                             .fill(themeManager.currentTheme.slotaColor)
                             .frame(width: 5, height: 5)
                         Text("READY")
-                            .font(.system(size: 7.5, weight: .bold, design: .monospaced))
+                            .font(.ui(size: 7.5, weight: .semibold))
                             .foregroundColor(themeManager.currentTheme.slotaColor)
                     }
                     .padding(.trailing, 10)
@@ -697,15 +697,15 @@ struct ThemeSettingsModalView: View {
                     // Ruler ticks & Time markers
                     HStack {
                         Text("00:00:00:00")
-                            .font(.system(size: 7, weight: .medium, design: .monospaced))
+                            .font(.ui(size: 7, weight: .medium))
                             .foregroundColor(palette.textSubtle)
                         Spacer()
                         Text("00:01:00:00")
-                            .font(.system(size: 7, weight: .medium, design: .monospaced))
+                            .font(.ui(size: 7, weight: .medium))
                             .foregroundColor(palette.textSubtle)
                         Spacer()
                         Text("00:02:00:00")
-                            .font(.system(size: 7, weight: .medium, design: .monospaced))
+                            .font(.ui(size: 7, weight: .medium))
                             .foregroundColor(palette.textSubtle)
                     }
                     .padding(.horizontal, 8)
@@ -895,12 +895,12 @@ private struct AccentColorSlotCard: View {
             // Hex text field
             HStack(spacing: 2) {
                 Text("#")
-                    .font(.system(size: 8.5, weight: .bold, design: .monospaced))
+                    .font(.ui(size: 8.5, weight: .semibold))
                     .foregroundColor(palette.textSubtle)
                 
                 TextField("000000", text: $hexInput)
                     .textFieldStyle(.plain)
-                    .font(.system(size: 8.5, weight: .bold, design: .monospaced))
+                    .font(.ui(size: 8.5, weight: .semibold))
                     .foregroundColor(palette.textMain)
                     .frame(width: 48)
                     .onSubmit {

@@ -99,7 +99,7 @@ struct FeedbackModalView: View {
                             .foregroundColor(textMain)
                         
                         Text("TO: \(targetEmail)")
-                            .font(.system(size: 9, weight: .bold, design: .monospaced))
+                            .font(.ui(size: 9, weight: .semibold))
                             .foregroundColor(textMuted)
                             .padding(.horizontal, 6)
                             .padding(.vertical, 2)
@@ -112,7 +112,7 @@ struct FeedbackModalView: View {
                         }
                     }) {
                         Text("CLOSE (ESC)")
-                            .font(.system(size: 10, weight: .bold, design: .monospaced))
+                            .font(.ui(size: 10, weight: .semibold))
                             .padding(.horizontal, 9)
                             .padding(.vertical, 5)
                             .foregroundColor(textMain)
@@ -140,7 +140,7 @@ struct FeedbackModalView: View {
                             .foregroundColor(textMain)
                         
                         Text("Thank you for helping improve QCpie!\nRiccardo has received your feedback via email.")
-                            .font(.system(size: 11, design: .monospaced))
+                            .font(.ui(size: 11))
                             .foregroundColor(textMuted)
                             .multilineTextAlignment(.center)
                             .lineSpacing(4)
@@ -154,7 +154,7 @@ struct FeedbackModalView: View {
                         // Category Picker
                         VStack(alignment: .leading, spacing: 6) {
                             Text("CATEGORY")
-                                .font(.system(size: 10, weight: .bold, design: .monospaced))
+                                .font(.ui(size: 10, weight: .semibold))
                                 .foregroundColor(textMuted)
                             
                             HStack(spacing: 8) {
@@ -164,7 +164,7 @@ struct FeedbackModalView: View {
                                             Image(systemName: type.icon)
                                                 .font(.system(size: 10))
                                             Text(type.rawValue)
-                                                .font(.system(size: 10, weight: .bold, design: .monospaced))
+                                                .font(.ui(size: 10, weight: .semibold))
                                         }
                                         .padding(.horizontal, 10)
                                         .padding(.vertical, 6)
@@ -181,17 +181,17 @@ struct FeedbackModalView: View {
                         VStack(alignment: .leading, spacing: 6) {
                             HStack {
                                 Text("YOUR EMAIL (OPTIONAL)")
-                                    .font(.system(size: 10, weight: .bold, design: .monospaced))
+                                    .font(.ui(size: 10, weight: .semibold))
                                     .foregroundColor(textMuted)
                                 Spacer()
                                 Text("For follow-up replies")
-                                    .font(.system(size: 9, design: .monospaced))
+                                    .font(.ui(size: 9))
                                     .foregroundColor(textSubtle)
                             }
                             
                             TextField("your.email@example.com", text: $userEmail)
                                 .textFieldStyle(.plain)
-                                .font(.system(size: 11, design: .monospaced))
+                                .font(.ui(size: 11))
                                 .padding(8)
                                 .foregroundColor(textMain)
                                 .studioBox(background: bgSubtle, border: borderLine)
@@ -202,16 +202,16 @@ struct FeedbackModalView: View {
                         VStack(alignment: .leading, spacing: 6) {
                             HStack {
                                 Text("MESSAGE / NOTES")
-                                    .font(.system(size: 10, weight: .bold, design: .monospaced))
+                                    .font(.ui(size: 10, weight: .semibold))
                                     .foregroundColor(textMuted)
                                 Spacer()
                                 Text("\(feedbackText.count) CHARS")
-                                    .font(.system(size: 9, design: .monospaced))
+                                    .font(.ui(size: 9))
                                     .foregroundColor(textSubtle)
                             }
                             
                             TextEditor(text: $feedbackText)
-                                .font(.system(size: 11, design: .monospaced))
+                                .font(.ui(size: 11))
                                 .scrollContentBackground(.hidden)
                                 .padding(8)
                                 .foregroundColor(textMain)
@@ -236,10 +236,10 @@ struct FeedbackModalView: View {
                             
                             VStack(alignment: .leading, spacing: 2) {
                                 Text("Include app version and macOS build specs")
-                                    .font(.system(size: 10, weight: .bold, design: .monospaced))
+                                    .font(.ui(size: 10, weight: .semibold))
                                     .foregroundColor(textMain)
                                 Text("QCpie v\(AppVersionInfo.version) • macOS \(ProcessInfo.processInfo.operatingSystemVersionString)")
-                                    .font(.system(size: 9, design: .monospaced))
+                                    .font(.ui(size: 9))
                                     .foregroundColor(textMuted)
                             }
                             
@@ -262,7 +262,7 @@ struct FeedbackModalView: View {
                                 .font(.system(size: 10))
                                 .foregroundColor(accentPositive)
                             Text("COPIED TO CLIPBOARD!")
-                                .font(.system(size: 10, weight: .bold, design: .monospaced))
+                                .font(.ui(size: 10, weight: .semibold))
                                 .foregroundColor(accentPositive)
                         }
                         .transition(.opacity)
@@ -272,7 +272,7 @@ struct FeedbackModalView: View {
                                 .font(.system(size: 10))
                                 .foregroundColor(accentNegative)
                             Text(err)
-                                .font(.system(size: 9, weight: .bold, design: .monospaced))
+                                .font(.ui(size: 9, weight: .semibold))
                                 .foregroundColor(accentNegative)
                                 .lineLimit(1)
                         }
@@ -288,7 +288,7 @@ struct FeedbackModalView: View {
                                 Image(systemName: "doc.on.doc")
                                     .font(.system(size: 10))
                                 Text("COPY")
-                                    .font(.system(size: 10, weight: .bold, design: .monospaced))
+                                    .font(.ui(size: 10, weight: .semibold))
                             }
                             .padding(.horizontal, 12)
                             .padding(.vertical, 7)

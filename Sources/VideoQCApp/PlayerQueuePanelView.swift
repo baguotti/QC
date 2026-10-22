@@ -165,12 +165,12 @@ public struct PlayerQueuePanelView: View, Equatable {
                     ZStack(alignment: .leading) {
                         if playerFilterText.isEmpty {
                             Text("FILTER ASSETS...")
-                                .font(.system(size: 11, weight: .bold, design: .monospaced))
+                                .font(.ui(size: 11, weight: .semibold))
                                 .foregroundColor(textMuted)
                                 .allowsHitTesting(false)
                         }
                         TextField("", text: $playerFilterText)
-                            .font(.system(size: 11, weight: .medium, design: .monospaced))
+                            .font(.ui(size: 11, weight: .medium))
                             .textFieldStyle(.plain)
                             .foregroundColor(textMain)
                             .onSubmit {
@@ -329,10 +329,10 @@ public struct PlayerQueuePanelView: View, Equatable {
                             .font(.system(size: 24))
                             .foregroundColor(textMuted)
                         Text("NO VIDEO FILES LOADED")
-                            .font(.system(size: 10, weight: .bold, design: .monospaced))
+                            .font(.ui(size: 10, weight: .semibold))
                             .foregroundColor(textMuted)
                         Text("Select or drop a folder to populate playback queue.")
-                            .font(.system(size: 9, design: .monospaced))
+                            .font(.ui(size: 9))
                             .foregroundColor(textSubtle)
                             .multilineTextAlignment(.center)
                         Spacer()
@@ -398,10 +398,10 @@ public struct PlayerQueuePanelView: View, Equatable {
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 6) {
                 Text("01")
-                    .font(.system(size: 9, weight: .bold, design: .monospaced))
+                    .font(.ui(size: 9, weight: .semibold))
                     .foregroundColor(textMain)
                 Text("// LOAD ASSETS")
-                    .font(.system(size: 9, weight: .bold, design: .monospaced))
+                    .font(.ui(size: 9, weight: .semibold))
                     .foregroundColor(textMuted)
                     .tracking(1.0)
             }
@@ -415,7 +415,7 @@ public struct PlayerQueuePanelView: View, Equatable {
                             Image(systemName: isSelectEmpty ? "folder.badge.plus" : "arrow.triangle.2.circlepath")
                                 .font(.system(size: StudioTheme.scaleFont(9), weight: .bold))
                             Text(isSelectEmpty ? "SELECT" : "CHANGE")
-                                .font(.system(size: StudioTheme.scaleFont(9), weight: .bold, design: .monospaced))
+                                .font(.ui(size: StudioTheme.scaleFont(9), weight: .semibold))
                                 .lineLimit(1)
                         }
                         .padding(.horizontal, StudioTheme.scale(9))
@@ -435,7 +435,7 @@ public struct PlayerQueuePanelView: View, Equatable {
                             Image(systemName: "plus")
                                 .font(.system(size: StudioTheme.scaleFont(9), weight: .bold))
                             Text("ADD")
-                                .font(.system(size: StudioTheme.scaleFont(9), weight: .bold, design: .monospaced))
+                                .font(.ui(size: StudioTheme.scaleFont(9), weight: .semibold))
                                 .lineLimit(1)
                         }
                         .padding(.horizontal, StudioTheme.scale(8))
@@ -453,7 +453,7 @@ public struct PlayerQueuePanelView: View, Equatable {
                             Image(systemName: "arrow.clockwise")
                                 .font(.system(size: StudioTheme.scaleFont(9), weight: .bold))
                             Text("REFRESH")
-                                .font(.system(size: StudioTheme.scaleFont(9), weight: .bold, design: .monospaced))
+                                .font(.ui(size: StudioTheme.scaleFont(9), weight: .semibold))
                                 .lineLimit(1)
                         }
                         .padding(.horizontal, StudioTheme.scale(8))
@@ -473,7 +473,7 @@ public struct PlayerQueuePanelView: View, Equatable {
                                 .fill(accentPositive)
                                 .frame(width: StudioTheme.scale(5), height: StudioTheme.scale(5))
                             Text("\(videoFiles.count) \(videoFiles.count == 1 ? "FILE" : "FILES")")
-                                .font(.system(size: StudioTheme.scaleFont(9), weight: .bold, design: .monospaced))
+                                .font(.ui(size: StudioTheme.scaleFont(9), weight: .semibold))
                                 .foregroundColor(textMuted)
                         }
                         .padding(.horizontal, StudioTheme.scale(7))
@@ -489,7 +489,7 @@ public struct PlayerQueuePanelView: View, Equatable {
                             .foregroundColor(textMain)
                             .lineLimit(1)
                         Text("\(videoFiles.count) ASSET(S) FOUND IN DIRECTORY")
-                            .font(.system(size: 9, weight: .bold, design: .monospaced))
+                            .font(.ui(size: 9, weight: .semibold))
                             .foregroundColor(textMuted)
                     }
                     .padding(10)
@@ -509,11 +509,11 @@ public struct PlayerQueuePanelView: View, Equatable {
                 } else if !videoFiles.isEmpty {
                     VStack(alignment: .leading, spacing: 3) {
                         Text("LOOSE ASSET SELECTION")
-                            .font(.system(size: 11, weight: .bold, design: .monospaced))
+                            .font(.ui(size: 11, weight: .semibold))
                             .foregroundColor(textMain)
                             .lineLimit(1)
                         Text("\(videoFiles.count) FILE(S) LOADED")
-                            .font(.system(size: 9, weight: .bold, design: .monospaced))
+                            .font(.ui(size: 9, weight: .semibold))
                             .foregroundColor(textMuted)
                     }
                     .padding(10)
@@ -540,7 +540,7 @@ public struct PlayerQueuePanelView: View, Equatable {
                 .frame(width: 14, height: 14)
             
             Text(node.name.uppercased())
-                .font(.system(size: 10, weight: .bold, design: .monospaced))
+                .font(.ui(size: 10, weight: .semibold))
                 .foregroundColor(textMain)
                 .lineLimit(1)
             

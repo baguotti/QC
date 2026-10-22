@@ -35,7 +35,7 @@ struct ShortcutsModalView: View {
                     
                     Button(action: { dismissModal() }) {
                         Text("CLOSE (ESC)")
-                            .font(.system(size: 10, weight: .bold, design: .monospaced))
+                            .font(.ui(size: 10, weight: .semibold))
                             .padding(.horizontal, 9)
                             .padding(.vertical, 5)
                             .foregroundColor(palette.textMain)
@@ -63,7 +63,7 @@ struct ShortcutsModalView: View {
                         .tracking(1.5)
                     
                     Text("The keyboard shortcuts reference is currently being updated.")
-                        .font(.system(size: 10, weight: .medium, design: .monospaced))
+                        .font(.ui(size: 10, weight: .medium))
                         .foregroundColor(palette.textMuted)
                     Spacer()
                 }

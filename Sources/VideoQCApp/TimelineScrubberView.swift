@@ -238,11 +238,11 @@ public struct TimelineScrubberView: View {
     private let trackInset: CGFloat = 6.0
     
     // Theme colors
-    private var containerBg: Color { isLightMode ? Color(white: 0.94) : Color(red: 0.055, green: 0.055, blue: 0.06) }
+    private var containerBg: Color { isLightMode ? Color(white: 0.94) : Color(white: 0.125) }
     private var containerBorder: Color { isLightMode ? Color(white: 0.80) : Color(white: 0.15) }
     private var rulerDivider: Color { isLightMode ? Color(white: 0.86) : Color(white: 0.11) }
     
-    private var trackGrooveBg: Color { isLightMode ? Color(white: 0.88) : Color(white: 0.035) }
+    private var trackGrooveBg: Color { isLightMode ? Color(white: 0.88) : Color(white: 0.09) }
     private var trackGrooveBorder: Color { isLightMode ? Color(white: 0.78) : Color(white: 0.10) }
     
     private var playheadAccent: Color { StudioTheme.accentBlue(isLightMode) }

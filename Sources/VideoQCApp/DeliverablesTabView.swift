@@ -122,12 +122,12 @@ extension ContentView {
             ZStack(alignment: .leading) {
                 if specsState.specsFilterText.isEmpty {
                     Text("FILTER ASSETS...")
-                        .font(.system(size: 11, weight: .bold, design: .monospaced))
+                        .font(.ui(size: 11, weight: .semibold))
                         .foregroundColor(textMuted)
                         .allowsHitTesting(false)
                 }
                 TextField("", text: $specsState.specsFilterText)
-                    .font(.system(size: 11, weight: .medium, design: .monospaced))
+                    .font(.ui(size: 11, weight: .medium))
                     .textFieldStyle(.plain)
                     .foregroundColor(textMain)
                     .padding(.horizontal, 4)
@@ -175,7 +175,7 @@ extension ContentView {
                                 .scaleEffect(0.65)
                                 .frame(width: 10, height: 10)
                             Text("SCANNING AUDIO (\(specsState.analyzedAudioCount)/\(specsState.totalAudioCount))")
-                                .font(.system(size: 9.5, weight: .bold, design: .monospaced))
+                                .font(.ui(size: 9.5, weight: .semibold))
                                 .foregroundColor(accentBlue)
                             Spacer()
                             Image(systemName: "xmark.circle.fill")
@@ -185,7 +185,7 @@ extension ContentView {
                             Image(systemName: "waveform")
                                 .font(.system(size: 8.5, weight: .bold))
                             Text(hasPendingAudioAnalysis ? "CHECK AUDIO LEVELS" : "RECHECK AUDIO LEVELS")
-                                .font(.system(size: 9.5, weight: .bold, design: .monospaced))
+                                .font(.ui(size: 9.5, weight: .semibold))
                             Spacer()
                             Text("SIMD")
                                 .font(.system(size: 7.5, weight: .black, design: .monospaced))
@@ -222,7 +222,7 @@ extension ContentView {
                             CCBadge(size: 8.5)
                         }
                         Text("CROSS-CHECK SUBTITLES")
-                            .font(.system(size: 9.5, weight: .bold, design: .monospaced))
+                            .font(.ui(size: 9.5, weight: .semibold))
                         Spacer()
                         Text(crossCheckTargets.count >= 2 ? "\(crossCheckTargets.count) FILES" : "NEED 2+ SRT")
                             .font(.system(size: 7.5, weight: .black, design: .monospaced))
@@ -254,7 +254,7 @@ extension ContentView {
                             Image(systemName: "arrow.up.right.square")
                                 .font(.system(size: 8.5, weight: .bold))
                             Text("SHEETS")
-                                .font(.system(size: 9.5, weight: .bold, design: .monospaced))
+                                .font(.ui(size: 9.5, weight: .semibold))
                                 .lineLimit(1)
                                 .minimumScaleFactor(0.8)
                         }
@@ -277,7 +277,7 @@ extension ContentView {
                             Image(systemName: "doc.text")
                                 .font(.system(size: 8.5, weight: .bold))
                             Text("SAVE CSV")
-                                .font(.system(size: 9.5, weight: .bold, design: .monospaced))
+                                .font(.ui(size: 9.5, weight: .semibold))
                                 .lineLimit(1)
                                 .minimumScaleFactor(0.8)
                         }
@@ -300,7 +300,7 @@ extension ContentView {
                             Image(systemName: "safari")
                                 .font(.system(size: 8.5, weight: .bold))
                             Text("OPEN HTML")
-                                .font(.system(size: 9.5, weight: .bold, design: .monospaced))
+                                .font(.ui(size: 9.5, weight: .semibold))
                                 .lineLimit(1)
                                 .minimumScaleFactor(0.8)
                         }
@@ -323,7 +323,7 @@ extension ContentView {
                             Image(systemName: "folder")
                                 .font(.system(size: 9, weight: .bold))
                             Text("REVEAL IN FINDER")
-                                .font(.system(size: 10, weight: .bold, design: .monospaced))
+                                .font(.ui(size: 10, weight: .semibold))
                         }
                         .frame(maxWidth: .infinity, alignment: .center)
                         .frame(height: 28)
@@ -346,7 +346,7 @@ extension ContentView {
                         Image(systemName: "xmark")
                             .font(.system(size: 8, weight: .bold))
                         Text("CLEAR LIST")
-                            .font(.system(size: 9, weight: .bold, design: .monospaced))
+                            .font(.ui(size: 9, weight: .semibold))
                     }
                     .foregroundColor(textMuted)
                     .frame(maxWidth: .infinity, alignment: .center)
@@ -403,11 +403,11 @@ extension ContentView {
                     .tracking(1.0)
                 if specsState.specsFilterText.isEmpty {
                     Text("\(specsState.deliverableAssets.count) ASSETS ANALYZED")
-                        .font(.system(size: 11, weight: .bold, design: .monospaced))
+                        .font(.ui(size: 11, weight: .semibold))
                         .foregroundColor(textMuted)
                 } else {
                     Text("\(displayAssets.count) OF \(specsState.deliverableAssets.count) ASSETS (FILTERED)")
-                        .font(.system(size: 11, weight: .bold, design: .monospaced))
+                        .font(.ui(size: 11, weight: .semibold))
                         .foregroundColor(accentBlue)
                 }
             }
@@ -434,7 +434,7 @@ extension ContentView {
                                 .scaleEffect(0.65)
                                 .frame(width: 10, height: 10)
                             Text("AUDIO \(specsState.analyzedAudioCount)/\(specsState.totalAudioCount)")
-                                .font(.system(size: 9.5, weight: .bold, design: .monospaced))
+                                .font(.ui(size: 9.5, weight: .semibold))
                                 .foregroundColor(accentBlue)
                             Button(action: { specsState.cancelAudioAnalysis() }) {
                                 Image(systemName: "xmark.circle.fill")
@@ -453,7 +453,7 @@ extension ContentView {
                                 Image(systemName: "waveform")
                                     .font(.system(size: 8.5, weight: .bold))
                                 Text(hasPendingAudioAnalysis ? "CHECK AUDIO" : "RECHECK AUDIO")
-                                    .font(.system(size: 9.5, weight: .bold, design: .monospaced))
+                                    .font(.ui(size: 9.5, weight: .semibold))
                             }
                             .padding(.horizontal, 8)
                             .frame(height: 24)
@@ -476,7 +476,7 @@ extension ContentView {
                             Image(systemName: isFileNameExpanded ? "arrow.right.and.line.vertical.and.arrow.left" : "arrow.left.and.line.vertical.and.arrow.right")
                                 .font(.system(size: 8.5, weight: .bold))
                             Text(isFileNameExpanded ? "RESET NAME" : "FIT NAME")
-                                .font(.system(size: 9.5, weight: .bold, design: .monospaced))
+                                .font(.ui(size: 9.5, weight: .semibold))
                         }
                         .padding(.horizontal, 8)
                         .frame(height: 24)
@@ -503,7 +503,7 @@ extension ContentView {
                                 isFoldersHidden ? "SHOW" : "HIDE",
                                 mode: .character,
                                 direction: .up,
-                                font: .system(size: 9.5, weight: .bold, design: .monospaced),
+                                font: .ui(size: 9.5, weight: .semibold),
                                 foregroundColor: canToggleFolders ? (isFoldersHidden ? accentBlue : textMain) : textSubtle,
                                 tracking: 0.3,
                                 stagger: 0.018,
@@ -549,7 +549,7 @@ extension ContentView {
                                 Image(systemName: specsDisplayMode == "thumbnail" ? "square.grid.2x2" : "list.bullet")
                                     .font(.system(size: 8.5, weight: .bold))
                                 Text(specsDisplayMode == "thumbnail" ? "THUMBS" : "LIST")
-                                    .font(.system(size: 9.5, weight: .bold, design: .monospaced))
+                                    .font(.ui(size: 9.5, weight: .semibold))
                             }
                             .padding(.horizontal, 9)
                             .frame(height: 24)
@@ -611,7 +611,7 @@ extension ContentView {
                             sortableHeaderCell("AUDIO SPEC", column: .audioCodec)
                             sortableHeaderCell("PATH", column: .path, customWidth: pathColWidth, alignment: .leading, isResizable: false)
                         }
-                        .font(.system(size: 9, weight: .bold, design: .monospaced))
+                        .font(.ui(size: 9, weight: .semibold))
                         .foregroundColor(textMuted)
                         .padding(.horizontal, 14)
                         .padding(.vertical, specsDisplayMode == "large" ? 10 : (specsDisplayMode == "thumbnail" ? 8 : 6))
@@ -652,11 +652,11 @@ extension ContentView {
                                             .font(.system(size: 26))
                                             .foregroundColor(textMuted)
                                         Text("NO ASSETS MATCHING \"\(specsState.specsFilterText)\"")
-                                            .font(.system(size: 11, weight: .bold, design: .monospaced))
+                                            .font(.ui(size: 11, weight: .semibold))
                                             .foregroundColor(textMuted)
                                         Button(action: { specsState.specsFilterText = "" }) {
                                             Text("CLEAR FILTER")
-                                                .font(.system(size: 10, weight: .bold, design: .monospaced))
+                                                .font(.ui(size: 10, weight: .semibold))
                                                 .foregroundColor(accentBlue)
                                         }
                                         .buttonStyle(.plain)
@@ -965,7 +965,7 @@ extension ContentView {
                     .lineLimit(1)
                 
                 Text("(\(node.videoCount) \(node.videoCount == 1 ? "ASSET" : "ASSETS"))")
-                    .font(.system(size: 9, weight: .bold, design: .monospaced))
+                    .font(.ui(size: 9, weight: .semibold))
                     .foregroundColor(textMuted)
             }
             .padding(.leading, CGFloat(node.depth * 14))
@@ -974,11 +974,11 @@ extension ContentView {
             
             HStack(spacing: 12) {
                 Text(formattedDur)
-                    .font(.system(size: 9, weight: .bold, design: .monospaced))
+                    .font(.ui(size: 9, weight: .semibold))
                     .foregroundColor(textSubtle)
                 
                 Text(formattedSize)
-                    .font(.system(size: 9, weight: .bold, design: .monospaced))
+                    .font(.ui(size: 9, weight: .semibold))
                     .foregroundColor(textSubtle)
                 
                 if folderMismatches > 0 {
@@ -1197,7 +1197,7 @@ extension ContentView {
             
             // Creation Date Column
             Text(asset.formattedCreationDate)
-                .font(.system(size: 9, design: .monospaced))
+                .font(.ui(size: 9))
                 .foregroundColor(textSubtle)
                 .frame(width: CGFloat(specsState.columnWidth(for: .date)), alignment: .center)
             
@@ -1211,18 +1211,18 @@ extension ContentView {
             // Audio Column
             if !asset.hasAudio {
                 Text("NONE")
-                    .font(.system(size: 9, weight: .bold, design: .monospaced))
+                    .font(.ui(size: 9, weight: .semibold))
                     .foregroundColor(textMuted)
                     .frame(width: CGFloat(specsState.columnWidth(for: .audioCodec)), alignment: .center)
             } else {
                 VStack(alignment: .center, spacing: 3) {
                     HStack(spacing: 4) {
                         Text(asset.audioCodec)
-                            .font(.system(size: 10, weight: .bold, design: .monospaced))
+                            .font(.ui(size: 10, weight: .semibold))
                             .foregroundColor(textMain)
                         if asset.audioBitrate != "--" {
                             Text(asset.audioBitrate)
-                                .font(.system(size: 8, weight: .bold, design: .monospaced))
+                                .font(.ui(size: 8, weight: .semibold))
                                 .padding(.horizontal, 4)
                                 .padding(.vertical, 1)
                                 .foregroundColor(textSubtle)
@@ -1235,7 +1235,7 @@ extension ContentView {
                             Image(systemName: "speaker.slash.fill")
                                 .font(.system(size: 7, weight: .bold))
                             Text(asset.validation.audioMuteDetail ?? "MUTE")
-                                .font(.system(size: 8, weight: .bold, design: .monospaced))
+                                .font(.ui(size: 8, weight: .semibold))
                         }
                         .padding(.horizontal, 5)
                         .padding(.vertical, 1.5)
@@ -1253,12 +1253,12 @@ extension ContentView {
                         HStack(spacing: 4) {
                             if !asset.audioLevelString.isEmpty && asset.audioLevelString != "--" {
                                 Text(asset.audioLevelString)
-                                    .font(.system(size: 8, weight: .bold, design: .monospaced))
+                                    .font(.ui(size: 8, weight: .semibold))
                                     .foregroundColor(accentPositive)
                             }
                             if !asset.audioFormatDetail.isEmpty {
                                 Text(asset.audioFormatDetail)
-                                    .font(.system(size: 8, weight: .medium, design: .monospaced))
+                                    .font(.ui(size: 8, weight: .medium))
                                     .foregroundColor(textMuted)
                                     .lineLimit(1)
                             }
@@ -1271,13 +1271,13 @@ extension ContentView {
             
             let effectivePathWidth = pathWidth > 0 ? pathWidth : CGFloat(specsState.columnWidth(for: .path))
             Text(asset.fileURL.path)
-                .font(.system(size: 10, design: .monospaced))
+                .font(.ui(size: 10))
                 .foregroundColor(textSubtle)
                 .frame(width: effectivePathWidth, alignment: .leading)
                 .lineLimit(1)
                 .truncationMode(.middle)
         }
-        .font(.system(size: 11, design: .monospaced))
+        .font(.ui(size: 11))
         .padding(.horizontal, 14)
         .padding(.vertical, specsDisplayMode == "large" ? 10 : (specsDisplayMode == "thumbnail" ? 7 : 4))
         .frame(width: rowWidth > 0 ? rowWidth : nil, alignment: .leading)

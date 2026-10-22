@@ -124,7 +124,7 @@ struct FullscreenPlayerView: View {
                     
                     if !engine.activeResolution.isEmpty {
                         Text(engine.slotA.infoLine)
-                            .font(.system(size: 10, weight: .bold, design: .monospaced))
+                            .font(.ui(size: 10, weight: .semibold))
                             .foregroundColor(palette.textMuted)
                     }
                 }
@@ -153,7 +153,7 @@ struct FullscreenPlayerView: View {
                         Image(systemName: "square.split.2x1")
                             .font(.system(size: StudioTheme.scaleFont(10), weight: .bold))
                         Text("[ + COMPARE (B) ]")
-                            .font(.system(size: StudioTheme.scaleFont(11), weight: .bold, design: .monospaced))
+                            .font(.ui(size: StudioTheme.scaleFont(11), weight: .semibold))
                     }
                     .padding(.horizontal, StudioTheme.scale(10))
                     .padding(.vertical, StudioTheme.scale(6))
@@ -172,7 +172,7 @@ struct FullscreenPlayerView: View {
                     Image(systemName: "arrow.down.right.and.arrow.up.left")
                         .font(.system(size: StudioTheme.scaleFont(10), weight: .bold))
                     Text("[ EXIT FULLSCREEN (ESC) ]")
-                        .font(.system(size: StudioTheme.scaleFont(11), weight: .bold, design: .monospaced))
+                        .font(.ui(size: StudioTheme.scaleFont(11), weight: .semibold))
                 }
                 .padding(.horizontal, StudioTheme.scale(14))
                 .padding(.vertical, StudioTheme.scale(8))
@@ -234,7 +234,7 @@ struct FullscreenPlayerView: View {
                     
                     if engine.shuttleStateText != "PAUSE" && (engine.isPlaying || engine.rate != 0) {
                         Text(engine.shuttleStateText)
-                            .font(.system(size: 10, weight: .bold, design: .monospaced))
+                            .font(.ui(size: 10, weight: .semibold))
                             .monospacedDigit()
                             .foregroundColor(accentBlue)
                             .tracking(0.5)

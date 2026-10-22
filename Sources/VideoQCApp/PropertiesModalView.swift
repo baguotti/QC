@@ -544,7 +544,7 @@ public struct PropertiesModalView: View {
                     .help("Close (ESC)")
                     
                     Text("MEDIA INFO")
-                        .font(.system(size: 11, weight: .bold, design: .monospaced))
+                        .font(.ui(size: 11, weight: .semibold))
                         .foregroundColor(palette.textMain)
                         .tracking(0.8)
                     
@@ -558,7 +558,7 @@ public struct PropertiesModalView: View {
                     // Close ESC Button
                     Button(action: { dismissModal() }) {
                         Text("ESC")
-                            .font(.system(size: 9, weight: .bold, design: .monospaced))
+                            .font(.ui(size: 9, weight: .semibold))
                             .padding(.horizontal, 7)
                             .padding(.vertical, 3)
                             .foregroundColor(palette.textMuted)
@@ -580,7 +580,7 @@ public struct PropertiesModalView: View {
                         ProgressView()
                             .scaleEffect(1.1)
                         Text("READING MEDIA INFO...")
-                            .font(.system(size: 11, weight: .bold, design: .monospaced))
+                            .font(.ui(size: 11, weight: .semibold))
                             .foregroundColor(palette.textMuted)
                         Spacer()
                     }
@@ -606,11 +606,11 @@ public struct PropertiesModalView: View {
                             .font(.system(size: 28))
                             .foregroundColor(palette.textMuted)
                         Text("UNABLE TO LOAD MEDIA INFO")
-                            .font(.system(size: 12, weight: .bold, design: .monospaced))
+                            .font(.ui(size: 12, weight: .semibold))
                             .foregroundColor(palette.textMain)
                         if let effectiveURL = effectiveURL {
                             Text(effectiveURL.path)
-                                .font(.system(size: 10, design: .monospaced))
+                                .font(.ui(size: 10))
                                 .foregroundColor(palette.textSubtle)
                                 .multilineTextAlignment(.center)
                                 .padding(.horizontal, 24)
@@ -655,7 +655,7 @@ public struct PropertiesModalView: View {
                     }
                 }) {
                     Text(tab.rawValue)
-                        .font(.system(size: 11, weight: selectedTab == tab ? .bold : .medium, design: .monospaced))
+                        .font(.ui(size: 11, weight: selectedTab == tab ? .semibold : .medium))
                         .padding(.horizontal, 20)
                         .padding(.vertical, 6)
                         .foregroundColor(selectedTab == tab ? (isLightMode ? Color.black : Color.white) : palette.textMuted)
@@ -686,7 +686,7 @@ public struct PropertiesModalView: View {
     private func tracksTabView(asset: DeliverableAsset, info: ExtendedMediaInfo) -> some View {
         VStack(alignment: .leading, spacing: 16) {
             Text("CONTAINER TRACK INVENTORY (\(info.tracks.count) TRACKS)")
-                .font(.system(size: 11, weight: .bold, design: .monospaced))
+                .font(.ui(size: 11, weight: .semibold))
                 .foregroundColor(palette.textMain)
                 .tracking(1.0)
             
@@ -694,13 +694,13 @@ public struct PropertiesModalView: View {
                 VStack(alignment: .leading, spacing: 8) {
                     HStack {
                         Text(track.typeName)
-                            .font(.system(size: 10, weight: .bold, design: .monospaced))
+                            .font(.ui(size: 10, weight: .semibold))
                             .foregroundColor(track.typeName.contains("VIDEO") ? palette.accentPositive : (track.typeName.contains("AUDIO") ? palette.accentSlotB : palette.textMain))
                         
                         Spacer()
                         
                         Text(track.format.uppercased())
-                            .font(.system(size: 9, weight: .bold, design: .monospaced))
+                            .font(.ui(size: 9, weight: .semibold))
                             .padding(.horizontal, 8)
                             .padding(.vertical, 3)
                             .foregroundColor(palette.textMain)
@@ -757,7 +757,7 @@ public struct PropertiesModalView: View {
         VStack(alignment: .leading, spacing: 18) {
             VStack(alignment: .leading, spacing: 8) {
                 Text("FILE SYSTEM SPECIFICATIONS")
-                    .font(.system(size: 11, weight: .bold, design: .monospaced))
+                    .font(.ui(size: 11, weight: .semibold))
                     .foregroundColor(palette.textMain)
                     .tracking(1.0)
                 
@@ -775,7 +775,7 @@ public struct PropertiesModalView: View {
             
             VStack(alignment: .leading, spacing: 8) {
                 Text("TIMING & RASTER")
-                    .font(.system(size: 11, weight: .bold, design: .monospaced))
+                    .font(.ui(size: 11, weight: .semibold))
                     .foregroundColor(palette.textMain)
                     .tracking(1.0)
                 
@@ -800,12 +800,12 @@ public struct PropertiesModalView: View {
     private func infoRow(label: String, value: String, copyable: Bool = false) -> some View {
         HStack(alignment: .top, spacing: 12) {
             Text(label)
-                .font(.system(size: 11, weight: .bold, design: .monospaced))
+                .font(.ui(size: 11, weight: .semibold))
                 .foregroundColor(palette.textMuted)
                 .frame(width: 118, alignment: .leading)
             
             Text(value)
-                .font(.system(size: 11, weight: .medium, design: .monospaced))
+                .font(.ui(size: 11, weight: .medium))
                 .foregroundColor(palette.textMain)
                 .lineLimit(label == "File Path:" ? 3 : 2)
                 .truncationMode(label == "File Path:" ? .middle : .tail)
@@ -842,7 +842,7 @@ public struct PropertiesModalView: View {
                         Image(systemName: "doc.on.doc")
                             .font(.system(size: 9, weight: .bold))
                         Text("COPY SPECS")
-                            .font(.system(size: 9, weight: .bold, design: .monospaced))
+                            .font(.ui(size: 9, weight: .semibold))
                     }
                     .padding(.horizontal, 9)
                     .padding(.vertical, 6)
@@ -860,7 +860,7 @@ public struct PropertiesModalView: View {
                         Image(systemName: "folder")
                             .font(.system(size: 9, weight: .bold))
                         Text("REVEAL")
-                            .font(.system(size: 9, weight: .bold, design: .monospaced))
+                            .font(.ui(size: 9, weight: .semibold))
                     }
                     .padding(.horizontal, 8)
                     .padding(.vertical, 6)
@@ -877,9 +877,9 @@ public struct PropertiesModalView: View {
                 }) {
                     HStack(spacing: 3) {
                         Text("+A")
-                            .font(.system(size: 9, weight: .bold, design: .monospaced))
+                            .font(.ui(size: 9, weight: .semibold))
                         Text("MASTER")
-                            .font(.system(size: 9, weight: .bold, design: .monospaced))
+                            .font(.ui(size: 9, weight: .semibold))
                     }
                     .padding(.horizontal, 8)
                     .padding(.vertical, 6)
@@ -894,9 +894,9 @@ public struct PropertiesModalView: View {
                 }) {
                     HStack(spacing: 3) {
                         Text("+B")
-                            .font(.system(size: 9, weight: .bold, design: .monospaced))
+                            .font(.ui(size: 9, weight: .semibold))
                         Text("COMPARE")
-                            .font(.system(size: 9, weight: .bold, design: .monospaced))
+                            .font(.ui(size: 9, weight: .semibold))
                     }
                     .padding(.horizontal, 8)
                     .padding(.vertical, 6)

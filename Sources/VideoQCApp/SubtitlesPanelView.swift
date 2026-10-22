@@ -194,7 +194,7 @@ struct SubtitlesPanelView: View {
         HStack(spacing: 6) {
             CCBadge(color: palette.textMuted, size: 10)
             Text(engine.subtitleFileName ?? "Subtitles")
-                .font(.system(size: 10, weight: .bold, design: .monospaced))
+                .font(.ui(size: 10, weight: .semibold))
                 .foregroundColor(palette.textMain)
                 .lineLimit(1)
                 .truncationMode(.middle)
@@ -210,7 +210,7 @@ struct SubtitlesPanelView: View {
                     Image(systemName: spelling.issueCount == 0 ? "checkmark.seal" : "textformat.abc.dottedunderline")
                         .font(.system(size: 9, weight: .bold))
                     Text(spelling.issueCount == 0 ? "SPELLING OK" : "\(spelling.issueCount)")
-                        .font(.system(size: 8.5, weight: .bold, design: .monospaced))
+                        .font(.ui(size: 8.5, weight: .semibold))
                 }
                 .padding(.horizontal, 6)
                 .padding(.vertical, 3.5)
@@ -224,7 +224,7 @@ struct SubtitlesPanelView: View {
 
             Button(action: save) {
                 Text("SAVE")
-                    .font(.system(size: 8.5, weight: .bold, design: .monospaced))
+                    .font(.ui(size: 8.5, weight: .semibold))
                     .padding(.horizontal, 7)
                     .padding(.vertical, 3.5)
                     .foregroundColor(engine.hasUnsavedSubtitleEdits ? palette.accentBlue : palette.textSubtle)
@@ -271,18 +271,18 @@ struct SubtitlesPanelView: View {
                         .foregroundColor(palette.textMuted)
                     TextField("Find", text: $query)
                         .textFieldStyle(.plain)
-                        .font(.system(size: 10.5, design: .monospaced))
+                        .font(.ui(size: 10.5))
                         .focused($isFindFocused)
                         .onSubmit { goToMatch(currentMatch + 1, in: currentMatches) }
                     if !query.isEmpty {
                         Text(currentMatches.isEmpty ? "0" : "\(min(currentMatch, currentMatches.count - 1) + 1)/\(currentMatches.count)")
-                            .font(.system(size: 9, weight: .bold, design: .monospaced))
+                            .font(.ui(size: 9, weight: .semibold))
                             .foregroundColor(currentMatches.isEmpty ? palette.alertRed : palette.textMuted)
                     }
                 }
                 Button(action: { matchCase.toggle() }) {
                     Text("Aa")
-                        .font(.system(size: 9.5, weight: .bold, design: .monospaced))
+                        .font(.ui(size: 9.5, weight: .semibold))
                         .frame(width: 24, height: 22)
                         .foregroundColor(matchCase ? palette.accentBlue : palette.textMuted)
                         .studioBox(background: matchCase ? palette.accentBlue.opacity(0.15) : palette.bgSubtle,
@@ -302,7 +302,7 @@ struct SubtitlesPanelView: View {
                         .foregroundColor(palette.textMuted)
                     TextField("Replace with", text: $replacement)
                         .textFieldStyle(.plain)
-                        .font(.system(size: 10.5, design: .monospaced))
+                        .font(.ui(size: 10.5))
                         .onSubmit { replaceCurrent(currentMatches) }
                 }
                 textButton("REPLACE") { replaceCurrent(currentMatches) }
@@ -354,7 +354,7 @@ struct SubtitlesPanelView: View {
                                 if highlightedIndex == index {
                                     Button(action: { select(index, seek: false) }) {
                                         Text("EDIT")
-                                            .font(.system(size: 8, weight: .bold, design: .monospaced))
+                                            .font(.ui(size: 8, weight: .semibold))
                                             .padding(.horizontal, 6)
                                             .padding(.vertical, 2.5)
                                             .foregroundColor(palette.accentBlue)
@@ -386,7 +386,7 @@ struct SubtitlesPanelView: View {
         VStack(alignment: .leading, spacing: 5) {
             HStack(spacing: 6) {
                 Text("\(index + 1)")
-                    .font(.system(size: 9, weight: .bold, design: .monospaced))
+                    .font(.ui(size: 9, weight: .semibold))
                     .foregroundColor(palette.accentBlue)
                 Text("\(timecode(cue.start)) → \(timecode(cue.end))")
                     .font(.system(size: 9, weight: .semibold, design: .monospaced))
@@ -575,7 +575,7 @@ struct SubtitlesPanelView: View {
     private func textButton(_ title: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Text(title)
-                .font(.system(size: 8.5, weight: .bold, design: .monospaced))
+                .font(.ui(size: 8.5, weight: .semibold))
                 .padding(.horizontal, 7)
                 .frame(height: 22)
                 .foregroundColor(palette.textMain)
@@ -619,10 +619,10 @@ struct SubtitleCueRow: View, Equatable {
             VStack(alignment: .leading, spacing: 3) {
                 HStack(spacing: 6) {
                     Text("\(number)")
-                        .font(.system(size: 9, weight: .bold, design: .monospaced))
+                        .font(.ui(size: 9, weight: .semibold))
                         .foregroundColor(isActive ? palette.accentBlue : palette.textSubtle)
                     Text("\(inTC) → \(outTC)")
-                        .font(.system(size: 9, weight: .semibold, design: .monospaced))
+                        .font(.ui(size: 9, weight: .medium))
                         .foregroundColor(palette.textMuted)
                     Spacer(minLength: 0)
                     if !spellingIssues.isEmpty {

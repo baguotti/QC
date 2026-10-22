@@ -448,7 +448,7 @@ struct ContentView: View {
                         .font(.system(size: 13, weight: .bold))
                         .foregroundColor(accentPositive)
                     Text(toast)
-                        .font(.system(size: 11, weight: .bold, design: .monospaced))
+                        .font(.ui(size: 11, weight: .semibold))
                         .foregroundColor(textMain)
                 }
                 .padding(.horizontal, 16)
@@ -533,7 +533,7 @@ struct ContentView: View {
                                 .foregroundColor(updateManager.hasUpdate ? accentPositive : textMain)
                                 .frame(width: 16)
                             Text(updateManager.hasUpdate ? "Software Update (v\(updateManager.latestVersion) available)" : "Software Update (v\(AppVersionInfo.version))")
-                                .font(.system(size: 11, weight: .bold, design: .monospaced))
+                                .font(.ui(size: 11, weight: .semibold))
                                 .foregroundColor(updateManager.hasUpdate ? accentPositive : textMain)
                         }
                         .padding(.horizontal, 10)
@@ -559,7 +559,7 @@ struct ContentView: View {
                                 .foregroundColor(textMain)
                                 .frame(width: 16)
                             Text("User Settings")
-                                .font(.system(size: 11, weight: .bold, design: .monospaced))
+                                .font(.ui(size: 11, weight: .semibold))
                                 .foregroundColor(textMain)
                         }
                         .padding(.horizontal, 10)
@@ -586,10 +586,10 @@ struct ContentView: View {
                                 .frame(width: 16)
                             VStack(alignment: .leading, spacing: 1) {
                                 Text("Theme & Accents")
-                                    .font(.system(size: 11, weight: .bold, design: .monospaced))
+                                    .font(.ui(size: 11, weight: .semibold))
                                     .foregroundColor(textMain)
                                 Text(themeManager.currentTheme.name)
-                                    .font(.system(size: 9, weight: .medium, design: .monospaced))
+                                    .font(.ui(size: 9, weight: .medium))
                                     .foregroundColor(themeManager.currentTheme.playColor)
                                     .lineLimit(1)
                             }
@@ -624,7 +624,7 @@ struct ContentView: View {
                                 .foregroundColor(textMain)
                                 .frame(width: 16)
                             Text("Synced Projects")
-                                .font(.system(size: 11, weight: .bold, design: .monospaced))
+                                .font(.ui(size: 11, weight: .semibold))
                                 .foregroundColor(textMain)
                         }
                         .padding(.horizontal, 10)
@@ -650,7 +650,7 @@ struct ContentView: View {
                                 .foregroundColor(textMain)
                                 .frame(width: 16)
                             Text("Info / Guide")
-                                .font(.system(size: 11, weight: .bold, design: .monospaced))
+                                .font(.ui(size: 11, weight: .semibold))
                                 .foregroundColor(textMain)
                         }
                         .padding(.horizontal, 10)
@@ -676,7 +676,7 @@ struct ContentView: View {
                                 .foregroundColor(textMain)
                                 .frame(width: 16)
                             Text("Feedback & Support")
-                                .font(.system(size: 11, weight: .bold, design: .monospaced))
+                                .font(.ui(size: 11, weight: .semibold))
                                 .foregroundColor(textMain)
                         }
                         .padding(.horizontal, 10)
@@ -762,7 +762,7 @@ struct ContentView: View {
             
             HStack(spacing: 6) {
                 HStack(alignment: .bottom, spacing: 6) {
-                    ForEach(AppTab.allCases) { tab in
+                    ForEach(AppTab.visibleTabs) { tab in
                         let isActive = (selectedTab == tab)
                         let isHovered = (hoveredTab == tab)
                         let iconColor = isActive ? accentBlue : (isHovered ? textMain : textMuted.opacity(0.72))
@@ -869,7 +869,7 @@ struct ContentView: View {
                             Image(systemName: isSelectEmpty ? "folder.badge.plus" : "arrow.triangle.2.circlepath")
                                 .font(.system(size: StudioTheme.scaleFont(9), weight: .bold))
                             Text(isSelectEmpty ? "SELECT" : "CHANGE")
-                                .font(.system(size: StudioTheme.scaleFont(9), weight: .bold, design: .monospaced))
+                                .font(.ui(size: StudioTheme.scaleFont(9), weight: .semibold))
                                 .lineLimit(1)
                         }
                         .padding(.horizontal, 9)
@@ -889,7 +889,7 @@ struct ContentView: View {
                             Image(systemName: "plus")
                                 .font(.system(size: StudioTheme.scaleFont(9), weight: .bold))
                             Text("ADD")
-                                .font(.system(size: StudioTheme.scaleFont(9), weight: .bold, design: .monospaced))
+                                .font(.ui(size: StudioTheme.scaleFont(9), weight: .semibold))
                                 .lineLimit(1)
                         }
                         .padding(.horizontal, 8)
@@ -907,7 +907,7 @@ struct ContentView: View {
                             Image(systemName: "arrow.clockwise")
                                 .font(.system(size: StudioTheme.scaleFont(9), weight: .bold))
                             Text("REFRESH")
-                                .font(.system(size: StudioTheme.scaleFont(9), weight: .bold, design: .monospaced))
+                                .font(.ui(size: StudioTheme.scaleFont(9), weight: .semibold))
                                 .lineLimit(1)
                         }
                         .padding(.horizontal, 8)
@@ -927,7 +927,7 @@ struct ContentView: View {
                                 .fill(accentPositive)
                                 .frame(width: StudioTheme.scale(5), height: StudioTheme.scale(5))
                             Text("\(videoFiles.count) \(videoFiles.count == 1 ? "FILE" : "FILES")")
-                                .font(.system(size: StudioTheme.scaleFont(9), weight: .bold, design: .monospaced))
+                                .font(.ui(size: StudioTheme.scaleFont(9), weight: .semibold))
                                 .foregroundColor(textMuted)
                         }
                         .padding(.horizontal, 7)
@@ -943,7 +943,7 @@ struct ContentView: View {
                             .foregroundColor(textMain)
                             .lineLimit(1)
                         Text("\(videoFiles.count) ASSET(S) FOUND IN DIRECTORY")
-                            .font(.system(size: 9, weight: .bold, design: .monospaced))
+                            .font(.ui(size: 9, weight: .semibold))
                             .foregroundColor(textMuted)
                     }
                     .padding(10)
@@ -968,14 +968,14 @@ struct ContentView: View {
                                 .foregroundColor(textMain)
                                 .lineLimit(1)
                             Text("1 ASSET LOADED DIRECTLY")
-                                .font(.system(size: 9, weight: .bold, design: .monospaced))
+                                .font(.ui(size: 9, weight: .semibold))
                                 .foregroundColor(textMuted)
                         } else {
                             Text("\(videoFiles.count) INDIVIDUAL FILE(S)")
                                 .font(.system(size: 12, weight: .black, design: .monospaced))
                                 .foregroundColor(textMain)
                             Text("BATCH LOADED DIRECTLY")
-                                .font(.system(size: 9, weight: .bold, design: .monospaced))
+                                .font(.ui(size: 9, weight: .semibold))
                                 .foregroundColor(textMuted)
                         }
                     }
@@ -1011,7 +1011,7 @@ struct ContentView: View {
                     }
                 } else {
                     Text("DRAG & DROP FOLDER OR VIDEO FILES HERE")
-                        .font(.system(size: 10, weight: .medium, design: .monospaced))
+                        .font(.ui(size: 10, weight: .medium))
                         .foregroundColor(textMuted)
                         .frame(maxWidth: .infinity, alignment: .center)
                         .padding(.vertical, 14)
@@ -1510,7 +1510,7 @@ struct ContentView: View {
     func statBox(title: String, val: String, isRed: Bool = false, isPositive: Bool = false) -> some View {
         VStack(alignment: .leading, spacing: 4) {
             Text(title)
-                .font(.system(size: 8, weight: .bold, design: .monospaced))
+                .font(.ui(size: 8, weight: .semibold))
                 .foregroundColor(textMuted)
             Text(val)
                 .font(.system(size: 16, weight: .black, design: .monospaced))
@@ -1523,11 +1523,11 @@ struct ContentView: View {
     func statItem(label: String, val: String, width: CGFloat? = nil, isAlert: Bool = false, isPositive: Bool = false) -> some View {
         VStack(alignment: .leading, spacing: 2) {
             Text(label)
-                .font(.system(size: 8, weight: .bold, design: .monospaced))
+                .font(.ui(size: 8, weight: .semibold))
                 .foregroundColor(textMuted)
                 .lineLimit(1)
             Text(val)
-                .font(.system(size: 13, weight: .bold, design: .monospaced))
+                .font(.ui(size: 13, weight: .semibold))
                 .monospacedDigit()
                 .foregroundColor(isAlert ? alertRed : (isPositive ? accentPositive : textMain))
                 .lineLimit(1)
@@ -1537,7 +1537,7 @@ struct ContentView: View {
     
     func formatTag(_ text: String) -> some View {
         Text(text)
-            .font(.system(size: 9, weight: .bold, design: .monospaced))
+            .font(.ui(size: 9, weight: .semibold))
             .padding(.horizontal, 8)
             .padding(.vertical, 4)
             .foregroundColor(textSubtle)
@@ -1684,11 +1684,6 @@ struct ContentView: View {
             onSelectLineFinderTab: {
                 withAnimation(.spring(response: 0.22, dampingFraction: 0.85)) {
                     self.selectedTab = .lineFinder
-                }
-            },
-            onSelectIngestTab: {
-                withAnimation(.spring(response: 0.22, dampingFraction: 0.85)) {
-                    self.selectedTab = .ingest
                 }
             },
             onToggleLightMode: {
@@ -2467,12 +2462,12 @@ struct StudioStatusBarView: View {
                     .font(.system(size: 9))
                     .foregroundColor(hoverCoordinator.text.isEmpty ? textMuted : textMain)
                 Text("INFO //")
-                    .font(.system(size: 9, weight: .bold, design: .monospaced))
+                    .font(.ui(size: 9, weight: .semibold))
                     .foregroundColor(hoverCoordinator.text.isEmpty ? textMuted : textMain)
             }
             
             Text(hoverCoordinator.text.isEmpty ? "Hover over any button, field, or control for function details." : hoverCoordinator.text)
-                .font(.system(size: 10, weight: hoverCoordinator.text.isEmpty ? .regular : .semibold, design: .monospaced))
+                .font(.ui(size: 10, weight: hoverCoordinator.text.isEmpty ? .regular : .medium))
                 .foregroundColor(hoverCoordinator.text.isEmpty ? textMuted : textMain)
                 .lineLimit(1)
                 .truncationMode(.middle)
@@ -2480,7 +2475,7 @@ struct StudioStatusBarView: View {
             Spacer()
             
             Text("v\(AppVersionInfo.version)")
-                .font(.system(size: 9, weight: .bold, design: .monospaced))
+                .font(.ui(size: 9, weight: .semibold))
                 .foregroundColor(textMuted)
         }
     }
