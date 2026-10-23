@@ -60,9 +60,9 @@ struct UserGuideView: View {
                 
                 // Tabs
                 HStack(spacing: 0) {
-                    guideTabButton(title: "Player", index: 0)
-                    guideTabButton(title: "Specs", index: 1)
-                    guideTabButton(title: "Glitch Finder", index: 2)
+                    guideTabButton(title: "Play", index: 0)
+                    guideTabButton(title: "Inspect", index: 1)
+                    guideTabButton(title: "Scan", index: 2)
                     Spacer()
                 }
                 .padding(.horizontal, 14)
@@ -154,13 +154,13 @@ struct UserGuideView: View {
             guideRow(name: "Zoom and Pan", desc: "Scroll to zoom (it follows the cursor; change this in User Settings) and drag to pan. Above 175% pixels are shown square for pixel-level QC.")
             guideRow(name: "Exposure", desc: "The EV control brightens or darkens the picture to inspect shadows and highlights. It never changes your files.")
             guideRow(name: "Notes (N)", desc: "N adds a note at the playhead; [ and ] (or ⌥N / ⌥⇧N) jump between notes. Notes can be coloured, filtered, resolved, exported to Premiere XML and synced with your team (Synced Projects in Settings).")
-            guideRow(name: "Glitch Findings (M)", desc: "After a Glitch Finder check, M / ⇧M jump to the next or previous finding in the open clip.")
+            guideRow(name: "Glitch Findings (M)", desc: "After a Scan check, M / ⇧M jump to the next or previous finding in the open clip.")
             guideRow(name: "Missed Line", desc: "Found a line the Line Check didn't catch? Missed Line in the timecode bar sends that frame and its details to the developer after you confirm.")
             guideRow(name: "Finder Tags (1–7, 0)", desc: "Number keys apply a Finder colour tag to the open file; 0 clears it.")
             guideRow(name: "Overlays and Info", desc: "I cycles the clip info overlay. ⌘I opens Media Info. The crosshair, title-safe and subtitle buttons sit in the transport bar.")
             guideRow(name: "Screenshot", desc: "The camera button saves the frame on screen (including A / B compare views) at full resolution. Right-click it to choose JPG or PNG quality.")
             guideRow(name: "Full Screen (F / ⇧F)", desc: "F shows the video full screen with no interface. ⇧F opens review full screen with timeline and transport controls. Esc exits.")
-            guideRow(name: "Panels and Workspaces", desc: "⌘⇧← / ⌘⇧→ show or hide the side panels. ⇧1, ⇧2 and ⇧3 switch to Player, Specs and Glitch Finder. T toggles light and dark mode, ⇧T cycles the accent theme.")
+            guideRow(name: "Panels and Workspaces", desc: "⌘⇧← / ⌘⇧→ show or hide the side panels. ⇧1, ⇧2 and ⇧3 switch to Play, Inspect and Scan. T toggles light and dark mode, ⇧T cycles the accent theme.")
         }
     }
     

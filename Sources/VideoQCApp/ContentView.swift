@@ -764,9 +764,9 @@ struct ContentView: View {
             }
         }
         .explain(
-            tab == .player ? "PLAYER: High-performance delivery playback with J-K-L shuttle, timeline scrubbing, and zoom." :
-            (tab == .specs ? "SPECS: Reads container resolution, timecode, audio, and codecs." :
-             (tab == .lineFinder ? "GLITCH FINDER: Finds edge lines, split-screen seams, frame-rate stutters, flash frames and Media Offline." :
+            tab == .player ? "Play: high-performance delivery playback with J-K-L shuttle, timeline scrubbing, and zoom." :
+            (tab == .specs ? "Inspect: reads container resolution, timecode, audio, and codecs." :
+             (tab == .lineFinder ? "Scan: finds edge lines, split-screen seams, frame-rate stutters, flash frames and Media Offline." :
               "INGEST: Intake checklist, automatic metadata aggregation, and DIT cross-referencing."))
         )
     }

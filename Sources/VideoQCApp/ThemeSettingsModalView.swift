@@ -620,7 +620,7 @@ struct ThemeSettingsModalView: View {
                         Image(systemName: "film")
                             .font(.system(size: 9, weight: .bold))
                             .foregroundColor(themeManager.currentTheme.playColor)
-                        Text("Player")
+                        Text("Play")
                             .font(.ui(size: 9.5, weight: .semibold))
                             .foregroundColor(palette.textMain)
                     }
@@ -640,7 +640,7 @@ struct ThemeSettingsModalView: View {
                     HStack(spacing: 5) {
                         Image(systemName: "doc.text")
                             .font(.system(size: 8.5, weight: .medium))
-                        Text("Specs")
+                        Text("Inspect")
                             .font(.ui(size: 9, weight: .semibold))
                     }
                     .padding(.horizontal, 8)
@@ -651,7 +651,7 @@ struct ThemeSettingsModalView: View {
                     HStack(spacing: 5) {
                         Image(systemName: "viewfinder")
                             .font(.system(size: 8.5, weight: .medium))
-                        Text("Glitch Finder")
+                        Text("Scan")
                             .font(.ui(size: 9, weight: .semibold))
                     }
                     .padding(.horizontal, 8)

@@ -16,9 +16,9 @@ enum AppTab: Int, CaseIterable, Identifiable {
     
     var title: String {
         switch self {
-        case .player: return "Player"
-        case .specs: return "Specs"
-        case .lineFinder: return "Glitch Finder"
+        case .player: return "Play"
+        case .specs: return "Inspect"
+        case .lineFinder: return "Scan"
         case .ingest: return "Ingest"
         }
     }
