@@ -1,31 +1,13 @@
 import AppKit
 import SwiftUI
 
-/// Title bar hidden: puts the window buttons (traffic lights) inside the tab strip and lets the strip's empty space drag
-/// the window (double-click zooms), like Premiere Pro.
+/// Title bar hidden: the tab strip's empty space drags the window (double-click zooms) and the system window buttons are
+/// replaced by `WindowControls`, which sit in the strip like Premiere Pro's.
 struct TabStripWindowChrome: NSViewRepresentable {
-    /// Height of the strip; the buttons are centred on `buttonCenterFromTop`.
-    let height: CGFloat
-    let buttonCenterFromTop: CGFloat
-    let leading: CGFloat
-
-    /// Width the buttons take from the strip's leading edge (three buttons plus a gap before the tabs).
-    static func reservedWidth(leading: CGFloat) -> CGFloat { leading + 2 * buttonSpacing + 14 + 18 }
-    static let buttonSpacing: CGFloat = 20
-
     func makeNSView(context: Context) -> ChromeView { ChromeView() }
-
-    func updateNSView(_ view: ChromeView, context: Context) {
-        view.height = height
-        view.buttonCenterFromTop = buttonCenterFromTop
-        view.leading = leading
-        view.placeButtons()
-    }
+    func updateNSView(_ view: ChromeView, context: Context) { view.hideSystemButtons() }
 
     final class ChromeView: NSView {
-        var height: CGFloat = 42
-        var buttonCenterFromTop: CGFloat = 21
-        var leading: CGFloat = 20
         private var observers: [NSObjectProtocol] = []
 
         override var mouseDownCanMoveWindow: Bool { true }
@@ -43,41 +25,57 @@ struct TabStripWindowChrome: NSViewRepresentable {
             observers.forEach(NotificationCenter.default.removeObserver)
             observers = []
             guard let window else { return }
-            // AppKit lays the title bar out again on these; put the buttons back each time.
-            let names: [Notification.Name] = [NSWindow.didResizeNotification, NSWindow.didEndLiveResizeNotification,
-                                              NSWindow.didExitFullScreenNotification, NSWindow.didBecomeKeyNotification,
-                                              NSWindow.didResignKeyNotification]
-            for name in names {
+            // AppKit shows the buttons again when it rebuilds the title bar (e.g. leaving full screen).
+            for name in [NSWindow.didExitFullScreenNotification, NSWindow.didBecomeKeyNotification, NSWindow.didResizeNotification] {
                 observers.append(NotificationCenter.default.addObserver(forName: name, object: window, queue: .main) { [weak self] _ in
-                    MainActor.assumeIsolated { self?.placeButtons() }
+                    MainActor.assumeIsolated { self?.hideSystemButtons() }
                 })
             }
-            placeButtons()
+            hideSystemButtons()
         }
 
-        override func layout() {
-            super.layout()
-            placeButtons()
+        func hideSystemButtons() {
+            guard let window else { return }
+            for type in [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton] {
+                if let button = window.standardWindowButton(type), !button.isHidden { button.isHidden = true }
+            }
         }
+    }
+}
 
-        func placeButtons() {
-            guard let window, !window.styleMask.contains(.fullScreen),
-                  let close = window.standardWindowButton(.closeButton),
-                  let titlebar = close.superview, let container = titlebar.superview else { return }
-            let top = window.frame.height
-            if container.frame.height != height || container.frame.maxY != top {
-                container.frame = NSRect(x: container.frame.minX, y: top - height, width: container.frame.width, height: height)
-            }
-            if titlebar.frame.height != height {
-                titlebar.frame = NSRect(x: titlebar.frame.minX, y: 0, width: titlebar.frame.width, height: height)
-            }
-            let types: [NSWindow.ButtonType] = [.closeButton, .miniaturizeButton, .zoomButton]
-            for (i, type) in types.enumerated() {
-                guard let button = window.standardWindowButton(type) else { continue }
-                let origin = NSPoint(x: leading + CGFloat(i) * TabStripWindowChrome.buttonSpacing,
-                                     y: (height - buttonCenterFromTop - button.frame.height / 2).rounded())
-                if button.frame.origin != origin { button.setFrameOrigin(origin) }
-            }
+/// Close / minimise / full-screen buttons: grey until hovered, then the usual colours and symbols.
+struct WindowControls: View {
+    let isLightMode: Bool
+    @State private var isHovered = false
+
+    static let width: CGFloat = 3 * diameter + 2 * spacing
+    private static let diameter: CGFloat = 12
+    private static let spacing: CGFloat = 8
+
+    var body: some View {
+        HStack(spacing: Self.spacing) {
+            button(color: Color(red: 1, green: 0.373, blue: 0.341), symbol: "xmark") { $0.performClose(nil) }
+            button(color: Color(red: 0.996, green: 0.737, blue: 0.180), symbol: "minus") { $0.miniaturize(nil) }
+            button(color: Color(red: 0.157, green: 0.784, blue: 0.251), symbol: "arrow.up.left.and.arrow.down.right") { $0.toggleFullScreen(nil) }
         }
+        .onHover { isHovered = $0 }
+    }
+
+    private func button(color: Color, symbol: String, action: @escaping (NSWindow) -> Void) -> some View {
+        Button(action: {
+            if let window = NSApp.keyWindow ?? NSApp.mainWindow { action(window) }
+        }) {
+            Circle()
+                .fill(isHovered ? color : Color(white: isLightMode ? 0.78 : 0.36))
+                .overlay(
+                    Image(systemName: symbol)
+                        .font(.system(size: 6.5, weight: .heavy))
+                        .foregroundColor(Color.black.opacity(0.55))
+                        .opacity(isHovered ? 1 : 0)
+                )
+                .frame(width: Self.diameter, height: Self.diameter)
+                .contentShape(Circle())
+        }
+        .buttonStyle(.plain)
     }
 }

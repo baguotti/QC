@@ -25,7 +25,7 @@ extension ContentView {
                     Spacer(minLength: 0)
                 }
                 .padding(22)
-                .frame(width: 380)
+                .frame(width: ContentView.specsPanelWidth)
                 .background(bgPanel)
                 .overlay(
                     Rectangle()

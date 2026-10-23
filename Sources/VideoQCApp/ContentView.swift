@@ -698,170 +698,80 @@ struct ContentView: View {
     }
 
     
-    // MARK: - Custom Tab Shapes for Seamless Body Blending
-    struct OpenBottomTabBorderShape: Shape {
-        var cornerRadius: CGFloat = 5
-        
-        func path(in rect: CGRect) -> Path {
-            var path = Path()
-            path.move(to: CGPoint(x: rect.minX, y: rect.maxY))
-            path.addLine(to: CGPoint(x: rect.minX, y: rect.minY + cornerRadius))
-            path.addArc(
-                center: CGPoint(x: rect.minX + cornerRadius, y: rect.minY + cornerRadius),
-                radius: cornerRadius,
-                startAngle: .degrees(180),
-                endAngle: .degrees(270),
-                clockwise: false
-            )
-            path.addLine(to: CGPoint(x: rect.maxX - cornerRadius, y: rect.minY))
-            path.addArc(
-                center: CGPoint(x: rect.maxX - cornerRadius, y: rect.minY + cornerRadius),
-                radius: cornerRadius,
-                startAngle: .degrees(270),
-                endAngle: .degrees(0),
-                clockwise: false
-            )
-            path.addLine(to: CGPoint(x: rect.maxX, y: rect.maxY))
-            return path
-        }
-    }
-
-    struct OpenBottomTabFillShape: Shape {
-        var cornerRadius: CGFloat = 5
-        var bleedBottom: CGFloat = 1.0
-        
-        func path(in rect: CGRect) -> Path {
-            var path = Path()
-            path.move(to: CGPoint(x: rect.minX, y: rect.maxY + bleedBottom))
-            path.addLine(to: CGPoint(x: rect.minX, y: rect.minY + cornerRadius))
-            path.addArc(
-                center: CGPoint(x: rect.minX + cornerRadius, y: rect.minY + cornerRadius),
-                radius: cornerRadius,
-                startAngle: .degrees(180),
-                endAngle: .degrees(270),
-                clockwise: false
-            )
-            path.addLine(to: CGPoint(x: rect.maxX - cornerRadius, y: rect.minY))
-            path.addArc(
-                center: CGPoint(x: rect.maxX - cornerRadius, y: rect.minY + cornerRadius),
-                radius: cornerRadius,
-                startAngle: .degrees(270),
-                endAngle: .degrees(0),
-                clockwise: false
-            )
-            path.addLine(to: CGPoint(x: rect.maxX, y: rect.maxY + bleedBottom))
-            path.closeSubpath()
-            return path
-        }
-    }
-
-    private let tabLength: CGFloat = 150
+    /// Width of the Specs tab's control panel.
+    static let specsPanelWidth: CGFloat = 380
     
+    /// Window controls and the app's sections as plain labels (active: accent icon, bright bold text), like Premiere Pro.
     private var tabBarStrip: some View {
-        ZStack(alignment: .bottom) {
-            // Baseline 1px divider spanning full width
-            Rectangle()
-                .fill(borderLine)
-                .frame(height: 1)
-            
-            HStack(spacing: 6) {
-                HStack(alignment: .bottom, spacing: 6) {
-                    ForEach(AppTab.visibleTabs) { tab in
-                        let isActive = (selectedTab == tab)
-                        let isHovered = (hoveredTab == tab)
-                        let iconColor = isActive ? accentBlue : (isHovered ? textMain : textMuted.opacity(0.72))
-                        let textColor = isActive ? (isLightMode ? Color.black : Color.white) : (isHovered ? textMain : textMuted.opacity(0.72))
-                        
-                        Button(action: {
-                            selectedTab = tab
-                            if tab == .specs && specsState.deliverableAssets.isEmpty && !videoFiles.isEmpty {
-                                specsState.inspectDeliverablesBatch(urls: videoFiles)
-                            } else if tab == .player && playerEngine.activeURL == nil, let first = videoFiles.first {
-                                playerEngine.loadVideo(url: first)
-                            }
-                        }) {
-                            HStack(spacing: 6) {
-                                if tab == .player, let playImg = PlayAnimationAssets.shared.frame(at: 0) {
-                                    Image(nsImage: playImg)
-                                        .renderingMode(.template)
-                                        .resizable()
-                                        .aspectRatio(contentMode: .fit)
-                                        .frame(width: StudioTheme.scaleFont(12), height: StudioTheme.scaleFont(12))
-                                        .foregroundColor(iconColor)
-                                } else {
-                                    Image(systemName: tab.iconName)
-                                        .font(.system(size: StudioTheme.scaleFont(11), weight: isActive ? .bold : .medium))
-                                        .foregroundColor(iconColor)
-                                }
-                                
-                                Text(tab.title)
-                                    .font(.system(size: StudioTheme.scaleFont(11), weight: isActive ? .bold : .medium, design: .monospaced))
-                                    .tracking(0.5)
-                                    .lineLimit(1)
-                                    .foregroundColor(textColor)
-                            }
-                            .frame(width: tabLength * StudioTheme.buttonScale, height: StudioTheme.scale(29))
-                            .background(
-                                Group {
-                                    if isActive {
-                                        OpenBottomTabFillShape(cornerRadius: 5, bleedBottom: 1.0)
-                                            .fill(bgPanel)
-                                    } else {
-                                        UnevenRoundedRectangle(topLeadingRadius: 5, bottomLeadingRadius: 0, bottomTrailingRadius: 0, topTrailingRadius: 5)
-                                            .fill(isHovered ? bgSubtle.opacity(isLightMode ? 0.85 : 0.55) : bgSubtle.opacity(isLightMode ? 0.4 : 0.22))
-                                    }
-                                }
-                            )
-                            .overlay(
-                                Group {
-                                    if isActive {
-                                        OpenBottomTabBorderShape(cornerRadius: 5)
-                                            .stroke(isLightMode ? borderStrong : Color(white: 0.32), lineWidth: 1)
-                                    } else {
-                                        UnevenRoundedRectangle(topLeadingRadius: 5, bottomLeadingRadius: 0, bottomTrailingRadius: 0, topTrailingRadius: 5)
-                                            .stroke(
-                                                isHovered ? borderLine : borderLine.opacity(isLightMode ? 0.45 : 0.25),
-                                                lineWidth: 1
-                                            )
-                                    }
-                                }
-                            )
-                            .contentShape(Rectangle())
-                        }
-                        .buttonStyle(.plain)
-                        .onHover { hovering in
-                            withAnimation(.easeInOut(duration: 0.12)) {
-                                if hovering {
-                                    hoveredTab = tab
-                                } else if hoveredTab == tab {
-                                    hoveredTab = nil
-                                }
-                            }
-                        }
-                        .explain(
-                            tab == .player ? "PLAYER: High-performance delivery playback with J-K-L shuttle, timeline scrubbing, and zoom." :
-                            (tab == .specs ? "SPECS: Reads container resolution, timecode, audio, and codecs." :
-                             (tab == .lineFinder ? "GLITCH FINDER: Finds edge lines, split-screen seams, frame-rate stutters, flash frames and Media Offline." :
-                              "INGEST: Intake checklist, automatic metadata aggregation, and DIT cross-referencing."))
-                        )
-                    }
-                }
-                .frame(maxHeight: .infinity, alignment: .bottom)
-                
-                Spacer()
-                
-                topControls
-                    .frame(maxHeight: .infinity, alignment: .center)
+        HStack(spacing: StudioTheme.scale(30)) {
+            if !isWindowFullScreen {
+                WindowControls(isLightMode: isLightMode)
+                    .padding(.trailing, StudioTheme.scale(14))
             }
-            .padding(.leading, isWindowFullScreen ? 20 : TabStripWindowChrome.reservedWidth(leading: 20))
-            .padding(.trailing, 20)
+            ForEach(AppTab.visibleTabs) { tab in
+                tabButton(tab)
+            }
+            Spacer()
+            topControls
         }
+        .padding(.horizontal, 20)
         .frame(height: StudioTheme.scale(42))
-        .background(TabStripWindowChrome(height: StudioTheme.scale(42),
-                                         buttonCenterFromTop: StudioTheme.scale(42) - StudioTheme.scale(29) / 2,
-                                         leading: 20))
+        .overlay(alignment: .bottom) { Rectangle().fill(borderLine).frame(height: 1) }
+        .background(TabStripWindowChrome())
         .onReceive(NotificationCenter.default.publisher(for: NSWindow.didEnterFullScreenNotification)) { _ in isWindowFullScreen = true }
         .onReceive(NotificationCenter.default.publisher(for: NSWindow.willExitFullScreenNotification)) { _ in isWindowFullScreen = false }
+    }
+    
+    private func tabButton(_ tab: AppTab) -> some View {
+        let isActive = selectedTab == tab
+        let isHovered = hoveredTab == tab
+        let idle = isHovered ? textMain : textMuted.opacity(0.72)
+        return Button(action: {
+            selectedTab = tab
+            if tab == .specs && specsState.deliverableAssets.isEmpty && !videoFiles.isEmpty {
+                specsState.inspectDeliverablesBatch(urls: videoFiles)
+            } else if tab == .player && playerEngine.activeURL == nil, let first = videoFiles.first {
+                playerEngine.loadVideo(url: first)
+            }
+        }) {
+            HStack(spacing: 7) {
+                if tab == .player, let playImg = PlayAnimationAssets.shared.frame(at: 0) {
+                    Image(nsImage: playImg)
+                        .renderingMode(.template)
+                        .resizable()
+                        .aspectRatio(contentMode: .fit)
+                        .frame(width: StudioTheme.scaleFont(12), height: StudioTheme.scaleFont(12))
+                        .foregroundColor(isActive ? accentBlue : idle)
+                } else {
+                    Image(systemName: tab.iconName)
+                        .font(.system(size: StudioTheme.scaleFont(12), weight: .semibold))
+                        .foregroundColor(isActive ? accentBlue : idle)
+                }
+                Text(tab.title)
+                    .font(.system(size: StudioTheme.scaleFont(12), weight: .bold))
+                    .tracking(0.6)
+                    .lineLimit(1)
+                    .foregroundColor(isActive ? (isLightMode ? Color.black : Color.white) : idle)
+            }
+            .padding(.vertical, 8)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .onHover { hovering in
+            withAnimation(.easeInOut(duration: 0.12)) {
+                if hovering {
+                    hoveredTab = tab
+                } else if hoveredTab == tab {
+                    hoveredTab = nil
+                }
+            }
+        }
+        .explain(
+            tab == .player ? "PLAYER: High-performance delivery playback with J-K-L shuttle, timeline scrubbing, and zoom." :
+            (tab == .specs ? "SPECS: Reads container resolution, timecode, audio, and codecs." :
+             (tab == .lineFinder ? "GLITCH FINDER: Finds edge lines, split-screen seams, frame-rate stutters, flash frames and Media Offline." :
+              "INGEST: Intake checklist, automatic metadata aggregation, and DIT cross-referencing."))
+        )
     }
     
     // MARK: - Reusable Unified Asset Selection Section
