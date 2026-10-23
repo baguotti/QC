@@ -317,8 +317,9 @@ extension ContentView {
                 
                 HStack(spacing: 8) {
                     if !scannerState.frameCheckResults.isEmpty {
+                        let flaggedFrames = scannerState.frameCheckResults.filter(\.isFlagged).count
                         Button(action: { scannerState.showsFrameCheckResults = true }) {
-                            Text("SHOW FRAME CHECK RESULTS")
+                            Text("FRAME CHECK: \(flaggedFrames == 0 ? "CLEAN" : "\(flaggedFrames) FLAGGED") →")
                                 .font(.ui(size: 10, weight: .semibold))
                                 .padding(.horizontal, 10)
                                 .padding(.vertical, 7)
@@ -711,8 +712,9 @@ extension ContentView {
                 }
                 Spacer()
                 if !scannerState.scanResults.isEmpty {
+                    let flaggedLines = scannerState.scanResults.filter(\.isFlagged).count
                     Button(action: { scannerState.showsFrameCheckResults = false }) {
-                        Text("SHOW LINE QC RESULTS")
+                        Text("LINE CHECK: \(flaggedLines == 0 ? "CLEAN" : "\(flaggedLines) FLAGGED") →")
                             .font(.ui(size: 10, weight: .semibold))
                             .padding(.horizontal, 10)
                             .padding(.vertical, 7)

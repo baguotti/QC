@@ -179,7 +179,11 @@ public final class ScannerState: ObservableObject {
             await MainActor.run {
                 self.frameCheckResults = results
                 self.isFrameChecking = false
-                self.isFullCheck = false
+                if self.isFullCheck {
+                    // Full Check: open the line report unless only the frame check found something.
+                    self.showsFrameCheckResults = !self.scanResults.contains(where: \.isFlagged) && results.contains(where: \.isFlagged)
+                    self.isFullCheck = false
+                }
                 self.frameCheckScanner = nil
             }
         }

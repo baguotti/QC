@@ -61,7 +61,7 @@ struct QCpieApp: App {
                     FileOpenManager.shared.handleOpenedFiles([url])
                 }
         }
-        .windowStyle(.titleBar)
+        .windowStyle(.hiddenTitleBar)
         .windowToolbarStyle(.unified)
         .commands {
             SidebarCommands()

@@ -8,6 +8,7 @@ import VideoQCLib
 struct ContentView: View {
     @AppStorage("isLightMode") var isLightMode: Bool = false
     @State var selectedTab: AppTab = .player
+    @State var isWindowFullScreen = false
     @State var showUserGuide: Bool = false
     @State var showFeedbackModal: Bool = false
     @State var showShortcutsModal: Bool = false
@@ -174,6 +175,7 @@ struct ContentView: View {
             mainWorkspaceContent
             overlayModals
         }
+        .ignoresSafeArea(.container, edges: .top)
         .preferredColorScheme(isLightMode ? .light : .dark)
     }
     
@@ -753,7 +755,7 @@ struct ContentView: View {
         }
     }
 
-    private let tabLength: CGFloat = 132
+    private let tabLength: CGFloat = 150
     
     private var tabBarStrip: some View {
         ZStack(alignment: .bottom) {
@@ -851,9 +853,15 @@ struct ContentView: View {
                 topControls
                     .frame(maxHeight: .infinity, alignment: .center)
             }
-            .padding(.horizontal, 20)
+            .padding(.leading, isWindowFullScreen ? 20 : TabStripWindowChrome.reservedWidth(leading: 20))
+            .padding(.trailing, 20)
         }
         .frame(height: StudioTheme.scale(42))
+        .background(TabStripWindowChrome(height: StudioTheme.scale(42),
+                                         buttonCenterFromTop: StudioTheme.scale(42) - StudioTheme.scale(29) / 2,
+                                         leading: 20))
+        .onReceive(NotificationCenter.default.publisher(for: NSWindow.didEnterFullScreenNotification)) { _ in isWindowFullScreen = true }
+        .onReceive(NotificationCenter.default.publisher(for: NSWindow.willExitFullScreenNotification)) { _ in isWindowFullScreen = false }
     }
     
     // MARK: - Reusable Unified Asset Selection Section
