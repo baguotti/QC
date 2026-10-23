@@ -280,6 +280,13 @@ extension View {
         self.modifier(StudioExplanationModifier(explanation: text))
     }
     
+    /// A panel's header band under the tab strip: flat, with a bottom divider only (a boxed header doubles the strip's line).
+    func panelHeaderBar(background: Color, divider: Color) -> some View {
+        self
+            .background(background)
+            .overlay(alignment: .bottom) { Rectangle().fill(divider).frame(height: 1) }
+    }
+    
     /// Applies the rounded studio box background and border using master corner radius
     func studioBox(background: Color, border: Color, radius: CGFloat = StudioTheme.cornerRadius, width: CGFloat = 1) -> some View {
         self

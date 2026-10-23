@@ -423,7 +423,7 @@ extension ContentView {
                 playerMonitorHeader
                     .padding(.horizontal, 16)
                     .padding(.vertical, 10)
-                    .studioBox(background: bgCardHeader, border: borderLine)
+                    .panelHeaderBar(background: bgCardHeader, divider: borderLine)
                 
                 // Program Monitor Viewport Canvas
                 GeometryReader { vpGeo in

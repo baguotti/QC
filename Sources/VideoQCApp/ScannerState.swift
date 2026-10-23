@@ -36,8 +36,6 @@ public final class ScannerState: ObservableObject {
     @Published public var isFrameChecking: Bool = false
     @Published public var frameCheckProgress: FrameCheckScanner.ScanProgress? = nil
     @Published public var frameCheckResults: [FrameCheckResult] = []
-    /// The right panel shows the Frame Check results (set by a frame check, cleared by a line audit).
-    @Published public var showsFrameCheckResults: Bool = false
     @Published public var wasFrameCheckCancelled: Bool = false
     /// A Full Check is running: the Line Check, then the Frame Check on the same files.
     @Published public var isFullCheck: Bool = false
@@ -105,7 +103,10 @@ public final class ScannerState: ObservableObject {
         isScanning = true
         isCancelling = false
         wasScanCancelled = false
-        showsFrameCheckResults = false
+        if !isFullCheck {   // a single check replaces the whole report
+            frameCheckResults = []
+            wasFrameCheckCancelled = false
+        }
         scanResults = []
         lastScanTagInFinder = tagInFinder
         generatedReportURL = nil
@@ -169,7 +170,10 @@ public final class ScannerState: ObservableObject {
         wasFrameCheckCancelled = false
         frameCheckResults = []
         frameCheckProgress = nil
-        showsFrameCheckResults = true
+        if !isFullCheck {
+            scanResults = []
+            wasScanCancelled = false
+        }
         let scanner = FrameCheckScanner()
         frameCheckScanner = scanner
         Task(priority: .utility) {
@@ -179,11 +183,7 @@ public final class ScannerState: ObservableObject {
             await MainActor.run {
                 self.frameCheckResults = results
                 self.isFrameChecking = false
-                if self.isFullCheck {
-                    // Full Check: open the line report unless only the frame check found something.
-                    self.showsFrameCheckResults = !self.scanResults.contains(where: \.isFlagged) && results.contains(where: \.isFlagged)
-                    self.isFullCheck = false
-                }
+                self.isFullCheck = false
                 self.frameCheckScanner = nil
             }
         }

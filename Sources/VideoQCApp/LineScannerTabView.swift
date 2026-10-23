@@ -25,12 +25,10 @@ extension ContentView {
             VStack(alignment: .leading, spacing: 0) {
                 if scannerState.isFrameChecking {
                     frameCheckProgressView
-                } else if scannerState.showsFrameCheckResults && (!scannerState.frameCheckResults.isEmpty || scannerState.wasFrameCheckCancelled) {
-                    frameCheckResultsView
                 } else if scannerState.isScanning {
                     activeScanProgressView
-                } else if !scannerState.scanResults.isEmpty {
-                    resultsSummaryView
+                } else if hasLineResults || hasFrameCheckResults {
+                    checkResultsView
                 } else {
                     emptyStateView
                 }
@@ -297,152 +295,154 @@ extension ContentView {
         .padding(28)
     }
     
-    var resultsSummaryView: some View {
+    private var hasLineResults: Bool { !scannerState.scanResults.isEmpty }
+    private var hasFrameCheckResults: Bool { !scannerState.frameCheckResults.isEmpty || scannerState.wasFrameCheckCancelled }
+    
+    /// One page: Line Check results, then Frame Check results (whichever were run).
+    var checkResultsView: some View {
+        ScrollView {
+            LazyVStack(alignment: .leading, spacing: 16) {
+                if hasLineResults {
+                    lineResultsSection
+                }
+                if hasLineResults && hasFrameCheckResults {
+                    Rectangle()
+                        .fill(borderStrong)
+                        .frame(height: 2)
+                        .padding(.vertical, 24)
+                }
+                if hasFrameCheckResults {
+                    frameResultsSection
+                }
+            }
+            .padding(28)
+        }
+    }
+    
+    private func resultsSectionTitle<Trailing: View>(_ title: String, status: String, @ViewBuilder trailing: () -> Trailing) -> some View {
+        HStack(alignment: .center) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                    .font(.system(size: 28, weight: .black, design: .default))
+                    .foregroundColor(textMain)
+                    .tracking(1.0)
+                Text(status)
+                    .font(.ui(size: 11, weight: .semibold))
+                    .foregroundColor(textMuted)
+            }
+            Spacer()
+            trailing()
+        }
+        .padding(.bottom, 4)
+    }
+    
+    private func resultsStatus(count: Int, cancelled: Bool) -> String {
+        "\(cancelled ? "STOPPED" : "COMPLETE") // \(count) VIDEOS ANALYZED\(cancelled ? " (PARTIAL)" : "")"
+    }
+    
+    private var lineExportMenu: some View {
+        Menu {
+            Button(action: { openScanReportInGoogleSheets() }) {
+                Label("Copy for Google Sheets", systemImage: "tablecells")
+            }
+            Divider()
+            Button(action: { exportScanHTML() }) {
+                Label("Save HTML Glitch Report...", systemImage: "safari")
+            }
+            Button(action: { exportScanCSV() }) {
+                Label("Save CSV File...", systemImage: "doc.text")
+            }
+        } label: {
+            HStack(spacing: 5) {
+                Text("EXPORT")
+                    .font(.ui(size: 11, weight: .semibold))
+                Image(systemName: "chevron.down")
+                    .font(.system(size: 8, weight: .bold))
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 8)
+            .foregroundColor(textMain)
+            .studioBox(background: bgSubtle, border: borderLine)
+        }
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .fixedSize()
+        .explain("Export the line report: copy for Google Sheets (paste with ⌘V), or save an HTML report or CSV file.")
+    }
+    
+    @ViewBuilder
+    private var lineResultsSection: some View {
         let flagged = scannerState.scanResults.filter { $0.isFlagged }
-        let clean = scannerState.scanResults.filter { !$0.isFlagged }
+        let clean = scannerState.scanResults.count - flagged.count
         let totalSegments = flagged.reduce(0) { $0 + $1.glitchSegments.count }
         
-        return VStack(alignment: .leading, spacing: 20) {
-            HStack(alignment: .center) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(scannerState.wasScanCancelled ? "AUDIT STOPPED" : "AUDIT COMPLETE")
-                        .font(.system(size: 28, weight: .black, design: .default))
-                        .foregroundColor(textMain)
-                        .tracking(1.0)
-                    Text("\(scannerState.scanResults.count) ASSETS ANALYZED\(scannerState.wasScanCancelled ? " (PARTIAL)" : "")")
-                        .font(.ui(size: 11, weight: .semibold))
-                        .foregroundColor(textMuted)
-                }
+        resultsSectionTitle("LINE CHECK", status: resultsStatus(count: scannerState.scanResults.count, cancelled: scannerState.wasScanCancelled)) {
+            lineExportMenu
+        }
+        HStack(spacing: 12) {
+            statBox(title: "TOTAL SCANNED", val: String(format: "%02d", scannerState.scanResults.count))
+            statBox(title: "FLAGGED FILES", val: String(format: "%02d", flagged.count), isRed: !flagged.isEmpty)
+            statBox(title: "PASSED FILES", val: String(format: "%02d", clean), isPositive: clean > 0)
+            statBox(title: "GLITCH SEGMENTS", val: String(format: "%02d", totalSegments), isRed: totalSegments > 0)
+        }
+        if flagged.isEmpty {
+            VStack(spacing: 8) {
+                Text("STATUS // ALL DELIVERIES PASSED")
+                    .font(.system(size: 16, weight: .black, design: .monospaced))
+                    .foregroundColor(accentPositive)
+                Text("NO COLORED EDGE LINES OR MATTE ARTIFACTS DETECTED.")
+                    .font(.ui(size: 11, weight: .medium))
+                    .foregroundColor(textMuted)
+            }
+            .frame(maxWidth: .infinity)
+            .padding(40)
+            .studioBox(background: bgPanel, border: borderLine)
+        } else {
+            ForEach(flagged) { result in
+                lineResultCard(result)
+            }
+        }
+    }
+    
+    private func lineResultCard(_ result: VideoQCResult) -> some View {
+        let segments = result.glitchSegments
+        return VStack(alignment: .leading, spacing: 0) {
+            flaggedResultHeader(result: result, segmentsCount: segments.count)
+            
+            Rectangle().fill(borderLine).frame(height: 1)
+            
+            HStack(spacing: 8) {
+                Text("#").frame(width: 25, alignment: .leading)
+                Text("FRAME").frame(width: 76, alignment: .leading)
+                Text("LOCATION").frame(width: 140, alignment: .leading)
+                Text("TIMECODE RANGE").frame(width: 155, alignment: .leading)
+                Text("DURATION").frame(width: 130, alignment: .leading)
+                Text("FRAMES").frame(width: 75, alignment: .leading)
                 Spacer()
-                
-                HStack(spacing: 8) {
-                    if !scannerState.frameCheckResults.isEmpty {
-                        let flaggedFrames = scannerState.frameCheckResults.filter(\.isFlagged).count
-                        Button(action: { scannerState.showsFrameCheckResults = true }) {
-                            Text("FRAME CHECK: \(flaggedFrames == 0 ? "CLEAN" : "\(flaggedFrames) FLAGGED") →")
-                                .font(.ui(size: 10, weight: .semibold))
-                                .padding(.horizontal, 10)
-                                .padding(.vertical, 7)
-                                .foregroundColor(textMain)
-                                .studioBox(background: bgSubtle, border: borderLine)
-                        }
-                        .buttonStyle(.plain)
-                    }
-                    // Primary Action: Google Sheets
-                    Button(action: { openScanReportInGoogleSheets() }) {
-                        HStack(spacing: 5) {
-                            Text("[ GOOGLE SHEETS ]")
-                                .font(.system(size: 11, weight: .black, design: .monospaced))
-                            Image(systemName: "arrow.up.right.square")
-                                .font(.system(size: 10, weight: .bold))
-                        }
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 8)
-                        .foregroundColor(primaryBtnFg)
-                        .studioBox(background: primaryBtnBg, border: primaryBtnBg)
-                    }
-                    .buttonStyle(.plain)
-                    .explain("Copies glitch report as spreadsheet data and opens Google Sheets ready to paste (⌘V).")
-                    
-                    // Consolidated Export Dropdown
-                    Menu {
-                        Button(action: { exportScanHTML() }) {
-                            Label("Save HTML Glitch Report...", systemImage: "safari")
-                        }
-                        Button(action: { exportScanCSV() }) {
-                            Label("Save CSV File...", systemImage: "doc.text")
-                        }
-                    } label: {
-                        HStack(spacing: 5) {
-                            Text("EXPORT")
-                                .font(.ui(size: 11, weight: .semibold))
-                                .foregroundColor(isLightMode ? Color.black : Color.white)
-                            Image(systemName: "chevron.down")
-                                .font(.system(size: 8, weight: .bold))
-                                .foregroundColor(isLightMode ? Color.black : Color.white)
-                        }
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 8)
-                        .foregroundColor(isLightMode ? Color.black : Color.white)
-                        .studioBox(background: bgSubtle, border: borderLine)
-                    }
-                    .menuStyle(.borderlessButton)
-                    .foregroundColor(isLightMode ? Color.black : Color.white)
-                    .fixedSize()
-                    .explain("Export options: Save interactive HTML glitch report or CSV spreadsheet.")
-                }
+                Text("COLOR").frame(width: 75, alignment: .trailing)
+                Text("PLAYER").frame(width: 75, alignment: .trailing)
             }
+            .font(.ui(size: 9, weight: .semibold))
+            .foregroundColor(textMuted)
+            .padding(.horizontal, 14)
+            .padding(.vertical, 8)
+            .background(bgCardSubtle)
             
-            HStack(spacing: 12) {
-                statBox(title: "TOTAL SCANNED", val: String(format: "%02d", scannerState.scanResults.count))
-                statBox(title: "FLAGGED FILES", val: String(format: "%02d", flagged.count), isRed: !flagged.isEmpty)
-                statBox(title: "PASSED FILES", val: String(format: "%02d", clean.count), isPositive: !clean.isEmpty)
-                statBox(title: "GLITCH SEGMENTS", val: String(format: "%02d", totalSegments), isRed: totalSegments > 0)
-            }
+            Rectangle().fill(borderLine).frame(height: 1)
             
-            ScrollView {
-                LazyVStack(alignment: .leading, spacing: 16) {
-                    if flagged.isEmpty {
-                        VStack(spacing: 8) {
-                            Text("STATUS // ALL DELIVERIES PASSED")
-                                .font(.system(size: 16, weight: .black, design: .monospaced))
-                                .foregroundColor(accentPositive)
-                            Text("NO COLORED EDGE LINES OR MATTE ARTIFACTS DETECTED.")
-                                .font(.ui(size: 11, weight: .medium))
-                                .foregroundColor(textMuted)
-                        }
-                        .frame(maxWidth: .infinity)
-                        .padding(40)
-                        .studioBox(background: bgPanel, border: borderLine)
-                    } else {
-                        ForEach(flagged) { result in
-                            let segments = result.glitchSegments
-                            VStack(alignment: .leading, spacing: 0) {
-                                flaggedResultHeader(result: result, segmentsCount: segments.count)
-                                
-                                Rectangle().fill(borderLine).frame(height: 1)
-                                
-                                
-                                HStack(spacing: 8) {
-                                    Text("#").frame(width: 25, alignment: .leading)
-                                    Text("FRAME").frame(width: 76, alignment: .leading)
-                                    Text("LOCATION").frame(width: 140, alignment: .leading)
-                                    Text("TIMECODE RANGE").frame(width: 155, alignment: .leading)
-                                    Text("DURATION").frame(width: 130, alignment: .leading)
-                                    Text("FRAMES").frame(width: 75, alignment: .leading)
-                                    Spacer()
-                                    Text("COLOR").frame(width: 75, alignment: .trailing)
-                                    Text("PLAYER").frame(width: 75, alignment: .trailing)
-                                }
-                                .font(.ui(size: 9, weight: .semibold))
-                                .foregroundColor(textMuted)
-                                .padding(.horizontal, 14)
-                                .padding(.vertical, 8)
-                                .background(bgCardSubtle)
-                                
-                                Rectangle().fill(borderLine).frame(height: 1)
-                                
-                                ForEach(Array(segments.enumerated()), id: \.offset) { idx, seg in
-                                    glitchTableRow(result: result, seg: seg, idx: idx)
-                                    
-                                    if idx < segments.count - 1 {
-                                        Rectangle().fill(borderLine.opacity(0.6)).frame(height: 1)
-                                    }
-                                }
-                            }
-                            .studioBox(background: bgPanel, border: borderLine)
-                            .overlay(
-                                RoundedRectangle(cornerRadius: StudioTheme.cornerRadius)
-                                    .stroke(alertRed, lineWidth: 1)
-                            )
-                        }
-                    }
+            ForEach(Array(segments.enumerated()), id: \.offset) { idx, seg in
+                glitchTableRow(result: result, seg: seg, idx: idx)
+                if idx < segments.count - 1 {
+                    Rectangle().fill(borderLine.opacity(0.6)).frame(height: 1)
                 }
             }
         }
-        .padding(28)
+        .studioBox(background: bgPanel, border: borderLine)
+        .overlay(
+            RoundedRectangle(cornerRadius: StudioTheme.cornerRadius)
+                .stroke(alertRed, lineWidth: 1)
+        )
     }
-    
     
     @ViewBuilder
     private func glitchTableRow(result: VideoQCResult, seg: GlitchSegment, idx: Int) -> some View {
@@ -619,16 +619,6 @@ extension ContentView {
                         .foregroundColor(textSubtle)
                         .fixedSize(horizontal: false, vertical: true)
                 }
-                if !scannerState.frameCheckResults.isEmpty && !scannerState.showsFrameCheckResults && !scannerState.isFrameChecking {
-                    checkRow("LAST RESULTS") {
-                        Button(action: { scannerState.showsFrameCheckResults = true }) {
-                            Text("SHOW FRAME CHECK RESULTS")
-                                .font(.ui(size: 9, weight: .semibold))
-                                .foregroundColor(accentBlue)
-                        }
-                        .buttonStyle(.plain)
-                    }
-                }
             }
             
             if scannerState.isFrameChecking {
@@ -696,65 +686,39 @@ extension ContentView {
         .padding(28)
     }
     
-    var frameCheckResultsView: some View {
+    @ViewBuilder
+    private var frameResultsSection: some View {
         let results = scannerState.frameCheckResults
         let flagged = results.filter(\.isFlagged)
-        return VStack(alignment: .leading, spacing: 20) {
-            HStack {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(scannerState.wasFrameCheckCancelled ? "FRAME CHECK STOPPED" : "FRAME CHECK COMPLETE")
-                        .font(.system(size: 28, weight: .black))
-                        .foregroundColor(textMain)
-                        .tracking(1.0)
-                    Text("\(results.count) VIDEOS ANALYZED\(scannerState.wasFrameCheckCancelled ? " (PARTIAL)" : "")")
-                        .font(.ui(size: 11, weight: .semibold))
-                        .foregroundColor(textMuted)
-                }
-                Spacer()
-                if !scannerState.scanResults.isEmpty {
-                    let flaggedLines = scannerState.scanResults.filter(\.isFlagged).count
-                    Button(action: { scannerState.showsFrameCheckResults = false }) {
-                        Text("LINE CHECK: \(flaggedLines == 0 ? "CLEAN" : "\(flaggedLines) FLAGGED") →")
-                            .font(.ui(size: 10, weight: .semibold))
-                            .padding(.horizontal, 10)
-                            .padding(.vertical, 7)
-                            .foregroundColor(textMain)
-                            .studioBox(background: bgSubtle, border: borderLine)
-                    }
-                    .buttonStyle(.plain)
-                }
+        
+        resultsSectionTitle("FRAME CHECK", status: resultsStatus(count: results.count, cancelled: scannerState.wasFrameCheckCancelled)) {
+            EmptyView()
+        }
+        HStack(spacing: 12) {
+            statBox(title: "TOTAL SCANNED", val: String(format: "%02d", results.count))
+            statBox(title: "FPS MISMATCH", val: String(format: "%02d", results.filter { $0.mismatch != nil }.count),
+                    isRed: results.contains { $0.mismatch != nil })
+            statBox(title: "FLASH / OFFLINE", val: String(format: "%02d", results.filter { !$0.flashFrames.isEmpty || !$0.offline.isEmpty }.count),
+                    isRed: results.contains { !$0.flashFrames.isEmpty || !$0.offline.isEmpty })
+            statBox(title: "CLEAN", val: String(format: "%02d", results.count - flagged.count), isPositive: results.count > flagged.count)
+        }
+        if flagged.isEmpty {
+            VStack(spacing: 8) {
+                Text("STATUS // ALL VIDEOS CLEAN")
+                    .font(.system(size: 16, weight: .black, design: .monospaced))
+                    .foregroundColor(accentPositive)
+                Text("NO FRAME-RATE MISMATCH, FLASH FRAMES OR MEDIA OFFLINE DETECTED.")
+                    .font(.ui(size: 11, weight: .medium))
+                    .foregroundColor(textMuted)
             }
-            HStack(spacing: 12) {
-                statBox(title: "TOTAL SCANNED", val: String(format: "%02d", results.count))
-                statBox(title: "FPS MISMATCH", val: String(format: "%02d", results.filter { $0.mismatch != nil }.count),
-                        isRed: results.contains { $0.mismatch != nil })
-                statBox(title: "FLASH / OFFLINE", val: String(format: "%02d", results.filter { !$0.flashFrames.isEmpty || !$0.offline.isEmpty }.count),
-                        isRed: results.contains { !$0.flashFrames.isEmpty || !$0.offline.isEmpty })
-                statBox(title: "CLEAN", val: String(format: "%02d", results.count - flagged.count), isPositive: results.count > flagged.count)
-            }
-            ScrollView {
-                LazyVStack(alignment: .leading, spacing: 16) {
-                    if flagged.isEmpty {
-                        VStack(spacing: 8) {
-                            Text("STATUS // ALL VIDEOS CLEAN")
-                                .font(.system(size: 16, weight: .black, design: .monospaced))
-                                .foregroundColor(accentPositive)
-                            Text("NO FRAME-RATE MISMATCH, FLASH FRAMES OR MEDIA OFFLINE DETECTED.")
-                                .font(.ui(size: 11, weight: .medium))
-                                .foregroundColor(textMuted)
-                        }
-                        .frame(maxWidth: .infinity)
-                        .padding(40)
-                        .studioBox(background: bgPanel, border: borderLine)
-                    } else {
-                        ForEach(flagged) { result in
-                            frameCheckResultCard(result)
-                        }
-                    }
-                }
+            .frame(maxWidth: .infinity)
+            .padding(40)
+            .studioBox(background: bgPanel, border: borderLine)
+        } else {
+            ForEach(flagged) { result in
+                frameCheckResultCard(result)
             }
         }
-        .padding(28)
     }
     
     private struct FrameCheckRow: Identifiable {

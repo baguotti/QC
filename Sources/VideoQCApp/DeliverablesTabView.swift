@@ -62,7 +62,7 @@ extension ContentView {
                 }
                 .padding(.horizontal, 16)
                 .padding(.vertical, 10)
-                .studioBox(background: bgCardHeader, border: borderLine)
+                .panelHeaderBar(background: bgCardHeader, divider: borderLine)
                 
                 if specsState.isInspectingDeliverables {
                     VStack(alignment: .center, spacing: 12) {
