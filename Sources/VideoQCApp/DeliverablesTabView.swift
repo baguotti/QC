@@ -513,7 +513,7 @@ extension ContentView {
                                 .font(.system(size: 8.5, weight: .bold))
                             SlotText(
                                 isFoldersHidden ? "Show" : "Hide",
-                                mode: .character,
+                                mode: .word,
                                 direction: .up,
                                 font: .ui(size: 9.5, weight: .semibold),
                                 foregroundColor: canToggleFolders ? (isFoldersHidden ? accentBlue : textMain) : textSubtle,
@@ -1113,7 +1113,7 @@ extension ContentView {
                         Image(systemName: isDismissed ? "checkmark.circle" : "exclamationmark.triangle.fill")
                             .font(.system(size: 7, weight: .bold))
                         Text(isDismissed ? "\(detail) (dismissed)" : detail)
-                            .font(.system(size: 8, weight: isDismissed ? .medium : .black, design: .monospaced))
+                            .font(.ui(size: 8, weight: isDismissed ? .medium : .semibold))
                         
                         Button(action: {
                             specsState.toggleDismissMismatch(for: asset.fileURL)
@@ -1167,7 +1167,7 @@ extension ContentView {
                         Image(systemName: isDismissed ? "checkmark.circle" : "exclamationmark.triangle.fill")
                             .font(.system(size: 7, weight: .bold))
                         Text(isDismissed ? "\(detail) (dismissed)" : detail)
-                            .font(.system(size: 8, weight: isDismissed ? .medium : .black, design: .monospaced))
+                            .font(.ui(size: 8, weight: isDismissed ? .medium : .semibold))
                         
                         Button(action: {
                             specsState.toggleDismissMismatch(for: asset.fileURL)

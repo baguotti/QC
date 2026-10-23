@@ -41,15 +41,15 @@ struct AddNotePopoverView: View {
                         .font(.system(size: 13, weight: .bold))
                         .foregroundColor(palette.textMain)
                     
-                    Text("ADD REVIEW NOTE")
-                        .font(.system(size: 11, weight: .black, design: .monospaced))
+                    Text("Add Review Note")
+                        .font(.ui(size: 11, weight: .semibold))
                         .foregroundColor(palette.textMain)
                     
                     Spacer()
                     
                     // Timecode Badge
                     Text(timecode)
-                        .font(.system(size: 11, weight: .black, design: .monospaced))
+                        .font(.ui(size: 11, weight: .semibold))
                         .padding(.horizontal, 7)
                         .padding(.vertical, 3)
                         .foregroundColor(palette.accentBlue)
@@ -74,7 +74,7 @@ struct AddNotePopoverView: View {
                 VStack(alignment: .leading, spacing: 14) {
                     // Author / Reviewer Name Row
                     VStack(alignment: .leading, spacing: 5) {
-                        Text("REVIEWER NAME")
+                        Text("Reviewer Name")
                             .font(.ui(size: 9, weight: .semibold))
                             .foregroundColor(palette.textMuted)
                         
@@ -98,7 +98,7 @@ struct AddNotePopoverView: View {
                     
                     // Color Tag Row
                     VStack(alignment: .leading, spacing: 5) {
-                        Text("CATEGORY / COLOR")
+                        Text("Category / Color")
                             .font(.ui(size: 9, weight: .semibold))
                             .foregroundColor(palette.textMuted)
                         
@@ -109,7 +109,7 @@ struct AddNotePopoverView: View {
                                         Circle()
                                             .fill(item.color)
                                             .frame(width: 8, height: 8)
-                                        Text(item.name.uppercased())
+                                        Text(item.name)
                                             .font(.ui(size: 9, weight: .semibold))
                                     }
                                     .padding(.horizontal, 8)
@@ -127,7 +127,7 @@ struct AddNotePopoverView: View {
                     
                     // Note Text
                     VStack(alignment: .leading, spacing: 5) {
-                        Text("FEEDBACK / QC COMMENT")
+                        Text("Feedback / QC Comment")
                             .font(.ui(size: 9, weight: .semibold))
                             .foregroundColor(palette.textMuted)
                         
@@ -161,7 +161,7 @@ struct AddNotePopoverView: View {
                     Spacer()
                     
                     Button(action: { dismiss() }) {
-                        Text("CANCEL (ESC)")
+                        Text("Cancel (Esc)")
                             .font(.ui(size: 10, weight: .semibold))
                             .padding(.horizontal, 10)
                             .padding(.vertical, 6)
@@ -174,8 +174,8 @@ struct AddNotePopoverView: View {
                         HStack(spacing: 5) {
                             Image(systemName: "checkmark")
                                 .font(.system(size: 9, weight: .bold))
-                            Text("SAVE NOTE (⏎)")
-                                .font(.system(size: 10, weight: .black, design: .monospaced))
+                            Text("Save Note (⏎)")
+                                .font(.ui(size: 10, weight: .semibold))
                         }
                         .padding(.horizontal, 12)
                         .padding(.vertical, 6)

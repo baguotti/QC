@@ -51,8 +51,8 @@ struct SubtitleCrossCheckSheet: View {
         let others = report.files.count - 1
         return HStack(spacing: 8) {
             CCBadge(color: palette.textMain, size: 12)
-            Text("SUBTITLE CROSS-CHECK")
-                .font(.system(size: 12, weight: .black, design: .monospaced))
+            Text("Subtitle Cross-Check")
+                .font(.ui(size: 12, weight: .semibold))
                 .foregroundColor(palette.textMain)
             Spacer()
             Label(total == 0 ? "All \(report.files.count) files match" : "\(total) difference\(total == 1 ? "" : "s") in \(report.mismatchedVideos.count) of \(others) file\(others == 1 ? "" : "s")",
@@ -134,11 +134,11 @@ struct SubtitleCrossCheckSheet: View {
                     .truncationMode(.middle)
                 Spacer()
                 if isReference {
-                    badge("REFERENCE", palette.accentBlue)
+                    badge("Reference", palette.accentBlue)
                 } else if isMatch {
-                    badge("MATCH", palette.accentPositive)
+                    badge("Match", palette.accentPositive)
                 } else {
-                    badge("\(file.differences.count) DIFF\(file.differences.count == 1 ? "" : "S")", palette.alertRed)
+                    badge("\(file.differences.count) diff\(file.differences.count == 1 ? "" : "S")", palette.alertRed)
                 }
             }
             if !isReference {
@@ -164,10 +164,10 @@ struct SubtitleCrossCheckSheet: View {
                 .frame(width: 110, alignment: .leading)
                 VStack(alignment: .leading, spacing: 3) {
                     if let cue = difference.referenceCue {
-                        lineText("REF #\(difference.referenceLine ?? 0)", cue, fps: refFps, showTiming: difference.kind == .timing)
+                        lineText("Ref #\(difference.referenceLine ?? 0)", cue, fps: refFps, showTiming: difference.kind == .timing)
                     }
                     if let cue = difference.otherCue {
-                        lineText("THIS #\(difference.otherLine ?? 0)", cue, fps: file.fps, showTiming: difference.kind == .timing)
+                        lineText("This #\(difference.otherLine ?? 0)", cue, fps: file.fps, showTiming: difference.kind == .timing)
                     }
                 }
                 Spacer(minLength: 0)
@@ -186,7 +186,7 @@ struct SubtitleCrossCheckSheet: View {
     private func lineText(_ label: String, _ cue: SubtitleCue, fps: Double, showTiming: Bool) -> some View {
         HStack(alignment: .top, spacing: 6) {
             Text(label)
-                .font(.system(size: 8.5, weight: .black, design: .monospaced))
+                .font(.ui(size: 8.5, weight: .semibold))
                 .foregroundColor(palette.textSubtle)
                 .frame(width: 58, alignment: .leading)
             VStack(alignment: .leading, spacing: 1) {
@@ -205,7 +205,7 @@ struct SubtitleCrossCheckSheet: View {
 
     private func badge(_ text: String, _ color: Color) -> some View {
         Text(text)
-            .font(.system(size: 8, weight: .black, design: .monospaced))
+            .font(.ui(size: 8, weight: .semibold))
             .padding(.horizontal, 5)
             .padding(.vertical, 2)
             .foregroundColor(color)

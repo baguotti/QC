@@ -201,7 +201,7 @@ public struct PlayerQueuePanelView: View, Equatable {
             VStack(alignment: .leading, spacing: 6) {
                 HStack(spacing: StudioTheme.scale(5)) {
                     Text("Queue (\(filteredFiles.count))")
-                        .font(.ui(size: StudioTheme.scaleFont(10), weight: .semibold))
+                        .font(.ui(size: StudioTheme.scaleFont(12), weight: .semibold))
                         .foregroundColor(textMuted)
                     
                     if hasSubfolders && !hideAllFolders {
@@ -218,14 +218,14 @@ public struct PlayerQueuePanelView: View, Equatable {
                     
                     // View Mode Options Popover (Thumbnail View / List View / Thumbnail Size Slider)
                     Button(action: { showViewOptionsPopover.toggle() }) {
-                        HStack(spacing: StudioTheme.scale(3)) {
+                        HStack(spacing: StudioTheme.scale(4)) {
                             Image(systemName: queueDisplayMode == "thumbnail" ? "square.grid.2x2" : "list.bullet")
-                                .font(.system(size: StudioTheme.scaleFont(8), weight: .bold))
+                                .font(.system(size: StudioTheme.scaleFont(10.5), weight: .medium))
                             Image(systemName: "chevron.down")
-                                .font(.system(size: StudioTheme.scaleFont(6), weight: .bold))
+                                .font(.system(size: StudioTheme.scaleFont(8), weight: .semibold))
                         }
                         .padding(.horizontal, StudioTheme.scale(5))
-                        .frame(height: StudioTheme.scale(18))
+                        .frame(height: StudioTheme.scale(26))
                         .foregroundColor(textMain)
                     }
                     .buttonStyle(TransportIconButtonStyle())
@@ -238,75 +238,78 @@ public struct PlayerQueuePanelView: View, Equatable {
                     let isHidden = hideAllFolders || !hiddenFolderIDs.isEmpty
                     let canToggle = hasSubfolders || !videoFiles.isEmpty
                     Button(action: onToggleHideFolders) {
-                        HStack(spacing: StudioTheme.scale(3)) {
+                        HStack(spacing: StudioTheme.scale(4)) {
                             Image(systemName: isHidden ? "folder" : "folder.badge.minus")
-                                .font(.system(size: StudioTheme.scaleFont(7.5), weight: .bold))
+                                .font(.system(size: StudioTheme.scaleFont(10.5), weight: .medium))
                             SlotText(
                                 isHidden ? "Show" : "Hide",
-                                mode: .character,
+                                mode: .word,
                                 direction: .up,
-                                font: .ui(size: StudioTheme.scaleFont(8), weight: .semibold),
+                                font: .ui(size: StudioTheme.scaleFont(11), weight: .medium),
                                 foregroundColor: canToggle ? (isHidden ? accentBlue : textMain) : textSubtle,
-                                tracking: 0.3,
+                                tracking: 0,
                                 stagger: 0.018,
-                                rollDistance: 9,
+                                rollDistance: 12,
                                 trigger: isHidden
                             )
                         }
-                        .padding(.horizontal, StudioTheme.scale(4))
-                        .frame(height: StudioTheme.scale(18))
+                        .padding(.horizontal, StudioTheme.scale(5))
+                        .frame(height: StudioTheme.scale(26))
                         .foregroundColor(canToggle ? (isHidden ? accentBlue : textMain) : textSubtle)
                     }
                     .buttonStyle(TransportIconButtonStyle())
+                    .fixedSize()
                     .disabled(isScanning || !canToggle)
                     .explain(isHidden ? "Show all folder headers in asset lists." : "Hide folder headers and display assets in a flat list.")
                     
                     // Autoplay Toggle Button
                     Button(action: onToggleAutoplay) {
-                        HStack(spacing: StudioTheme.scale(3)) {
+                        HStack(spacing: StudioTheme.scale(4)) {
                             Image(systemName: isAutoplayEnabled ? "play.fill" : "play.slash.fill")
-                                .font(.system(size: StudioTheme.scaleFont(7), weight: .bold))
+                                .font(.system(size: StudioTheme.scaleFont(10.5), weight: .medium))
                             SlotText(
                                 "Auto",
-                                mode: .character,
+                                mode: .word,
                                 direction: .up,
-                                font: .ui(size: StudioTheme.scaleFont(8), weight: .semibold),
+                                font: .ui(size: StudioTheme.scaleFont(11), weight: .medium),
                                 foregroundColor: isAutoplayEnabled ? accentBlue : textMuted,
-                                tracking: 0.3,
+                                tracking: 0,
                                 stagger: 0.018,
-                                rollDistance: 9,
+                                rollDistance: 12,
                                 trigger: isAutoplayEnabled
                             )
                         }
-                        .padding(.horizontal, StudioTheme.scale(4))
-                        .frame(height: StudioTheme.scale(18))
+                        .padding(.horizontal, StudioTheme.scale(5))
+                        .frame(height: StudioTheme.scale(26))
                         .foregroundColor(isAutoplayEnabled ? accentBlue : textMuted)
                     }
                     .buttonStyle(TransportIconButtonStyle())
+                    .fixedSize()
                     .explain(isAutoplayEnabled ? "Autoplay: ON (Videos play from start when clicked or navigating with ↑/↓) [A]" : "Autoplay: OFF (Videos load paused at frame 0) [A]")
                     
                     // Waveform Toggle: audio is only decoded for the timeline when this is on
                     Button(action: onToggleWaveforms) {
-                        HStack(spacing: StudioTheme.scale(3)) {
+                        HStack(spacing: StudioTheme.scale(4)) {
                             Image(systemName: "waveform")
-                                .font(.system(size: StudioTheme.scaleFont(7.5), weight: .bold))
+                                .font(.system(size: StudioTheme.scaleFont(10.5), weight: .medium))
                             SlotText(
                                 "Wave",
-                                mode: .character,
+                                mode: .word,
                                 direction: .up,
-                                font: .ui(size: StudioTheme.scaleFont(8), weight: .semibold),
+                                font: .ui(size: StudioTheme.scaleFont(11), weight: .medium),
                                 foregroundColor: drawsWaveforms ? accentBlue : textMuted,
-                                tracking: 0.3,
+                                tracking: 0,
                                 stagger: 0.018,
-                                rollDistance: 9,
+                                rollDistance: 12,
                                 trigger: drawsWaveforms
                             )
                         }
-                        .padding(.horizontal, StudioTheme.scale(4))
-                        .frame(height: StudioTheme.scale(18))
+                        .padding(.horizontal, StudioTheme.scale(5))
+                        .frame(height: StudioTheme.scale(26))
                         .foregroundColor(drawsWaveforms ? accentBlue : textMuted)
                     }
                     .buttonStyle(TransportIconButtonStyle())
+                    .fixedSize()
                     .explain(drawsWaveforms ? "Waveform: ON (audio waveform under the timeline; scroll over it to resize) [W]" : "Waveform: OFF (click to draw the audio waveform under the timeline) [W]")
                 }
                 

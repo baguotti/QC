@@ -94,11 +94,11 @@ struct FeedbackModalView: View {
                         Image(systemName: "envelope.badge.fill")
                             .font(.system(size: 13))
                             .foregroundColor(textMain)
-                        Text("FEEDBACK & SUPPORT // QCpie")
-                            .font(.system(size: 12, weight: .black, design: .monospaced))
+                        Text("Feedback & Support")
+                            .font(.ui(size: 12, weight: .semibold))
                             .foregroundColor(textMain)
                         
-                        Text("TO: \(targetEmail)")
+                        Text("To: \(targetEmail)")
                             .font(.ui(size: 9, weight: .semibold))
                             .foregroundColor(textMuted)
                             .padding(.horizontal, 6)
@@ -111,7 +111,7 @@ struct FeedbackModalView: View {
                             dismissModal()
                         }
                     }) {
-                        Text("CLOSE (ESC)")
+                        Text("Close (Esc)")
                             .font(.ui(size: 10, weight: .semibold))
                             .padding(.horizontal, 9)
                             .padding(.vertical, 5)
@@ -135,8 +135,8 @@ struct FeedbackModalView: View {
                             .font(.system(size: 44))
                             .foregroundColor(accentPositive)
                         
-                        Text("FEEDBACK SENT AUTOMATICALLY")
-                            .font(.system(size: 13, weight: .black, design: .monospaced))
+                        Text("Feedback Sent Automatically")
+                            .font(.ui(size: 13, weight: .semibold))
                             .foregroundColor(textMain)
                         
                         Text("Thank you for helping improve QCpie!\nRiccardo has received your feedback via email.")
@@ -153,7 +153,7 @@ struct FeedbackModalView: View {
                     VStack(alignment: .leading, spacing: 14) {
                         // Category Picker
                         VStack(alignment: .leading, spacing: 6) {
-                            Text("CATEGORY")
+                            Text("Category")
                                 .font(.ui(size: 10, weight: .semibold))
                                 .foregroundColor(textMuted)
                             
@@ -180,7 +180,7 @@ struct FeedbackModalView: View {
                         // Optional Reply Email
                         VStack(alignment: .leading, spacing: 6) {
                             HStack {
-                                Text("YOUR EMAIL (OPTIONAL)")
+                                Text("Your Email (Optional)")
                                     .font(.ui(size: 10, weight: .semibold))
                                     .foregroundColor(textMuted)
                                 Spacer()
@@ -201,11 +201,11 @@ struct FeedbackModalView: View {
                         // Message Text Area
                         VStack(alignment: .leading, spacing: 6) {
                             HStack {
-                                Text("MESSAGE / NOTES")
+                                Text("Message / Notes")
                                     .font(.ui(size: 10, weight: .semibold))
                                     .foregroundColor(textMuted)
                                 Spacer()
-                                Text("\(feedbackText.count) CHARS")
+                                Text("\(feedbackText.count) chars")
                                     .font(.ui(size: 9))
                                     .foregroundColor(textSubtle)
                             }
@@ -261,7 +261,7 @@ struct FeedbackModalView: View {
                             Image(systemName: "checkmark.circle.fill")
                                 .font(.system(size: 10))
                                 .foregroundColor(accentPositive)
-                            Text("COPIED TO CLIPBOARD!")
+                            Text("Copied to Clipboard!")
                                 .font(.ui(size: 10, weight: .semibold))
                                 .foregroundColor(accentPositive)
                         }
@@ -287,7 +287,7 @@ struct FeedbackModalView: View {
                             HStack(spacing: 6) {
                                 Image(systemName: "doc.on.doc")
                                     .font(.system(size: 10))
-                                Text("COPY")
+                                Text("Copy")
                                     .font(.ui(size: 10, weight: .semibold))
                             }
                             .padding(.horizontal, 12)
@@ -305,13 +305,13 @@ struct FeedbackModalView: View {
                                     ProgressView()
                                         .scaleEffect(0.6)
                                         .frame(width: 12, height: 12)
-                                    Text("SENDING...")
-                                        .font(.system(size: 10, weight: .heavy, design: .monospaced))
+                                    Text("Sending...")
+                                        .font(.ui(size: 10, weight: .semibold))
                                 } else {
                                     Image(systemName: "paperplane.fill")
                                         .font(.system(size: 10))
-                                    Text("SEND FEEDBACK")
-                                        .font(.system(size: 10, weight: .heavy, design: .monospaced))
+                                    Text("Send Feedback")
+                                        .font(.ui(size: 10, weight: .semibold))
                                 }
                             }
                             .padding(.horizontal, 16)
@@ -323,8 +323,8 @@ struct FeedbackModalView: View {
                         .disabled(isSendDisabled)
                     } else {
                         Button(action: { dismissModal() }) {
-                            Text("DONE")
-                                .font(.system(size: 10, weight: .heavy, design: .monospaced))
+                            Text("Done")
+                                .font(.ui(size: 10, weight: .semibold))
                                 .padding(.horizontal, 16)
                                 .padding(.vertical, 7)
                                 .foregroundColor(primaryBtnFg)

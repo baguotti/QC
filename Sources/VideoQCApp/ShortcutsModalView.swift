@@ -26,15 +26,15 @@ struct ShortcutsModalView: View {
                         Image(systemName: "command")
                             .font(.system(size: 13, weight: .bold))
                             .foregroundColor(palette.textMain)
-                        Text("KEYBOARD SHORTCUTS // QCpie")
-                            .font(.system(size: 12, weight: .black, design: .monospaced))
+                        Text("Keyboard Shortcuts")
+                            .font(.ui(size: 12, weight: .semibold))
                             .foregroundColor(palette.textMain)
                     }
                     
                     Spacer()
                     
                     Button(action: { dismissModal() }) {
-                        Text("CLOSE (ESC)")
+                        Text("Close (Esc)")
                             .font(.ui(size: 10, weight: .semibold))
                             .padding(.horizontal, 9)
                             .padding(.vertical, 5)
@@ -57,10 +57,9 @@ struct ShortcutsModalView: View {
                         .font(.system(size: 32, weight: .semibold))
                         .foregroundColor(palette.textMuted)
                     
-                    Text("COMING SOON")
-                        .font(.system(size: 13, weight: .black, design: .monospaced))
+                    Text("Coming Soon")
+                        .font(.ui(size: 13, weight: .semibold))
                         .foregroundColor(palette.textMain)
-                        .tracking(1.5)
                     
                     Text("The keyboard shortcuts reference is currently being updated.")
                         .font(.ui(size: 10, weight: .medium))

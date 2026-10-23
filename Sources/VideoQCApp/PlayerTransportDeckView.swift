@@ -312,7 +312,7 @@ struct PlayerTransportDeckView: View, Equatable {
                             HStack(spacing: 3) {
                                 Image(systemName: "plus")
                                     .font(.system(size: iconSize(9), weight: .bold))
-                                Text("NOTE")
+                                Text("Note")
                                     .font(.ui(size: iconSize(9), weight: .semibold))
                             }
                             .frame(height: btnHeight)
@@ -347,7 +347,7 @@ struct PlayerTransportDeckView: View, Equatable {
                                     Image(systemName: isNotesDrawerOpen ? "bubble.left.fill" : "bubble.left")
                                         .font(.system(size: iconSize(9), weight: .semibold))
                                     SlotText(
-                                        hasNotes ? "\(notesCount)" : "NOTES",
+                                        hasNotes ? "\(notesCount)" : "Notes",
                                         mode: hasNotes ? .character : .word,
                                         direction: .up,
                                         font: .ui(size: iconSize(9), weight: .semibold),
@@ -364,7 +364,7 @@ struct PlayerTransportDeckView: View, Equatable {
                             .explain(hasNotes ? "Toggle Review Notes drawer (\(notesCount) notes)." : "Toggle Review Notes drawer.")
                         } else {
                             SlotText(
-                                hasNotes ? "\(notesCount)" : "NOTE",
+                                hasNotes ? "\(notesCount)" : "Note",
                                 mode: hasNotes ? .character : .word,
                                 direction: .up,
                                 font: .ui(size: iconSize(9), weight: .semibold),
@@ -410,7 +410,7 @@ struct PlayerTransportDeckView: View, Equatable {
                             hasGlitches ? "Jump to previous line glitch (⇧N / cycles backwards through findings of Tab 3)." : "No line glitches found in Tab 3 to cycle through."
                         )
                         
-                        Text("LINE")
+                        Text("Line")
                             .font(.ui(size: iconSize(9), weight: .semibold))
                             .foregroundColor(hasGlitches ? alertRed : textMuted)
                             .padding(.horizontal, 3)

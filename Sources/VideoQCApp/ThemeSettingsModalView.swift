@@ -30,15 +30,15 @@ struct ThemeSettingsModalView: View {
                         Image(systemName: "paintpalette.fill")
                             .font(.system(size: 13, weight: .bold))
                             .foregroundColor(themeManager.currentTheme.playColor)
-                        Text("APPEARANCE & THEME // QCpie")
-                            .font(.system(size: 12, weight: .black, design: .monospaced))
+                        Text("Appearance & Theme")
+                            .font(.ui(size: 12, weight: .semibold))
                             .foregroundColor(palette.textMain)
                     }
                     
                     Spacer()
                     
                     Button(action: { dismissModal() }) {
-                        Text("CLOSE (ESC)")
+                        Text("Close (Esc)")
                             .font(.ui(size: 10, weight: .semibold))
                             .padding(.horizontal, 9)
                             .padding(.vertical, 5)
@@ -90,7 +90,7 @@ struct ThemeSettingsModalView: View {
                         HStack(spacing: 6) {
                             Image(systemName: "arrow.counterclockwise")
                                 .font(.system(size: 10, weight: .bold))
-                            Text("RESET TO DEFAULT")
+                            Text("Reset to Default")
                                 .font(.ui(size: 10, weight: .semibold))
                         }
                         .padding(.horizontal, 11)
@@ -103,8 +103,8 @@ struct ThemeSettingsModalView: View {
                     Spacer()
                     
                     Button(action: { dismissModal() }) {
-                        Text("DONE")
-                            .font(.system(size: 10, weight: .black, design: .monospaced))
+                        Text("Done")
+                            .font(.ui(size: 10, weight: .semibold))
                             .padding(.horizontal, 18)
                             .padding(.vertical, 6)
                             .foregroundColor(palette.primaryBtnFg)
@@ -141,10 +141,9 @@ struct ThemeSettingsModalView: View {
     
     private var appearanceModeSection: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("01 // APPEARANCE (LIGHT & DARK)")
-                .font(.system(size: 10, weight: .black, design: .monospaced))
+            Text("Appearance (Light & Dark)")
+                .font(.ui(size: 10, weight: .semibold))
                 .foregroundColor(palette.textMuted)
-                .tracking(0.5)
             
             HStack(spacing: 10) {
                 // Dark Mode Card
@@ -160,8 +159,8 @@ struct ThemeSettingsModalView: View {
                             .frame(width: 20)
                         
                         VStack(alignment: .leading, spacing: 2) {
-                            Text("DARK THEME")
-                                .font(.system(size: 10, weight: !isLightMode ? .black : .bold, design: .monospaced))
+                            Text("Dark Theme")
+                                .font(.ui(size: 10, weight: !isLightMode ? .semibold : .medium))
                                 .foregroundColor(!isLightMode ? palette.textMain : palette.textMuted)
                             
                             Text("Low-glare studio environment (Default)")
@@ -201,8 +200,8 @@ struct ThemeSettingsModalView: View {
                             .frame(width: 20)
                         
                         VStack(alignment: .leading, spacing: 2) {
-                            Text("LIGHT THEME")
-                                .font(.system(size: 10, weight: isLightMode ? .black : .bold, design: .monospaced))
+                            Text("Light Theme")
+                                .font(.ui(size: 10, weight: isLightMode ? .semibold : .medium))
                                 .foregroundColor(isLightMode ? palette.textMain : palette.textMuted)
                             
                             Text("High-ambient office & daylight inspection")
@@ -237,14 +236,13 @@ struct ThemeSettingsModalView: View {
     private var presetsSection: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
-                Text("02 // ACCENT PRESETS")
-                    .font(.system(size: 10, weight: .black, design: .monospaced))
+                Text("Accent Presets")
+                    .font(.ui(size: 10, weight: .semibold))
                     .foregroundColor(palette.textMuted)
-                    .tracking(0.5)
                 
                 Spacer()
                 
-                Text("(\(themeManager.allThemes.count)/\(ThemeManager.maxTotalPresets) TOTAL)")
+                Text("(\(themeManager.allThemes.count)/\(ThemeManager.maxTotalPresets) Total)")
                     .font(.ui(size: 9, weight: .semibold))
                     .foregroundColor(palette.textSubtle)
             }
@@ -263,7 +261,7 @@ struct ThemeSettingsModalView: View {
                         Image(systemName: "tag.fill")
                             .font(.system(size: 9, weight: .bold))
                             .foregroundColor(palette.textSubtle)
-                        TextField("PRESET NAME", text: $newPresetName)
+                        TextField("Preset Name", text: $newPresetName)
                             .textFieldStyle(.plain)
                             .font(.ui(size: 10, weight: .semibold))
                             .foregroundColor(palette.textMain)
@@ -278,8 +276,8 @@ struct ThemeSettingsModalView: View {
                     Button(action: {
                         saveNewPreset()
                     }) {
-                        Text("SAVE")
-                            .font(.system(size: 9, weight: .black, design: .monospaced))
+                        Text("Save")
+                            .font(.ui(size: 9, weight: .semibold))
                             .padding(.horizontal, 12)
                             .padding(.vertical, 6)
                             .foregroundColor(palette.primaryBtnFg)
@@ -293,7 +291,7 @@ struct ThemeSettingsModalView: View {
                         isSavingPreset = false
                         newPresetName = ""
                     }) {
-                        Text("CANCEL")
+                        Text("Cancel")
                             .font(.ui(size: 9, weight: .semibold))
                             .padding(.horizontal, 9)
                             .padding(.vertical, 6)
@@ -320,8 +318,8 @@ struct ThemeSettingsModalView: View {
                         HStack(spacing: 6) {
                             Image(systemName: showUpdatedNotice ? "checkmark.circle.fill" : "arrow.triangle.2.circlepath")
                                 .font(.system(size: 9, weight: .bold))
-                            Text(showUpdatedNotice ? "UPDATED!" : "UPDATE '\(themeManager.currentTheme.name.uppercased())'")
-                                .font(.system(size: 9, weight: .black, design: .monospaced))
+                            Text(showUpdatedNotice ? "Updated!" : "Update '\(themeManager.currentTheme.name)'")
+                                .font(.ui(size: 9, weight: .semibold))
                         }
                         .padding(.horizontal, 10)
                         .padding(.vertical, 6)
@@ -343,7 +341,7 @@ struct ThemeSettingsModalView: View {
                         HStack(spacing: 6) {
                             Image(systemName: "plus")
                                 .font(.system(size: 9, weight: .bold))
-                            Text("SAVE AS NEW")
+                            Text("Save as New")
                                 .font(.ui(size: 9, weight: .semibold))
                         }
                         .padding(.horizontal, 10)
@@ -366,7 +364,7 @@ struct ThemeSettingsModalView: View {
                         HStack(spacing: 5) {
                             Image(systemName: "arrow.counterclockwise")
                                 .font(.system(size: 8, weight: .bold))
-                            Text("REVERT")
+                            Text("Revert")
                                 .font(.ui(size: 9, weight: .semibold))
                         }
                         .padding(.horizontal, 8)
@@ -382,13 +380,13 @@ struct ThemeSettingsModalView: View {
             } else {
                 HStack(spacing: 10) {
                     Button(action: {
-                        newPresetName = "PRESET \(themeManager.userPresets.count + 1)"
+                        newPresetName = "Preset \(themeManager.userPresets.count + 1)"
                         isSavingPreset = true
                     }) {
                         HStack(spacing: 6) {
                             Image(systemName: "plus")
                                 .font(.system(size: 9, weight: .bold))
-                            Text("SAVE CURRENT AS PRESET")
+                            Text("Save Current as Preset")
                                 .font(.ui(size: 9, weight: .semibold))
                         }
                         .padding(.horizontal, 10)
@@ -403,7 +401,7 @@ struct ThemeSettingsModalView: View {
                     .disabled(!themeManager.canSaveMorePresets)
                     
                     if !themeManager.canSaveMorePresets {
-                        Text("PRESET LIMIT REACHED (\(ThemeManager.maxTotalPresets) TOTAL)")
+                        Text("Preset Limit Reached (\(ThemeManager.maxTotalPresets) Total)")
                             .font(.ui(size: 8, weight: .semibold))
                             .foregroundColor(themeManager.currentTheme.warnColor)
                     }
@@ -448,8 +446,8 @@ struct ThemeSettingsModalView: View {
                     
                     VStack(alignment: .leading, spacing: 1) {
                         HStack(spacing: 4) {
-                            Text(preset.name.uppercased())
-                                .font(.system(size: 9.5, weight: isSelected ? .black : .bold, design: .monospaced))
+                            Text(preset.name)
+                                .font(.ui(size: 9.5, weight: isSelected ? .semibold : .medium))
                                 .foregroundColor(isSelected ? palette.textMain : palette.textMuted)
                                 .lineLimit(1)
                             
@@ -460,7 +458,7 @@ struct ThemeSettingsModalView: View {
                             }
                         }
                         
-                        Text(preset.isPreset ? "FACTORY PRESET" : (isModified ? "USER PRESET (MODIFIED)" : "USER PRESET"))
+                        Text(preset.isPreset ? "Factory Preset" : (isModified ? "User Preset (Modified)" : "User Preset"))
                             .font(.ui(size: 7, weight: .medium))
                             .foregroundColor(isModified ? themeManager.currentTheme.playColor : palette.textSubtle)
                     }
@@ -507,14 +505,13 @@ struct ThemeSettingsModalView: View {
     private var customColorsSection: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
-                Text("03 // CUSTOMIZE ACCENT COLORS")
-                    .font(.system(size: 10, weight: .black, design: .monospaced))
+                Text("Customize Accent Colors")
+                    .font(.ui(size: 10, weight: .semibold))
                     .foregroundColor(palette.textMuted)
-                    .tracking(0.5)
                 
                 Spacer()
                 
-                Text("CLICK SWATCH OR EDIT HEX")
+                Text("Click swatch or edit Hex")
                     .font(.ui(size: 8, weight: .semibold))
                     .foregroundColor(palette.textSubtle)
             }
@@ -532,14 +529,13 @@ struct ThemeSettingsModalView: View {
     private var buttonZoomSection: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
-                Text("04 // BUTTON & UI SIZE")
-                    .font(.system(size: 10, weight: .black, design: .monospaced))
+                Text("Button & UI Size")
+                    .font(.ui(size: 10, weight: .semibold))
                     .foregroundColor(palette.textMuted)
-                    .tracking(0.5)
                 
                 Spacer()
                 
-                Text("SHORTCUTS: ⌘- / ⌘+")
+                Text("Shortcuts: ⌘- / ⌘+")
                     .font(.ui(size: 9, weight: .semibold))
                     .foregroundColor(palette.textSubtle)
             }
@@ -575,7 +571,7 @@ struct ThemeSettingsModalView: View {
                 VStack(alignment: .leading, spacing: 2) {
                     HStack(spacing: 4) {
                         Text(level.title)
-                            .font(.system(size: 10, weight: isSelected ? .black : .bold, design: .monospaced))
+                            .font(.ui(size: 10, weight: isSelected ? .semibold : .medium))
                             .foregroundColor(isSelected ? palette.textMain : palette.textMuted)
                         Text("(\(String(format: "%.1fx", level.scaleFactor)))")
                             .font(.ui(size: 8, weight: .semibold))
@@ -612,10 +608,9 @@ struct ThemeSettingsModalView: View {
     
     private var previewSection: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("05 // LIVE ACCENT HARMONY PREVIEW")
-                .font(.system(size: 10, weight: .black, design: .monospaced))
+            Text("Live Accent Harmony Preview")
+                .font(.ui(size: 10, weight: .semibold))
                 .foregroundColor(palette.textMuted)
-                .tracking(0.5)
             
             VStack(spacing: 0) {
                 // Mock Navigation Tabs Bar (Matching QCpie App Tabs)
@@ -625,8 +620,8 @@ struct ThemeSettingsModalView: View {
                         Image(systemName: "film")
                             .font(.system(size: 9, weight: .bold))
                             .foregroundColor(themeManager.currentTheme.playColor)
-                        Text("PLAYER")
-                            .font(.system(size: 9.5, weight: .black, design: .monospaced))
+                        Text("Player")
+                            .font(.ui(size: 9.5, weight: .semibold))
                             .foregroundColor(palette.textMain)
                     }
                     .padding(.horizontal, 10)
@@ -645,7 +640,7 @@ struct ThemeSettingsModalView: View {
                     HStack(spacing: 5) {
                         Image(systemName: "doc.text")
                             .font(.system(size: 8.5, weight: .medium))
-                        Text("SPECS")
+                        Text("Specs")
                             .font(.ui(size: 9, weight: .semibold))
                     }
                     .padding(.horizontal, 8)
@@ -656,7 +651,7 @@ struct ThemeSettingsModalView: View {
                     HStack(spacing: 5) {
                         Image(systemName: "viewfinder")
                             .font(.system(size: 8.5, weight: .medium))
-                        Text("GLITCH FINDER")
+                        Text("Glitch Finder")
                             .font(.ui(size: 9, weight: .semibold))
                     }
                     .padding(.horizontal, 8)
@@ -667,7 +662,7 @@ struct ThemeSettingsModalView: View {
                     HStack(spacing: 5) {
                         Image(systemName: "tray.and.arrow.down")
                             .font(.system(size: 8.5, weight: .medium))
-                        Text("INGEST")
+                        Text("Ingest")
                             .font(.ui(size: 9, weight: .semibold))
                     }
                     .padding(.horizontal, 8)
@@ -681,7 +676,7 @@ struct ThemeSettingsModalView: View {
                         Circle()
                             .fill(themeManager.currentTheme.slotaColor)
                             .frame(width: 5, height: 5)
-                        Text("READY")
+                        Text("Ready")
                             .font(.ui(size: 7.5, weight: .semibold))
                             .foregroundColor(themeManager.currentTheme.slotaColor)
                     }
@@ -783,7 +778,7 @@ struct ThemeSettingsModalView: View {
                             .font(.system(size: 8, weight: .bold))
                             .foregroundColor(themeManager.currentTheme.playColor)
                         Text("00:00:50:10")
-                            .font(.system(size: 9.5, weight: .bold, design: .monospaced))
+                            .font(.ui(size: 9.5, weight: .semibold))
                             .foregroundColor(themeManager.currentTheme.playColor)
                     }
                     .padding(.horizontal, 7)
@@ -795,8 +790,8 @@ struct ThemeSettingsModalView: View {
                         Circle()
                             .fill(themeManager.currentTheme.slotaColor)
                             .frame(width: 6, height: 6)
-                        Text("A: MASTER")
-                            .font(.system(size: 8, weight: .black, design: .monospaced))
+                        Text("A: Master")
+                            .font(.ui(size: 8, weight: .semibold))
                             .foregroundColor(themeManager.currentTheme.slotaColor)
                     }
                     .padding(.horizontal, 6)
@@ -812,8 +807,8 @@ struct ThemeSettingsModalView: View {
                         Circle()
                             .fill(themeManager.currentTheme.slotBColor)
                             .frame(width: 6, height: 6)
-                        Text("B: REF")
-                            .font(.system(size: 8, weight: .black, design: .monospaced))
+                        Text("B: Ref")
+                            .font(.ui(size: 8, weight: .semibold))
                             .foregroundColor(themeManager.currentTheme.slotBColor)
                     }
                     .padding(.horizontal, 6)
@@ -831,8 +826,8 @@ struct ThemeSettingsModalView: View {
                         Image(systemName: "exclamationmark.triangle.fill")
                             .font(.system(size: 8, weight: .bold))
                             .foregroundColor(themeManager.currentTheme.warnColor)
-                        Text("2 GLITCHES")
-                            .font(.system(size: 8, weight: .black, design: .monospaced))
+                        Text("2 Glitches")
+                            .font(.ui(size: 8, weight: .semibold))
                             .foregroundColor(themeManager.currentTheme.warnColor)
                     }
                     .padding(.horizontal, 6)
@@ -848,8 +843,8 @@ struct ThemeSettingsModalView: View {
                         Image(systemName: "checkmark.circle.fill")
                             .font(.system(size: 8, weight: .bold))
                             .foregroundColor(themeManager.currentTheme.slotaColor)
-                        Text("QC PASS")
-                            .font(.system(size: 8, weight: .black, design: .monospaced))
+                        Text("QC Pass")
+                            .font(.ui(size: 8, weight: .semibold))
                             .foregroundColor(themeManager.currentTheme.slotaColor)
                     }
                     .padding(.horizontal, 6)
@@ -882,7 +877,7 @@ private struct AccentColorSlotCard: View {
             // Role info
             VStack(alignment: .leading, spacing: 2) {
                 Text(slot.title)
-                    .font(.system(size: 9, weight: .black, design: .monospaced))
+                    .font(.ui(size: 9, weight: .semibold))
                     .foregroundColor(palette.textMain)
                     .lineLimit(1)
                 Text(slot.roleDescription)

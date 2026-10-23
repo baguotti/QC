@@ -27,12 +27,12 @@ struct SettingsModalShell<Content: View>: View {
                             .font(.system(size: 13, weight: .bold))
                             .foregroundColor(themeManager.currentTheme.playColor)
                         Text(title)
-                            .font(.system(size: 12, weight: .black, design: .monospaced))
+                            .font(.ui(size: 12, weight: .semibold))
                             .foregroundColor(palette.textMain)
                     }
                     Spacer()
                     Button(action: { dismiss() }) {
-                        Text("CLOSE (ESC)")
+                        Text("Close (Esc)")
                             .font(.ui(size: 10, weight: .semibold))
                             .padding(.horizontal, 9)
                             .padding(.vertical, 5)
@@ -63,8 +63,8 @@ struct SettingsModalShell<Content: View>: View {
                 HStack {
                     Spacer()
                     Button(action: { dismiss() }) {
-                        Text("DONE")
-                            .font(.system(size: 10, weight: .black, design: .monospaced))
+                        Text("Done")
+                            .font(.ui(size: 10, weight: .semibold))
                             .padding(.horizontal, 18)
                             .padding(.vertical, 6)
                             .foregroundColor(palette.primaryBtnFg)
@@ -111,7 +111,7 @@ struct NotesSyncModalView: View {
     private var palette: StudioPalette { StudioPalette(isLightMode) }
     
     var body: some View {
-        SettingsModalShell(isPresented: $isPresented, title: "SYNCED PROJECTS // QCpie", icon: "icloud.fill") {
+        SettingsModalShell(isPresented: $isPresented, title: "Synced Projects", icon: "icloud.fill") {
             notesSyncSection
         }
     }
@@ -119,10 +119,9 @@ struct NotesSyncModalView: View {
     private var notesSyncSection: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
-                Text("PROJECTS")
-                    .font(.system(size: 10, weight: .black, design: .monospaced))
+                Text("Projects")
+                    .font(.ui(size: 10, weight: .semibold))
                     .foregroundColor(palette.textMuted)
-                    .tracking(0.5)
                 
                 Spacer()
                 
@@ -146,9 +145,9 @@ struct NotesSyncModalView: View {
                         .frame(width: 150)
                     syncField("Type a password or paste one", text: $syncPasswordDraft)
                         .onSubmit { addSyncProject(password: syncPasswordDraft) }
-                    syncButton("ADD", primary: true) { addSyncProject(password: syncPasswordDraft) }
+                    syncButton("Add", primary: true) { addSyncProject(password: syncPasswordDraft) }
                         .disabled(NotesSync.deriveKeys(password: syncPasswordDraft) == nil)
-                    syncButton("GENERATE") { addSyncProject(password: NotesSync.generatePassword(), copy: true) }
+                    syncButton("Generate") { addSyncProject(password: NotesSync.generatePassword(), copy: true) }
                 }
                 
                 Text("Each project has its own password; everyone using it shares that project's notes. Passwords are 8+ characters, not case-sensitive (longer is safer: anyone who guesses one can read its notes). A clip joins the project that already has notes for it, otherwise the DEFAULT project when it gets notes; change it from the Notes panel. Notes are encrypted on this Mac before upload. Clips match by file name and size, so each person can keep files in any folder.")
@@ -177,15 +176,15 @@ struct NotesSyncModalView: View {
                 .padding(.horizontal, 8)
                 .padding(.vertical, 6)
                 .studioBox(background: palette.bgSubtle, border: palette.borderLine)
-            syncButton(isDefault ? "DEFAULT" : "MAKE DEFAULT", primary: isDefault) {
+            syncButton(isDefault ? "Default" : "Make Default", primary: isDefault) {
                 defaultSyncProjectID = project.id
                 saveSyncProjects()
             }
-            syncButton(isRevealed ? "HIDE" : "SHOW") {
+            syncButton(isRevealed ? "Hide" : "Show") {
                 if isRevealed { revealedProjectIDs.remove(project.id) } else { revealedProjectIDs.insert(project.id) }
             }
-            syncButton("COPY") { copyToPasteboard(project.password) }
-            syncButton("REMOVE") {
+            syncButton("Copy") { copyToPasteboard(project.password) }
+            syncButton("Remove") {
                 syncProjects.removeAll { $0.id == project.id }
                 if defaultSyncProjectID == project.id { defaultSyncProjectID = syncProjects.first?.id }
                 saveSyncProjects()
@@ -204,16 +203,16 @@ struct NotesSyncModalView: View {
     
     private var syncStatusText: String {
         switch syncStatus.state {
-        case .unavailable: return "UNAVAILABLE"
+        case .unavailable: return "Unavailable"
         case .off: return "OFF"
         case .on: return "ON"
         case .upToDate:
             if let date = syncStatus.lastReceived {
-                return "UP TO DATE · LAST CHANGE \(date.formatted(date: .omitted, time: .shortened))"
+                return "Up to date · last change \(date.formatted(date: .omitted, time: .shortened))"
             }
-            return "UP TO DATE"
-        case .offline: return "OFFLINE · SAVED LOCALLY"
-        case .failed(let message): return message.uppercased()
+            return "Up to date"
+        case .offline: return "Offline · saved locally"
+        case .failed(let message): return message
         }
     }
     
@@ -320,8 +319,8 @@ struct UserSettingsModalView: View {
     private var palette: StudioPalette { StudioPalette(isLightMode) }
     
     var body: some View {
-        SettingsModalShell(isPresented: $isPresented, title: "USER SETTINGS // QCpie", icon: "person.crop.circle.fill") {
-            section("01 // REVIEWER") {
+        SettingsModalShell(isPresented: $isPresented, title: "User Settings", icon: "person.crop.circle.fill") {
+            section("Reviewer") {
                 row("Your name", detail: "Shown as the author of your notes and replies.") {
                     TextField("Your name", text: $reviewerName)
                         .textFieldStyle(.plain)
@@ -333,7 +332,7 @@ struct UserSettingsModalView: View {
                 }
             }
             
-            section("02 // PLAYBACK") {
+            section("Playback") {
                 row("Autoplay", detail: "Play a clip from the start when it is selected in the queue (A).") {
                     toggle($engine.isAutoplayEnabled)
                 }
@@ -368,7 +367,7 @@ struct UserSettingsModalView: View {
                 }
             }
             
-            section("03 // QUEUE & SPECS") {
+            section("Queue & Specs") {
                 row("Player queue", detail: "Show the queue panel when QCpie opens.", launch: true) {
                     toggle($showQueue)
                 }
@@ -383,7 +382,7 @@ struct UserSettingsModalView: View {
                 }
             }
             
-            section("04 // LINE CHECK DEFAULTS") {
+            section("Line Check Defaults") {
                 row("Target colour", detail: "Line colour selected when QCpie opens.", launch: true) {
                     choice(lineTargets, selection: $lineTargetHex)
                 }
@@ -409,7 +408,7 @@ struct UserSettingsModalView: View {
                 }
                 row("Edge depth", detail: "How many pixels in from each edge are scanned.", launch: true) {
                     HStack(spacing: 4) {
-                        Text("\(lineEdgeDepth) PX")
+                        Text("\(lineEdgeDepth) px")
                             .font(.ui(size: 10, weight: .semibold))
                             .foregroundColor(palette.textMain)
                         Stepper("", value: $lineEdgeDepth, in: 2...40)
@@ -428,9 +427,8 @@ struct UserSettingsModalView: View {
     private func section<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             Text(title)
-                .font(.system(size: 10, weight: .black, design: .monospaced))
+                .font(.ui(size: 10, weight: .semibold))
                 .foregroundColor(palette.textMuted)
-                .tracking(0.5)
             VStack(spacing: 0) {
                 content()
             }
@@ -442,11 +440,11 @@ struct UserSettingsModalView: View {
         HStack(spacing: 12) {
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 6) {
-                    Text(title.uppercased())
+                    Text(title)
                         .font(.ui(size: 10, weight: .semibold))
                         .foregroundColor(palette.textMain)
                     if launch {
-                        Text("NEXT LAUNCH")
+                        Text("Next Launch")
                             .font(.ui(size: 7, weight: .semibold))
                             .foregroundColor(palette.textSubtle)
                     }
@@ -476,18 +474,18 @@ struct UserSettingsModalView: View {
         let label: String
     }
     
-    private let lineTargets = [Option(value: "#00FF00", label: "GREEN"), Option(value: "#FF00FF", label: "MAGENTA"),
-                               Option(value: "#000000", label: "BLACK"), Option(value: "#FFFFFF", label: "WHITE")]
+    private let lineTargets = [Option(value: "#00FF00", label: "Green"), Option(value: "#FF00FF", label: "Magenta"),
+                               Option(value: "#000000", label: "Black"), Option(value: "#FFFFFF", label: "White")]
     
-    private let listOrThumbs = [Option(value: "inline", label: "LIST"), Option(value: "thumbnail", label: "THUMBS")]
+    private let listOrThumbs = [Option(value: "inline", label: "List"), Option(value: "thumbnail", label: "Thumbs")]
     
     private func choice(_ options: [Option], selection: Binding<String>) -> some View {
         HStack(spacing: 4) {
             ForEach(options, id: \.value) { option in
                 let isSelected = selection.wrappedValue == option.value
                 Button(action: { selection.wrappedValue = option.value }) {
-                    Text(option.label.uppercased())
-                        .font(.system(size: 9, weight: isSelected ? .black : .bold, design: .monospaced))
+                    Text(option.label)
+                        .font(.ui(size: 9, weight: isSelected ? .semibold : .medium))
                         .padding(.horizontal, 7)
                         .padding(.vertical, 4)
                         .foregroundColor(isSelected ? palette.primaryBtnFg : palette.textMuted)

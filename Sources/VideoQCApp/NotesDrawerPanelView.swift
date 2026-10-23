@@ -238,7 +238,7 @@ struct NotesDrawerPanelView: View {
             // Notes Subheader (Clear All + Add Note)
             HStack(spacing: 6) {
                 HStack(spacing: 0) {
-                    Text("ALL NOTES (")
+                    Text("All Notes (")
                     SlotText(
                         "\(notes.count)",
                         mode: .character,
@@ -260,7 +260,7 @@ struct NotesDrawerPanelView: View {
                         HStack(spacing: 3) {
                             Image(systemName: "trash")
                                 .font(.system(size: 7.5, weight: .bold))
-                            Text("CLEAR ALL")
+                            Text("Clear All")
                                 .font(.ui(size: 8, weight: .semibold))
                                 .lineLimit(1)
                         }
@@ -277,7 +277,7 @@ struct NotesDrawerPanelView: View {
                     HStack(spacing: 3) {
                         Image(systemName: "plus")
                             .font(.system(size: 7.5, weight: .bold))
-                        Text("ADD (N)")
+                        Text("Add (N)")
                             .font(.ui(size: 8, weight: .semibold))
                             .lineLimit(1)
                     }
@@ -303,7 +303,7 @@ struct NotesDrawerPanelView: View {
                     Image(systemName: "note.text")
                         .font(.system(size: 28))
                         .foregroundColor(palette.textMuted.opacity(0.5))
-                    Text("NO REVIEW NOTES")
+                    Text("No Review Notes")
                         .font(.ui(size: 11, weight: .semibold))
                         .foregroundColor(palette.textMain)
                     Text("Pause on any frame and type below or press N to log a timecoded note.")
@@ -315,7 +315,7 @@ struct NotesDrawerPanelView: View {
                     Button(action: { isInlineInputFocused = true }) {
                         HStack(spacing: 5) {
                             Image(systemName: "plus.circle.fill")
-                            Text("ADD FIRST NOTE")
+                            Text("Add First Note")
                         }
                         .font(.ui(size: 10, weight: .semibold))
                         .padding(.horizontal, 12)
@@ -382,7 +382,7 @@ struct NotesDrawerPanelView: View {
                         Image(systemName: "square.and.arrow.up")
                             .font(.system(size: 9, weight: .bold))
                             .foregroundColor(palette.textMain)
-                        Text("EXPORT")
+                        Text("Export")
                             .font(.ui(size: 9, weight: .semibold))
                             .foregroundColor(palette.textMain)
                         Image(systemName: "chevron.down")
@@ -403,7 +403,7 @@ struct NotesDrawerPanelView: View {
                     HStack(spacing: 4) {
                         Image(systemName: "square.and.arrow.down")
                             .font(.system(size: 9, weight: .bold))
-                        Text("IMPORT")
+                        Text("Import")
                             .font(.ui(size: 9, weight: .semibold))
                     }
                     .padding(.horizontal, 8)
@@ -416,7 +416,7 @@ struct NotesDrawerPanelView: View {
                 
                 Spacer()
                 
-                Text("\(notes.filter { $0.isResolved }.count)/\(notes.count) RESOLVED")
+                Text("\(notes.filter { $0.isResolved }.count)/\(notes.count) resolved")
                     .font(.ui(size: 9, weight: .semibold))
                     .foregroundColor(palette.textSubtle)
             }
@@ -435,7 +435,7 @@ struct NotesDrawerPanelView: View {
                     Spacer()
                     ProgressView()
                         .scaleEffect(0.9)
-                    Text("READING MEDIA INFO...")
+                    Text("Reading Media info...")
                         .font(.ui(size: 10, weight: .semibold))
                         .foregroundColor(palette.textMuted)
                     Spacer()
@@ -461,7 +461,7 @@ struct NotesDrawerPanelView: View {
                     Image(systemName: "info.circle")
                         .font(.system(size: 26))
                         .foregroundColor(palette.textMuted.opacity(0.4))
-                    Text("NO MEDIA LOADED")
+                    Text("No Media Loaded")
                         .font(.ui(size: 11, weight: .semibold))
                         .foregroundColor(palette.textMain)
                     Text("Load a deliverable in Slot A or B to inspect container tracks and metadata.")
@@ -481,10 +481,9 @@ struct NotesDrawerPanelView: View {
     
     private func drawerTracksView(info: ExtendedMediaInfo) -> some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text(info.isImage ? "IMAGE" : "TRACK INVENTORY (\(info.tracks.count))")
+            Text(info.isImage ? "Image" : "Track Inventory (\(info.tracks.count))")
                 .font(.ui(size: 10, weight: .semibold))
                 .foregroundColor(palette.textMain)
-                .tracking(0.8)
             
             ForEach(info.tracks) { track in
                 VStack(alignment: .leading, spacing: 6) {
@@ -557,10 +556,9 @@ struct NotesDrawerPanelView: View {
     private func drawerFileView(info: ExtendedMediaInfo) -> some View {
         VStack(alignment: .leading, spacing: 14) {
             VStack(alignment: .leading, spacing: 6) {
-                Text("FILE SYSTEM")
+                Text("File System")
                     .font(.ui(size: 10, weight: .semibold))
                     .foregroundColor(palette.textMain)
-                    .tracking(0.8)
                 
                 VStack(alignment: .leading, spacing: 5) {
                     // File Name Row
@@ -624,7 +622,7 @@ struct NotesDrawerPanelView: View {
                                     HStack(spacing: 3) {
                                         Image(systemName: "doc.on.doc")
                                             .font(.system(size: 8))
-                                        Text("COPY")
+                                        Text("Copy")
                                             .font(.ui(size: 8, weight: .semibold))
                                     }
                                     .foregroundColor(palette.textMuted)
@@ -693,10 +691,9 @@ struct NotesDrawerPanelView: View {
             
             if let asset = effectiveAsset {
                 VStack(alignment: .leading, spacing: 6) {
-                    Text(info.isImage ? "RASTER" : "TIMING & RASTER")
+                    Text(info.isImage ? "Raster" : "Timing & Raster")
                         .font(.ui(size: 10, weight: .semibold))
                         .foregroundColor(palette.textMain)
-                        .tracking(0.8)
                     
                     VStack(alignment: .leading, spacing: 4) {
                         if !info.isImage {
@@ -759,7 +756,7 @@ struct NotesDrawerPanelView: View {
                 .frame(width: 84, alignment: .leading)
             
             HStack(spacing: 5) {
-                Text(levelString.isEmpty ? (isMute ? "MUTE" : "--") : levelString)
+                Text(levelString.isEmpty ? (isMute ? "Mute" : "--") : levelString)
                     .font(.ui(size: 9.5, weight: .semibold))
                     .foregroundColor(isMute ? palette.alertRed : palette.accentPositive)
                     .padding(.horizontal, 5)
@@ -774,7 +771,7 @@ struct NotesDrawerPanelView: View {
                     .cornerRadius(3)
                 
                 if isMute {
-                    Text("SILENT")
+                    Text("Silent")
                         .font(.ui(size: 8.5, weight: .semibold))
                         .foregroundColor(palette.alertRed)
                 } else {
@@ -811,7 +808,7 @@ struct NotesDrawerPanelView: View {
                     HStack(spacing: 3) {
                         Image(systemName: "doc.on.doc")
                             .font(.system(size: 8.5, weight: .bold))
-                        Text("SPECS")
+                        Text("Specs")
                             .font(.ui(size: 8.5, weight: .semibold))
                     }
                     .padding(.horizontal, 7)
@@ -830,7 +827,7 @@ struct NotesDrawerPanelView: View {
                     HStack(spacing: 3) {
                         Image(systemName: "folder")
                             .font(.system(size: 8.5, weight: .bold))
-                        Text("REVEAL")
+                        Text("Reveal")
                             .font(.ui(size: 8.5, weight: .semibold))
                     }
                     .padding(.horizontal, 7)
@@ -994,7 +991,7 @@ struct NotesDrawerPanelView: View {
                             note.timecode,
                             mode: .character,
                             direction: .down,
-                            font: .system(size: 9, weight: .bold, design: .monospaced),
+                            font: .ui(size: 9, weight: .semibold),
                             foregroundColor: colorForTag(note.colorTag),
                             tracking: 0.5,
                             animateOnAppear: true
@@ -1010,7 +1007,7 @@ struct NotesDrawerPanelView: View {
                 
                 // Author
                 Text(note.author)
-                    .font(.system(size: 9, weight: .bold, design: .monospaced))
+                    .font(.ui(size: 9, weight: .semibold))
                     .foregroundColor(palette.textMain)
                     .lineLimit(1)
                 
@@ -1102,8 +1099,8 @@ struct NotesDrawerPanelView: View {
     
     private func noteColorFilterBar(presentColors: [String], active: Set<String>) -> some View {
         HStack(spacing: 4) {
-            Text("FILTER")
-                .font(.system(size: 8.5, weight: .black, design: .monospaced))
+            Text("Filter")
+                .font(.ui(size: 8.5, weight: .semibold))
                 .foregroundColor(palette.textMuted)
             ForEach(presentColors, id: \.self) { id in
                 let isOn = active.contains(id)
@@ -1246,7 +1243,7 @@ struct NotesDrawerPanelView: View {
                 HStack(spacing: 3) {
                     Image(systemName: "arrowshape.turn.up.left")
                         .font(.system(size: 8, weight: .bold))
-                    Text(note.replies.isEmpty ? "REPLY" : "REPLY (\(note.replies.count))")
+                    Text(note.replies.isEmpty ? "Reply" : "Reply (\(note.replies.count))")
                         .font(.ui(size: 8, weight: .semibold))
                 }
                 .foregroundColor(palette.textMuted)
@@ -1387,7 +1384,7 @@ private struct NotesSyncProjectBar: View {
                     Image(systemName: "icloud")
                         .font(.system(size: 9, weight: .bold))
                         .foregroundColor(palette.textMuted)
-                    Text("SYNC")
+                    Text("Sync")
                         .font(.ui(size: 8, weight: .semibold))
                         .foregroundColor(palette.textMuted)
                     Menu {

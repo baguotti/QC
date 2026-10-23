@@ -340,9 +340,9 @@ public enum UIButtonZoomLevel: Int, CaseIterable, Identifiable, Codable, Sendabl
     
     public var title: String {
         switch self {
-        case .small: return "SMALL"
-        case .medium: return "MEDIUM"
-        case .large: return "LARGE"
+        case .small: return "Small"
+        case .medium: return "Medium"
+        case .large: return "Large"
         }
     }
     
@@ -641,10 +641,10 @@ public enum AccentSlot: String, CaseIterable, Identifiable, Sendable {
     
     public var title: String {
         switch self {
-        case .slota: return "01 // SLOT A / MASTER"
-        case .play: return "02 // TIMECODE / PLAYHEAD"
-        case .slotB: return "03 // SLOT B / COMPARE"
-        case .warn: return "04 // GLITCHES / WARNINGS"
+        case .slota: return "Slot A / Master"
+        case .play: return "Timecode / Playhead"
+        case .slotB: return "Slot B / Compare"
+        case .warn: return "Glitches / Warnings"
         }
     }
     

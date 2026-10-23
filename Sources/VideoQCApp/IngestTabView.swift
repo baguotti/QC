@@ -572,7 +572,7 @@ extension ContentView {
                         .font(.system(size: 10))
                         .foregroundColor(textMuted)
                     
-                    TextField("FILTER INGEST ITEMS...", text: $ingestState.filterText)
+                    TextField("Filter ingest items...", text: $ingestState.filterText)
                         .font(.ui(size: 10.5, weight: .medium))
                         .textFieldStyle(.plain)
                         .foregroundColor(textMain)

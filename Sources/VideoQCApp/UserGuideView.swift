@@ -26,8 +26,8 @@ struct UserGuideView: View {
                         Image(systemName: "info.circle.fill")
                             .font(.system(size: 13))
                             .foregroundColor(palette.textMain)
-                        Text("USER GUIDE // QCpie")
-                            .font(.system(size: 12, weight: .black, design: .monospaced))
+                        Text("User Guide")
+                            .font(.ui(size: 12, weight: .semibold))
                             .foregroundColor(palette.textMain)
                         
                         HStack(spacing: 4) {
@@ -42,7 +42,7 @@ struct UserGuideView: View {
                     }
                     Spacer()
                     Button(action: { dismissModal() }) {
-                        Text("CLOSE (ESC)")
+                        Text("Close (Esc)")
                             .font(.ui(size: 10, weight: .semibold))
                             .padding(.horizontal, 9)
                             .padding(.vertical, 5)
@@ -60,9 +60,9 @@ struct UserGuideView: View {
                 
                 // Tabs
                 HStack(spacing: 0) {
-                    guideTabButton(title: "PLAYER", index: 0)
-                    guideTabButton(title: "SPECS", index: 1)
-                    guideTabButton(title: "GLITCH FINDER", index: 2)
+                    guideTabButton(title: "Player", index: 0)
+                    guideTabButton(title: "Specs", index: 1)
+                    guideTabButton(title: "Glitch Finder", index: 2)
                     Spacer()
                 }
                 .padding(.horizontal, 14)
@@ -88,12 +88,12 @@ struct UserGuideView: View {
                 
                 // Footer
                 HStack {
-                    Text("TIP: Press ESC at any time to close this guide.")
+                    Text("Press Esc to close this guide.")
                         .font(.ui(size: 9))
                         .foregroundColor(palette.textMuted)
                     Spacer()
                     Button(action: { dismissModal() }) {
-                        Text("DONE")
+                        Text("Done")
                             .font(.ui(size: 10, weight: .semibold))
                             .padding(.horizontal, 16)
                             .padding(.vertical, 5)
@@ -130,7 +130,7 @@ struct UserGuideView: View {
         let isSel = selectedGuideTab == index
         return Button(action: { selectedGuideTab = index }) {
             Text(title)
-                .font(.system(size: 10, weight: isSel ? .black : .bold, design: .monospaced))
+                .font(.ui(size: 10, weight: isSel ? .semibold : .medium))
                 .padding(.horizontal, 12)
                 .padding(.vertical, 6)
                 .foregroundColor(isSel ? palette.textMain : palette.textMuted)
@@ -143,30 +143,24 @@ struct UserGuideView: View {
     
     private var playerGuide: some View {
         VStack(alignment: .leading, spacing: 10) {
-            guideRow(name: "DUAL A/B & DIFFERENCE MODE", desc: "Option+Click any queue asset (or click +B) to load into Slot B. Compare using interactive Split Wipe (drag the tactile center handle), Side-by-Side (horizontal left/right or vertical stacked top/bottom), GPU Difference Mode (|RGB_A - RGB_B|), or 50% Opacity Overlay (Slot B over Slot A). Click [(TAB)] or press Tab for rapid flicker compare, X to Swap slots, C to cycle modes, and solo Slot A or B audio.")
-            guideRow(name: "J-K-L SHUTTLE PLAYBACK", desc: "Tap L to play forward (1x, 2x, 4x, 8x, 16x). Tap K to pause. Tap J to play reverse (-1x, -2x, -4x, -8x, -16x).")
-            guideRow(name: "SLOW FRAME-BY-FRAME (⇧ + L / ⇧ + J)", desc: "Plays automatically frame-by-frame. Pressing repeatedly accelerates playback speed (2, 4, 8, 15, 24, 30 FPS). Dedicated transport buttons are also available.")
-            guideRow(name: "VIDEO FULLSCREEN (F / ESC)", desc: "Makes video completely full screen with zero UI. All keyboard shortcuts, zooming, and panning continue to work seamlessly. Double-click or press ESC to exit.")
-            guideRow(name: "REVIEW FULLSCREEN (⇧ + F)", desc: "Expands player to full screen with an on-screen cinema review HUD, full timeline scrubber, dual-video comparison toolbar, and transport controls that auto-hide when idle.")
-            guideRow(name: "SPACEBAR", desc: "Quick toggle between normal 1x Play and Pause.")
-            guideRow(name: "SINGLE FRAME STEPPING (← / →)", desc: "Left and right arrow keys step exactly 1 frame backward or forward.")
-            guideRow(name: "5 FRAME JUMP (⇧ + ← / →)", desc: "Shift + Left/Right arrow jumps 5 video frames backward or forward.")
-            guideRow(name: "HOME / END (⇧ + I)", desc: "Shift + I or Home key jumps directly to the first frame (start of clip). End key jumps to the last frame.")
-            guideRow(name: "TIMELINE SCRUBBING", desc: "Drag the playhead or click anywhere on the SMPTE ruler to scrub frame-accurately.")
-            guideRow(name: "SCROLL ZOOM & HAND-PAN", desc: "Scroll your mouse wheel up or down directly to zoom into or out of the canvas (10% to 400%). Pinch on trackpad to zoom. Click and drag across the canvas with the hand tool to pan around.")
-            guideRow(name: "QUEUE NAVIGATION (↑ / ↓, ⌥↑ / ⌥↓)", desc: "Up and down arrow keys navigate the queue for Slot A. Option + Up/Down (⌥↑ / ⌥↓) navigates the queue for Slot B.")
-            guideRow(name: "THUMBNAIL SIZE / VIEW (+ / -)", desc: "Press + (=) to increase thumbnail size (or enter Thumbnail view from List). Press - to decrease thumbnail size down to List view.")
-            guideRow(name: "AUTOPLAY (A / AUTO)", desc: "When enabled, selecting a video or navigating with ↑/↓ automatically plays the deliverable from the very beginning. Toggled via the 'A' key or the [AUTO] badge in the queue header.")
-            guideRow(name: "CENTER CROSSHAIR OVERLAY", desc: "Toggles top-to-bottom and left-to-right crosshair guide lines with a center precision reticle to inspect if elements, logos, and lower-thirds are perfectly centered.")
-            guideRow(name: "CLIP INFO OVERLAY (I)", desc: "Cycles through 5 levels of canvas header info: 1) Off, 2) A/B Only, 3) Resolution, 4) File Name, 5) Full Details (Name, Resolution, Codec, Size, Length). Right-click the info icon to choose a specific mode.")
-            guideRow(name: "CHANGE EXPOSURE (AE STYLE)", desc: "Click and drag left or right on the +0.0 EV number to brighten shadows and reveal faint black line glitches or drop highlights (-5.0 to +5.0 EV). Click the camera aperture icon or double-click the number to reset back to +0.0 EV.")
-            guideRow(name: "JUMP TO NEXT LINE (N / NEXT LINE)", desc: "Cycles through all detected line glitches across all deliverables from Tab 3, seeking frame-accurately and pausing playback for inspection.")
-            guideRow(name: "MACOS FINDER COLOR TAGS", desc: "Tag the active file with native macOS Finder color tags (Red, Orange, Yellow, Green, Blue, Purple, Gray) via the [TAGS] button or by right-clicking on any asset in the queue.")
-            guideRow(name: "FRAME SCREENSHOT (CAMERA ICON)", desc: "Left-click the camera button to export the current frame or active A/B comparison view directly using the active preset (default: JPG Medium). Right-click to choose from 4 presets: JPG Medium, JPG High, PNG Medium, or PNG High (all at full source resolution).")
-            guideRow(name: "SEAMLESS LOOP (⌘L)", desc: "Toggles automatic looping. Reaching the end seamlessly restarts from the beginning without stopping.")
-            guideRow(name: "AUDIO & MUTE", desc: "Master playback volume slider and instant audio mute button.")
-            guideRow(name: "TOGGLE SLEEVES & PANELS (⌘⇧← / ⌘⇧→)", desc: "Press ⌘⇧← to show or hide the Assets & Queue panel. Drag the divider to resize the queue panel, or double-click to reset width (360px). Press ⌘⇧→ to show or hide the Review sleeve (Media Info & Notes). ⌘I inspects Media Info directly.")
-            guideRow(name: "WORKSPACE NAVIGATION (⇧1, ⇧2, ⇧3)", desc: "Jump directly to any workspace: ⇧1 for Player, ⇧2 for Specs, ⇧3 for Glitch Finder.")
+            guideRow(name: "Assets", desc: "Change, Add or Refresh the loaded folder or files. The line underneath shows how many videos, images and audio files are loaded. Drag and drop works anywhere in the panel.")
+            guideRow(name: "Queue", desc: "Click a file to load it into Slot A, ⌥-click (or +B) to load it into Slot B. ↑ / ↓ move through the queue (⌥↑ / ⌥↓ for Slot B). The view menu switches list and thumbnails; + / − change the thumbnail size.")
+            guideRow(name: "Hide, Auto and Wave", desc: "Hide flattens the folder list. Auto (A) plays a clip from the start when you select it. Wave (W) draws the audio waveform under the timeline; scroll over it to resize the lane.")
+            guideRow(name: "Images, Audio and Sequences", desc: "Stills and audio open in the Player too. Numbered image sequences are detected automatically and play as a clip; right-click one in the queue to change its frame rate or read it as single images.")
+            guideRow(name: "Play and Shuttle (Space, J / K / L)", desc: "Space plays and pauses. L plays forward and speeds up on each press (1×, 2×, 4×, 8×, 16×), J does the same in reverse, K stops. ⇧L / ⇧J play slowly frame by frame. ⌘L loops.")
+            guideRow(name: "Stepping (← / →)", desc: "← / → step one frame, ⇧← / ⇧→ step five. Home or ⇧I jumps to the first frame, End to the last.")
+            guideRow(name: "Timeline", desc: "Drag the playhead or click the ruler to scrub frame-accurately. Note, line and tag markers sit on the timeline; click one to jump to it.")
+            guideRow(name: "Compare A / B", desc: "With two clips loaded, C cycles the compare modes (split, side by side, difference, overlay), Tab blinks between A and B, and S or X swaps the slots. Linked A / B plays and steps both together.")
+            guideRow(name: "Zoom and Pan", desc: "Scroll to zoom (it follows the cursor; change this in User Settings) and drag to pan. Above 175% pixels are shown square for pixel-level QC.")
+            guideRow(name: "Exposure", desc: "The EV control brightens or darkens the picture to inspect shadows and highlights. It never changes your files.")
+            guideRow(name: "Notes (N)", desc: "N adds a note at the playhead; [ and ] (or ⌥N / ⌥⇧N) jump between notes. Notes can be coloured, filtered, resolved, exported to Premiere XML and synced with your team (Synced Projects in Settings).")
+            guideRow(name: "Glitch Findings (M)", desc: "After a Glitch Finder check, M / ⇧M jump to the next or previous finding in the open clip.")
+            guideRow(name: "Missed Line", desc: "Found a line the Line Check didn't catch? Missed Line in the timecode bar sends that frame and its details to the developer after you confirm.")
+            guideRow(name: "Finder Tags (1–7, 0)", desc: "Number keys apply a Finder colour tag to the open file; 0 clears it.")
+            guideRow(name: "Overlays and Info", desc: "I cycles the clip info overlay. ⌘I opens Media Info. The crosshair, title-safe and subtitle buttons sit in the transport bar.")
+            guideRow(name: "Screenshot", desc: "The camera button saves the frame on screen (including A / B compare views) at full resolution. Right-click it to choose JPG or PNG quality.")
+            guideRow(name: "Full Screen (F / ⇧F)", desc: "F shows the video full screen with no interface. ⇧F opens review full screen with timeline and transport controls. Esc exits.")
+            guideRow(name: "Panels and Workspaces", desc: "⌘⇧← / ⌘⇧→ show or hide the side panels. ⇧1, ⇧2 and ⇧3 switch to Player, Specs and Glitch Finder. T toggles light and dark mode, ⇧T cycles the accent theme.")
         }
     }
     
@@ -174,22 +168,16 @@ struct UserGuideView: View {
     
     private var deliverablesGuide: some View {
         VStack(alignment: .leading, spacing: 10) {
-            guideRow(name: "TOGGLE CONTROL PANEL (⌘⇧←)", desc: "Press ⌘⇧← to show or hide the Specs control panel.")
-            guideRow(name: "LOAD ASSETS", desc: "Loads files or folders to read metadata without decoding video frames.")
-            guideRow(name: "VIEW MODES", desc: "Segmented switcher for List (compact), Thumbnails (standard), or Large previews.")
-            guideRow(name: "FOLDERS MENU", desc: "Toggle between folder hierarchy and flat list, collapse or expand all subfolders.")
-            guideRow(name: "FILE NAME COLUMN", desc: "Displays filenames without clipping. Drag divider to resize, double-click to auto-fit, or click [FIT NAME].")
-            guideRow(name: "RESOLUTION & ASPECT RATIO", desc: "Pixel dimensions (e.g. 1920x1080) and ratio (16:9, 9:16, 1:1, 4:5).")
-            guideRow(name: "DURATION & TIMECODE", desc: "Total seconds and exact SMPTE timecode (HH:MM:SS:FF).")
-            guideRow(name: "FPS", desc: "Video track frame rate.")
-            guideRow(name: "VIDEO CODEC", desc: "Compression format (ProRes, H.264, HEVC) and profile.")
-            guideRow(name: "AUDIO CONFIGURATION", desc: "Channel layout (Stereo, 5.1, Mono), sample rate, and bit depth.")
-            guideRow(name: "FILE SIZE", desc: "File size in MB or GB.")
-            guideRow(name: "MISMATCH WARNINGS", desc: "Highlights files where filename tags (e.g. 16x9, 1080p, 15s) conflict with actual stream metadata.")
-            guideRow(name: "MEDIA INFO (⌘I)", desc: "Click any file or press ⌘I to inspect extended media properties, audio channels, bitrates, and video tracks.")
-            guideRow(name: "[ RESCAN FOLDER / ASSETS ]", desc: "Re-inspects all video files and refreshes stream metadata.")
-            guideRow(name: "[ SHEETS ] | [ SAVE CSV ] | [ OPEN HTML ]", desc: "One-click export strip: Open in Google Sheets (ready to ⌘V), save CSV manifest, or open HTML specs report.")
-            guideRow(name: "[ REVEAL IN FINDER ]", desc: "Highlights selected or first asset in macOS Finder.")
+            guideRow(name: "Specs Table", desc: "Reads every file's metadata without decoding: timecode length, end frame, aspect ratio and size, frame rate, file size, creation date, video codec and audio spec. Click a column header to sort; drag a divider to resize.")
+            guideRow(name: "Name Mismatches", desc: "Flags files whose name (e.g. 16x9, 1080p, 15s) disagrees with the actual stream. Right-click a warning to dismiss it.")
+            guideRow(name: "Check Audio Levels", desc: "Measures each file's loudness and peak and flags silent or muted tracks.")
+            guideRow(name: "Check End Frames", desc: "Looks at the very last frame of every video and reports whether it is pure black or not.")
+            guideRow(name: "Cross-Check Subtitles", desc: "Compares the .srt files of the selected deliverables (all of them if none is selected) and lists every line that differs.")
+            guideRow(name: "Filter and Kinds", desc: "The filter field narrows the table by name. When a folder mixes videos, images and audio, the kind icons show or hide each kind.")
+            guideRow(name: "Fit Name, Hide and List", desc: "Fit Name widens the name column to the longest name. Hide flattens folders. List / Thumbs switches the row style.")
+            guideRow(name: "Media Info (⌘I)", desc: "Opens the full technical breakdown of the selected file: tracks, codecs, bitrates and audio channels.")
+            guideRow(name: "Export", desc: "Sheets copies the table for Google Sheets (paste with ⌘V), Save CSV writes a spreadsheet, Open HTML builds a printable specs sheet. Reveal in Finder shows the selected file.")
+            guideRow(name: "Hide Panel (⌘⇧←)", desc: "Shows or hides the Specs actions panel to give the table the full width.")
         }
     }
     
@@ -197,25 +185,19 @@ struct UserGuideView: View {
     
     private var lineScannerGuide: some View {
         VStack(alignment: .leading, spacing: 10) {
-            guideRow(name: "LOAD ASSETS (CHANGE / ADD)", desc: "Selects, changes, or adds video files or folders to the working batch without losing existing assets.")
-            guideRow(name: "TARGET COLOR & HEX", desc: "Sets the RGB target color for edge line detection. Hex value can be inputted at any time.")
-            guideRow(name: "COLOR PRESETS & CUSTOM WHEEL", desc: "Quick targets: Green (#00FF00, default), Magenta (#FF00B4), Black (#000000), White (#FFFFFF), or Custom Color Wheel / Swatch.")
-            guideRow(name: "TOLERANCE SLIDER", desc: "Threshold for color matching (0–100%). Default is 15% (3% for Black / White).")
-            guideRow(name: "HEAD SKIP", desc: "Skips the first X seconds of video (ignores slates/countdowns).")
-            guideRow(name: "EDGE DEPTH", desc: "Number of pixels inward from the frame edge to check (default 12px). All 4 outer borders are always scanned.")
-            guideRow(name: "SCAN FULL SCREEN", desc: "Scans the entire frame (not just borders) to detect internal seam lines from split screens and composites.")
-            guideRow(name: "10X EXPOSURE BOOST", desc: "Brightens dark scenes during black line scans so shadows are not flagged.")
-            guideRow(name: "IGNORE FULL BLACK FRAMES", desc: "Skips full black frames (fades, commercial breaks).")
-            guideRow(name: "WHITE COVE & HIGHLIGHT EXPANSION", desc: "Amplifies distance from pure white so high-key studio cycloramas and lighting falloff in fashion shoots are not falsely flagged as lines.")
-            guideRow(name: "IGNORE FULL WHITE SLATES", desc: "Skips solid white logo cards, slates, and white flash frame transitions.")
-            guideRow(name: "[ START QC SCAN ]", desc: "Starts frame-by-frame edge analysis.")
-            guideRow(name: "FINDER RED TAGGING", desc: "Applies a native macOS Red Tag in Finder to any video with detected line errors.")
-            guideRow(name: "GLITCH LIST & FRAME VIEWER", desc: "Click any detected glitch to view the exact frame, timecode, and a red box over the line.")
-            guideRow(name: "SAVE HTML / EXPORT CSV", desc: "Exports scan results as an interactive HTML report or CSV table.")
+            guideRow(name: "Line Check", desc: "Scans every frame's edges for thin coloured lines left by a bad crop, reframe or matte. Results list each line with its edge, thickness, timecode range and a thumbnail; click one to open it in the Player.")
+            guideRow(name: "Target Colour", desc: "The colour to look for: Green (default), Magenta, Black, White, a hex value or the colour wheel. Any Colour ignores the target and flags lines of any colour.")
+            guideRow(name: "Sensitivity", desc: "How faint or short a line can be and still be flagged. Higher finds more, and also more false alarms.")
+            guideRow(name: "Off-Colour Lines", desc: "Also reports lines close to, but not exactly, the target colour, marked as off-colour.")
+            guideRow(name: "Split-Screen Seams", desc: "Also scans the whole frame for seams between split-screen panels (slower than edges only).")
+            guideRow(name: "Edge Depth", desc: "How many pixels in from each edge are scanned (default 12). Letterbox and pillarbox bars are detected and the picture edge inside them is scanned too.")
+            guideRow(name: "Frame Check", desc: "One fast pass per video that finds a frame-rate mismatch (e.g. 23.976 fps material exported at 25 fps, shown as a regular pattern of repeated, skipped or blended frames), flash frames (stray black or solid frames mid-edit) and Media Offline frames.")
+            guideRow(name: "Full Check", desc: "Runs the Line Check and then the Frame Check on the same files. Both reports appear on one page, Line Check first.")
+            guideRow(name: "Results and Export", desc: "Each flagged file gets a card; Inspect opens the exact frame in the Player. Export copies the line report for Google Sheets or saves it as HTML or CSV.")
+            guideRow(name: "Mark Flagged Files in Finder", desc: "Adds a red Finder tag to every file with line glitches.")
+            guideRow(name: "Defaults", desc: "Set the Line Check defaults (target, sensitivity, options, edge depth) in User Settings; they apply each time QCpie opens.")
         }
     }
-    
-
     
     private func guideRow(name: String, desc: String) -> some View {
         VStack(alignment: .leading, spacing: 3) {

@@ -543,10 +543,9 @@ public struct PropertiesModalView: View {
                     .buttonStyle(.plain)
                     .help("Close (ESC)")
                     
-                    Text("MEDIA INFO")
+                    Text("Media Info")
                         .font(.ui(size: 11, weight: .semibold))
                         .foregroundColor(palette.textMain)
-                        .tracking(0.8)
                     
                     Spacer()
                     
@@ -557,7 +556,7 @@ public struct PropertiesModalView: View {
                     
                     // Close ESC Button
                     Button(action: { dismissModal() }) {
-                        Text("ESC")
+                        Text("Esc")
                             .font(.ui(size: 9, weight: .semibold))
                             .padding(.horizontal, 7)
                             .padding(.vertical, 3)
@@ -579,7 +578,7 @@ public struct PropertiesModalView: View {
                         Spacer()
                         ProgressView()
                             .scaleEffect(1.1)
-                        Text("READING MEDIA INFO...")
+                        Text("Reading Media info...")
                             .font(.ui(size: 11, weight: .semibold))
                             .foregroundColor(palette.textMuted)
                         Spacer()
@@ -605,7 +604,7 @@ public struct PropertiesModalView: View {
                         Image(systemName: "exclamationmark.triangle")
                             .font(.system(size: 28))
                             .foregroundColor(palette.textMuted)
-                        Text("UNABLE TO LOAD MEDIA INFO")
+                        Text("Unable to load Media info")
                             .font(.ui(size: 12, weight: .semibold))
                             .foregroundColor(palette.textMain)
                         if let effectiveURL = effectiveURL {
@@ -685,10 +684,9 @@ public struct PropertiesModalView: View {
     @ViewBuilder
     private func tracksTabView(asset: DeliverableAsset, info: ExtendedMediaInfo) -> some View {
         VStack(alignment: .leading, spacing: 16) {
-            Text("CONTAINER TRACK INVENTORY (\(info.tracks.count) TRACKS)")
+            Text("Container Track Inventory (\(info.tracks.count) Tracks)")
                 .font(.ui(size: 11, weight: .semibold))
                 .foregroundColor(palette.textMain)
-                .tracking(1.0)
             
             ForEach(info.tracks) { track in
                 VStack(alignment: .leading, spacing: 8) {
@@ -756,10 +754,9 @@ public struct PropertiesModalView: View {
     private func fileTabView(asset: DeliverableAsset, info: ExtendedMediaInfo) -> some View {
         VStack(alignment: .leading, spacing: 18) {
             VStack(alignment: .leading, spacing: 8) {
-                Text("FILE SYSTEM SPECIFICATIONS")
+                Text("File System Specifications")
                     .font(.ui(size: 11, weight: .semibold))
                     .foregroundColor(palette.textMain)
-                    .tracking(1.0)
                 
                 VStack(alignment: .leading, spacing: 6) {
                     infoRow(label: "File Name:", value: asset.fileName)
@@ -774,10 +771,9 @@ public struct PropertiesModalView: View {
             Rectangle().fill(palette.borderLine).frame(height: 1)
             
             VStack(alignment: .leading, spacing: 8) {
-                Text("TIMING & RASTER")
+                Text("Timing & Raster")
                     .font(.ui(size: 11, weight: .semibold))
                     .foregroundColor(palette.textMain)
-                    .tracking(1.0)
                 
                 VStack(alignment: .leading, spacing: 6) {
                     infoRow(label: "Duration:", value: "\(asset.timecode) (\(asset.formattedDuration))")
@@ -841,7 +837,7 @@ public struct PropertiesModalView: View {
                     HStack(spacing: 4) {
                         Image(systemName: "doc.on.doc")
                             .font(.system(size: 9, weight: .bold))
-                        Text("COPY SPECS")
+                        Text("Copy Specs")
                             .font(.ui(size: 9, weight: .semibold))
                     }
                     .padding(.horizontal, 9)
@@ -859,7 +855,7 @@ public struct PropertiesModalView: View {
                     HStack(spacing: 4) {
                         Image(systemName: "folder")
                             .font(.system(size: 9, weight: .bold))
-                        Text("REVEAL")
+                        Text("Reveal")
                             .font(.ui(size: 9, weight: .semibold))
                     }
                     .padding(.horizontal, 8)
@@ -878,7 +874,7 @@ public struct PropertiesModalView: View {
                     HStack(spacing: 3) {
                         Text("+A")
                             .font(.ui(size: 9, weight: .semibold))
-                        Text("MASTER")
+                        Text("Master")
                             .font(.ui(size: 9, weight: .semibold))
                     }
                     .padding(.horizontal, 8)
@@ -895,7 +891,7 @@ public struct PropertiesModalView: View {
                     HStack(spacing: 3) {
                         Text("+B")
                             .font(.ui(size: 9, weight: .semibold))
-                        Text("COMPARE")
+                        Text("Compare")
                             .font(.ui(size: 9, weight: .semibold))
                     }
                     .padding(.horizontal, 8)

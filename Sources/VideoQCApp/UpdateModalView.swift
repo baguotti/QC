@@ -46,11 +46,11 @@ struct UpdateModalView: View {
                         Image(systemName: "arrow.triangle.2.circlepath.circle.fill")
                             .font(.system(size: 13))
                             .foregroundColor(textMain)
-                        Text("SOFTWARE UPDATE // QCpie")
-                            .font(.system(size: 12, weight: .black, design: .monospaced))
+                        Text("Software Update")
+                            .font(.ui(size: 12, weight: .semibold))
                             .foregroundColor(textMain)
                         
-                        Text("GITHUB RELEASES")
+                        Text("GitHub Releases")
                             .font(.ui(size: 9, weight: .semibold))
                             .foregroundColor(textMuted)
                             .padding(.horizontal, 6)
@@ -61,7 +61,7 @@ struct UpdateModalView: View {
                     Spacer()
                     
                     Button(action: { dismissModal() }) {
-                        Text("CLOSE (ESC)")
+                        Text("Close (Esc)")
                             .font(.ui(size: 10, weight: .semibold))
                             .padding(.horizontal, 9)
                             .padding(.vertical, 5)
@@ -136,7 +136,7 @@ struct UpdateModalView: View {
                 .scaleEffect(0.9)
                 .padding(.top, 8)
             
-            Text("CHECKING FOR UPDATES...")
+            Text("Checking for updates...")
                 .font(.ui(size: 12, weight: .semibold))
                 .foregroundColor(textMain)
             
@@ -154,8 +154,8 @@ struct UpdateModalView: View {
                 Image(systemName: "checkmark.circle.fill")
                     .foregroundColor(accentPositive)
                     .font(.system(size: 20))
-                Text("YOU ARE ON THE LATEST VERSION")
-                    .font(.system(size: 12, weight: .black, design: .monospaced))
+                Text("You are on the latest version")
+                    .font(.ui(size: 12, weight: .semibold))
                     .foregroundColor(textMain)
             }
             
@@ -164,7 +164,7 @@ struct UpdateModalView: View {
                 .foregroundColor(textMuted)
             
             Button(action: { isPresented = false }) {
-                Text("DONE")
+                Text("Done")
                     .font(.ui(size: 11, weight: .semibold))
                     .frame(width: 120, height: 30)
                     .foregroundColor(primaryBtnFg)
@@ -181,19 +181,19 @@ struct UpdateModalView: View {
         VStack(alignment: .leading, spacing: 16) {
             HStack {
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("NEW VERSION AVAILABLE")
-                        .font(.system(size: 10, weight: .black, design: .monospaced))
+                    Text("New Version Available")
+                        .font(.ui(size: 10, weight: .semibold))
                         .foregroundColor(accentPositive)
                     
                     Text("QCpie v\(version)")
-                        .font(.system(size: 18, weight: .black, design: .monospaced))
+                        .font(.ui(size: 18, weight: .semibold))
                         .foregroundColor(textMain)
                 }
                 
                 Spacer()
                 
                 VStack(alignment: .trailing, spacing: 2) {
-                    Text("CURRENTLY INSTALLED")
+                    Text("Currently Installed")
                         .font(.ui(size: 9, weight: .semibold))
                         .foregroundColor(textMuted)
                     Text("v\(AppVersionInfo.version)")
@@ -208,7 +208,7 @@ struct UpdateModalView: View {
             Rectangle().fill(borderLine).frame(height: 1)
             
             VStack(alignment: .leading, spacing: 6) {
-                Text("ONE-CLICK AUTOMATIC UPDATE")
+                Text("One-Click Automatic Update")
                     .font(.ui(size: 10, weight: .semibold))
                     .foregroundColor(textMuted)
                 
@@ -226,8 +226,8 @@ struct UpdateModalView: View {
                         HStack(spacing: 6) {
                             Image(systemName: "bolt.fill")
                                 .font(.system(size: 11))
-                            Text("UPDATE & RESTART")
-                                .font(.system(size: 11, weight: .black, design: .monospaced))
+                            Text("Update & Restart")
+                                .font(.ui(size: 11, weight: .semibold))
                         }
                         .frame(maxWidth: .infinity, minHeight: 34)
                         .foregroundColor(.white)
@@ -239,7 +239,7 @@ struct UpdateModalView: View {
                         HStack(spacing: 4) {
                             Image(systemName: "arrow.down.circle")
                                 .font(.system(size: 10))
-                            Text("MANUAL DMG")
+                            Text("Manual DMG")
                                 .font(.ui(size: 10, weight: .semibold))
                         }
                         .frame(width: 105, height: 34)
@@ -256,8 +256,8 @@ struct UpdateModalView: View {
                         HStack(spacing: 6) {
                             Image(systemName: "arrow.up.right.square")
                                 .font(.system(size: 11))
-                            Text("VIEW GITHUB RELEASE")
-                                .font(.system(size: 11, weight: .black, design: .monospaced))
+                            Text("View GitHub Release")
+                                .font(.ui(size: 11, weight: .semibold))
                         }
                         .frame(maxWidth: .infinity, minHeight: 34)
                         .foregroundColor(primaryBtnFg)
@@ -267,7 +267,7 @@ struct UpdateModalView: View {
                 }
                 
                 Button(action: { isPresented = false }) {
-                    Text("LATER")
+                    Text("Later")
                         .font(.ui(size: 11, weight: .semibold))
                         .frame(width: 75, height: 34)
                         .foregroundColor(textMain)
@@ -283,13 +283,13 @@ struct UpdateModalView: View {
         VStack(alignment: .leading, spacing: 14) {
             HStack {
                 Text("DOWNLOADING UPDATE // QCpie v\(updateManager.latestVersion)")
-                    .font(.system(size: 11, weight: .black, design: .monospaced))
+                    .font(.ui(size: 11, weight: .semibold))
                     .foregroundColor(textMain)
                 
                 Spacer()
                 
                 Text("\(Int(progress * 100))%")
-                    .font(.system(size: 12, weight: .black, design: .monospaced))
+                    .font(.ui(size: 12, weight: .semibold))
                     .foregroundColor(accentPositive)
             }
             
@@ -315,7 +315,7 @@ struct UpdateModalView: View {
                 Spacer()
                 
                 Button(action: { updateManager.cancelDownload() }) {
-                    Text("CANCEL")
+                    Text("Cancel")
                         .font(.ui(size: 10, weight: .semibold))
                         .padding(.horizontal, 10)
                         .padding(.vertical, 4)
@@ -335,11 +335,11 @@ struct UpdateModalView: View {
                 .padding(.top, 8)
             
             VStack(spacing: 6) {
-                Text("INSTALLING UPDATE & RESTARTING...")
-                    .font(.system(size: 12, weight: .black, design: .monospaced))
+                Text("Installing update & restarting...")
+                    .font(.ui(size: 12, weight: .semibold))
                     .foregroundColor(textMain)
                 
-                Text(status.isEmpty ? "Preparing application bundle..." : status.uppercased())
+                Text(status.isEmpty ? "Preparing application bundle..." : status)
                     .font(.ui(size: 11))
                     .foregroundColor(accentPositive)
             }
@@ -359,13 +359,13 @@ struct UpdateModalView: View {
                     .foregroundColor(accentPositive)
                     .font(.system(size: 18))
                 
-                Text("DISK IMAGE DOWNLOADED & MOUNTED")
-                    .font(.system(size: 12, weight: .black, design: .monospaced))
+                Text("Disk Image Downloaded & Mounted")
+                    .font(.ui(size: 12, weight: .semibold))
                     .foregroundColor(textMain)
             }
             
             VStack(alignment: .leading, spacing: 6) {
-                Text("FINAL STEP TO FINISH UPDATE:")
+                Text("Final step to finish update:")
                     .font(.ui(size: 10, weight: .semibold))
                     .foregroundColor(textMuted)
                 
@@ -395,8 +395,8 @@ struct UpdateModalView: View {
                     HStack(spacing: 6) {
                         Image(systemName: "power")
                             .font(.system(size: 11))
-                        Text("QUIT QCPIE TO REPLACE")
-                            .font(.system(size: 11, weight: .black, design: .monospaced))
+                        Text("Quit QCpie to Replace")
+                            .font(.ui(size: 11, weight: .semibold))
                     }
                     .frame(maxWidth: .infinity, minHeight: 34)
                     .foregroundColor(primaryBtnFg)
@@ -405,7 +405,7 @@ struct UpdateModalView: View {
                 .buttonStyle(.plain)
                 
                 Button(action: { NSWorkspace.shared.open(fileURL) }) {
-                    Text("RE-OPEN DMG")
+                    Text("Re-Open DMG")
                         .font(.ui(size: 10, weight: .semibold))
                         .frame(width: 100, height: 34)
                         .foregroundColor(textMain)
@@ -414,7 +414,7 @@ struct UpdateModalView: View {
                 .buttonStyle(.plain)
                 
                 Button(action: { isPresented = false }) {
-                    Text("CLOSE")
+                    Text("Close")
                         .font(.ui(size: 10, weight: .semibold))
                         .frame(width: 70, height: 34)
                         .foregroundColor(textMain)
@@ -432,8 +432,8 @@ struct UpdateModalView: View {
                     .foregroundColor(accentNegative)
                     .font(.system(size: 16))
                 
-                Text("UPDATE CHECK NOTICE")
-                    .font(.system(size: 12, weight: .black, design: .monospaced))
+                Text("Update Check Notice")
+                    .font(.ui(size: 12, weight: .semibold))
                     .foregroundColor(textMain)
             }
             
@@ -445,7 +445,7 @@ struct UpdateModalView: View {
             
             HStack(spacing: 10) {
                 Button(action: { updateManager.checkForUpdates(userInitiated: true) }) {
-                    Text("TRY AGAIN")
+                    Text("Try Again")
                         .font(.ui(size: 11, weight: .semibold))
                         .padding(.horizontal, 14)
                         .padding(.vertical, 7)
@@ -456,7 +456,7 @@ struct UpdateModalView: View {
                 
                 if let webURL = updateManager.remoteWebURL {
                     Button(action: { NSWorkspace.shared.open(webURL) }) {
-                        Text("VIEW ON GITHUB")
+                        Text("View on GitHub")
                             .font(.ui(size: 11, weight: .semibold))
                             .padding(.horizontal, 14)
                             .padding(.vertical, 7)
@@ -469,7 +469,7 @@ struct UpdateModalView: View {
                 Spacer()
                 
                 Button(action: { isPresented = false }) {
-                    Text("DISMISS")
+                    Text("Dismiss")
                         .font(.ui(size: 11, weight: .semibold))
                         .padding(.horizontal, 14)
                         .padding(.vertical, 7)

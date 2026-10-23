@@ -125,7 +125,7 @@ extension ContentView {
                         .disabled(scannerState.isScanning || scannerState.anyColor)
                         .explain("Click to pick any colour from the macOS colour wheel.")
                         
-                        TextField("#HEX", text: $scannerState.hexCode)
+                        TextField("#Hex", text: $scannerState.hexCode)
                             .textFieldStyle(.plain)
                             .font(.ui(size: 12, weight: .semibold))
                             .foregroundColor(textMain)

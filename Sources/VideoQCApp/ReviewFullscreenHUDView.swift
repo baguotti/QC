@@ -117,8 +117,8 @@ struct FullscreenPlayerView: View {
                 Spacer()
             } else {
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(engine.activeFileName.isEmpty ? "NO ACTIVE ASSET" : engine.activeFileName.uppercased())
-                        .font(.system(size: 13, weight: .black, design: .monospaced))
+                    Text(engine.activeFileName.isEmpty ? "No Active Asset" : engine.activeFileName)
+                        .font(.ui(size: 13, weight: .semibold))
                         .foregroundColor(palette.textMain)
                         .lineLimit(1)
                     
@@ -152,7 +152,7 @@ struct FullscreenPlayerView: View {
                     HStack(spacing: StudioTheme.scale(5)) {
                         Image(systemName: "square.split.2x1")
                             .font(.system(size: StudioTheme.scaleFont(10), weight: .bold))
-                        Text("[ + COMPARE (B) ]")
+                        Text("[ + Compare (B) ]")
                             .font(.ui(size: StudioTheme.scaleFont(11), weight: .semibold))
                     }
                     .padding(.horizontal, StudioTheme.scale(10))
@@ -171,7 +171,7 @@ struct FullscreenPlayerView: View {
                 HStack(spacing: StudioTheme.scale(6)) {
                     Image(systemName: "arrow.down.right.and.arrow.up.left")
                         .font(.system(size: StudioTheme.scaleFont(10), weight: .bold))
-                    Text("[ EXIT FULLSCREEN (ESC) ]")
+                    Text("[ Exit Fullscreen (Esc) ]")
                         .font(.ui(size: StudioTheme.scaleFont(11), weight: .semibold))
                 }
                 .padding(.horizontal, StudioTheme.scale(14))
@@ -266,7 +266,7 @@ struct FullscreenPlayerView: View {
                 // Right: Duration Timecode & Exit Fullscreen Button (Fixed 280px width)
                 HStack(spacing: 12) {
                     Text(engine.displayTimeAsFrames ? "\(engine.totalFrames) frames" : engine.durationTimecode)
-                        .font(.system(size: 13, weight: .bold, design: .monospaced))
+                        .font(.ui(size: 13, weight: .semibold))
                         .monospacedDigit()
                         .foregroundColor(palette.textMuted)
                         .frame(width: 120, alignment: .trailing)
@@ -313,7 +313,7 @@ private struct FullscreenTimecodeReadout: View {
     let accentBlue: Color
     let onToggle: () -> Void
     
-    private static let font = Font.system(size: 14, weight: .bold, design: .monospaced)
+    private static let font = Font.ui(size: 14, weight: .semibold)
     
     var body: some View {
         // Click switches timecode ↔ frames; right-click copies the value as currently shown.

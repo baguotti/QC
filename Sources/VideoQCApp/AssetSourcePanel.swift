@@ -20,10 +20,19 @@ struct AssetSourcePanel: View {
                 .font(.ui(size: 12, weight: .semibold))
                 .foregroundColor(palette.textMuted)
 
-            controls
-
-            if !files.isEmpty {
-                summary
+            HStack(alignment: .center, spacing: 10) {
+                if !files.isEmpty {
+                    Image(systemName: folderURL == nil ? "doc.on.doc" : "folder")
+                        .font(.system(size: 17, weight: .regular))
+                        .foregroundColor(palette.accentBlue)
+                    summary
+                } else {
+                    Text("No assets loaded")
+                        .font(.ui(size: 12))
+                        .foregroundColor(palette.textMuted)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                controls
             }
         }
     }
@@ -31,18 +40,18 @@ struct AssetSourcePanel: View {
     private var controls: some View {
         let isEmpty = folderURL == nil && files.isEmpty
         return HStack(spacing: 0) {
-            segment(isEmpty ? "Select…" : "Change", icon: isEmpty ? "folder.badge.plus" : "arrow.triangle.2.circlepath",
+            segment(isEmpty ? "Select…" : "Change",
                     tint: isEmpty ? palette.accentBlue : palette.textMain,
                     help: isEmpty ? "Choose video files or a folder to inspect." : "Replace the loaded assets with a new folder or file selection.") {
                 onSelect(false)
             }
             divider
-            segment("Add", icon: "plus", tint: palette.textMain,
+            segment("Add", tint: palette.textMain,
                     help: "Add more files or folders to the current list.") {
                 onSelect(true)
             }
             divider
-            segment("Refresh", icon: "arrow.clockwise", tint: isEmpty ? palette.textSubtle : palette.textMain,
+            segment("Refresh", tint: isEmpty ? palette.textSubtle : palette.textMain,
                     help: "Rescan the loaded folders and files for added, removed or changed media.") {
                 onRefresh()
             }
@@ -58,17 +67,13 @@ struct AssetSourcePanel: View {
         Rectangle().fill(palette.borderLine).frame(width: 1, height: StudioTheme.scale(14))
     }
 
-    private func segment(_ title: String, icon: String, tint: Color, help: String, action: @escaping () -> Void) -> some View {
+    private func segment(_ title: String, tint: Color, help: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
-            HStack(spacing: 5) {
-                Image(systemName: icon)
-                    .font(.system(size: StudioTheme.scaleFont(10), weight: .medium))
-                Text(title)
-                    .font(.ui(size: StudioTheme.scaleFont(11.5), weight: .medium))
-                    .lineLimit(1)
-            }
+            Text(title)
+                .font(.ui(size: StudioTheme.scaleFont(11.5), weight: .medium))
+                .lineLimit(1)
             .foregroundColor(tint)
-            .padding(.horizontal, StudioTheme.scale(11))
+            .padding(.horizontal, StudioTheme.scale(9))
             .frame(height: StudioTheme.scale(26))
             .contentShape(Rectangle())
         }

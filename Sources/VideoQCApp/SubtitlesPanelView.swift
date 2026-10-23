@@ -209,7 +209,7 @@ struct SubtitlesPanelView: View {
                 HStack(spacing: 3) {
                     Image(systemName: spelling.issueCount == 0 ? "checkmark.seal" : "text.badge.xmark")
                         .font(.system(size: 9, weight: .bold))
-                    Text(spelling.issueCount == 0 ? "SPELLING OK" : "\(spelling.issueCount) TYPO\(spelling.issueCount == 1 ? "" : "S")")
+                    Text(spelling.issueCount == 0 ? "Spelling OK" : "\(spelling.issueCount) typo\(spelling.issueCount == 1 ? "" : "s")")
                         .font(.ui(size: 8.5, weight: .semibold))
                 }
                 .padding(.horizontal, 6)
@@ -223,7 +223,7 @@ struct SubtitlesPanelView: View {
             .help(spelling.issueCount == 0 ? "No spelling issues found" : "\(spelling.issueCount) possible spelling mistakes — click to go to the next one")
 
             Button(action: save) {
-                Text("SAVE")
+                Text("Save")
                     .font(.ui(size: 8.5, weight: .semibold))
                     .padding(.horizontal, 7)
                     .padding(.vertical, 3.5)
@@ -305,9 +305,9 @@ struct SubtitlesPanelView: View {
                         .font(.ui(size: 10.5))
                         .onSubmit { replaceCurrent(currentMatches) }
                 }
-                textButton("REPLACE") { replaceCurrent(currentMatches) }
+                textButton("Replace") { replaceCurrent(currentMatches) }
                     .disabled(currentMatches.isEmpty)
-                textButton("ALL") { replaceAll() }
+                textButton("All") { replaceAll() }
                     .disabled(currentMatches.isEmpty)
             }
         }
@@ -353,7 +353,7 @@ struct SubtitlesPanelView: View {
                             .overlay(alignment: .topTrailing) {
                                 if highlightedIndex == index {
                                     Button(action: { select(index, seek: false) }) {
-                                        Text("EDIT")
+                                        Text("Edit")
                                             .font(.ui(size: 8, weight: .semibold))
                                             .padding(.horizontal, 6)
                                             .padding(.vertical, 2.5)
@@ -393,8 +393,8 @@ struct SubtitlesPanelView: View {
                     .foregroundColor(palette.textMuted)
                 Spacer()
                 Button(action: { deselect() }) {
-                    Text("DONE")
-                        .font(.system(size: 8, weight: .bold, design: .monospaced))
+                    Text("Done")
+                        .font(.ui(size: 8, weight: .semibold))
                         .foregroundColor(palette.accentBlue)
                 }
                 .buttonStyle(.plain)
