@@ -682,7 +682,7 @@ extension ContentView {
                                     // Rows re-render only when something they show changes (like the Player queue):
                                     // a click then updates the 1–2 rows whose selection flipped, not the whole table.
                                     let columnWidths = SpecsSortColumn.allCases.map { specsState.columnWidth(for: $0) }
-                                    let themeKey = "\(isLightMode)_\(themeManager.currentTheme.id)_\(themeManager.currentTheme.blueHex)_\(themeManager.buttonZoom)"
+                                    let themeKey = "\(isLightMode)_\(themeManager.currentTheme.id)_\(themeManager.currentTheme.playHex)_\(themeManager.buttonZoom)"
                                     let multiSelectionKey = specsState.selectedDeliverableURLs.count > 1
                                         ? specsState.selectedDeliverableURLs.hashValue &+ tagsVersion &* 31 &+ specsState.subtitleURLs.count : 0
                                     

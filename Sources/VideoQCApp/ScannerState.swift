@@ -83,7 +83,10 @@ public final class ScannerState: ObservableObject {
         videoFiles: [URL],
         onComplete: @escaping @MainActor ([VideoQCResult], QCConfig) -> Void
     ) {
-        guard !videoFiles.isEmpty else { return }
+        guard !videoFiles.isEmpty else {
+            isFullCheck = false
+            return
+        }
         
         let config = QCConfig(
             targetHex: hexCode,
@@ -165,7 +168,10 @@ public final class ScannerState: ObservableObject {
     /// One pass per video: frame-rate mismatch (stutter), flash frames and Media Offline frames.
     public func startFrameCheck(videoFiles: [URL]) {
         let videos = videoFiles.filter { QCUtilities.mediaKind(of: $0) == .video }
-        guard !videos.isEmpty, !isFrameChecking, !isScanning else { return }
+        guard !videos.isEmpty, !isFrameChecking, !isScanning else {
+            isFullCheck = false
+            return
+        }
         isFrameChecking = true
         wasFrameCheckCancelled = false
         frameCheckResults = []

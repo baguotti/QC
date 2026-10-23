@@ -52,7 +52,6 @@ struct StudioTheme {
     nonisolated static let cornerRadius: CGFloat = 4.0
     
     static var buttonZoom: UIButtonZoomLevel { ThemeManager.shared.buttonZoom }
-    static var buttonScale: CGFloat { ThemeManager.shared.buttonScaleFactor }
     static func scale(_ val: CGFloat) -> CGFloat { ThemeManager.shared.scale(val) }
     static func scaleFont(_ size: CGFloat) -> CGFloat { ThemeManager.shared.scaleFont(size) }
     
@@ -129,15 +128,8 @@ struct StudioTheme {
         accentBlue(UserDefaults.standard.bool(forKey: "isLightMode"))
     }
     
-    // Crosshair Cyan Accent (#1AF2D9 - identical to AB split screen divider)
-    static let crosshairCyan = Color(red: 0.1, green: 0.95, blue: 0.85)
-    
     static var alertRed: Color { negative }
-    static var alertPositive: Color { positive }
 
-    // Fixed Hardware / Status Indicators (Independent of active accent theme)
-    static let droppedFrameGreen = Color(hex: "#00EE9B")
-    static let droppedFrameRed = Color(hex: "#FF4365")
     
     static func primaryBtnBg(_ isLight: Bool) -> Color {
         isLight ? Color(white: 0.2) : Color.white
@@ -174,14 +166,10 @@ public struct StudioPalette {
     public var positive: Color { StudioTheme.positive(isLight) }
     public var negative: Color { StudioTheme.negative(isLight) }
     public var alertRed: Color { StudioTheme.negative(isLight) }
-    public var alertPositive: Color { StudioTheme.positive(isLight) }
     public var accentPositive: Color { StudioTheme.positive(isLight) }
     public var accentNegative: Color { StudioTheme.negative(isLight) }
     public var accentSlotB: Color { StudioTheme.slotBAccent(isLight) }
     public var accentBlue: Color { StudioTheme.accentBlue(isLight) }
-    public var crosshairCyan: Color { StudioTheme.crosshairCyan }
-    public var droppedFrameGreen: Color { StudioTheme.droppedFrameGreen }
-    public var droppedFrameRed: Color { StudioTheme.droppedFrameRed }
 }
 
 // MARK: - Minimal Borderless Transport Button Style

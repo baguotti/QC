@@ -1561,8 +1561,8 @@ public final class PlayerContainerNSView: NSView {
         updateResolutionLabelText(textB, layer: resolutionLabelLayerB, cachedText: &lastResolutionTextB, cachedWidth: &resolutionLabelWidthB)
 
         let theme = ThemeManager.shared.currentTheme
-        resolutionLabelLayerA.foregroundColor = theme.greenNSColor.cgColor
-        resolutionLabelLayerB.foregroundColor = theme.purpleNSColor.cgColor
+        resolutionLabelLayerA.foregroundColor = theme.slotaNSColor.cgColor
+        resolutionLabelLayerB.foregroundColor = theme.slotBNSColor.cgColor
 
         let scale = currentBackingScale()
         let labelYGap = Self.resolutionLabelGap

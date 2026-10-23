@@ -298,7 +298,6 @@ enum UserPreferences {
 struct UserSettingsModalView: View {
     @Binding var isPresented: Bool
     @ObservedObject var engine: PlayerEngine
-    @ObservedObject private var themeManager = ThemeManager.shared
     @AppStorage("isLightMode") private var isLightMode: Bool = false
     @AppStorage("reviewerName") private var reviewerName: String = ""
     @AppStorage("queueDisplayMode") private var queueDisplayMode: String = "inline"
@@ -318,155 +317,164 @@ struct UserSettingsModalView: View {
     
     private var palette: StudioPalette { StudioPalette(isLightMode) }
     
+    private enum Pane: String, CaseIterable {
+        case general = "General", playback = "Playback", queue = "Queue & Specs", lineCheck = "Line Check"
+        var icon: String {
+            switch self {
+            case .general: return "person.crop.circle"
+            case .playback: return "play.rectangle"
+            case .queue: return "list.bullet.rectangle"
+            case .lineCheck: return "viewfinder"
+            }
+        }
+    }
+    @State private var pane: Pane = .general
+    
     var body: some View {
-        SettingsModalShell(isPresented: $isPresented, title: "User Settings", icon: "person.crop.circle.fill") {
-            section("Reviewer") {
-                row("Your name", detail: "Shown as the author of your notes and replies.") {
-                    TextField("Your name", text: $reviewerName)
-                        .textFieldStyle(.plain)
-                        .font(.ui(size: 11))
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 5)
-                        .frame(width: 200)
-                        .studioBox(background: palette.bgSubtle, border: palette.borderLine)
+        SidebarModalShell(isPresented: $isPresented, title: "User Settings", height: 440,
+                          footnote: "* Applies the next time QCpie opens.") {
+            ForEach(Pane.allCases, id: \.self) { item in
+                SidebarRow(title: item.rawValue, icon: item.icon, isSelected: pane == item, isLightMode: isLightMode) {
+                    pane = item
                 }
             }
-            
-            section("Playback") {
-                row("Autoplay", detail: "Play a clip from the start when it is selected in the queue (A).") {
-                    toggle($engine.isAutoplayEnabled)
-                }
-                row("Start muted", detail: "Audio is muted when QCpie opens.", launch: true) {
-                    toggle($startMuted)
-                }
-                row("Link A / B", detail: "Slots A and B play and step together when QCpie opens.", launch: true) {
-                    toggle($linkSlots)
-                }
-                row("Zoom to cursor", detail: "Scroll-wheel zoom keeps the point under the mouse in place (off: zooms from the centre).") {
-                    toggle($zoomFollowsCursor)
-                }
-                row("Image sequence rate", detail: "Frame rate for detected image sequences (right-click one in the queue to change just that one).") {
-                    Picker("", selection: $sequenceFPS) {
-                        ForEach(QueueSequenceInfo.rates, id: \.self) { rate in
-                            Text(QueueSequenceInfo.rateLabel(rate)).tag(rate)
-                        }
-                    }
-                    .labelsHidden()
-                    .pickerStyle(.menu)
-                    .frame(width: 130)
-                }
-                row("Clip info overlay", detail: "Overlay shown on the viewer when QCpie opens.", launch: true) {
-                    Picker("", selection: $clipInfoOverlay) {
-                        ForEach(ClipInfoOverlayMode.allCases, id: \.rawValue) { mode in
-                            Text(mode.rawValue).tag(mode.rawValue)
-                        }
-                    }
-                    .labelsHidden()
-                    .pickerStyle(.menu)
-                    .frame(width: 130)
+        } detail: {
+            VStack(alignment: .leading, spacing: 14) {
+                Text(pane.rawValue)
+                    .font(.ui(size: 15, weight: .semibold))
+                    .foregroundColor(palette.textMain)
+                    .padding(.bottom, 4)
+                switch pane {
+                case .general: generalPane
+                case .playback: playbackPane
+                case .queue: queuePane
+                case .lineCheck: lineCheckPane
                 }
             }
-            
-            section("Queue & Specs") {
-                row("Player queue", detail: "Show the queue panel when QCpie opens.", launch: true) {
-                    toggle($showQueue)
-                }
-                row("Queue view", detail: "List rows or thumbnails in the Player queue.") {
-                    choice(listOrThumbs, selection: $queueDisplayMode)
-                }
-                row("Specs view", detail: "List rows or thumbnails in the Specs tab.") {
-                    choice(listOrThumbs, selection: $specsDisplayMode)
-                }
-                row("Waveforms", detail: "Draw the audio waveform under the timeline (decodes each clip's audio once).") {
-                    toggle($engine.drawsWaveforms)
-                }
-            }
-            
-            section("Line Check Defaults") {
-                row("Target colour", detail: "Line colour selected when QCpie opens.", launch: true) {
-                    choice(lineTargets, selection: $lineTargetHex)
-                }
-                row("Sensitivity", detail: "Detection sensitivity selected when QCpie opens.", launch: true) {
-                    HStack(spacing: 8) {
-                        Slider(value: $lineSensitivity, in: 0...100, step: 5)
-                            .controlSize(.small)
-                            .frame(width: 120)
-                        Text("\(Int(lineSensitivity))%")
-                            .font(.ui(size: 10, weight: .semibold))
-                            .foregroundColor(palette.textMain)
-                            .frame(width: 34, alignment: .trailing)
-                    }
-                }
-                row("Off-colour lines", detail: "Also flag lines close to, but not exactly, the target colour.", launch: true) {
-                    toggle($lineOffColor)
-                }
-                row("Any colour", detail: "Ignore the target and flag edge lines of any colour.", launch: true) {
-                    toggle($lineAnyColor)
-                }
-                row("Split-screen seams", detail: "Scan the full frame for split-screen seams (slower).", launch: true) {
-                    toggle($lineSplitSeams)
-                }
-                row("Edge depth", detail: "How many pixels in from each edge are scanned.", launch: true) {
-                    HStack(spacing: 4) {
-                        Text("\(lineEdgeDepth) px")
-                            .font(.ui(size: 10, weight: .semibold))
-                            .foregroundColor(palette.textMain)
-                        Stepper("", value: $lineEdgeDepth, in: 2...40)
-                            .labelsHidden()
-                            .controlSize(.small)
-                    }
-                }
-            }
-            
-            Text("Settings marked NEXT LAUNCH apply the next time QCpie opens; the others apply immediately.")
-                .font(.system(size: 9))
-                .foregroundColor(palette.textSubtle)
+            .padding(.horizontal, 24)
+            .padding(.vertical, 20)
         }
     }
     
-    private func section<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text(title)
-                .font(.ui(size: 10, weight: .semibold))
+    private var generalPane: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            field("Reviewer name:", help: "Shown as the author of your notes and replies.") {
+                TextField("Your name", text: $reviewerName)
+                    .textFieldStyle(.roundedBorder)
+                    .font(.ui(size: 12))
+                    .frame(width: 220)
+            }
+        }
+    }
+    
+    private var playbackPane: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            check("Autoplay clips when selected in the queue", $engine.isAutoplayEnabled,
+                  help: "Play a clip from the start when it is selected in the queue (A).")
+            check("Start muted", $startMuted, launch: true, help: "Audio is muted when QCpie opens.")
+            check("Link A / B playback", $linkSlots, launch: true, help: "Slots A and B play and step together when QCpie opens.")
+            check("Zoom to cursor", $zoomFollowsCursor,
+                  help: "Scroll-wheel zoom keeps the point under the mouse in place (off: zooms from the centre).")
+            divider
+            field("Image sequence rate:", help: "Frame rate for detected image sequences (right-click one in the queue to change just that one).") {
+                Picker("", selection: $sequenceFPS) {
+                    ForEach(QueueSequenceInfo.rates, id: \.self) { rate in
+                        Text(QueueSequenceInfo.rateLabel(rate)).tag(rate)
+                    }
+                }
+                .labelsHidden()
+                .pickerStyle(.menu)
+                .frame(width: 140)
+            }
+            field("Clip info overlay:", launch: true, help: "Overlay shown on the viewer when QCpie opens.") {
+                Picker("", selection: $clipInfoOverlay) {
+                    ForEach(ClipInfoOverlayMode.allCases, id: \.rawValue) { mode in
+                        Text(mode.rawValue).tag(mode.rawValue)
+                    }
+                }
+                .labelsHidden()
+                .pickerStyle(.menu)
+                .frame(width: 140)
+            }
+        }
+    }
+    
+    private var queuePane: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            check("Show the queue panel", $showQueue, launch: true, help: "Show the queue panel when QCpie opens.")
+            check("Draw audio waveforms", $engine.drawsWaveforms,
+                  help: "Draw the audio waveform under the timeline (decodes each clip's audio once).")
+            divider
+            field("Queue view:", help: "List rows or thumbnails in the Play queue.") {
+                segmented(listOrThumbs, selection: $queueDisplayMode)
+            }
+            field("Inspect view:", help: "List rows or thumbnails in the Inspect table.") {
+                segmented(listOrThumbs, selection: $specsDisplayMode)
+            }
+        }
+    }
+    
+    private var lineCheckPane: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Defaults used each time QCpie opens.")
+                .font(.ui(size: 11))
                 .foregroundColor(palette.textMuted)
-            VStack(spacing: 0) {
-                content()
+            field("Target colour:", help: "Line colour selected when QCpie opens.") {
+                segmented(lineTargets, selection: $lineTargetHex)
             }
-            .studioBox(background: palette.bgPanel, border: palette.borderLine)
-        }
-    }
-    
-    private func row<Control: View>(_ title: String, detail: String, launch: Bool = false, @ViewBuilder control: () -> Control) -> some View {
-        HStack(spacing: 12) {
-            VStack(alignment: .leading, spacing: 2) {
-                HStack(spacing: 6) {
-                    Text(title)
-                        .font(.ui(size: 10, weight: .semibold))
+            field("Sensitivity:", help: "Detection sensitivity selected when QCpie opens.") {
+                HStack(spacing: 8) {
+                    Slider(value: $lineSensitivity, in: 0...100, step: 5)
+                        .controlSize(.small)
+                        .frame(width: 160)
+                    Text("\(Int(lineSensitivity))%")
+                        .font(.ui(size: 12))
                         .foregroundColor(palette.textMain)
-                    if launch {
-                        Text("Next Launch")
-                            .font(.ui(size: 7, weight: .semibold))
-                            .foregroundColor(palette.textSubtle)
-                    }
+                        .frame(width: 36, alignment: .trailing)
                 }
-                Text(detail)
-                    .font(.system(size: 9))
-                    .foregroundColor(palette.textSubtle)
-                    .fixedSize(horizontal: false, vertical: true)
             }
-            Spacer(minLength: 8)
-            control()
+            field("Edge depth:", help: "How many pixels in from each edge are scanned.") {
+                HStack(spacing: 4) {
+                    Text("\(lineEdgeDepth) px")
+                        .font(.ui(size: 12))
+                        .foregroundColor(palette.textMain)
+                    Stepper("", value: $lineEdgeDepth, in: 2...40)
+                        .labelsHidden()
+                        .controlSize(.small)
+                }
+            }
+            divider
+            check("Also flag off-colour lines", $lineOffColor, help: "Also flag lines close to, but not exactly, the target colour.")
+            check("Any colour (ignore target)", $lineAnyColor, help: "Ignore the target and flag edge lines of any colour.")
+            check("Split-screen seams (full frame)", $lineSplitSeams, help: "Scan the full frame for split-screen seams (slower).")
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 9)
     }
     
-    private func toggle(_ isOn: Binding<Bool>) -> some View {
-        Toggle("", isOn: isOn)
-            .toggleStyle(.switch)
-            .controlSize(.small)
-            .labelsHidden()
-            .tint(themeManager.currentTheme.playColor)
+    private var divider: some View {
+        Rectangle().fill(palette.borderLine).frame(height: 1).padding(.vertical, 4)
+    }
+    
+    /// Premiere-style labelled control: right-aligned label, control beside it.
+    private func field<Control: View>(_ label: String, launch: Bool = false, help: String, @ViewBuilder control: () -> Control) -> some View {
+        HStack(alignment: .center, spacing: 10) {
+            Text(label + (launch ? " *" : ""))
+                .font(.ui(size: 12))
+                .foregroundColor(palette.textMain)
+                .frame(width: 140, alignment: .trailing)
+            control()
+            Spacer(minLength: 0)
+        }
+        .explain(help)
+    }
+    
+    private func check(_ title: String, _ isOn: Binding<Bool>, launch: Bool = false, help: String) -> some View {
+        Toggle(isOn: isOn) {
+            Text(title + (launch ? " *" : ""))
+                .font(.ui(size: 12))
+                .foregroundColor(palette.textMain)
+        }
+        .toggleStyle(.checkbox)
+        .explain(help)
     }
     
     private struct Option {
@@ -477,23 +485,16 @@ struct UserSettingsModalView: View {
     private let lineTargets = [Option(value: "#00FF00", label: "Green"), Option(value: "#FF00FF", label: "Magenta"),
                                Option(value: "#000000", label: "Black"), Option(value: "#FFFFFF", label: "White")]
     
-    private let listOrThumbs = [Option(value: "inline", label: "List"), Option(value: "thumbnail", label: "Thumbs")]
+    private let listOrThumbs = [Option(value: "inline", label: "List"), Option(value: "thumbnail", label: "Thumbnails")]
     
-    private func choice(_ options: [Option], selection: Binding<String>) -> some View {
-        HStack(spacing: 4) {
+    private func segmented(_ options: [Option], selection: Binding<String>) -> some View {
+        Picker("", selection: selection) {
             ForEach(options, id: \.value) { option in
-                let isSelected = selection.wrappedValue == option.value
-                Button(action: { selection.wrappedValue = option.value }) {
-                    Text(option.label)
-                        .font(.ui(size: 9, weight: isSelected ? .semibold : .medium))
-                        .padding(.horizontal, 7)
-                        .padding(.vertical, 4)
-                        .foregroundColor(isSelected ? palette.primaryBtnFg : palette.textMuted)
-                        .background(isSelected ? palette.primaryBtnBg : palette.bgSubtle)
-                        .cornerRadius(StudioTheme.cornerRadius)
-                }
-                .buttonStyle(.plain)
+                Text(option.label).tag(option.value)
             }
         }
+        .labelsHidden()
+        .pickerStyle(.segmented)
+        .fixedSize()
     }
 }

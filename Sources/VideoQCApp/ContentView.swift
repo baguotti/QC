@@ -11,7 +11,6 @@ struct ContentView: View {
     @State var isWindowFullScreen = false
     @State var showUserGuide: Bool = false
     @State var showFeedbackModal: Bool = false
-    @State var showShortcutsModal: Bool = false
     @State var showSettingsPopover: Bool = false
     @State var showThemeModal: Bool = false
     @State var showSyncModal: Bool = false
@@ -183,7 +182,6 @@ struct ContentView: View {
         baseContent
             .animation(.easeInOut(duration: 0.15), value: showUserGuide)
             .animation(.easeInOut(duration: 0.15), value: showFeedbackModal)
-            .animation(.easeInOut(duration: 0.15), value: showShortcutsModal)
             .animation(.easeInOut(duration: 0.15), value: showThemeModal)
             .animation(.easeInOut(duration: 0.15), value: showSyncModal)
             .animation(.easeInOut(duration: 0.15), value: showUserSettingsModal)
@@ -219,7 +217,6 @@ struct ContentView: View {
             .onChange(of: notesTabIsVisible) { _, visible in if visible { unseenSyncedNoteIDs = [] } }
             .onChange(of: showUserGuide) { _, newValue in if !newValue { dismissFocusReset() } }
             .onChange(of: showFeedbackModal) { _, newValue in if !newValue { dismissFocusReset() } }
-            .onChange(of: showShortcutsModal) { _, newValue in if !newValue { dismissFocusReset() } }
             .onChange(of: updateManager.showModal) { _, newValue in if !newValue { dismissFocusReset() } }
             .onChange(of: scannerState.hexCode) { _, newHex in
                 if NSColorPanel.shared.isVisible, let rgb = RGBColor(hex: newHex) {
@@ -354,13 +351,6 @@ struct ContentView: View {
                 .allowsHitTesting(showFeedbackModal)
         }
         
-        // Keyboard Shortcuts Overlay Modal
-        if showShortcutsModal {
-            ShortcutsModalView(isPresented: $showShortcutsModal)
-                .transition(.opacity.combined(with: .scale(scale: 0.98)))
-                .zIndex(155)
-                .allowsHitTesting(showShortcutsModal)
-        }
         
         // File Properties Overlay Modal (Premiere Pro Style)
         if showPropertiesModal {
@@ -1370,7 +1360,7 @@ struct ContentView: View {
     }
     
     var isAnyModalActive: Bool {
-        showShortcutsModal || showThemeModal || showSyncModal || showUserSettingsModal || showUserGuide || showFeedbackModal || updateManager.showModal || showPropertiesModal || showAddNoteModal
+        showThemeModal || showSyncModal || showUserSettingsModal || showUserGuide || showFeedbackModal || updateManager.showModal || showPropertiesModal || showAddNoteModal
     }
     
     func dismissTopmostModalOrFullscreen() -> Bool {
@@ -1396,10 +1386,6 @@ struct ContentView: View {
         }
         if showUserSettingsModal {
             withAnimation(.easeInOut(duration: 0.15)) { showUserSettingsModal = false }
-            return true
-        }
-        if showShortcutsModal {
-            withAnimation(.easeInOut(duration: 0.15)) { showShortcutsModal = false }
             return true
         }
         if showUserGuide {

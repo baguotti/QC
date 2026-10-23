@@ -12,6 +12,9 @@ struct AssetSourcePanel: View {
     let onSelect: (_ append: Bool) -> Void
     let onRefresh: () -> Void
 
+    /// Recomputed only when the file list changes, not on every window re-render.
+    @State private var breakdownText = ""
+
     private var palette: StudioPalette { StudioPalette(isLightMode) }
 
     var body: some View {
@@ -35,6 +38,7 @@ struct AssetSourcePanel: View {
                 controls
             }
         }
+        .onChange(of: files, initial: true) { _, new in breakdownText = Self.breakdown(new) }
     }
 
     private var controls: some View {
@@ -88,13 +92,13 @@ struct AssetSourcePanel: View {
                 .foregroundColor(palette.textMain)
                 .lineLimit(1)
                 .truncationMode(.middle)
-            Text(Self.breakdown(files))
+            Text(breakdownText)
                 .font(.ui(size: 11))
                 .foregroundColor(palette.textMuted)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .contentShape(Rectangle())
-        .explain(folderURL?.path ?? files.map(\.lastPathComponent).joined(separator: ", "))
+        .explain(folderURL?.path ?? "\(files.count) files loaded directly")
         .contextMenu {
             Button("Copy Path") {
                 NSPasteboard.general.clearContents()

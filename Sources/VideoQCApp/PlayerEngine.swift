@@ -745,18 +745,6 @@ public final class PlayerEngine: ObservableObject {
             self.applySubtitleFile(file, from: url)
         }
     }
-    // MARK: - Dropped Frame Telemetry (non-@Published to preserve 60/120 FPS performance)
-    public private(set) var droppedFramesCount: Int = 0
-    
-    public func recordDroppedFrames(_ count: Int) {
-        guard count > 0 else { return }
-        self.droppedFramesCount += count
-    }
-    
-    public func resetDroppedFrames() {
-        self.droppedFramesCount = 0
-    }
-    
     // MARK: - Exposure Video Composition (Single Exposure Pipeline)
     //
     // The composition is the only place exposure is applied to decoded video: AVPlayerLayer (scrub) and
@@ -1023,7 +1011,6 @@ public final class PlayerEngine: ObservableObject {
         self.currentProgress = 0.0
         self.currentTimecode = "00:00:00:00"
         self.panOffset = .zero
-        self.resetDroppedFrames()
         self.isScrubbing = false
         self.wasPlayingBeforeScrub = false
         self.isSeeking = false
@@ -1574,7 +1561,6 @@ public final class PlayerEngine: ObservableObject {
         currentTimecode = "00:00:00:00"
         isPlaying = false
         rate = 0.0
-        resetDroppedFrames()
         updateAudioVolumes()
     }
     

@@ -186,25 +186,27 @@
 
 ## 8c. Settings Menu & User Settings
 
-- The gear menu opens separate popups: **User Settings** (`UserSettingsModalView`), **Theme & Accents** (`ThemeSettingsModalView`), **Synced Projects** (`NotesSyncModalView`); the new ones share `SettingsModalShell`. Each popup's flag must be in `isAnyModalActive` and `dismissTopmostModalOrFullscreen`.
+- The gear menu opens separate popups: **User Settings** (`UserSettingsModalView`), **Theme & Accents** (`ThemeSettingsModalView`), **Synced Projects** (`NotesSyncModalView`, `SettingsModalShell`). User Settings (Premiere-style preferences) and the **User Guide** (Apple-help style, `UserGuideView.chapters`) share `SidebarModalShell`: source list on the left, detail on the right. Each popup's flag must be in `isAnyModalActive` and `dismissTopmostModalOrFullscreen`.
 - Launch defaults live in `UserPreferences` (start muted, link A/B, clip info overlay, show queue) and are read once by `PlayerEngine`/`ContentView` at creation; autoplay, waveforms and queue/specs view modes are the existing live settings.
 
 ---
 
-## 8d. Glitch Finder → Line Check (`EdgeDetector.swift`, `VideoScanner.swift`)
+## 8d. Scan tab → Line Check (`EdgeDetector.swift`, `VideoScanner.swift`)
 
 - **Benchmark before and after every detector change**: `scripts/LineFinderBench/run.sh` (Command Line Tools only; the swift-testing suite needs Xcode). It runs the synthetic v1/v2 cases (`Tests/LineFinderScenes.swift`, shared with `LineDetectorTests`), per-frame cost, and real-footage ground truth from `_TEST` (local, git-ignored). It must print ALL PASSED.
 - **Colour rule**: a pixel is the target only if its residual is within `colorResidualRatio` (0.5) of the line's own strength α·|T − R| (or the noise floor). The old loose rule (0.3·|T − R|) let grey columns pass as green and green lines as white; lines passing only the loose rule are **off-colour**: reported separately, always weak (persistence-gated), toggle `reportOffColorLines`.
 - **Split seams**: compared with the picture 2 px and `edgeDepth + 1` px away; a seam pixel needs a strict match on one side and a loose match on the other (a blended seam's base belongs to one side). A coarse pre-check (every 8th sample) skips rows/columns that can't hold a seam (11.5 → ~2 ms/frame at 1080p). Black/white targets need α ≥ 0.6 for seams: partial dark/bright seams are indistinguishable from window frames and table edges.
 - **Letterbox / pillarbox**: when an edge has a uniform near-black bar thicker than `edgeDepth`, the picture edge inside the bar is scanned too (not for a black target); `LineDetection.position` holds the bar depth (edges) or the seam row/column (splits, buffer coordinates).
 - Frame numbers come from sample timestamps (floor(seconds × fps), as in the Player), not from counting decoded samples. Timecodes stay 0-based NDF like the rest of the app.
+- **Throughput is hardware-decode bound** (measured, M4 Max 1080p H.264: one decode stream ~950 fps, two ~1,780, more add nothing; detection ~0.1–1.3 ms/frame overlaps fully). Files run two at a time and a file ≥ 20 s is read as **two segments in parallel** (`VideoScanner.splitMinimumSeconds`): each segment reads 3 frames past the split and keeps only its side, frame numbers count from the first segment's first sample, so results are identical to one pass (verified on `_TEST`: all 204 flagged frames). Machines with two decode engines (M1/M2 Ultra) scan roughly twice as fast.
 
 ---
 
-## 8e. Glitch Finder → Frame Check (`FrameCheck.swift`)
+## 8e. Scan tab → Frame Check (`FrameCheck.swift`)
 
 - One decode pass per video finds three things: **frame-rate mismatch** (stutter), **flash frames** and **Media Offline** frames. Results list only flagged files, one row per finding.
 - **Benchmark**: `scripts/FrameCheckBench/run.sh` renders clips with known conversions (24→25 repeats, 25→24 / 30→25 skips, 3:2 pulldown, 24→25 blending), flash frames (black mid-shot, white at a cut, 2-frame solid colour), a Media Offline card, and clean controls (hold + cut, static, one-off repeat, dip to black with black head/tail, orange/magenta graphics); then it reports the `_TEST` clips. Must print ALL PASSED. Real ground truth: CK_HOME26 E3.0 (25 fps) = 23.976 → 25 (1 repeat every 24 frames); everything else in `_TEST` is clean.
+- Same parallelism as Line Check: two files at a time, files ≥ 20 s split into two segments (the second starts 3 frames early so kept frames have their neighbours for motion, blend and shift); results identical to one pass.
 - Decode is hardware-scaled to 192 px 4:2:0 (luma + CbCr planes), ~600–3000 fps. Per frame: **motion** (90th-percentile 8×8 block difference: a repeat reads ≤ 0.2), **speed** (region brightness-profile shift in px; a skip reads ~2×), **blend ratio**, and a **look** (luma/chroma p2–p98 spread, mean colour, share of offline-card red).
 - **Mismatch only**: repeats/skips count only as a regular cadence (≥ 4 events, ≥ 60% regular spacing); blends only as a cycle (detrended autocorrelation ≥ 0.7 at P, ≤ −0.5 at P/2). One-off repeats/skips/blends are not reported. Repeat bar: ≤ max(0.35, 0.08 × local motion).
 - **Flash frame**: 1–2 solid frames (spread ≤ 12; up to fps/12.5 frames at high rates) with a picture (spread ≥ 30) on both sides. Head/tail black, holds and dips to black are not flash frames.

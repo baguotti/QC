@@ -62,10 +62,6 @@ public struct StudioThemeConfig: Identifiable, Codable, Equatable, Sendable {
     
     
     // Backwards-compatible aliases
-    public var greenHex: String { get { slotaHex } set { slotaHex = newValue } }
-    public var blueHex: String { get { playHex } set { playHex = newValue } }
-    public var purpleHex: String { get { slotBHex } set { slotBHex = newValue } }
-    public var redHex: String { get { warnHex } set { warnHex = newValue } }
     
     public var lightGreenHex: String? { get { lightSlotaHex } set { lightSlotaHex = newValue } }
     public var lightBlueHex: String? { get { lightPlayHex } set { lightPlayHex = newValue } }
@@ -215,24 +211,6 @@ public struct StudioThemeConfig: Identifiable, Codable, Equatable, Sendable {
     public var warnNSColor: NSColor { warnNSColor(isLight: UserDefaults.standard.bool(forKey: "isLightMode")) }
     
     
-    // Backwards-compatible methods
-    public func greenHex(isLight: Bool) -> String { slotaHex(isLight: isLight) }
-    public func blueHex(isLight: Bool) -> String { playHex(isLight: isLight) }
-    public func purpleHex(isLight: Bool) -> String { slotBHex(isLight: isLight) }
-    public func redHex(isLight: Bool) -> String { warnHex(isLight: isLight) }
-    
-    public func greenColor(isLight: Bool) -> Color { slotaColor(isLight: isLight) }
-    public func blueColor(isLight: Bool) -> Color { playColor(isLight: isLight) }
-    public func purpleColor(isLight: Bool) -> Color { slotBColor(isLight: isLight) }
-    public func redColor(isLight: Bool) -> Color { warnColor(isLight: isLight) }
-    
-    public var greenColor: Color { slotaColor }
-    public var blueColor: Color { playColor }
-    public var purpleColor: Color { slotBColor }
-    public var redColor: Color { warnColor }
-    
-    public var greenNSColor: NSColor { slotaNSColor }
-    public var purpleNSColor: NSColor { slotBNSColor }
     
     public func hex(for slot: AccentSlot, isLight: Bool = UserDefaults.standard.bool(forKey: "isLightMode")) -> String {
         switch slot {
