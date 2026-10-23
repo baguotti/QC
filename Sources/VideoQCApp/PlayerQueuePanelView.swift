@@ -227,12 +227,8 @@ public struct PlayerQueuePanelView: View, Equatable {
                         .padding(.horizontal, StudioTheme.scale(5))
                         .frame(height: StudioTheme.scale(18))
                         .foregroundColor(textMain)
-                        .studioBox(
-                            background: showViewOptionsPopover ? (isLightMode ? bgPanel : bgCardHeader) : bgSubtle,
-                            border: showViewOptionsPopover ? borderStrong : borderLine
-                        )
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(TransportIconButtonStyle())
                     .explain("Queue display options: Switch between List and Thumbnail view, and adjust thumbnail size.")
                     .popover(isPresented: $showViewOptionsPopover, arrowEdge: .bottom) {
                         viewOptionsPopoverContent
@@ -260,12 +256,8 @@ public struct PlayerQueuePanelView: View, Equatable {
                         .padding(.horizontal, StudioTheme.scale(4))
                         .frame(height: StudioTheme.scale(18))
                         .foregroundColor(canToggle ? (isHidden ? accentBlue : textMain) : textSubtle)
-                        .studioBox(
-                            background: isHidden ? accentBlue.opacity(0.18) : bgSubtle,
-                            border: isHidden ? accentBlue : borderLine
-                        )
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(TransportIconButtonStyle())
                     .disabled(isScanning || !canToggle)
                     .explain(isHidden ? "Show all folder headers in asset lists." : "Hide folder headers and display assets in a flat list.")
                     
@@ -289,10 +281,8 @@ public struct PlayerQueuePanelView: View, Equatable {
                         .padding(.horizontal, StudioTheme.scale(4))
                         .frame(height: StudioTheme.scale(18))
                         .foregroundColor(isAutoplayEnabled ? accentBlue : textMuted)
-                        .studioBox(background: isAutoplayEnabled ? accentBlue.opacity(0.18) : bgSubtle,
-                                   border: isAutoplayEnabled ? accentBlue : borderLine)
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(TransportIconButtonStyle())
                     .explain(isAutoplayEnabled ? "Autoplay: ON (Videos play from start when clicked or navigating with ↑/↓) [A]" : "Autoplay: OFF (Videos load paused at frame 0) [A]")
                     
                     // Waveform Toggle: audio is only decoded for the timeline when this is on
@@ -315,10 +305,8 @@ public struct PlayerQueuePanelView: View, Equatable {
                         .padding(.horizontal, StudioTheme.scale(4))
                         .frame(height: StudioTheme.scale(18))
                         .foregroundColor(drawsWaveforms ? accentBlue : textMuted)
-                        .studioBox(background: drawsWaveforms ? accentBlue.opacity(0.18) : bgSubtle,
-                                   border: drawsWaveforms ? accentBlue : borderLine)
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(TransportIconButtonStyle())
                     .explain(drawsWaveforms ? "Waveform: ON (audio waveform under the timeline; scroll over it to resize) [W]" : "Waveform: OFF (click to draw the audio waveform under the timeline) [W]")
                 }
                 
@@ -360,7 +348,6 @@ public struct PlayerQueuePanelView: View, Equatable {
                             }
                         }
                         .clipped()
-                        .studioBox(background: bgCardSubtle, border: borderLine)
                         .onDrop(of: [UTType.fileURL.identifier], isTargeted: nil) { providers in
                             onDrop(providers)
                         }

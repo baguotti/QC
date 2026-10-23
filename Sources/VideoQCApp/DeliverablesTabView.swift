@@ -292,9 +292,8 @@ extension ContentView {
                         .frame(maxWidth: .infinity, alignment: .center)
                         .frame(height: 28)
                         .foregroundColor(specsState.deliverableAssets.isEmpty ? textMuted : textMain)
-                        .studioBox(background: bgSubtle, border: borderLine)
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(TransportIconButtonStyle())
                     .disabled(specsState.deliverableAssets.isEmpty)
                     .explain("Copies specs as spreadsheet data and opens Google Sheets ready to paste (⌘V).")
                     
@@ -315,9 +314,8 @@ extension ContentView {
                         .frame(maxWidth: .infinity, alignment: .center)
                         .frame(height: 28)
                         .foregroundColor(specsState.deliverableAssets.isEmpty ? textMuted : textMain)
-                        .studioBox(background: bgSubtle, border: borderLine)
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(TransportIconButtonStyle())
                     .disabled(specsState.deliverableAssets.isEmpty)
                     .explain("Saves the deliverables metadata table to a local CSV file.")
                     
@@ -338,9 +336,8 @@ extension ContentView {
                         .frame(maxWidth: .infinity, alignment: .center)
                         .frame(height: 28)
                         .foregroundColor(specsState.deliverableAssets.isEmpty ? textMuted : textMain)
-                        .studioBox(background: bgSubtle, border: borderLine)
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(TransportIconButtonStyle())
                     .disabled(specsState.deliverableAssets.isEmpty)
                     .explain("Generates and opens a formatted HTML delivery specs sheet in browser.")
                 }
@@ -359,9 +356,8 @@ extension ContentView {
                         .frame(maxWidth: .infinity, alignment: .center)
                         .frame(height: 28)
                         .foregroundColor(textMain)
-                        .studioBox(background: bgSubtle, border: borderLine)
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(TransportIconButtonStyle())
                     .explain("Locates and highlights the selected or first asset in macOS Finder.")
                 }
             }
@@ -402,17 +398,6 @@ extension ContentView {
                 .font(.system(size: 12, weight: .medium, design: .monospaced))
                 .foregroundColor(textMuted)
                 .lineSpacing(4)
-            
-            Rectangle()
-                .fill(borderLine)
-                .frame(height: 1)
-            
-            HStack(spacing: 16) {
-                formatTag("16:9 • 9:16 • 4:5 • 1:1")
-                formatTag("SMPTE TIMECODES")
-                formatTag("FILE SIZES")
-                formatTag("CODEC & BITRATES")
-            }
             
             Spacer()
         }
@@ -516,13 +501,9 @@ extension ContentView {
                         .contentShape(Rectangle())
                         .foregroundColor(isFileNameExpanded ? textMain : (specsState.deliverableAssets.isEmpty ? textMuted : textSubtle))
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(TransportIconButtonStyle())
                     .disabled(specsState.deliverableAssets.isEmpty)
                     .fixedSize()
-                    .studioBox(
-                        background: isFileNameExpanded ? (isLightMode ? bgPanel : bgCardHeader) : bgSubtle,
-                        border: isFileNameExpanded ? borderStrong : borderLine
-                    )
                     .explain(isFileNameExpanded ? "Reset File Name column width back to default (220px)." : "Auto-fit File Name column to fit longest filename without truncation.")
                     
                     // Button 2: Folders (Hide/Show like Tab 1)
@@ -552,10 +533,6 @@ extension ContentView {
                     .buttonStyle(.plain)
                     .disabled(!canToggleFolders)
                     .fixedSize()
-                    .studioBox(
-                        background: isFoldersHidden ? accentBlue.opacity(0.18) : bgSubtle,
-                        border: isFoldersHidden ? accentBlue : borderLine
-                    )
                     .contextMenu {
                         Button(action: toggleHideFolders) {
                             Label(isFoldersHidden ? "Show Folder Groups" : "Hide Folder Groups (Flat List)",
@@ -610,10 +587,6 @@ extension ContentView {
                         }
                     }
                     .fixedSize()
-                    .studioBox(
-                        background: showSpecsViewOptionsPopover ? (isLightMode ? bgPanel : bgCardHeader) : bgSubtle,
-                        border: showSpecsViewOptionsPopover ? borderStrong : borderLine
-                    )
                 }
                 .padding(.bottom, 4)
             }

@@ -428,9 +428,8 @@ public struct PlayerQueueFileRowView: View, Equatable {
                         .padding(.horizontal, StudioTheme.scale(4))
                         .padding(.vertical, displayMode == "inline" ? StudioTheme.scale(1) : StudioTheme.scale(2))
                         .foregroundColor(textMuted)
-                        .studioBox(background: bgSubtle, border: borderLine)
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(TransportIconButtonStyle())
                 .explain("Load as Slot A (Master)")
             }
             
@@ -459,9 +458,8 @@ public struct PlayerQueueFileRowView: View, Equatable {
                         .padding(.horizontal, StudioTheme.scale(4))
                         .padding(.vertical, displayMode == "inline" ? StudioTheme.scale(1) : StudioTheme.scale(2))
                         .foregroundColor(textMuted)
-                        .studioBox(background: bgSubtle, border: borderLine)
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(TransportIconButtonStyle())
                 .explain("Load as Slot B (Compare / ⌥+Click)")
             }
         }

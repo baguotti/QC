@@ -47,8 +47,6 @@ extension ContentView {
         VStack(alignment: .leading, spacing: 0) {
             content()
         }
-        .padding(.horizontal, 12)
-        .studioBox(background: bgCardSubtle, border: borderLine)
     }
     
     func checkRow<Content: View>(_ label: String, divider: Bool = true, @ViewBuilder _ content: () -> Content) -> some View {
@@ -251,7 +249,6 @@ extension ContentView {
                     .foregroundColor(textMain)
                     .padding(.horizontal, 8)
                     .padding(.vertical, 4)
-                    .studioBox(background: bgSubtle, border: borderLine)
             }
             
             if let p = scannerState.progressInfo {
@@ -362,7 +359,6 @@ extension ContentView {
             .padding(.horizontal, 10)
             .padding(.vertical, 8)
             .foregroundColor(textMain)
-            .studioBox(background: bgSubtle, border: borderLine)
         }
         .menuStyle(.borderlessButton)
         .menuIndicator(.hidden)
@@ -583,18 +579,6 @@ extension ContentView {
                 .font(.ui(size: 12, weight: .medium))
                 .foregroundColor(textMuted)
                 .lineSpacing(4)
-            
-            Rectangle()
-                .fill(borderLine)
-                .frame(height: 1)
-            
-            HStack(spacing: 16) {
-                formatTag("PRORES 422/4444")
-                formatTag("H.264")
-                formatTag("H.265/HEVC")
-                formatTag("QUICKTIME MOV")
-                formatTag("MP4")
-            }
             
             Spacer()
         }

@@ -499,9 +499,8 @@ struct ContentView: View {
                     .font(.system(size: StudioTheme.scaleFont(12), weight: .bold))
                     .frame(width: StudioTheme.scale(28), height: StudioTheme.scale(28))
                     .foregroundColor(textMain)
-                    .studioBox(background: bgSubtle, border: borderLine)
             }
-            .buttonStyle(.plain)
+            .buttonStyle(TransportIconButtonStyle())
             .explain("Switch to \(isLightMode ? "Dark" : "Light") mode (T). ⇧T cycles accent theme.")
             
             // Settings Menu Button (Clean square gear button with zero chevron)
@@ -511,7 +510,6 @@ struct ContentView: View {
                         .font(.system(size: StudioTheme.scaleFont(12), weight: .bold))
                         .frame(width: StudioTheme.scale(28), height: StudioTheme.scale(28))
                         .foregroundColor(textMain)
-                        .studioBox(background: bgSubtle, border: borderLine)
                     
                     if updateManager.hasUpdate {
                         Circle()
@@ -521,7 +519,7 @@ struct ContentView: View {
                     }
                 }
             }
-            .buttonStyle(.plain)
+            .buttonStyle(TransportIconButtonStyle())
             .explain("Settings: Software Update, User Settings, Theme, Synced Projects, Info & Guide, and Feedback.")
             .popover(isPresented: $showSettingsPopover, arrowEdge: .bottom) {
                 VStack(alignment: .leading, spacing: 4) {
@@ -1474,14 +1472,6 @@ struct ContentView: View {
         .frame(width: width, alignment: .leading)
     }
     
-    func formatTag(_ text: String) -> some View {
-        Text(text)
-            .font(.ui(size: 9, weight: .semibold))
-            .padding(.horizontal, 8)
-            .padding(.vertical, 4)
-            .foregroundColor(textSubtle)
-            .studioBox(background: bgSubtle, border: borderLine)
-    }
     
     // MARK: - Fullscreen Player Controls
     
