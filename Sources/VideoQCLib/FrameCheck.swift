@@ -5,24 +5,14 @@ import CoreVideo
 
 // MARK: - Results
 
-public enum StutterKind: String, Sendable, CaseIterable {
+public enum StutterKind: String, Sendable {
     case repeated = "Repeated frame"
     case skipped = "Skipped frame"
     case blended = "Blended frame"
-    case timing = "Timing gap"
 }
 
-public struct StutterEvent: Identifiable, Sendable {
-    public let id = UUID()
-    public let frameIndex: Int
-    public let timecode: String
-    public let kind: StutterKind
-    /// Part of a regular pattern (rate conversion) rather than a one-off.
-    public let inCadence: Bool
-}
-
-/// A regular pattern of one kind of event, i.e. a frame-rate conversion.
-public struct StutterCadence: Sendable {
+/// The regular pattern a frame-rate conversion leaves: repeats (slower source), skips (faster source) or blends.
+public struct FrameRateMismatch: Sendable {
     public let kind: StutterKind
     /// Average spacing in frames.
     public let period: Double
@@ -31,46 +21,58 @@ public struct StutterCadence: Sendable {
     /// The frame rate the material was most likely made at (nil when it can't be told).
     public let sourceFPS: Double?
     public let fps: Double
+    /// First frame of the pattern, to inspect.
+    public let firstFrame: Int
 
-    /// e.g. "1 repeated frame every 25 frames: 24 fps material in a 25 fps file"
-    public var summary: String {
+    /// e.g. "23.976 → 25 fps"
+    public var title: String {
+        let file = FrameCheckAnalyzer.rateLabel(FrameCheckAnalyzer.snapRate(fps))
+        guard let sourceFPS else { return kind == .blended ? "Frame blending in a \(file) file" : "Frame-rate mismatch" }
+        return "\(FrameCheckAnalyzer.rateLabel(sourceFPS).replacingOccurrences(of: " fps", with: "")) → \(file)"
+    }
+
+    /// e.g. "1 repeated frame every 24 frames"
+    public var pattern: String {
         let every = period < 1.5 ? "every frame" : "every \(Int(period.rounded())) frames"
-        var text = "1 \(kind.rawValue.lowercased()) \(every)"
-        if let sourceFPS {
-            text += ": \(StutterAnalyzer.rateLabel(sourceFPS)) material in a \(StutterAnalyzer.rateLabel(StutterAnalyzer.snapRate(fps))) file"
-        } else if kind == .blended {
-            text += ": frame blending (rate conversion or a retimed clip)"
-        }
-        return text
+        return "1 \(kind.rawValue.lowercased()) \(every)"
     }
 }
 
-public struct StutterResult: Identifiable, Sendable {
+/// Consecutive flash or Media Offline frames.
+public struct FrameRun: Identifiable, Sendable {
+    public let id = UUID()
+    public let start: Int
+    public let count: Int
+    public let timecode: String
+    /// Flash frames: "Black", "White" or "Solid #RRGGBB".
+    public let detail: String
+}
+
+public struct FrameCheckResult: Identifiable, Sendable {
     public let id = UUID()
     public let fileURL: URL
     public let fileName: String
     public let fps: Double
     public let totalFrames: Int
-    public let events: [StutterEvent]
-    public let cadences: [StutterCadence]
+    public let mismatch: FrameRateMismatch?
+    public let flashFrames: [FrameRun]
+    public let offline: [FrameRun]
 
-    /// A regular pattern, or one-off repeats / timing gaps. One-off skips are too ambiguous (fast action) to flag.
-    public var isFlagged: Bool { !cadences.isEmpty || events.contains { $0.kind == .repeated || $0.kind == .timing } }
+    public var isFlagged: Bool { mismatch != nil || !flashFrames.isEmpty || !offline.isEmpty }
 
     /// One line for lists and notes.
     public var verdict: String {
-        if let main = cadences.first { return main.summary }
-        let counts = StutterKind.allCases.compactMap { kind -> String? in
-            let n = events.filter { $0.kind == kind && (kind == .repeated || kind == .timing) }.count
-            return n > 0 ? "\(n) \(kind.rawValue.lowercased())\(n == 1 ? "" : "s")" : nil
-        }
-        return counts.isEmpty ? "Smooth" : counts.joined(separator: ", ")
+        var parts: [String] = []
+        if let mismatch { parts.append(mismatch.title) }
+        if !flashFrames.isEmpty { parts.append("\(flashFrames.count) flash frame\(flashFrames.count == 1 ? "" : "s")") }
+        if !offline.isEmpty { parts.append("Media Offline") }
+        return parts.isEmpty ? "Clean" : parts.joined(separator: " · ")
     }
 }
 
 // MARK: - Per-frame measurements
 
-/// What the scanner measures for frame i (all on a small luma image, 0…255 units).
+/// Motion measures for frame i (all on a small luma image, 0…255 units).
 public struct StutterFrameMetrics: Sendable {
     /// High-percentile block difference to frame i − 1: how much the picture changed (0 for a repeat).
     public var motion: Float
@@ -80,20 +82,92 @@ public struct StutterFrameMetrics: Sendable {
     /// For frame i − 1: |F(i−1) − avg(F(i−2), F(i))| over changing pixels, relative to |F(i−2) − F(i)|.
     /// ~0.5 for normal motion or a repeat, ~0 for a frame blended from its neighbours. Nil when too little changes.
     public var blendRatio: Float?
-    /// Presentation time in seconds from the first frame.
-    public var time: Double
 
-    public init(motion: Float, speed: Float? = nil, blendRatio: Float?, time: Double) {
+    public init(motion: Float, speed: Float? = nil, blendRatio: Float?) {
         self.motion = motion
         self.speed = speed
         self.blendRatio = blendRatio
-        self.time = time
+    }
+}
+
+/// What a frame looks like overall (full-range Y′CbCr, 0…255): enough to tell a solid frame or a Media Offline card.
+public struct FrameLook: Sendable {
+    public var luma: Float
+    public var cb: Float
+    public var cr: Float
+    /// 2nd–98th percentile range of luma: ~0 for a solid frame, ≥ 30 for almost any picture.
+    public var spread: Float
+    /// Larger of the Cb and Cr 2nd–98th percentile ranges.
+    public var chromaSpread: Float
+    /// Share of the frame in the saturated red of an NLE's offline card.
+    public var redShare: Float
+
+    public init(luma: Float, cb: Float = 128, cr: Float = 128, spread: Float, chromaSpread: Float = 0, redShare: Float = 0) {
+        self.luma = luma
+        self.cb = cb
+        self.cr = cr
+        self.spread = spread
+        self.chromaSpread = chromaSpread
+        self.redShare = redShare
+    }
+
+    var isSolid: Bool { spread <= FrameCheckAnalyzer.solidSpread && chromaSpread <= FrameCheckAnalyzer.solidSpread }
+    var isOffline: Bool { redShare >= FrameCheckAnalyzer.offlineRedShare }
+
+    /// "Black", "White" or "Solid #RRGGBB" (BT.709).
+    var colorName: String {
+        let neutral = abs(cb - 128) < 6 && abs(cr - 128) < 6
+        if neutral && luma <= 24 { return "Black" }
+        if neutral && luma >= 235 { return "White" }
+        func clamp(_ v: Float) -> Int { Int(min(255, max(0, v)).rounded()) }
+        let r = clamp(luma + 1.5748 * (cr - 128))
+        let g = clamp(luma - 0.1873 * (cb - 128) - 0.4681 * (cr - 128))
+        let b = clamp(luma + 1.8556 * (cb - 128))
+        return String(format: "Solid #%02X%02X%02X", r, g, b)
+    }
+
+    /// Luma plane (width × height) and interleaved CbCr plane (width/2 × height/2).
+    static func measure(luma: [UInt8], chroma: [UInt8], width: Int, height: Int) -> FrameLook {
+        var lumaHist = [Int](repeating: 0, count: 256)
+        var lumaSum = 0
+        for v in luma { lumaHist[Int(v)] += 1; lumaSum += Int(v) }
+        var cbHist = [Int](repeating: 0, count: 256), crHist = [Int](repeating: 0, count: 256)
+        var cbSum = 0, crSum = 0, red = 0
+        let cw = width / 2, ch = height / 2
+        if chroma.count >= cw * ch * 2 {
+            for y in 0..<ch {
+                for x in 0..<cw {
+                    let i = (y * cw + x) * 2
+                    let cb = Int(chroma[i]), cr = Int(chroma[i + 1])
+                    cbHist[cb] += 1; crHist[cr] += 1
+                    cbSum += cb; crSum += cr
+                    // Offline-card red (Premiere, Resolve, FCP): strong Cr, Cb near neutral (orange has low Cb, magenta high).
+                    if cr >= 180, cb >= 70, cb <= 140, luma[(2 * y) * width + 2 * x] <= 140 { red += 1 }
+                }
+            }
+        }
+        let chromaCount = max(1, cw * ch)
+        return FrameLook(luma: Float(lumaSum) / Float(max(1, luma.count)),
+                         cb: Float(cbSum) / Float(chromaCount), cr: Float(crSum) / Float(chromaCount),
+                         spread: percentileRange(lumaHist, total: luma.count),
+                         chromaSpread: max(percentileRange(cbHist, total: chromaCount), percentileRange(crHist, total: chromaCount)),
+                         redShare: Float(red) / Float(chromaCount))
+    }
+
+    private static func percentileRange(_ hist: [Int], total: Int) -> Float {
+        guard total > 0 else { return 0 }
+        let cut = total / 50
+        var acc = 0, lo = 0, hi = 255
+        for (v, n) in hist.enumerated() { acc += n; if acc > cut { lo = v; break } }
+        acc = 0
+        for v in stride(from: 255, through: 0, by: -1) { acc += hist[v]; if acc > cut { hi = v; break } }
+        return Float(max(0, hi - lo))
     }
 }
 
 // MARK: - Analysis (pure, testable)
 
-public enum StutterAnalyzer {
+public enum FrameCheckAnalyzer {
     /// Below this the picture is effectively static (no motion to judge a repeat against).
     static let motionContext: Float = 2.5
     /// A repeat is (near) identical: measured real repeats ≤ 0.2, while a merely quieter frame in slow motion reads ~0.3× its
@@ -106,10 +180,17 @@ public enum StutterAnalyzer {
     static let blendThreshold: Float = 0.18
     static let cutRatio: Float = 4
     static let cutMinimum: Float = 18
+    /// Solid frame: luma and chroma vary by at most this much (compression noise, a faint gradient).
+    static let solidSpread: Float = 12
+    /// The frames either side of a flash frame must be pictures, not a fade (a dip to black is no flash frame).
+    static let pictureSpread: Float = 30
+    static let offlineRedShare: Float = 0.6
 
-    public static func analyze(_ m: [StutterFrameMetrics], fps: Double) -> (events: [StutterEvent], cadences: [StutterCadence]) {
+    /// The frame-rate mismatch, if the motion shows one: repeats or skips at a regular spacing, or a blend cycle.
+    /// One-off repeats and skips (a held frame, fast action) are not a mismatch and are not reported.
+    public static func mismatch(_ m: [StutterFrameMetrics], fps: Double) -> FrameRateMismatch? {
         let n = m.count
-        guard n > 8, fps > 0 else { return ([], []) }
+        guard n > 8, fps > 0 else { return nil }
         let motion = m.map(\.motion)
 
         // Scene cuts: a spike far above its neighbourhood. Events next to a cut are ignored.
@@ -120,73 +201,75 @@ public enum StutterAnalyzer {
         }
         func nearCut(_ i: Int) -> Bool { (max(0, i - 1)...min(n - 1, i + 1)).contains { isCut[$0] } }
 
-        var raw: [(Int, StutterKind)] = []
+        // Repeat: no change while the frames either side move (a run of still frames is a hold, not a stutter).
+        var repeats: [Int] = []
         for i in 2..<(n - 1) where !nearCut(i) {
             let context = localMedian(motion, around: i, radius: 6, excluding: isCut)
             guard context >= motionContext else { continue }
-            let prev = motion[i - 1], next = motion[i + 1]
-            // Repeat: no change while the frames either side move (a run of still frames is a hold, not a stutter).
-            if motion[i] <= max(repeatFloor, repeatRatio * context), prev >= 0.5 * context, next >= 0.5 * context {
-                raw.append((i, .repeated))
-                continue
+            if motion[i] <= max(repeatFloor, repeatRatio * context), motion[i - 1] >= 0.5 * context, motion[i + 1] >= 0.5 * context {
+                repeats.append(i)
             }
         }
         // Skip: about twice the usual shift inside a steady move (shift, not difference: difference saturates on texture).
+        var skips: [Int] = []
         let speeds = m.map { $0.speed ?? -1 }
         for i in 2..<(n - 1) where !nearCut(i) && speeds[i] >= 0 && speeds[i - 1] >= 0 && speeds[i + 1] >= 0 {
             let context = localMedian(speeds, around: i, radius: 6, excluding: isCut)
             guard context >= speedContext else { continue }
             let prev = speeds[i - 1], next = speeds[i + 1]
             if speeds[i] >= skipRatio * context, prev >= 0.6 * context, prev <= 1.4 * context, next >= 0.6 * context, next <= 1.4 * context {
-                raw.append((i, .skipped))
+                skips.append(i)
             }
         }
+        var found = [cadence(of: repeats, kind: .repeated, fps: fps), cadence(of: skips, kind: .skipped, fps: fps)].compactMap { $0 }
         // Blends: a frame-blending conversion mixes neighbouring frames with weights that cycle, so the blend measure
         // rises and falls with the conversion period. Single blended frames are dissolves and are not reported.
-        var blendCadence: StutterCadence?
         if let period = blendPeriod(m.map(\.blendRatio), isCut: isCut) {
-            blendCadence = StutterCadence(kind: .blended, period: Double(period), regularity: 1,
-                                          sourceFPS: blendSource(period: period, fps: fps), fps: fps)
             let ratios = m.map { $0.blendRatio ?? 1 }
-            // One event per cycle, at its most blended frame.
-            for start in Swift.stride(from: 0, to: n, by: period) {
-                let range = start..<min(n, start + period)
-                if let best = range.min(by: { ratios[$0] < ratios[$1] }), ratios[best] <= blendThreshold * 2, best > 0 {
-                    raw.append((best - 1, .blended))
-                }
-            }
+            let first = (1..<min(n, period + 1)).min { ratios[$0] < ratios[$1] }.map { $0 - 1 } ?? 0
+            found.append(FrameRateMismatch(kind: .blended, period: Double(period), regularity: 1,
+                                           sourceFPS: blendSource(period: period, fps: fps), fps: fps, firstFrame: first))
         }
-        // Timing: gaps between presentation times more than half a frame off.
-        let frameDuration = 1 / fps
-        for i in 1..<n {
-            let delta = m[i].time - m[i - 1].time
-            if delta > 1.5 * frameDuration || delta < 0.5 * frameDuration { raw.append((i, .timing)) }
-        }
+        return found.max { $0.regularity < $1.regularity }
+    }
 
-        struct EventKey: Hashable { let frame: Int; let kind: StutterKind }
-        var cadences: [StutterCadence] = []
-        var inCadence = Set<EventKey>()
-        for kind in [StutterKind.repeated, .skipped] {
-            let frames = raw.filter { $0.1 == kind }.map(\.0).sorted()
-            guard let cadence = cadence(of: frames, kind: kind, fps: fps) else { continue }
-            cadences.append(cadence)
-            frames.forEach { inCadence.insert(EventKey(frame: $0, kind: kind)) }
+    /// 1–2 solid frames (a few more at high frame rates) between two pictures: a black or coloured frame left in the edit.
+    /// Solid frames at the very start or end, holds and dips to black are not flash frames.
+    public static func flashFrames(_ looks: [FrameLook], fps: Double) -> [FrameRun] {
+        let n = looks.count
+        let maxRun = max(2, Int((fps / 12.5).rounded()))
+        var runs: [FrameRun] = []
+        var i = 1
+        while i < n - 1 {
+            guard looks[i].isSolid, !looks[i].isOffline else { i += 1; continue }
+            var end = i
+            while end + 1 < n && looks[end + 1].isSolid { end += 1 }
+            if end - i + 1 <= maxRun, end + 1 < n, looks[i - 1].spread >= pictureSpread, looks[end + 1].spread >= pictureSpread {
+                runs.append(FrameRun(start: i, count: end - i + 1, timecode: TimecodeFormatter.format(frameIndex: i, fps: fps),
+                                     detail: looks[i].colorName))
+            }
+            i = end + 1
         }
-        if let blendCadence {
-            cadences.append(blendCadence)
-            raw.filter { $0.1 == .blended }.forEach { inCadence.insert(EventKey(frame: $0.0, kind: .blended)) }
+        return runs
+    }
+
+    /// Runs of frames that are mostly the saturated red of a Media Offline card.
+    public static func offlineRuns(_ looks: [FrameLook], fps: Double) -> [FrameRun] {
+        var runs: [FrameRun] = []
+        var i = 0
+        while i < looks.count {
+            guard looks[i].isOffline else { i += 1; continue }
+            var end = i
+            while end + 1 < looks.count && looks[end + 1].isOffline { end += 1 }
+            runs.append(FrameRun(start: i, count: end - i + 1, timecode: TimecodeFormatter.format(frameIndex: i, fps: fps), detail: ""))
+            i = end + 1
         }
-        cadences.sort { $0.regularity > $1.regularity }
-        let events = raw.sorted { $0.0 < $1.0 }.map { frame, kind in
-            StutterEvent(frameIndex: frame, timecode: TimecodeFormatter.format(frameIndex: frame, fps: fps),
-                         kind: kind, inCadence: inCadence.contains(EventKey(frame: frame, kind: kind)))
-        }
-        return (events, cadences)
+        return runs
     }
 
     /// A regular spacing between events: at least 4 events, ≥ 60% of intervals within ±1 frame of the typical one.
-    static func cadence(of frames: [Int], kind: StutterKind, fps: Double) -> StutterCadence? {
-        guard frames.count >= 4 else { return nil }
+    static func cadence(of frames: [Int], kind: StutterKind, fps: Double) -> FrameRateMismatch? {
+        guard frames.count >= 4, let first = frames.first else { return nil }
         let intervals = zip(frames.dropFirst(), frames).map { $0 - $1 }
         var counts: [Int: Int] = [:]
         for d in intervals { counts[d, default: 0] += 1 }
@@ -195,13 +278,12 @@ public enum StutterAnalyzer {
         let regularity = Double(regular.count) / Double(intervals.count)
         guard regularity >= 0.6 else { return nil }
         let period = Double(regular.reduce(0, +)) / Double(regular.count)
-        var source: Double?
-        switch kind {
-        case .repeated: source = period > 1 ? fps * (period - 1) / period : nil
-        case .skipped: source = fps * (period + 1) / period
-        default: source = nil
+        let source: Double? = switch kind {
+        case .repeated: period > 1 ? fps * (period - 1) / period : nil
+        case .skipped: fps * (period + 1) / period
+        case .blended: nil
         }
-        return StutterCadence(kind: kind, period: period, regularity: regularity, sourceFPS: source.map(snapRate), fps: fps)
+        return FrameRateMismatch(kind: kind, period: period, regularity: regularity, sourceFPS: source.map(snapRate), fps: fps, firstFrame: first)
     }
 
     /// The period (frames) of a regular rise and fall in the blend measure. For each candidate period P the series is
@@ -283,8 +365,8 @@ public enum StutterAnalyzer {
 
 // MARK: - Scanner
 
-/// Decodes each file at a small size (hardware-scaled, luma only) and measures motion and blends per frame.
-public actor StutterScanner {
+/// Decodes each file once at a small size (hardware-scaled 4:2:0) and measures motion, blends and each frame's look.
+public actor FrameCheckScanner {
     private let cancellation = CancellationState()
 
     public init() {}
@@ -297,11 +379,13 @@ public actor StutterScanner {
         public let fileName: String
         public let frame: Int
         public let totalFrames: Int
+        /// Frames analysed per second.
+        public let speed: Double
     }
 
-    public func scanBatch(_ urls: [URL], progress: @escaping @Sendable (ScanProgress) -> Void) async -> [StutterResult] {
+    public func scanBatch(_ urls: [URL], progress: @escaping @Sendable (ScanProgress) -> Void) async -> [FrameCheckResult] {
         cancellation.reset()
-        var results: [StutterResult] = []
+        var results: [FrameCheckResult] = []
         for (index, url) in urls.enumerated() {
             guard !cancellation.isCancelled else { break }
             if let result = await Self.scan(url, fileIndex: index + 1, totalFiles: urls.count, cancellation: cancellation, progress: progress) {
@@ -315,7 +399,7 @@ public actor StutterScanner {
     static let analysisSize = 192
 
     static func scan(_ url: URL, fileIndex: Int, totalFiles: Int, cancellation: CancellationState?,
-                     progress: (@Sendable (ScanProgress) -> Void)?) async -> StutterResult? {
+                     progress: (@Sendable (ScanProgress) -> Void)?) async -> FrameCheckResult? {
         let asset = AVURLAsset(url: url)
         guard let track = try? await asset.loadTracks(withMediaType: .video).first,
               let reader = try? AVAssetReader(asset: asset) else { return nil }
@@ -341,14 +425,14 @@ public actor StutterScanner {
         var frames: [[UInt8]] = []   // last three luma images
         var previousProfiles: RegionProfiles?
         var metrics: [StutterFrameMetrics] = []
-        var firstTime: CMTime?
-        var lastProgress = CFAbsoluteTimeGetCurrent()
+        var looks: [FrameLook] = []
+        let start = CFAbsoluteTimeGetCurrent()
+        var lastProgress = start
         while let sample = output.copyNextSampleBuffer() {
             if cancellation?.isCancelled == true { reader.cancelReading(); return nil }
             guard let buffer = CMSampleBufferGetImageBuffer(sample) else { continue }
-            let pts = CMSampleBufferGetPresentationTimeStamp(sample)
-            if firstTime == nil { firstTime = pts }
-            let luma = lumaPlane(buffer, width: w, height: h)
+            let (luma, chroma) = planes(buffer, width: w, height: h)
+            looks.append(FrameLook.measure(luma: luma, chroma: chroma, width: w, height: h))
             frames.append(luma)
             if frames.count > 3 { frames.removeFirst() }
 
@@ -357,34 +441,37 @@ public actor StutterScanner {
             let profiles = RegionProfiles(luma, width: w, height: h)
             let speed = previousProfiles.flatMap { profiles.shift(from: $0) }
             previousProfiles = profiles
-            metrics.append(StutterFrameMetrics(motion: motion, speed: speed, blendRatio: blend,
-                                               time: CMTimeGetSeconds(CMTimeSubtract(pts, firstTime ?? pts))))
+            metrics.append(StutterFrameMetrics(motion: motion, speed: speed, blendRatio: blend))
             let now = CFAbsoluteTimeGetCurrent()
             if now - lastProgress > 0.2 {   // ≤ 5 Hz: progress re-renders the window
                 lastProgress = now
                 progress?(ScanProgress(fileIndex: fileIndex, totalFiles: totalFiles, fileName: url.lastPathComponent,
-                                   frame: metrics.count, totalFrames: max(estimatedFrames, metrics.count)))
+                                       frame: metrics.count, totalFrames: max(estimatedFrames, metrics.count),
+                                       speed: Double(metrics.count) / max(0.001, now - start)))
             }
         }
-        let analysis = StutterAnalyzer.analyze(metrics, fps: fps)
-        return StutterResult(fileURL: url, fileName: url.lastPathComponent, fps: fps, totalFrames: metrics.count,
-                             events: analysis.events, cadences: analysis.cadences)
+        return FrameCheckResult(fileURL: url, fileName: url.lastPathComponent, fps: fps, totalFrames: metrics.count,
+                                mismatch: FrameCheckAnalyzer.mismatch(metrics, fps: fps),
+                                flashFrames: FrameCheckAnalyzer.flashFrames(looks, fps: fps),
+                                offline: FrameCheckAnalyzer.offlineRuns(looks, fps: fps))
     }
 
-    private static func lumaPlane(_ buffer: CVPixelBuffer, width: Int, height: Int) -> [UInt8] {
+    /// Copies the luma plane (width × height) and the interleaved CbCr plane (width/2 × height/2 pairs).
+    private static func planes(_ buffer: CVPixelBuffer, width: Int, height: Int) -> ([UInt8], [UInt8]) {
         CVPixelBufferLockBaseAddress(buffer, .readOnly)
         defer { CVPixelBufferUnlockBaseAddress(buffer, .readOnly) }
-        let bw = min(width, CVPixelBufferGetWidthOfPlane(buffer, 0))
-        let bh = min(height, CVPixelBufferGetHeightOfPlane(buffer, 0))
-        guard let base = CVPixelBufferGetBaseAddressOfPlane(buffer, 0) else { return [] }
-        let bpr = CVPixelBufferGetBytesPerRowOfPlane(buffer, 0)
-        var out = [UInt8](repeating: 0, count: width * height)
-        out.withUnsafeMutableBytes { dst in
-            for y in 0..<bh {
-                memcpy(dst.baseAddress! + y * width, base + y * bpr, bw)
+        func copy(plane: Int, rowBytes: Int, rows: Int) -> [UInt8] {
+            var out = [UInt8](repeating: 0, count: rowBytes * rows)
+            guard let base = CVPixelBufferGetBaseAddressOfPlane(buffer, plane) else { return out }
+            let bpr = CVPixelBufferGetBytesPerRowOfPlane(buffer, plane)
+            let n = min(rows, CVPixelBufferGetHeightOfPlane(buffer, plane))
+            let bytes = min(rowBytes, bpr)
+            out.withUnsafeMutableBytes { dst in
+                for y in 0..<n { memcpy(dst.baseAddress! + y * rowBytes, base + y * bpr, bytes) }
             }
+            return out
         }
-        return out
+        return (copy(plane: 0, rowBytes: width, rows: height), copy(plane: 1, rowBytes: width, rows: height / 2))
     }
 
     /// 90th percentile of 8×8 block mean absolute differences: a small moving object still counts as motion.

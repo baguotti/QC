@@ -12,7 +12,8 @@ extension ContentView {
                 VStack(alignment: .leading, spacing: 22) {
                     deliveryAssetsSection(forTab: .lineFinder)
                     lineCheckSection
-                    stutterFinderSection
+                    frameCheckSection
+                    fullCheckSection
                 }
                 .padding(22)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -22,10 +23,10 @@ extension ContentView {
             
             // Right Panel: Results / Live Progress / Empty State
             VStack(alignment: .leading, spacing: 0) {
-                if scannerState.isStutterScanning {
-                    stutterProgressView
-                } else if scannerState.showsStutterResults && (!scannerState.stutterResults.isEmpty || scannerState.wasStutterScanCancelled) {
-                    stutterResultsView
+                if scannerState.isFrameChecking {
+                    frameCheckProgressView
+                } else if scannerState.showsFrameCheckResults && (!scannerState.frameCheckResults.isEmpty || scannerState.wasFrameCheckCancelled) {
+                    frameCheckResultsView
                 } else if scannerState.isScanning {
                     activeScanProgressView
                 } else if !scannerState.scanResults.isEmpty {
@@ -233,8 +234,8 @@ extension ContentView {
                 stopButton(scannerState.isCancelling ? "STOPPING..." : "STOP LINE CHECK", help: "Stops the line check in progress.", action: cancelScan)
             } else {
                 runButton("RUN LINE CHECK", icon: "viewfinder",
-                          isReady: !videoFiles.isEmpty && RGBColor(hex: scannerState.hexCode) != nil && !scannerState.isStutterScanning,
-                          help: "Checks every frame of every video in the batch for edge lines and split-screen seams.", action: startScan)
+                          isReady: !videoFiles.isEmpty && RGBColor(hex: scannerState.hexCode) != nil && !scannerState.isFrameChecking,
+                          help: "Checks every frame of every video in the batch for edge lines and split-screen seams.", action: { startScan() })
             }
         }
     }
@@ -315,6 +316,17 @@ extension ContentView {
                 Spacer()
                 
                 HStack(spacing: 8) {
+                    if !scannerState.frameCheckResults.isEmpty {
+                        Button(action: { scannerState.showsFrameCheckResults = true }) {
+                            Text("SHOW FRAME CHECK RESULTS")
+                                .font(.ui(size: 10, weight: .semibold))
+                                .padding(.horizontal, 10)
+                                .padding(.vertical, 7)
+                                .foregroundColor(textMain)
+                                .studioBox(background: bgSubtle, border: borderLine)
+                        }
+                        .buttonStyle(.plain)
+                    }
                     // Primary Action: Google Sheets
                     Button(action: { openScanReportInGoogleSheets() }) {
                         HStack(spacing: 5) {
@@ -566,7 +578,7 @@ extension ContentView {
                 .foregroundColor(textMain)
                 .tracking(1.0)
             
-            Text("CHOOSE A DELIVERY FOLDER OR VIDEO FILES ON THE LEFT, THEN RUN A CHECK.\nLINE CHECK: EDGE LINES AND SPLIT-SCREEN SEAMS. STUTTER CHECK: REPEATED, SKIPPED AND BLENDED FRAMES.")
+            Text("CHOOSE A DELIVERY FOLDER OR VIDEO FILES ON THE LEFT, THEN RUN A CHECK.\nLINE CHECK: EDGE LINES AND SPLIT-SCREEN SEAMS. FRAME CHECK: FRAME-RATE MISMATCH, FLASH FRAMES AND MEDIA OFFLINE.")
                 .font(.ui(size: 12, weight: .medium))
                 .foregroundColor(textMuted)
                 .lineSpacing(4)
@@ -589,27 +601,27 @@ extension ContentView {
     }
 }
 
-// MARK: - Stutter Finder
+// MARK: - Frame Check
 
 extension ContentView {
     
-    private var stutterVideoCount: Int { videoFiles.filter { QCUtilities.mediaKind(of: $0) == .video }.count }
+    private var frameCheckVideoCount: Int { videoFiles.filter { QCUtilities.mediaKind(of: $0) == .video }.count }
     
-    var stutterFinderSection: some View {
+    var frameCheckSection: some View {
         VStack(alignment: .leading, spacing: 10) {
-            sectionHeader(num: "03", title: "STUTTER CHECK")
+            sectionHeader(num: "03", title: "FRAME CHECK")
             
             checkCard {
                 checkRow("WHAT IT FINDS", divider: false) {
-                    Text("Repeated, skipped and blended frames, and the regular pattern a frame-rate mismatch leaves (e.g. 24 fps material exported at 25 fps).")
+                    Text("Frame-rate mismatch (e.g. 23.976 fps material exported at 25 fps), flash frames (stray black or solid frames mid-edit) and Media Offline frames. One fast pass per video.")
                         .font(.ui(size: 10))
                         .foregroundColor(textSubtle)
                         .fixedSize(horizontal: false, vertical: true)
                 }
-                if !scannerState.stutterResults.isEmpty && !scannerState.showsStutterResults && !scannerState.isStutterScanning {
+                if !scannerState.frameCheckResults.isEmpty && !scannerState.showsFrameCheckResults && !scannerState.isFrameChecking {
                     checkRow("LAST RESULTS") {
-                        Button(action: { scannerState.showsStutterResults = true }) {
-                            Text("SHOW STUTTER RESULTS")
+                        Button(action: { scannerState.showsFrameCheckResults = true }) {
+                            Text("SHOW FRAME CHECK RESULTS")
                                 .font(.ui(size: 9, weight: .semibold))
                                 .foregroundColor(accentBlue)
                         }
@@ -618,28 +630,44 @@ extension ContentView {
                 }
             }
             
-            if scannerState.isStutterScanning {
-                stopButton(scannerState.wasStutterScanCancelled ? "STOPPING..." : "STOP STUTTER CHECK",
-                           help: "Stops the stutter check; files already checked keep their results.") {
-                    scannerState.cancelStutterScan()
+            if scannerState.isFrameChecking {
+                stopButton(scannerState.wasFrameCheckCancelled ? "STOPPING..." : "STOP FRAME CHECK",
+                           help: "Stops the frame check; files already checked keep their results.") {
+                    scannerState.cancelFrameCheck()
                 }
             } else {
-                runButton("RUN STUTTER CHECK", icon: "waveform.path.ecg",
-                          isReady: stutterVideoCount > 0 && !scannerState.isScanning,
-                          help: "Checks the motion of every video in the batch (fast, low resolution) for frame-rate conversion stutters.") {
-                    scannerState.startStutterScan(videoFiles: videoFiles)
+                runButton("RUN FRAME CHECK", icon: "waveform.path.ecg",
+                          isReady: frameCheckVideoCount > 0 && !scannerState.isScanning,
+                          help: "Checks every video in the batch (fast, low resolution) for frame-rate mismatch, flash frames and Media Offline.") {
+                    scannerState.startFrameCheck(videoFiles: videoFiles)
                 }
             }
         }
     }
     
-    var stutterProgressView: some View {
+    var fullCheckSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            sectionHeader(num: "04", title: "FULL CHECK")
+            if scannerState.isFullCheck {
+                stopButton("STOP FULL CHECK", help: "Stops the running check and skips the rest; finished files keep their results.",
+                           action: cancelFullCheck)
+            } else {
+                runButton("RUN FULL CHECK", icon: "checklist",
+                          isReady: frameCheckVideoCount > 0 && RGBColor(hex: scannerState.hexCode) != nil
+                              && !scannerState.isScanning && !scannerState.isFrameChecking,
+                          help: "Runs the Line Check, then the Frame Check, on every video with the settings above.",
+                          action: startFullCheck)
+            }
+        }
+    }
+    
+    var frameCheckProgressView: some View {
         VStack(alignment: .leading, spacing: 24) {
-            Text("CHECKING MOTION")
+            Text("CHECKING FRAMES")
                 .font(.system(size: 28, weight: .heavy))
                 .foregroundColor(textMain)
                 .tracking(1.0)
-            if let p = scannerState.stutterProgress {
+            if let p = scannerState.frameCheckProgress {
                 VStack(alignment: .leading, spacing: 16) {
                     Text(p.fileName.uppercased())
                         .font(.system(size: 18, weight: .heavy, design: .monospaced))
@@ -648,6 +676,7 @@ extension ContentView {
                     HStack(spacing: 20) {
                         statItem(label: "BATCH PROGRESS", val: "FILE \(String(format: "%02d", p.fileIndex)) / \(String(format: "%02d", p.totalFiles))", width: 140)
                         statItem(label: "FRAME", val: "\(p.frame) / \(p.totalFrames)", width: 140)
+                        statItem(label: "SPEED", val: "\(String(format: "%.0f", p.speed)) FPS", width: 110)
                     }
                     GeometryReader { geo in
                         let ratio = (Double(p.fileIndex - 1) + Double(p.frame) / Double(max(1, p.totalFrames))) / Double(max(1, p.totalFiles))
@@ -666,23 +695,23 @@ extension ContentView {
         .padding(28)
     }
     
-    var stutterResultsView: some View {
-        let results = scannerState.stutterResults
+    var frameCheckResultsView: some View {
+        let results = scannerState.frameCheckResults
         let flagged = results.filter(\.isFlagged)
         return VStack(alignment: .leading, spacing: 20) {
             HStack {
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(scannerState.wasStutterScanCancelled ? "STUTTER CHECK STOPPED" : "STUTTER CHECK COMPLETE")
+                    Text(scannerState.wasFrameCheckCancelled ? "FRAME CHECK STOPPED" : "FRAME CHECK COMPLETE")
                         .font(.system(size: 28, weight: .black))
                         .foregroundColor(textMain)
                         .tracking(1.0)
-                    Text("\(results.count) VIDEOS ANALYZED\(scannerState.wasStutterScanCancelled ? " (PARTIAL)" : "")")
+                    Text("\(results.count) VIDEOS ANALYZED\(scannerState.wasFrameCheckCancelled ? " (PARTIAL)" : "")")
                         .font(.ui(size: 11, weight: .semibold))
                         .foregroundColor(textMuted)
                 }
                 Spacer()
                 if !scannerState.scanResults.isEmpty {
-                    Button(action: { scannerState.showsStutterResults = false }) {
+                    Button(action: { scannerState.showsFrameCheckResults = false }) {
                         Text("SHOW LINE QC RESULTS")
                             .font(.ui(size: 10, weight: .semibold))
                             .padding(.horizontal, 10)
@@ -695,17 +724,20 @@ extension ContentView {
             }
             HStack(spacing: 12) {
                 statBox(title: "TOTAL SCANNED", val: String(format: "%02d", results.count))
-                statBox(title: "STUTTERING", val: String(format: "%02d", flagged.count), isRed: !flagged.isEmpty)
-                statBox(title: "SMOOTH", val: String(format: "%02d", results.count - flagged.count), isPositive: results.count > flagged.count)
+                statBox(title: "FPS MISMATCH", val: String(format: "%02d", results.filter { $0.mismatch != nil }.count),
+                        isRed: results.contains { $0.mismatch != nil })
+                statBox(title: "FLASH / OFFLINE", val: String(format: "%02d", results.filter { !$0.flashFrames.isEmpty || !$0.offline.isEmpty }.count),
+                        isRed: results.contains { !$0.flashFrames.isEmpty || !$0.offline.isEmpty })
+                statBox(title: "CLEAN", val: String(format: "%02d", results.count - flagged.count), isPositive: results.count > flagged.count)
             }
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 16) {
                     if flagged.isEmpty {
                         VStack(spacing: 8) {
-                            Text("STATUS // ALL VIDEOS SMOOTH")
+                            Text("STATUS // ALL VIDEOS CLEAN")
                                 .font(.system(size: 16, weight: .black, design: .monospaced))
                                 .foregroundColor(accentPositive)
-                            Text("NO REPEATED, SKIPPED OR BLENDED FRAME PATTERNS DETECTED.")
+                            Text("NO FRAME-RATE MISMATCH, FLASH FRAMES OR MEDIA OFFLINE DETECTED.")
                                 .font(.ui(size: 11, weight: .medium))
                                 .foregroundColor(textMuted)
                         }
@@ -714,7 +746,7 @@ extension ContentView {
                         .studioBox(background: bgPanel, border: borderLine)
                     } else {
                         ForEach(flagged) { result in
-                            stutterResultCard(result)
+                            frameCheckResultCard(result)
                         }
                     }
                 }
@@ -723,17 +755,41 @@ extension ContentView {
         .padding(28)
     }
     
-    private func stutterResultCard(_ result: StutterResult) -> some View {
-        // Flagged events only: one-off skips (fast action) and dissolve blends are not listed.
-        let events = result.events.filter { $0.inCadence || $0.kind == .repeated || $0.kind == .timing }
-        let shown = Array(events.prefix(12))
+    private struct FrameCheckRow: Identifiable {
+        let id: String
+        let kind: String
+        let what: String
+        let detail: String
+        let frame: Int
+    }
+    
+    private func frameCheckRows(_ result: FrameCheckResult) -> [FrameCheckRow] {
+        var rows: [FrameCheckRow] = []
+        if let m = result.mismatch {
+            rows.append(FrameCheckRow(id: "mismatch", kind: "FPS MISMATCH", what: m.title, detail: m.pattern, frame: m.firstFrame))
+        }
+        for run in result.offline {
+            let seconds = Double(run.count) / max(1, result.fps)
+            rows.append(FrameCheckRow(id: "offline\(run.start)", kind: "MEDIA OFFLINE", what: run.timecode,
+                                      detail: "\(run.count) frame\(run.count == 1 ? "" : "s") (\(String(format: "%.1f", seconds)) s)", frame: run.start))
+        }
+        for run in result.flashFrames {
+            rows.append(FrameCheckRow(id: "flash\(run.start)", kind: "FLASH FRAME", what: run.timecode,
+                                      detail: "\(run.detail), \(run.count) frame\(run.count == 1 ? "" : "s")", frame: run.start))
+        }
+        return rows
+    }
+    
+    private func frameCheckResultCard(_ result: FrameCheckResult) -> some View {
+        let rows = frameCheckRows(result)
+        let shown = Array(rows.prefix(12))
         return VStack(alignment: .leading, spacing: 0) {
             HStack(alignment: .top) {
                 VStack(alignment: .leading, spacing: 3) {
                     Text(result.fileName.uppercased())
                         .font(.system(size: 14, weight: .heavy, design: .monospaced))
                         .foregroundColor(textMain)
-                    Text("\(StutterAnalyzer.rateLabel(result.fps).uppercased()) // \(result.totalFrames) FRAMES")
+                    Text("\(FrameCheckAnalyzer.rateLabel(result.fps).uppercased()) // \(result.totalFrames) FRAMES")
                         .font(.system(size: 10, weight: .bold, design: .monospaced))
                         .foregroundColor(textMuted)
                 }
@@ -749,14 +805,12 @@ extension ContentView {
             .explain(result.fileURL.path)
             
             Rectangle().fill(borderLine).frame(height: 1)
-            ForEach(Array(shown.enumerated()), id: \.element.id) { idx, event in
-                Button(action: { jumpToGlitchInPlayer(fileURL: result.fileURL, frameIndex: event.frameIndex) }) {
+            ForEach(Array(shown.enumerated()), id: \.element.id) { idx, row in
+                Button(action: { jumpToGlitchInPlayer(fileURL: result.fileURL, frameIndex: row.frame) }) {
                     HStack(spacing: 8) {
-                        Text(String(format: "%02d", idx + 1)).frame(width: 25, alignment: .leading).foregroundColor(textMuted)
-                        Text(event.kind.rawValue.uppercased()).frame(width: 150, alignment: .leading).fontWeight(.bold).foregroundColor(textMain)
-                        Text(event.timecode).frame(width: 110, alignment: .leading).fontWeight(.heavy).foregroundColor(textMain)
-                        Text("[\(event.frameIndex)]").frame(width: 70, alignment: .leading).foregroundColor(textMuted)
-                        Text(event.inCadence ? "IN PATTERN" : "ONE-OFF").frame(width: 90, alignment: .leading).foregroundColor(textSubtle)
+                        Text(row.kind).frame(width: 120, alignment: .leading).fontWeight(.bold).foregroundColor(textMain)
+                        Text(row.what).frame(width: 140, alignment: .leading).fontWeight(.heavy).foregroundColor(textMain)
+                        Text(row.detail).lineLimit(1).foregroundColor(textSubtle)
                         Spacer()
                         HStack(spacing: 4) {
                             Image(systemName: "play.fill").font(.system(size: 8, weight: .bold))
@@ -773,11 +827,13 @@ extension ContentView {
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .explain("Open \(event.timecode) in the Player (step with ← → to see the stutter).")
+                .explain(row.kind == "FPS MISMATCH"
+                         ? "Open the first frame of the pattern in the Player (step with ← → to see it)."
+                         : "Open \(row.what) in the Player.")
                 if idx < shown.count - 1 { Rectangle().fill(borderLine.opacity(0.6)).frame(height: 1) }
             }
-            if events.count > shown.count {
-                Text("+ \(events.count - shown.count) MORE IN THE SAME PATTERN")
+            if rows.count > shown.count {
+                Text("+ \(rows.count - shown.count) MORE")
                     .font(.ui(size: 9, weight: .semibold))
                     .foregroundColor(textMuted)
                     .padding(.horizontal, 14)

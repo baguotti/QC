@@ -839,7 +839,7 @@ struct ContentView: View {
                         .explain(
                             tab == .player ? "PLAYER: High-performance delivery playback with J-K-L shuttle, timeline scrubbing, and zoom." :
                             (tab == .specs ? "SPECS: Reads container resolution, timecode, audio, and codecs." :
-                             (tab == .lineFinder ? "GLITCH FINDER: Finds edge lines, split-screen seams and frame-rate stutters." :
+                             (tab == .lineFinder ? "GLITCH FINDER: Finds edge lines, split-screen seams, frame-rate stutters, flash frames and Media Offline." :
                               "INGEST: Intake checklist, automatic metadata aggregation, and DIT cross-referencing."))
                         )
                     }
@@ -1335,7 +1335,7 @@ struct ContentView: View {
     
     // MARK: - Line Scanner Execution
     
-    func startScan() {
+    func startScan(then next: (() -> Void)? = nil) {
         scannerState.startScan(videoFiles: videoFiles.filter { QCUtilities.mediaKind(of: $0) == .video }) { results, config in
             self.playerEngine.setScanResults(results)
             if self.scannerState.tagInFinder {
@@ -1344,11 +1344,30 @@ struct ContentView: View {
                 }
             }
             self.syncScanResultsToNotes(results: results)
+            next?()
         }
     }
     
     func cancelScan() {
         scannerState.cancelScan()
+    }
+    
+    /// Line Check, then Frame Check on the same files; each keeps its own results.
+    func startFullCheck() {
+        scannerState.isFullCheck = true
+        startScan {
+            guard self.scannerState.isFullCheck, !self.scannerState.wasScanCancelled else {
+                self.scannerState.isFullCheck = false
+                return
+            }
+            self.scannerState.startFrameCheck(videoFiles: self.videoFiles)
+        }
+    }
+    
+    func cancelFullCheck() {
+        scannerState.isFullCheck = false
+        scannerState.cancelScan()
+        scannerState.cancelFrameCheck()
     }
     
     // MARK: - On-Demand Report Export

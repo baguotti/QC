@@ -32,14 +32,16 @@ public final class ScannerState: ObservableObject {
     @Published public var generatedCSVURL: URL? = nil
     @Published public var scannerActor: VideoScanner? = nil
     
-    // Stutter Finder
-    @Published public var isStutterScanning: Bool = false
-    @Published public var stutterProgress: StutterScanner.ScanProgress? = nil
-    @Published public var stutterResults: [StutterResult] = []
-    /// The right panel shows the stutter results (set by a stutter scan, cleared by a line audit).
-    @Published public var showsStutterResults: Bool = false
-    @Published public var wasStutterScanCancelled: Bool = false
-    private var stutterScanner: StutterScanner? = nil
+    // Frame Check
+    @Published public var isFrameChecking: Bool = false
+    @Published public var frameCheckProgress: FrameCheckScanner.ScanProgress? = nil
+    @Published public var frameCheckResults: [FrameCheckResult] = []
+    /// The right panel shows the Frame Check results (set by a frame check, cleared by a line audit).
+    @Published public var showsFrameCheckResults: Bool = false
+    @Published public var wasFrameCheckCancelled: Bool = false
+    /// A Full Check is running: the Line Check, then the Frame Check on the same files.
+    @Published public var isFullCheck: Bool = false
+    private var frameCheckScanner: FrameCheckScanner? = nil
     
     public init() {
         self.tagInFinder = UserDefaults.standard.bool(forKey: "tagInFinder")
@@ -103,7 +105,7 @@ public final class ScannerState: ObservableObject {
         isScanning = true
         isCancelling = false
         wasScanCancelled = false
-        showsStutterResults = false
+        showsFrameCheckResults = false
         scanResults = []
         lastScanTagInFinder = tagInFinder
         generatedReportURL = nil
@@ -159,33 +161,34 @@ public final class ScannerState: ObservableObject {
         }
     }
     
-    /// Scans the files' motion for repeated, skipped and blended frames (frame-rate conversion stutters). Videos only.
-    public func startStutterScan(videoFiles: [URL]) {
+    /// One pass per video: frame-rate mismatch (stutter), flash frames and Media Offline frames.
+    public func startFrameCheck(videoFiles: [URL]) {
         let videos = videoFiles.filter { QCUtilities.mediaKind(of: $0) == .video }
-        guard !videos.isEmpty, !isStutterScanning, !isScanning else { return }
-        isStutterScanning = true
-        wasStutterScanCancelled = false
-        stutterResults = []
-        stutterProgress = nil
-        showsStutterResults = true
-        let scanner = StutterScanner()
-        stutterScanner = scanner
+        guard !videos.isEmpty, !isFrameChecking, !isScanning else { return }
+        isFrameChecking = true
+        wasFrameCheckCancelled = false
+        frameCheckResults = []
+        frameCheckProgress = nil
+        showsFrameCheckResults = true
+        let scanner = FrameCheckScanner()
+        frameCheckScanner = scanner
         Task(priority: .utility) {
             let results = await scanner.scanBatch(videos) { progress in
-                DispatchQueue.main.async { self.stutterProgress = progress }
+                DispatchQueue.main.async { self.frameCheckProgress = progress }
             }
             await MainActor.run {
-                self.stutterResults = results
-                self.isStutterScanning = false
-                self.stutterScanner = nil
+                self.frameCheckResults = results
+                self.isFrameChecking = false
+                self.isFullCheck = false
+                self.frameCheckScanner = nil
             }
         }
     }
     
-    public func cancelStutterScan() {
-        guard isStutterScanning else { return }
-        wasStutterScanCancelled = true
-        stutterScanner?.cancel()
+    public func cancelFrameCheck() {
+        guard isFrameChecking else { return }
+        wasFrameCheckCancelled = true
+        frameCheckScanner?.cancel()
     }
     
     public func cancelScan() {

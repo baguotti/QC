@@ -201,13 +201,14 @@
 
 ---
 
-## 8e. Glitch Finder → Stutter Check (`StutterDetector.swift`)
+## 8e. Glitch Finder → Frame Check (`FrameCheck.swift`)
 
-- **Benchmark**: `scripts/StutterBench/run.sh` renders clips with known conversions (24→25 repeats, 25→24 / 30→25 skips, 3:2 pulldown, 24→25 blending, hold + cut, static, one-off repeat), scans them and checks the verdicts; it then reports the `_TEST` clips. Must print ALL PASSED. Real ground truth: CK_HOME26 E3.0 (25 fps) = 1 repeat every 24 frames (23.976 material); everything else in `_TEST` is smooth.
-- Decode is hardware-scaled to 192 px (420v, luma only), ~750–3000 fps; per frame: **motion** (90th-percentile 8×8 block difference: a repeat reads ≤ 0.2), **speed** (region brightness-profile shift in px: grows with distance, so a skip reads ~2×; block difference saturates on texture and cannot see skips), **blend ratio** (|F − avg(neighbours)| / |neighbour difference| over changing pixels).
-- Repeats: ≤ max(0.35, 0.08 × local motion) between moving frames (a slow shot's quieter frame reads ~0.3×, not a repeat); runs are holds. Skips: ≥ 1.7× local speed in a steady move; one-off skips are not flagged (fast action). Blends are reported **only as a cycle** (detrended autocorrelation ≥ 0.7 at P and ≤ −0.5 at P/2): single blended frames are dissolves, and slow sub-pixel motion makes natural frames the average of their neighbours. Cadence (≥ 4 events, ≥ 60% regular spacing) gives the likely source rate.
-
----
+- One decode pass per video finds three things: **frame-rate mismatch** (stutter), **flash frames** and **Media Offline** frames. Results list only flagged files, one row per finding.
+- **Benchmark**: `scripts/FrameCheckBench/run.sh` renders clips with known conversions (24→25 repeats, 25→24 / 30→25 skips, 3:2 pulldown, 24→25 blending), flash frames (black mid-shot, white at a cut, 2-frame solid colour), a Media Offline card, and clean controls (hold + cut, static, one-off repeat, dip to black with black head/tail, orange/magenta graphics); then it reports the `_TEST` clips. Must print ALL PASSED. Real ground truth: CK_HOME26 E3.0 (25 fps) = 23.976 → 25 (1 repeat every 24 frames); everything else in `_TEST` is clean.
+- Decode is hardware-scaled to 192 px 4:2:0 (luma + CbCr planes), ~600–3000 fps. Per frame: **motion** (90th-percentile 8×8 block difference: a repeat reads ≤ 0.2), **speed** (region brightness-profile shift in px; a skip reads ~2×), **blend ratio**, and a **look** (luma/chroma p2–p98 spread, mean colour, share of offline-card red).
+- **Mismatch only**: repeats/skips count only as a regular cadence (≥ 4 events, ≥ 60% regular spacing); blends only as a cycle (detrended autocorrelation ≥ 0.7 at P, ≤ −0.5 at P/2). One-off repeats/skips/blends are not reported. Repeat bar: ≤ max(0.35, 0.08 × local motion).
+- **Flash frame**: 1–2 solid frames (spread ≤ 12; up to fps/12.5 frames at high rates) with a picture (spread ≥ 30) on both sides. Head/tail black, holds and dips to black are not flash frames.
+- **Media Offline**: ≥ 60% of the frame in saturated red (Cr ≥ 180, 70 ≤ Cb ≤ 140, Y ≤ 140: Premiere/Resolve/FCP offline cards; excludes orange and magenta).
 
 ## 8f. Missed Line Report (`MissedLineReporter.swift`, Player timecode bar)
 

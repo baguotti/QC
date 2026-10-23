@@ -284,7 +284,7 @@ enum UserPreferences {
     static var startMuted: Bool { UserDefaults.standard.bool(forKey: startMutedKey) }
     static var linkSlots: Bool { UserDefaults.standard.object(forKey: linkSlotsKey) as? Bool ?? true }
     static var showQueue: Bool { UserDefaults.standard.object(forKey: showQueueKey) as? Bool ?? true }
-    static var zoomFollowsCursor: Bool { UserDefaults.standard.bool(forKey: zoomFollowsCursorKey) }
+    static var zoomFollowsCursor: Bool { UserDefaults.standard.object(forKey: zoomFollowsCursorKey) as? Bool ?? true }
     static var lineTargetHex: String { UserDefaults.standard.string(forKey: lineTargetHexKey) ?? "#00FF00" }
     static var lineSensitivity: Double { UserDefaults.standard.object(forKey: lineSensitivityKey) as? Double ?? 50 }
     static var lineOffColor: Bool { UserDefaults.standard.object(forKey: lineOffColorKey) as? Bool ?? true }
@@ -307,7 +307,7 @@ struct UserSettingsModalView: View {
     @AppStorage(UserPreferences.startMutedKey) private var startMuted: Bool = false
     @AppStorage(UserPreferences.linkSlotsKey) private var linkSlots: Bool = true
     @AppStorage(UserPreferences.showQueueKey) private var showQueue: Bool = true
-    @AppStorage(UserPreferences.zoomFollowsCursorKey) private var zoomFollowsCursor: Bool = false
+    @AppStorage(UserPreferences.zoomFollowsCursorKey) private var zoomFollowsCursor: Bool = true
     @AppStorage(ImageSequenceStore.defaultFPSKey) private var sequenceFPS: Double = 25
     @AppStorage(UserPreferences.clipInfoOverlayKey) private var clipInfoOverlay: String = ClipInfoOverlayMode.resolution.rawValue
     @AppStorage(UserPreferences.lineTargetHexKey) private var lineTargetHex: String = "#00FF00"
