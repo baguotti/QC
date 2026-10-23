@@ -483,7 +483,7 @@ struct ContentView: View {
                         Image(systemName: "arrow.down.circle.fill")
                             .font(.system(size: 10))
                         Text("UPDATE v\(updateManager.latestVersion)")
-                            .font(.system(size: 10, weight: .black, design: .monospaced))
+                            .font(.ui(size: 10, weight: .semibold))
                     }
                     .padding(.horizontal, 8)
                     .padding(.vertical, 5)
@@ -746,8 +746,7 @@ struct ContentView: View {
                         .foregroundColor(isActive ? accentBlue : idle)
                 }
                 Text(tab.title)
-                    .font(.system(size: StudioTheme.scaleFont(12), weight: .bold))
-                    .tracking(0.6)
+                    .font(.system(size: StudioTheme.scaleFont(13), weight: .semibold))
                     .lineLimit(1)
                     .foregroundColor(isActive ? (isLightMode ? Color.black : Color.white) : idle)
             }
@@ -776,166 +775,16 @@ struct ContentView: View {
     
     func deliveryAssetsSection(forTab: AppTab) -> some View {
         VStack(alignment: .leading, spacing: 10) {
-            sectionHeader(num: "01", title: "LOAD ASSETS")
-            
-            VStack(alignment: .leading, spacing: 8) {
-                // Action Toolbar: SELECT/CHANGE, ADD, HIDE/SHOW, plus trailing Asset Count
-                HStack(spacing: 5) {
-                    let isSelectEmpty = (folderURL == nil && videoFiles.isEmpty)
-                    Button(action: { selectAssets(forTab: forTab, append: false) }) {
-                        HStack(spacing: 4) {
-                            Image(systemName: isSelectEmpty ? "folder.badge.plus" : "arrow.triangle.2.circlepath")
-                                .font(.system(size: StudioTheme.scaleFont(9), weight: .bold))
-                            Text(isSelectEmpty ? "SELECT" : "CHANGE")
-                                .font(.ui(size: StudioTheme.scaleFont(9), weight: .semibold))
-                                .lineLimit(1)
-                        }
-                        .padding(.horizontal, 9)
-                        .frame(height: StudioTheme.scale(24))
-                        .foregroundColor(isSelectEmpty ? accentBlue : textMain)
-                        .studioBox(
-                            background: isSelectEmpty ? accentBlue.opacity(0.12) : bgSubtle,
-                            border: isSelectEmpty ? accentBlue.opacity(0.4) : borderLine
-                        )
-                    }
-                    .buttonStyle(.plain)
-                    .disabled(scannerState.isScanning)
-                    .explain(isSelectEmpty ? "Opens file picker to select video files or a folder to inspect." : "Replaces currently loaded assets with a new folder or file selection.")
-                    
-                    Button(action: { selectAssets(forTab: forTab, append: true) }) {
-                        HStack(spacing: 4) {
-                            Image(systemName: "plus")
-                                .font(.system(size: StudioTheme.scaleFont(9), weight: .bold))
-                            Text("ADD")
-                                .font(.ui(size: StudioTheme.scaleFont(9), weight: .semibold))
-                                .lineLimit(1)
-                        }
-                        .padding(.horizontal, 8)
-                        .frame(height: StudioTheme.scale(24))
-                        .foregroundColor(textMain)
-                        .studioBox(background: bgSubtle, border: borderLine)
-                    }
-                    .buttonStyle(.plain)
-                    .disabled(scannerState.isScanning)
-                    .explain("Opens file picker to add more video files or folders to current list without losing existing assets.")
-                    
-                    let canRefresh = (folderURL != nil || !videoFiles.isEmpty)
-                    Button(action: { refreshPlayerAssets() }) {
-                        HStack(spacing: 4) {
-                            Image(systemName: "arrow.clockwise")
-                                .font(.system(size: StudioTheme.scaleFont(9), weight: .bold))
-                            Text("REFRESH")
-                                .font(.ui(size: StudioTheme.scaleFont(9), weight: .semibold))
-                                .lineLimit(1)
-                        }
-                        .padding(.horizontal, 8)
-                        .frame(height: StudioTheme.scale(24))
-                        .foregroundColor(canRefresh ? textMain : textSubtle)
-                        .studioBox(background: bgSubtle, border: borderLine)
-                    }
-                    .buttonStyle(.plain)
-                    .disabled(scannerState.isScanning || !canRefresh)
-                    .explain("Rescans loaded folders and files to detect added, removed, or modified videos.")
-                    
-                    Spacer(minLength: 4)
-                    
-                    if !videoFiles.isEmpty {
-                        HStack(spacing: 4) {
-                            Circle()
-                                .fill(accentBlue)
-                                .frame(width: StudioTheme.scale(5), height: StudioTheme.scale(5))
-                            Text("\(videoFiles.count) \(videoFiles.count == 1 ? "FILE" : "FILES")")
-                                .font(.ui(size: StudioTheme.scaleFont(9), weight: .semibold))
-                                .foregroundColor(textMuted)
-                        }
-                        .padding(.horizontal, 7)
-                        .frame(height: StudioTheme.scale(24))
-                        .studioBox(background: bgSubtle.opacity(0.4), border: borderLine.opacity(0.6))
-                    }
-                }
-                
-                if let folder = folderURL {
-                    VStack(alignment: .leading, spacing: 3) {
-                        Text(folder.lastPathComponent.uppercased())
-                            .font(.system(size: 12, weight: .black, design: .monospaced))
-                            .foregroundColor(textMain)
-                            .lineLimit(1)
-                        Text("\(videoFiles.count) ASSET(S) FOUND IN DIRECTORY")
-                            .font(.ui(size: 9, weight: .semibold))
-                            .foregroundColor(textMuted)
-                    }
-                    .padding(10)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+            AssetSourcePanel(folderURL: folderURL, files: videoFiles, isBusy: scannerState.isScanning, isLightMode: isLightMode,
+                             onSelect: { selectAssets(forTab: forTab, append: $0) }, onRefresh: { refreshPlayerAssets() })
+            if folderURL == nil && videoFiles.isEmpty {
+                Text("Drop a folder or media files here")
+                    .font(.ui(size: 11))
+                    .foregroundColor(textMuted)
+                    .frame(maxWidth: .infinity, alignment: .center)
+                    .padding(.vertical, 14)
                     .studioBox(background: bgCardSubtle, border: borderLine)
-                    .contentShape(Rectangle())
-                    .explain(folder.path)
-                    .contextMenu {
-                        Button("Copy Path") {
-                            NSPasteboard.general.clearContents()
-                            NSPasteboard.general.setString(folder.path, forType: .string)
-                        }
-                        Button("Reveal in Finder") {
-                            NSWorkspace.shared.activateFileViewerSelecting([folder])
-                        }
-                    }
-                } else if !videoFiles.isEmpty {
-                    VStack(alignment: .leading, spacing: 3) {
-                        if videoFiles.count == 1, let first = videoFiles.first {
-                            Text(first.lastPathComponent.uppercased())
-                                .font(.system(size: 12, weight: .black, design: .monospaced))
-                                .foregroundColor(textMain)
-                                .lineLimit(1)
-                            Text("1 ASSET LOADED DIRECTLY")
-                                .font(.ui(size: 9, weight: .semibold))
-                                .foregroundColor(textMuted)
-                        } else {
-                            Text("\(videoFiles.count) INDIVIDUAL FILE(S)")
-                                .font(.system(size: 12, weight: .black, design: .monospaced))
-                                .foregroundColor(textMain)
-                            Text("BATCH LOADED DIRECTLY")
-                                .font(.ui(size: 9, weight: .semibold))
-                                .foregroundColor(textMuted)
-                        }
-                    }
-                    .padding(10)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .studioBox(background: bgCardSubtle, border: borderLine)
-                    .contentShape(Rectangle())
-                    .explain(videoFiles.count == 1 ? (videoFiles.first?.path ?? "") : (videoFiles.first?.deletingLastPathComponent().path ?? ""))
-                    .contextMenu {
-                        if videoFiles.count == 1, let first = videoFiles.first {
-                            Button("Copy Path") {
-                                NSPasteboard.general.clearContents()
-                                NSPasteboard.general.setString(first.path, forType: .string)
-                            }
-                            Button("Reveal in Finder") {
-                                NSWorkspace.shared.activateFileViewerSelecting([first])
-                            }
-                        } else {
-                            Button("Copy All Paths") {
-                                NSPasteboard.general.clearContents()
-                                NSPasteboard.general.setString(videoFiles.map { $0.path }.joined(separator: "\n"), forType: .string)
-                            }
-                            if let first = videoFiles.first {
-                                Button("Copy Path (First File)") {
-                                    NSPasteboard.general.clearContents()
-                                    NSPasteboard.general.setString(first.path, forType: .string)
-                                }
-                            }
-                            Button("Reveal in Finder") {
-                                NSWorkspace.shared.activateFileViewerSelecting(videoFiles)
-                            }
-                        }
-                    }
-                } else {
-                    Text("DRAG & DROP FOLDER OR VIDEO FILES HERE")
-                        .font(.ui(size: 10, weight: .medium))
-                        .foregroundColor(textMuted)
-                        .frame(maxWidth: .infinity, alignment: .center)
-                        .padding(.vertical, 14)
-                        .studioBox(background: bgCardSubtle, border: borderLine)
-                        .explain("Drag and drop video files or folders directly into the app.")
-                }
+                    .explain("Drag and drop video files or folders directly into the app.")
             }
         }
         .onDrop(of: [UTType.fileURL.identifier], isTargeted: nil) { providers in
@@ -1432,16 +1281,11 @@ struct ContentView: View {
     
     // MARK: - Reusable UI Subviews & Helpers
     
-    func sectionHeader(num: String, title: String) -> some View {
-        HStack(spacing: 6) {
-            Text(num)
-                .font(.system(size: 9, weight: .bold, design: .monospaced))
-                .foregroundColor(textMain)
-            Text("// \(title)")
-                .font(.system(size: 9, weight: .bold, design: .monospaced))
-                .foregroundColor(textMuted)
-                .tracking(1.0)
-        }
+    /// A panel section's name, Finder-sidebar style.
+    func sectionHeader(_ title: String) -> some View {
+        Text(title)
+            .font(.ui(size: 12, weight: .semibold))
+            .foregroundColor(textMuted)
     }
     
     func statBox(title: String, val: String, isRed: Bool = false, isPositive: Bool = false) -> some View {
@@ -1450,7 +1294,7 @@ struct ContentView: View {
                 .font(.ui(size: 8, weight: .semibold))
                 .foregroundColor(textMuted)
             Text(val)
-                .font(.system(size: 16, weight: .black, design: .monospaced))
+                .font(.ui(size: 16, weight: .semibold))
                 .foregroundColor(isRed ? alertRed : (isPositive ? accentPositive : textMain))
         }
         .padding(.trailing, 16)
@@ -1856,7 +1700,7 @@ struct ContentView: View {
                     url: result.fileURL,
                     frameIndex: seg.startFrame,
                     timecode: seg.startTimecode,
-                    label: "\(seg.edge.rawValue.uppercased()) (\(seg.avgThickness)PX) @ \(seg.startTimecode)"
+                    label: "\(seg.edge.rawValue.capitalized) (\(seg.avgThickness)PX) @ \(seg.startTimecode)"
                 ))
             }
         }
@@ -1896,7 +1740,7 @@ struct ContentView: View {
                     url: result.fileURL,
                     frameIndex: seg.startFrame,
                     timecode: seg.startTimecode,
-                    label: "\(seg.edge.rawValue.uppercased()) (\(seg.avgThickness)PX) @ \(seg.startTimecode)"
+                    label: "\(seg.edge.rawValue.capitalized) (\(seg.avgThickness)PX) @ \(seg.startTimecode)"
                 ))
             }
         }
@@ -2443,7 +2287,7 @@ struct StudioStatusBarView: View {
                 Image(systemName: "cursorarrow.rays")
                     .font(.system(size: 9))
                     .foregroundColor(hoverCoordinator.text.isEmpty ? textMuted : textMain)
-                Text("INFO //")
+                Text("Info")
                     .font(.ui(size: 9, weight: .semibold))
                     .foregroundColor(hoverCoordinator.text.isEmpty ? textMuted : textMain)
             }

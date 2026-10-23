@@ -54,8 +54,8 @@ extension ContentView {
                     .buttonStyle(TransportIconButtonStyle())
                     .explain(showSpecsControlPanel ? "Hide Specs Control Panel (⌘⇧←)." : "Reveal Specs Control Panel (⌘⇧←).")
                     
-                    Text("SPECS AUDIT")
-                        .font(.system(size: 11, weight: .black, design: .monospaced))
+                    Text("Specs Audit")
+                        .font(.ui(size: 11, weight: .semibold))
                         .foregroundColor(textMuted)
                     
                     Spacer()
@@ -67,8 +67,8 @@ extension ContentView {
                 if specsState.isInspectingDeliverables {
                     VStack(alignment: .center, spacing: 12) {
                         Spacer()
-                        Text("INSPECTING DELIVERABLES SPECS...")
-                            .font(.system(size: 18, weight: .heavy, design: .monospaced))
+                        Text("Inspecting deliverables specs...")
+                            .font(.ui(size: 18, weight: .semibold))
                         ProgressView()
                             .scaleEffect(1.2)
                         Spacer()
@@ -121,7 +121,7 @@ extension ContentView {
             
             ZStack(alignment: .leading) {
                 if specsState.specsFilterText.isEmpty {
-                    Text("FILTER ASSETS...")
+                    Text("Filter assets...")
                         .font(.ui(size: 11, weight: .semibold))
                         .foregroundColor(textMuted)
                         .allowsHitTesting(false)
@@ -156,7 +156,7 @@ extension ContentView {
     
     private var specsActionsSection: some View {
         VStack(alignment: .leading, spacing: 12) {
-            sectionHeader(num: "02", title: "SPECS ACTIONS")
+            sectionHeader("Specs Actions")
             
             // Actions & Export Controls
             VStack(spacing: 6) {
@@ -174,7 +174,7 @@ extension ContentView {
                                 .controlSize(.mini)
                                 .scaleEffect(0.65)
                                 .frame(width: 10, height: 10)
-                            Text("SCANNING AUDIO (\(specsState.analyzedAudioCount)/\(specsState.totalAudioCount))")
+                            Text("Scanning Audio (\(specsState.analyzedAudioCount)/\(specsState.totalAudioCount))")
                                 .font(.ui(size: 9.5, weight: .semibold))
                                 .foregroundColor(accentBlue)
                             Spacer()
@@ -184,11 +184,11 @@ extension ContentView {
                         } else {
                             Image(systemName: "waveform")
                                 .font(.system(size: 8.5, weight: .bold))
-                            Text(hasPendingAudioAnalysis ? "CHECK AUDIO LEVELS" : "RECHECK AUDIO LEVELS")
+                            Text(hasPendingAudioAnalysis ? "Check Audio Levels" : "Recheck Audio Levels")
                                 .font(.ui(size: 9.5, weight: .semibold))
                             Spacer()
                             Text("SIMD")
-                                .font(.system(size: 7.5, weight: .black, design: .monospaced))
+                                .font(.ui(size: 7.5, weight: .semibold))
                                 .foregroundColor(hasPendingAudioAnalysis ? accentBlue : textMuted)
                                 .padding(.horizontal, 4)
                                 .padding(.vertical, 1.5)
@@ -216,7 +216,7 @@ extension ContentView {
                     HStack(spacing: 6) {
                         if specsState.isCheckingEndFrames {
                             ProgressView().controlSize(.mini).scaleEffect(0.65).frame(width: 10, height: 10)
-                            Text("CHECKING END FRAMES (\(specsState.checkedEndFrameCount)/\(specsState.totalEndFrameCount))")
+                            Text("Checking End Frames (\(specsState.checkedEndFrameCount)/\(specsState.totalEndFrameCount))")
                                 .font(.ui(size: 9.5, weight: .semibold))
                                 .foregroundColor(accentBlue)
                             Spacer()
@@ -224,7 +224,7 @@ extension ContentView {
                         } else {
                             Image(systemName: "rectangle.lefthalf.inset.filled.arrow.left")
                                 .font(.system(size: 8.5, weight: .bold))
-                            Text(hasPendingEndFrameCheck ? "CHECK END FRAMES" : "RECHECK END FRAMES")
+                            Text(hasPendingEndFrameCheck ? "Check End Frames" : "Recheck End Frames")
                                 .font(.ui(size: 9.5, weight: .semibold))
                             Spacer()
                         }
@@ -252,11 +252,11 @@ extension ContentView {
                         } else {
                             CCBadge(size: 8.5)
                         }
-                        Text("CROSS-CHECK SUBTITLES")
+                        Text("Cross-Check Subtitles")
                             .font(.ui(size: 9.5, weight: .semibold))
                         Spacer()
-                        Text(crossCheckTargets.count >= 2 ? "\(crossCheckTargets.count) FILES" : "NEED 2+ SRT")
-                            .font(.system(size: 7.5, weight: .black, design: .monospaced))
+                        Text(crossCheckTargets.count >= 2 ? "\(crossCheckTargets.count) files" : "Need 2+ SRT")
+                            .font(.ui(size: 7.5, weight: .semibold))
                             .foregroundColor(crossCheckTargets.count >= 2 ? accentBlue : textMuted)
                             .padding(.horizontal, 4)
                             .padding(.vertical, 1.5)
@@ -284,7 +284,7 @@ extension ContentView {
                         HStack(spacing: 4) {
                             Image(systemName: "arrow.up.right.square")
                                 .font(.system(size: 8.5, weight: .bold))
-                            Text("SHEETS")
+                            Text("Sheets")
                                 .font(.ui(size: 9.5, weight: .semibold))
                                 .lineLimit(1)
                                 .minimumScaleFactor(0.8)
@@ -306,7 +306,7 @@ extension ContentView {
                         HStack(spacing: 4) {
                             Image(systemName: "doc.text")
                                 .font(.system(size: 8.5, weight: .bold))
-                            Text("SAVE CSV")
+                            Text("Save CSV")
                                 .font(.ui(size: 9.5, weight: .semibold))
                                 .lineLimit(1)
                                 .minimumScaleFactor(0.8)
@@ -328,7 +328,7 @@ extension ContentView {
                         HStack(spacing: 4) {
                             Image(systemName: "safari")
                                 .font(.system(size: 8.5, weight: .bold))
-                            Text("OPEN HTML")
+                            Text("Open HTML")
                                 .font(.ui(size: 9.5, weight: .semibold))
                                 .lineLimit(1)
                                 .minimumScaleFactor(0.8)
@@ -350,7 +350,7 @@ extension ContentView {
                         HStack(spacing: 5) {
                             Image(systemName: "folder")
                                 .font(.system(size: 9, weight: .bold))
-                            Text("REVEAL IN FINDER")
+                            Text("Reveal in Finder")
                                 .font(.ui(size: 10, weight: .semibold))
                         }
                         .frame(maxWidth: .infinity, alignment: .center)
@@ -372,7 +372,7 @@ extension ContentView {
                     HStack(spacing: 4) {
                         Image(systemName: "xmark")
                             .font(.system(size: 8, weight: .bold))
-                        Text("CLEAR LIST")
+                        Text("Clear List")
                             .font(.ui(size: 9, weight: .semibold))
                     }
                     .foregroundColor(textMuted)
@@ -389,13 +389,12 @@ extension ContentView {
         VStack(alignment: .leading, spacing: 18) {
             Spacer()
             
-            Text("STATUS // READY TO INSPECT DELIVERABLES")
-                .font(.system(size: 32, weight: .black, design: .default))
+            Text("Ready to Inspect Deliverables")
+                .font(.system(size: 26, weight: .semibold))
                 .foregroundColor(textMain)
-                .tracking(1.0)
             
-            Text("CHOOSE A DELIVERY FOLDER OR VIDEO FILES ON THE LEFT TO INSTANTLY GENERATE A DELIVERABLE SPECS AUDIT.\nDISPLAYS EXACT TIMECODE LENGTHS, ASPECT RATIOS, RESOLUTIONS, FRAMERATES, AND SIZES.")
-                .font(.system(size: 12, weight: .medium, design: .monospaced))
+            Text("Choose a delivery folder or video files on the left to generate a specs audit.\nShows exact timecode lengths, aspect ratios, resolutions, frame rates and sizes.")
+                .font(.ui(size: 13))
                 .foregroundColor(textMuted)
                 .lineSpacing(4)
             
@@ -413,16 +412,15 @@ extension ContentView {
         return VStack(alignment: .leading, spacing: 20) {
             // Header: Clean audit status
             VStack(alignment: .leading, spacing: 2) {
-                Text("AUDIT COMPLETE")
-                    .font(.system(size: 28, weight: .black, design: .default))
+                Text("Audit Complete")
+                    .font(.system(size: 22, weight: .semibold))
                     .foregroundColor(textMain)
-                    .tracking(1.0)
                 if specsState.specsFilterText.isEmpty {
-                    Text("\(specsState.deliverableAssets.count) ASSETS ANALYZED")
+                    Text("\(specsState.deliverableAssets.count) assets analyzed")
                         .font(.ui(size: 11, weight: .semibold))
                         .foregroundColor(textMuted)
                 } else {
-                    Text("\(displayAssets.count) OF \(specsState.deliverableAssets.count) ASSETS (FILTERED)")
+                    Text("\(displayAssets.count) of \(specsState.deliverableAssets.count) assets (filtered)")
                         .font(.ui(size: 11, weight: .semibold))
                         .foregroundColor(accentBlue)
                 }
@@ -432,10 +430,10 @@ extension ContentView {
             HStack(alignment: .bottom, spacing: 12) {
                 // Left: Quick Stats
                 HStack(spacing: 12) {
-                    statBox(title: specsState.specsFilterText.isEmpty ? "TOTAL ASSETS" : "FILTERED ASSETS", val: String(format: "%02d", displayAssets.count))
-                    statBox(title: "NAME MISMATCHES", val: String(format: "%02d", mismatchCount), isRed: mismatchCount > 0, isPositive: mismatchCount == 0 && !displayAssets.isEmpty)
-                    statBox(title: "TOTAL RUNTIME", val: TimecodeFormatter.format(frameIndex: Int(round(totalSeconds * 25.0)), fps: 25.0))
-                    statBox(title: "TOTAL BATCH SIZE", val: DeliverablesInspector.formatFileSize(bytes: totalBytes))
+                    statBox(title: specsState.specsFilterText.isEmpty ? "Total Assets" : "Filtered Assets", val: String(format: "%02d", displayAssets.count))
+                    statBox(title: "Name Mismatches", val: String(format: "%02d", mismatchCount), isRed: mismatchCount > 0, isPositive: mismatchCount == 0 && !displayAssets.isEmpty)
+                    statBox(title: "Total Runtime", val: TimecodeFormatter.format(frameIndex: Int(round(totalSeconds * 25.0)), fps: 25.0))
+                    statBox(title: "Total Batch Size", val: DeliverablesInspector.formatFileSize(bytes: totalBytes))
                 }
                 
                 Spacer()
@@ -449,7 +447,7 @@ extension ContentView {
                                 .controlSize(.mini)
                                 .scaleEffect(0.65)
                                 .frame(width: 10, height: 10)
-                            Text("AUDIO \(specsState.analyzedAudioCount)/\(specsState.totalAudioCount)")
+                            Text("Audio \(specsState.analyzedAudioCount)/\(specsState.totalAudioCount)")
                                 .font(.ui(size: 9.5, weight: .semibold))
                                 .foregroundColor(accentBlue)
                             Button(action: { specsState.cancelAudioAnalysis() }) {
@@ -468,7 +466,7 @@ extension ContentView {
                             HStack(spacing: 4) {
                                 Image(systemName: "waveform")
                                     .font(.system(size: 8.5, weight: .bold))
-                                Text(hasPendingAudioAnalysis ? "CHECK AUDIO" : "RECHECK AUDIO")
+                                Text(hasPendingAudioAnalysis ? "Check Audio" : "Recheck Audio")
                                     .font(.ui(size: 9.5, weight: .semibold))
                             }
                             .padding(.horizontal, 8)
@@ -493,7 +491,7 @@ extension ContentView {
                         HStack(spacing: 4) {
                             Image(systemName: isFileNameExpanded ? "arrow.right.and.line.vertical.and.arrow.left" : "arrow.left.and.line.vertical.and.arrow.right")
                                 .font(.system(size: 8.5, weight: .bold))
-                            Text(isFileNameExpanded ? "RESET NAME" : "FIT NAME")
+                            Text(isFileNameExpanded ? "Reset Name" : "Fit Name")
                                 .font(.ui(size: 9.5, weight: .semibold))
                         }
                         .padding(.horizontal, 8)
@@ -514,7 +512,7 @@ extension ContentView {
                             Image(systemName: isFoldersHidden ? "folder" : "folder.badge.minus")
                                 .font(.system(size: 8.5, weight: .bold))
                             SlotText(
-                                isFoldersHidden ? "SHOW" : "HIDE",
+                                isFoldersHidden ? "Show" : "Hide",
                                 mode: .character,
                                 direction: .up,
                                 font: .ui(size: 9.5, weight: .semibold),
@@ -558,7 +556,7 @@ extension ContentView {
                             HStack(spacing: 4) {
                                 Image(systemName: specsDisplayMode == "thumbnail" ? "square.grid.2x2" : "list.bullet")
                                     .font(.system(size: 8.5, weight: .bold))
-                                Text(specsDisplayMode == "thumbnail" ? "THUMBS" : "LIST")
+                                Text(specsDisplayMode == "thumbnail" ? "Thumbs" : "List")
                                     .font(.ui(size: 9.5, weight: .semibold))
                             }
                             .padding(.horizontal, 9)
@@ -604,19 +602,19 @@ extension ContentView {
                         HStack(spacing: 8) {
                             Text("#").frame(width: 25, alignment: .center)
                             if specsDisplayMode == "thumbnail" {
-                                Text("PREVIEW").frame(width: CGFloat(specsThumbnailWidth), alignment: .center)
+                                Text("Preview").frame(width: CGFloat(specsThumbnailWidth), alignment: .center)
                             }
                             
-                            sortableHeaderCell("FILE NAME", column: .name, alignment: .leading)
-                            sortableHeaderCell("TIMECODE (TC)", column: .timecode)
-                            sortableHeaderCell("END FRAME", column: .endFrame)
-                            sortableHeaderCell("RATIO & SIZE", column: .ratio)
+                            sortableHeaderCell("File Name", column: .name, alignment: .leading)
+                            sortableHeaderCell("Timecode (TC)", column: .timecode)
+                            sortableHeaderCell("End Frame", column: .endFrame)
+                            sortableHeaderCell("Ratio & Size", column: .ratio)
                             sortableHeaderCell("FPS", column: .fps)
-                            sortableHeaderCell("FILE SIZE", column: .size)
-                            sortableHeaderCell("CREATED", column: .date)
-                            sortableHeaderCell("VIDEO", column: .videoCodec)
-                            sortableHeaderCell("AUDIO SPEC", column: .audioCodec)
-                            sortableHeaderCell("PATH", column: .path, customWidth: pathColWidth, alignment: .leading, isResizable: false)
+                            sortableHeaderCell("File Size", column: .size)
+                            sortableHeaderCell("Created", column: .date)
+                            sortableHeaderCell("Video", column: .videoCodec)
+                            sortableHeaderCell("Audio Spec", column: .audioCodec)
+                            sortableHeaderCell("Path", column: .path, customWidth: pathColWidth, alignment: .leading, isResizable: false)
                         }
                         .font(.ui(size: 9, weight: .semibold))
                         .foregroundColor(textMuted)
@@ -658,11 +656,11 @@ extension ContentView {
                                         Image(systemName: "line.3.horizontal.decrease.circle")
                                             .font(.system(size: 26))
                                             .foregroundColor(textMuted)
-                                        Text("NO ASSETS MATCHING \"\(specsState.specsFilterText)\"")
+                                        Text("No Assets Matching \"\(specsState.specsFilterText)\"")
                                             .font(.ui(size: 11, weight: .semibold))
                                             .foregroundColor(textMuted)
                                         Button(action: { specsState.specsFilterText = "" }) {
-                                            Text("CLEAR FILTER")
+                                            Text("Clear Filter")
                                                 .font(.ui(size: 10, weight: .semibold))
                                                 .foregroundColor(accentBlue)
                                         }
@@ -967,12 +965,12 @@ extension ContentView {
                     .foregroundColor(textSubtle)
                     .frame(width: 14, height: 14)
                 
-                Text(node.relativePath.isEmpty ? node.name.uppercased() : "\(node.relativePath.uppercased())/")
-                    .font(.system(size: 11, weight: .black, design: .monospaced))
+                Text(node.relativePath.isEmpty ? node.name : "\(node.relativePath)/")
+                    .font(.ui(size: 11, weight: .semibold))
                     .foregroundColor(textMain)
                     .lineLimit(1)
                 
-                Text("(\(node.videoCount) \(node.videoCount == 1 ? "ASSET" : "ASSETS"))")
+                Text("(\(node.videoCount) \(node.videoCount == 1 ? "asset" : "assets"))")
                     .font(.ui(size: 9, weight: .semibold))
                     .foregroundColor(textMuted)
             }
@@ -990,8 +988,8 @@ extension ContentView {
                     .foregroundColor(textSubtle)
                 
                 if folderMismatches > 0 {
-                    Text("\(folderMismatches) MISMATCH\(folderMismatches == 1 ? "" : "ES")")
-                        .font(.system(size: 8, weight: .black, design: .monospaced))
+                    Text("\(folderMismatches) mismatch\(folderMismatches == 1 ? "" : "es")")
+                        .font(.ui(size: 8, weight: .semibold))
                         .padding(.horizontal, 6)
                         .padding(.vertical, 2)
                         .background(RoundedRectangle(cornerRadius: 4).fill(alertRed))
@@ -1084,7 +1082,7 @@ extension ContentView {
                         .help(hasSubtitleMismatch ? "Subtitles differ from the reference (\(srtURL.lastPathComponent))" : "Subtitles: \(srtURL.lastPathComponent)")
                 }
                 
-                Text(asset.fileName.uppercased())
+                Text(asset.fileName)
                     .fontWeight(.bold)
                     .lineLimit(1)
                     .truncationMode(.middle)
@@ -1114,7 +1112,7 @@ extension ContentView {
                     HStack(spacing: 3) {
                         Image(systemName: isDismissed ? "checkmark.circle" : "exclamationmark.triangle.fill")
                             .font(.system(size: 7, weight: .bold))
-                        Text(isDismissed ? "\(detail) (DISMISSED)" : detail)
+                        Text(isDismissed ? "\(detail) (dismissed)" : detail)
                             .font(.system(size: 8, weight: isDismissed ? .medium : .black, design: .monospaced))
                         
                         Button(action: {
@@ -1151,7 +1149,7 @@ extension ContentView {
             VStack(alignment: .center, spacing: 3) {
                 HStack(spacing: 4) {
                     Text(asset.aspectRatioString)
-                        .font(.system(size: 9, weight: .bold, design: .monospaced))
+                        .font(.ui(size: 9, weight: .semibold))
                         .padding(.horizontal, 4)
                         .padding(.vertical, 2)
                         .foregroundColor((asset.validation.isRatioMismatch && !isDismissed) ? .white : textMain)
@@ -1168,7 +1166,7 @@ extension ContentView {
                     HStack(spacing: 3) {
                         Image(systemName: isDismissed ? "checkmark.circle" : "exclamationmark.triangle.fill")
                             .font(.system(size: 7, weight: .bold))
-                        Text(isDismissed ? "\(detail) (DISMISSED)" : detail)
+                        Text(isDismissed ? "\(detail) (dismissed)" : detail)
                             .font(.system(size: 8, weight: isDismissed ? .medium : .black, design: .monospaced))
                         
                         Button(action: {
@@ -1221,7 +1219,7 @@ extension ContentView {
             
             // Audio Column
             if !asset.hasAudio {
-                Text("NONE")
+                Text("None")
                     .font(.ui(size: 9, weight: .semibold))
                     .foregroundColor(textMuted)
                     .frame(width: CGFloat(specsState.columnWidth(for: .audioCodec)), alignment: .center)
@@ -1245,7 +1243,7 @@ extension ContentView {
                         HStack(spacing: 3) {
                             Image(systemName: "speaker.slash.fill")
                                 .font(.system(size: 7, weight: .bold))
-                            Text(asset.validation.audioMuteDetail ?? "MUTE")
+                            Text(asset.validation.audioMuteDetail ?? "Mute")
                                 .font(.ui(size: 8, weight: .semibold))
                         }
                         .padding(.horizontal, 5)
@@ -1592,7 +1590,7 @@ extension ContentView {
             if specsState.isCheckingEndFrames {
                 HStack(spacing: 4) {
                     ProgressView().controlSize(.mini).scaleEffect(0.65).frame(width: 10, height: 10)
-                    Text("END \(specsState.checkedEndFrameCount)/\(specsState.totalEndFrameCount)")
+                    Text("End \(specsState.checkedEndFrameCount)/\(specsState.totalEndFrameCount)")
                         .font(.ui(size: 9.5, weight: .semibold))
                         .foregroundColor(accentBlue)
                     Button(action: { specsState.cancelEndFrameCheck() }) {
@@ -1608,7 +1606,7 @@ extension ContentView {
                 Button(action: { specsState.checkEndFrames() }) {
                     HStack(spacing: 4) {
                         Image(systemName: "rectangle.lefthalf.inset.filled.arrow.left").font(.system(size: 8.5, weight: .bold))
-                        Text(hasPendingEndFrameCheck ? "CHECK END" : "RECHECK END")
+                        Text(hasPendingEndFrameCheck ? "Check End" : "Recheck End")
                             .font(.ui(size: 9.5, weight: .semibold))
                     }
                     .padding(.horizontal, 8)

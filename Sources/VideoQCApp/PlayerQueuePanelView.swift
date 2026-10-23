@@ -164,7 +164,7 @@ public struct PlayerQueuePanelView: View, Equatable {
                     
                     ZStack(alignment: .leading) {
                         if playerFilterText.isEmpty {
-                            Text("FILTER ASSETS...")
+                            Text("Filter assets...")
                                 .font(.ui(size: 11, weight: .semibold))
                                 .foregroundColor(textMuted)
                                 .allowsHitTesting(false)
@@ -200,8 +200,8 @@ public struct PlayerQueuePanelView: View, Equatable {
             // Asset List
             VStack(alignment: .leading, spacing: 6) {
                 HStack(spacing: StudioTheme.scale(5)) {
-                    Text("QUEUE (\(filteredFiles.count))")
-                        .font(.system(size: StudioTheme.scaleFont(10), weight: .black, design: .monospaced))
+                    Text("Queue (\(filteredFiles.count))")
+                        .font(.ui(size: StudioTheme.scaleFont(10), weight: .semibold))
                         .foregroundColor(textMuted)
                     
                     if hasSubfolders && !hideAllFolders {
@@ -242,10 +242,10 @@ public struct PlayerQueuePanelView: View, Equatable {
                             Image(systemName: isHidden ? "folder" : "folder.badge.minus")
                                 .font(.system(size: StudioTheme.scaleFont(7.5), weight: .bold))
                             SlotText(
-                                isHidden ? "SHOW" : "HIDE",
+                                isHidden ? "Show" : "Hide",
                                 mode: .character,
                                 direction: .up,
-                                font: .system(size: StudioTheme.scaleFont(8), weight: .black, design: .monospaced),
+                                font: .ui(size: StudioTheme.scaleFont(8), weight: .semibold),
                                 foregroundColor: canToggle ? (isHidden ? accentBlue : textMain) : textSubtle,
                                 tracking: 0.3,
                                 stagger: 0.018,
@@ -267,10 +267,10 @@ public struct PlayerQueuePanelView: View, Equatable {
                             Image(systemName: isAutoplayEnabled ? "play.fill" : "play.slash.fill")
                                 .font(.system(size: StudioTheme.scaleFont(7), weight: .bold))
                             SlotText(
-                                "AUTO",
+                                "Auto",
                                 mode: .character,
                                 direction: .up,
-                                font: .system(size: StudioTheme.scaleFont(8), weight: .black, design: .monospaced),
+                                font: .ui(size: StudioTheme.scaleFont(8), weight: .semibold),
                                 foregroundColor: isAutoplayEnabled ? accentBlue : textMuted,
                                 tracking: 0.3,
                                 stagger: 0.018,
@@ -291,10 +291,10 @@ public struct PlayerQueuePanelView: View, Equatable {
                             Image(systemName: "waveform")
                                 .font(.system(size: StudioTheme.scaleFont(7.5), weight: .bold))
                             SlotText(
-                                "WAVE",
+                                "Wave",
                                 mode: .character,
                                 direction: .up,
-                                font: .system(size: StudioTheme.scaleFont(8), weight: .black, design: .monospaced),
+                                font: .ui(size: StudioTheme.scaleFont(8), weight: .semibold),
                                 foregroundColor: drawsWaveforms ? accentBlue : textMuted,
                                 tracking: 0.3,
                                 stagger: 0.018,
@@ -316,7 +316,7 @@ public struct PlayerQueuePanelView: View, Equatable {
                         Image(systemName: "video")
                             .font(.system(size: 24))
                             .foregroundColor(textMuted)
-                        Text("NO VIDEO FILES LOADED")
+                        Text("No Video Files Loaded")
                             .font(.ui(size: 10, weight: .semibold))
                             .foregroundColor(textMuted)
                         Text("Select or drop a folder to populate playback queue.")
@@ -382,134 +382,8 @@ public struct PlayerQueuePanelView: View, Equatable {
     }
     
     private var deliveryAssetsSection: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 6) {
-                Text("01")
-                    .font(.ui(size: 9, weight: .semibold))
-                    .foregroundColor(textMain)
-                Text("// LOAD ASSETS")
-                    .font(.ui(size: 9, weight: .semibold))
-                    .foregroundColor(textMuted)
-                    .tracking(1.0)
-            }
-            
-            VStack(alignment: .leading, spacing: StudioTheme.scale(8)) {
-                // Action Toolbar: SELECT/CHANGE, ADD, HIDE/SHOW, plus trailing Asset Count
-                HStack(spacing: StudioTheme.scale(5)) {
-                    let isSelectEmpty = (folderURL == nil && videoFiles.isEmpty)
-                    Button(action: { onSelectAssets(false) }) {
-                        HStack(spacing: StudioTheme.scale(4)) {
-                            Image(systemName: isSelectEmpty ? "folder.badge.plus" : "arrow.triangle.2.circlepath")
-                                .font(.system(size: StudioTheme.scaleFont(9), weight: .bold))
-                            Text(isSelectEmpty ? "SELECT" : "CHANGE")
-                                .font(.ui(size: StudioTheme.scaleFont(9), weight: .semibold))
-                                .lineLimit(1)
-                        }
-                        .padding(.horizontal, StudioTheme.scale(9))
-                        .frame(height: StudioTheme.scale(24))
-                        .foregroundColor(isSelectEmpty ? accentBlue : textMain)
-                        .studioBox(
-                            background: isSelectEmpty ? accentBlue.opacity(0.12) : bgSubtle,
-                            border: isSelectEmpty ? accentBlue.opacity(0.4) : borderLine
-                        )
-                    }
-                    .buttonStyle(.plain)
-                    .disabled(isScanning)
-                    .explain(isSelectEmpty ? "Opens file picker to select video files or a folder to inspect." : "Replaces currently loaded assets with a new folder or file selection.")
-                    
-                    Button(action: { onSelectAssets(true) }) {
-                        HStack(spacing: StudioTheme.scale(4)) {
-                            Image(systemName: "plus")
-                                .font(.system(size: StudioTheme.scaleFont(9), weight: .bold))
-                            Text("ADD")
-                                .font(.ui(size: StudioTheme.scaleFont(9), weight: .semibold))
-                                .lineLimit(1)
-                        }
-                        .padding(.horizontal, StudioTheme.scale(8))
-                        .frame(height: StudioTheme.scale(24))
-                        .foregroundColor(textMain)
-                        .studioBox(background: bgSubtle, border: borderLine)
-                    }
-                    .buttonStyle(.plain)
-                    .disabled(isScanning)
-                    .explain("Opens file picker to add more video files or folders to current list without losing existing assets.")
-                    
-                    let canRefresh = (folderURL != nil || !videoFiles.isEmpty)
-                    Button(action: onRefreshAssets) {
-                        HStack(spacing: StudioTheme.scale(4)) {
-                            Image(systemName: "arrow.clockwise")
-                                .font(.system(size: StudioTheme.scaleFont(9), weight: .bold))
-                            Text("REFRESH")
-                                .font(.ui(size: StudioTheme.scaleFont(9), weight: .semibold))
-                                .lineLimit(1)
-                        }
-                        .padding(.horizontal, StudioTheme.scale(8))
-                        .frame(height: StudioTheme.scale(24))
-                        .foregroundColor(canRefresh ? textMain : textSubtle)
-                        .studioBox(background: bgSubtle, border: borderLine)
-                    }
-                    .buttonStyle(.plain)
-                    .disabled(isScanning || !canRefresh)
-                    .explain("Rescans loaded folders and files to detect added, removed, or modified videos.")
-                    
-                    Spacer(minLength: 4)
-                    
-                    if !videoFiles.isEmpty {
-                        HStack(spacing: StudioTheme.scale(4)) {
-                            Circle()
-                                .fill(accentBlue)
-                                .frame(width: StudioTheme.scale(5), height: StudioTheme.scale(5))
-                            Text("\(videoFiles.count) \(videoFiles.count == 1 ? "FILE" : "FILES")")
-                                .font(.ui(size: StudioTheme.scaleFont(9), weight: .semibold))
-                                .foregroundColor(textMuted)
-                        }
-                        .padding(.horizontal, StudioTheme.scale(7))
-                        .frame(height: StudioTheme.scale(24))
-                        .studioBox(background: bgSubtle.opacity(0.4), border: borderLine.opacity(0.6))
-                    }
-                }
-                
-                if let folder = folderURL {
-                    VStack(alignment: .leading, spacing: 3) {
-                        Text(folder.lastPathComponent.uppercased())
-                            .font(.system(size: 12, weight: .black, design: .monospaced))
-                            .foregroundColor(textMain)
-                            .lineLimit(1)
-                        Text("\(videoFiles.count) ASSET(S) FOUND IN DIRECTORY")
-                            .font(.ui(size: 9, weight: .semibold))
-                            .foregroundColor(textMuted)
-                    }
-                    .padding(10)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .studioBox(background: bgCardSubtle, border: borderLine)
-                    .contentShape(Rectangle())
-                    .explain(folder.path)
-                    .contextMenu {
-                        Button("Copy Path") {
-                            NSPasteboard.general.clearContents()
-                            NSPasteboard.general.setString(folder.path, forType: .string)
-                        }
-                        Button("Reveal in Finder") {
-                            NSWorkspace.shared.activateFileViewerSelecting([folder])
-                        }
-                    }
-                } else if !videoFiles.isEmpty {
-                    VStack(alignment: .leading, spacing: 3) {
-                        Text("LOOSE ASSET SELECTION")
-                            .font(.ui(size: 11, weight: .semibold))
-                            .foregroundColor(textMain)
-                            .lineLimit(1)
-                        Text("\(videoFiles.count) FILE(S) LOADED")
-                            .font(.ui(size: 9, weight: .semibold))
-                            .foregroundColor(textMuted)
-                    }
-                    .padding(10)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .studioBox(background: bgCardSubtle, border: borderLine)
-                    .contentShape(Rectangle())
-                }
-            }
-        }
+        AssetSourcePanel(folderURL: folderURL, files: videoFiles, isBusy: isScanning, isLightMode: isLightMode,
+                         onSelect: onSelectAssets, onRefresh: onRefreshAssets)
     }
     
     private func folderRow(node: FileSystemTreeNode) -> some View {
@@ -526,7 +400,7 @@ public struct PlayerQueuePanelView: View, Equatable {
                 .foregroundColor(textSubtle)
                 .frame(width: 14, height: 14)
             
-            Text(node.name.uppercased())
+            Text(node.name)
                 .font(.ui(size: 10, weight: .semibold))
                 .foregroundColor(textMain)
                 .lineLimit(1)
@@ -534,7 +408,7 @@ public struct PlayerQueuePanelView: View, Equatable {
             Spacer()
             
             Text("\(node.videoCount)")
-                .font(.system(size: 8, weight: .black, design: .monospaced))
+                .font(.ui(size: 8, weight: .semibold))
                 .foregroundColor(textSubtle)
                 .padding(.horizontal, 5)
                 .padding(.vertical, 1)

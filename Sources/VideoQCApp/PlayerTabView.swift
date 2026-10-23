@@ -436,8 +436,8 @@ extension ContentView {
                                 Image(systemName: "play.rectangle.fill")
                                     .font(.system(size: 40))
                                     .foregroundColor(textMuted)
-                                Text("NO VIDEO SELECTED")
-                                    .font(.system(size: 13, weight: .black, design: .monospaced))
+                                Text("No Video Selected")
+                                    .font(.ui(size: 13, weight: .semibold))
                                     .foregroundColor(textMain)
                                 Text("Click a file from the queue on the left to begin inspecting.")
                                     .font(.ui(size: 10))
@@ -591,8 +591,8 @@ extension ContentView {
             } else {
                 // Single Slot Filename & Specs (100% v0.2.4 appearance)
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(playerEngine.activeFileName.isEmpty ? "NO ACTIVE ASSET" : playerEngine.activeFileName.uppercased())
-                        .font(.system(size: 12, weight: .black, design: .monospaced))
+                    Text(playerEngine.activeFileName.isEmpty ? "No Active Asset" : playerEngine.activeFileName)
+                        .font(.ui(size: 12, weight: .semibold))
                         .foregroundColor(textMain)
                         .lineLimit(1)
                     
@@ -673,7 +673,7 @@ extension ContentView {
                 HStack(spacing: StudioTheme.scale(3)) {
                     Image(systemName: "plus")
                         .font(.system(size: StudioTheme.scaleFont(9), weight: .bold))
-                    Text("NOTE")
+                    Text("Note")
                         .font(.ui(size: StudioTheme.scaleFont(9), weight: .semibold))
                 }
                 .frame(height: StudioTheme.scale(24))
@@ -715,7 +715,7 @@ extension ContentView {
                         Image(systemName: isNotesActive ? "bubble.left.fill" : "bubble.left")
                             .font(.system(size: StudioTheme.scaleFont(9), weight: .semibold))
                         SlotText(
-                            hasNotes ? "\(notesCount)" : "NOTES",
+                            hasNotes ? "\(notesCount)" : "Notes",
                             mode: hasNotes ? .character : .word,
                             direction: .up,
                             font: .ui(size: StudioTheme.scaleFont(9), weight: .semibold),
@@ -800,7 +800,7 @@ extension ContentView {
                 hasGlitches ? "Jump to previous line glitch (⇧M / cycles backwards through findings of Tab 3)." : "No line glitches found in Tab 3 to cycle through."
             )
             
-            Text("LINE")
+            Text("Line")
                 .font(.ui(size: StudioTheme.scaleFont(9), weight: .semibold))
                 .foregroundColor(hasGlitches ? alertRed : textMuted)
                 .padding(.horizontal, 3)
@@ -835,7 +835,7 @@ extension ContentView {
                     Image(systemName: "paperplane.fill")
                         .font(.system(size: StudioTheme.scaleFont(9), weight: .bold))
                 }
-                Text("MISSED LINE")
+                Text("Missed Line")
                     .font(.ui(size: StudioTheme.scaleFont(9), weight: .semibold))
             }
             .frame(height: StudioTheme.scale(24))
@@ -895,7 +895,7 @@ extension ContentView {
     
     private func missedLineInfoRow(_ label: String, _ value: String) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: 10) {
-            Text(label.uppercased())
+            Text(label)
                 .font(.ui(size: 9, weight: .semibold))
                 .foregroundColor(textMuted)
                 .frame(width: 44, alignment: .leading)
@@ -921,7 +921,7 @@ extension ContentView {
                     Image(systemName: "tag.fill")
                         .font(.system(size: StudioTheme.scaleFont(9), weight: .bold))
                 }
-                Text("TAGS")
+                Text("Tags")
                     .font(.ui(size: StudioTheme.scaleFont(9), weight: .semibold))
             }
             .frame(height: StudioTheme.scale(24))
@@ -1415,7 +1415,7 @@ struct PlayerComparisonBar: View {
                         Image(systemName: "speaker.wave.2.fill")
                             .font(.system(size: StudioTheme.scaleFont(11), weight: .bold))
                         Text(engine.audioSlot == .slotA ? "A" : "B")
-                            .font(.system(size: StudioTheme.scaleFont(9), weight: .black, design: .monospaced))
+                            .font(.ui(size: StudioTheme.scaleFont(9), weight: .semibold))
                     }
                     .frame(height: StudioTheme.scale(26))
                     .padding(.horizontal, StudioTheme.scale(4))
@@ -1455,7 +1455,7 @@ struct PlayerComparisonBar: View {
                     HStack(spacing: StudioTheme.scale(4)) {
                         Image(systemName: "xmark")
                             .font(.system(size: StudioTheme.scaleFont(9), weight: .bold))
-                        Text("CLEAR B")
+                        Text("Clear B")
                             .font(.ui(size: StudioTheme.scaleFont(9), weight: .semibold))
                     }
                     .frame(height: StudioTheme.scale(26))
@@ -1721,7 +1721,7 @@ private struct PlayerTimecodeReadout: View {
     let accentBlue: Color
     let isHovered: Bool
     
-    private static let font = Font.system(size: 13, weight: .bold, design: .monospaced)
+    private static let font = Font.ui(size: 13, weight: .semibold)
     
     var body: some View {
         if displayTimeAsFrames {

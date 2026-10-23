@@ -57,7 +57,7 @@ extension ContentView {
     
     private var ingestFolderSection: some View {
         VStack(alignment: .leading, spacing: 10) {
-            sectionHeader(num: "01", title: "INTAKE FOLDER")
+            sectionHeader("Intake Folder")
             
             VStack(alignment: .leading, spacing: 8) {
                 HStack(spacing: 6) {
@@ -65,7 +65,7 @@ extension ContentView {
                         HStack(spacing: 5) {
                             Image(systemName: ingestState.intakeFolderURL == nil ? "folder.badge.plus" : "arrow.triangle.2.circlepath")
                                 .font(.system(size: StudioTheme.scaleFont(9), weight: .bold))
-                            Text(ingestState.intakeFolderURL == nil ? "SELECT INTAKE FOLDER" : "CHANGE FOLDER")
+                            Text(ingestState.intakeFolderURL == nil ? "Select Intake Folder" : "Change Folder")
                                 .font(.ui(size: StudioTheme.scaleFont(9), weight: .semibold))
                                 .lineLimit(1)
                         }
@@ -113,7 +113,7 @@ extension ContentView {
     
     private var ingestJobHeaderSection: some View {
         VStack(alignment: .leading, spacing: 10) {
-            sectionHeader(num: "02", title: "JOB HEADER")
+            sectionHeader("Job Header")
             
             VStack(spacing: 7) {
                 // Job Name / Number
@@ -128,7 +128,7 @@ extension ContentView {
                     }
                     
                     VStack(alignment: .leading, spacing: 3) {
-                        Text("DATE INGESTED")
+                        Text("Date Ingested")
                             .font(.ui(size: 8, weight: .semibold))
                             .foregroundColor(textMuted)
                         
@@ -147,7 +147,7 @@ extension ContentView {
                 
                 // Added to Client Drives Toggle
                 HStack {
-                    Text("ADDED TO CLIENT DRIVES")
+                    Text("Added to Client Drives")
                         .font(.ui(size: 8.5, weight: .semibold))
                         .foregroundColor(textMuted)
                     Spacer()
@@ -155,7 +155,7 @@ extension ContentView {
                         HStack(spacing: 5) {
                             Image(systemName: ingestState.manifest.addedToClientDrives ? "checkmark.square.fill" : "square")
                                 .font(.system(size: 11, weight: .bold))
-                            Text(ingestState.manifest.addedToClientDrives ? "YES" : "NO")
+                            Text(ingestState.manifest.addedToClientDrives ? "Yes" : "No")
                                 .font(.ui(size: 10, weight: .semibold))
                         }
                         .foregroundColor(ingestState.manifest.addedToClientDrives ? accentBlue : textMuted)
@@ -177,7 +177,7 @@ extension ContentView {
     
     private var ingestElementsSection: some View {
         VStack(alignment: .leading, spacing: 10) {
-            sectionHeader(num: "03", title: "ELEMENTS RECEIVED")
+            sectionHeader("Elements Received")
             
             VStack(spacing: 5) {
                 ingestChecklistRow(
@@ -255,7 +255,7 @@ extension ContentView {
     
     private var ingestFootageDetailsSection: some View {
         VStack(alignment: .leading, spacing: 10) {
-            sectionHeader(num: "04", title: "FOOTAGE DETAILS")
+            sectionHeader("Footage Details")
             
             VStack(spacing: 7) {
                 ingestFormField(label: "CAMERA USED (IF KNOWN)", placeholder: "e.g. ARRI Alexa 35, RED V-Raptor, Sony FX9") {
@@ -287,18 +287,18 @@ extension ContentView {
     
     private var ingestAttributesSection: some View {
         VStack(alignment: .leading, spacing: 10) {
-            sectionHeader(num: "05", title: "ATTRIBUTES & FLAGS")
+            sectionHeader("Attributes & Flags")
             
             VStack(spacing: 8) {
                 // VFX Project Toggle
                 HStack {
-                    Text("IS THIS A VFX PROJECT?")
+                    Text("Is this A vfx project?")
                         .font(.ui(size: 8.5, weight: .semibold))
                         .foregroundColor(textMuted)
                     Spacer()
                     HStack(spacing: 4) {
                         Button(action: { ingestState.manifest.isVFXProject = true }) {
-                            Text("YES")
+                            Text("Yes")
                                 .font(.ui(size: 9.5, weight: .semibold))
                                 .padding(.horizontal, 8)
                                 .padding(.vertical, 4)
@@ -311,7 +311,7 @@ extension ContentView {
                         .buttonStyle(.plain)
                         
                         Button(action: { ingestState.manifest.isVFXProject = false }) {
-                            Text("NO")
+                            Text("No")
                                 .font(.ui(size: 9.5, weight: .semibold))
                                 .padding(.horizontal, 8)
                                 .padding(.vertical, 4)
@@ -332,7 +332,7 @@ extension ContentView {
                 
                 // Free text Flags & Notes
                 VStack(alignment: .leading, spacing: 3) {
-                    Text("FLAGS & REMARKS")
+                    Text("Flags & Remarks")
                         .font(.ui(size: 8, weight: .semibold))
                         .foregroundColor(textMuted)
                     
@@ -352,7 +352,7 @@ extension ContentView {
     
     private var ingestDITAndExportSection: some View {
         VStack(alignment: .leading, spacing: 10) {
-            sectionHeader(num: "06", title: "DIT & EXPORT")
+            sectionHeader("Dit & Export")
             
             VStack(spacing: 8) {
                 // DIT Report Import
@@ -386,7 +386,7 @@ extension ContentView {
                         HStack(spacing: 5) {
                             Image(systemName: "square.and.arrow.down")
                                 .font(.system(size: 9, weight: .bold))
-                            Text("CROSS-REFERENCE DIT REPORT (CSV / RTF / TXT)")
+                            Text("Cross-reference dit report (CSV / rtf / txt)")
                                 .font(.ui(size: 9, weight: .semibold))
                                 .lineLimit(1)
                         }
@@ -405,7 +405,7 @@ extension ContentView {
                         HStack(spacing: 4) {
                             Image(systemName: "doc.text")
                                 .font(.system(size: 8.5, weight: .bold))
-                            Text("SAVE CSV")
+                            Text("Save CSV")
                                 .font(.ui(size: 9, weight: .semibold))
                         }
                         .frame(maxWidth: .infinity)
@@ -420,7 +420,7 @@ extension ContentView {
                         HStack(spacing: 4) {
                             Image(systemName: "safari")
                                 .font(.system(size: 8.5, weight: .bold))
-                            Text("OPEN HTML")
+                            Text("Open HTML")
                                 .font(.ui(size: 9, weight: .semibold))
                         }
                         .frame(maxWidth: .infinity)
@@ -438,7 +438,7 @@ extension ContentView {
                         HStack(spacing: 4) {
                             Image(systemName: "doc.on.clipboard")
                                 .font(.system(size: 8.5, weight: .bold))
-                            Text("COPY")
+                            Text("Copy")
                                 .font(.ui(size: 9, weight: .semibold))
                         }
                         .frame(maxWidth: .infinity)
@@ -480,8 +480,8 @@ extension ContentView {
                 .progressViewStyle(.linear)
                 .frame(width: 320)
             
-            Text("ANALYZING INTAKE FOOTAGE")
-                .font(.system(size: 15, weight: .black, design: .monospaced))
+            Text("Analyzing Intake Footage")
+                .font(.ui(size: 15, weight: .semibold))
                 .foregroundColor(textMain)
             
             Text(ingestState.scanStatusMessage)
@@ -502,10 +502,9 @@ extension ContentView {
                 .font(.system(size: 46, weight: .light))
                 .foregroundColor(textMuted.opacity(0.5))
             
-            Text("DROP INTAKE FOLDER HERE")
-                .font(.system(size: 16, weight: .heavy, design: .monospaced))
+            Text("Drop Intake Folder Here")
+                .font(.ui(size: 16, weight: .semibold))
                 .foregroundColor(textMain)
-                .tracking(1.0)
             
             Text("Automatically catalog raw footage, transcodes, camera reports, audio, and LUTs.\nExtracts technical metadata and cross-references against DIT documentation.")
                 .font(.ui(size: 11))
@@ -518,7 +517,7 @@ extension ContentView {
                 HStack(spacing: 6) {
                     Image(systemName: "folder.badge.plus")
                         .font(.system(size: 10, weight: .bold))
-                    Text("SELECT INTAKE FOLDER")
+                    Text("Select Intake Folder")
                         .font(.ui(size: 10, weight: .semibold))
                 }
                 .padding(.horizontal, 16)
@@ -544,15 +543,15 @@ extension ContentView {
                 let rawCount = ingestState.manifest.items.filter { $0.fileCategory == .rawFootage }.count
                 let transcodeCount = ingestState.manifest.items.filter { $0.fileCategory == .transcode }.count
                 
-                statBox(title: "TOTAL ITEMS", val: "\(ingestState.manifest.items.count)")
-                statBox(title: "TOTAL SIZE", val: DeliverablesInspector.formatFileSize(bytes: totalBytes))
-                statBox(title: "RAW CLIPS", val: "\(rawCount)")
-                statBox(title: "TRANSCODES", val: "\(transcodeCount)")
+                statBox(title: "Total Items", val: "\(ingestState.manifest.items.count)")
+                statBox(title: "Total Size", val: DeliverablesInspector.formatFileSize(bytes: totalBytes))
+                statBox(title: "Raw Clips", val: "\(rawCount)")
+                statBox(title: "Transcodes", val: "\(transcodeCount)")
                 
                 if !ingestState.flags.isEmpty {
-                    statBox(title: "FLAGS", val: "\(ingestState.flags.count)", isRed: true)
+                    statBox(title: "Flags", val: "\(ingestState.flags.count)", isRed: true)
                 } else if !ingestState.ditRecords.isEmpty {
-                    statBox(title: "DIT AUDIT", val: "VERIFIED", isPositive: true)
+                    statBox(title: "Dit Audit", val: "Verified", isPositive: true)
                 }
                 
                 Spacer()
@@ -625,8 +624,8 @@ extension ContentView {
                                 .font(.system(size: 11))
                                 .foregroundColor(alertRed)
                             
-                            Text("DIT AUDIT DISCREPANCIES (\(ingestState.flags.count))")
-                                .font(.system(size: 10.5, weight: .black, design: .monospaced))
+                            Text("Dit Audit Discrepancies (\(ingestState.flags.count))")
+                                .font(.ui(size: 10.5, weight: .semibold))
                                 .foregroundColor(alertRed)
                             
                             Spacer()
@@ -640,7 +639,7 @@ extension ContentView {
                                 ForEach(ingestState.flags) { flag in
                                     HStack(alignment: .top, spacing: 8) {
                                         Text(flag.severity.rawValue)
-                                            .font(.system(size: 8, weight: .heavy, design: .monospaced))
+                                            .font(.ui(size: 8, weight: .semibold))
                                             .padding(.horizontal, 5)
                                             .padding(.vertical, 2)
                                             .foregroundColor(.white)
@@ -726,8 +725,8 @@ extension ContentView {
             ingestSortHeader(title: "FPS", column: .fps, width: 55)
             ingestSortHeader(title: "DUR", column: .duration, width: 70)
             ingestSortHeader(title: "CODEC", column: .codec, width: 120)
-            Text("AUDIO")
-                .font(.system(size: 8.5, weight: .bold, design: .monospaced))
+            Text("Audio")
+                .font(.ui(size: 8.5, weight: .semibold))
                 .foregroundColor(textMuted)
                 .frame(maxWidth: .infinity, alignment: .leading)
         }

@@ -56,7 +56,6 @@ extension ContentView {
                 Text(label)
                     .font(.ui(size: 9, weight: .semibold))
                     .foregroundColor(textMuted)
-                    .tracking(0.5)
                 content()
             }
             .padding(.vertical, 11)
@@ -77,7 +76,7 @@ extension ContentView {
         Button(action: action) {
             HStack(spacing: 7) {
                 Image(systemName: icon).font(.system(size: 11, weight: .bold))
-                Text(title).font(.system(size: 11, weight: .heavy, design: .monospaced)).tracking(0.5)
+                Text(title).font(.ui(size: 11, weight: .semibold)).tracking(0.5)
             }
             .frame(maxWidth: .infinity)
             .frame(height: 36)
@@ -95,7 +94,7 @@ extension ContentView {
         Button(action: action) {
             HStack(spacing: 7) {
                 Image(systemName: "stop.fill").font(.system(size: 10, weight: .bold))
-                Text(title).font(.system(size: 11, weight: .heavy, design: .monospaced)).tracking(0.5)
+                Text(title).font(.ui(size: 11, weight: .semibold)).tracking(0.5)
             }
             .frame(maxWidth: .infinity)
             .frame(height: 36)
@@ -111,10 +110,10 @@ extension ContentView {
     
     var lineCheckSection: some View {
         VStack(alignment: .leading, spacing: 10) {
-            sectionHeader(num: "02", title: "LINE CHECK")
+            sectionHeader("Line Check")
             
             checkCard {
-                checkRow("TARGET COLOUR", divider: false) {
+                checkRow("Target Colour", divider: false) {
                     HStack(spacing: 8) {
                         Button(action: { scannerState.openColorPanel() }) {
                             RoundedRectangle(cornerRadius: StudioTheme.cornerRadius)
@@ -138,7 +137,7 @@ extension ContentView {
                         
                         Spacer()
                         if scannerState.anyColor {
-                            Text("ANY COLOUR")
+                            Text("Any Colour")
                                 .font(.ui(size: 9, weight: .semibold))
                                 .foregroundColor(accentBlue)
                         }
@@ -152,7 +151,7 @@ extension ContentView {
                                         .fill(scannerState.colorFromHex(code))
                                         .frame(width: 8, height: 8)
                                         .overlay(RoundedRectangle(cornerRadius: 1).stroke(borderLine, lineWidth: 0.5))
-                                    Text(name)
+                                    Text(name.capitalized)
                                 }
                                 .font(.ui(size: 9, weight: .semibold))
                                 .frame(maxWidth: .infinity)
@@ -168,7 +167,7 @@ extension ContentView {
                     .opacity(scannerState.anyColor ? 0.5 : 1)
                 }
                 
-                checkRow("SENSITIVITY") {
+                checkRow("Sensitivity") {
                     HStack(spacing: 10) {
                         Slider(value: $scannerState.sensitivityPercentage, in: 0...100, step: 5)
                             .tint(primaryBtnBg)
@@ -181,19 +180,19 @@ extension ContentView {
                     }
                 }
                 
-                checkRow("DETECTION") {
-                    checkToggle("ALSO FLAG OFF-COLOUR LINES", isOn: $scannerState.reportOffColorLines, disabled: scannerState.anyColor,
+                checkRow("Detection") {
+                    checkToggle("Also flag off-colour lines", isOn: $scannerState.reportOffColorLines, disabled: scannerState.anyColor,
                                 help: "Also report lines of another colour than the target (e.g. a grey edge column), when they persist for 6+ frames. Listed separately as OFF-COLOUR.")
-                    checkToggle("ANY COLOUR (IGNORE TARGET)", isOn: $scannerState.anyColor,
+                    checkToggle("Any Colour (Ignore Target)", isOn: $scannerState.anyColor,
                                 help: "Flags solid lines of any colour that stand out from the picture next to them, instead of only the target colour.")
-                    checkToggle("SPLIT-SCREEN SEAMS (FULL FRAME)", isOn: $scannerState.scanFullScreen,
+                    checkToggle("Split-screen seams (full frame)", isOn: $scannerState.scanFullScreen,
                                 help: "Also inspects the whole frame for split-screen seams and internal dividing lines.")
                     HStack {
-                        Text("EDGE DEPTH")
+                        Text("Edge Depth")
                             .font(.ui(size: 10, weight: .semibold))
                             .foregroundColor(textMain)
                         Spacer()
-                        Text("\(scannerState.edgeDepth) PX")
+                        Text("\(scannerState.edgeDepth) px")
                             .font(.ui(size: 10, weight: .semibold))
                             .foregroundColor(textMain)
                         Stepper("", value: $scannerState.edgeDepth, in: 2...40)
@@ -205,31 +204,31 @@ extension ContentView {
                 }
                 
                 if scannerState.isTargetBlack && !scannerState.anyColor {
-                    checkRow("DARK SCENES") {
-                        checkToggle("SHADOW EXPANSION", isOn: $scannerState.enableExposureBoost,
+                    checkRow("Dark Scenes") {
+                        checkToggle("Shadow Expansion", isOn: $scannerState.enableExposureBoost,
                                     help: "Expands shadow levels so a render-black line stands apart from naturally dark picture.")
-                        checkToggle("IGNORE FULL-FRAME BLACK", isOn: $scannerState.ignoreFullBlackFrames,
+                        checkToggle("Ignore Full-Frame Black", isOn: $scannerState.ignoreFullBlackFrames,
                                     help: "Skips solid black frames such as slates, countdowns and fades.")
                     }
                 } else if scannerState.isTargetWhite && !scannerState.anyColor {
-                    checkRow("BRIGHT SCENES") {
-                        checkToggle("HIGHLIGHT EXPANSION", isOn: $scannerState.enableHighlightExpansion,
+                    checkRow("Bright Scenes") {
+                        checkToggle("Highlight Expansion", isOn: $scannerState.enableHighlightExpansion,
                                     help: "Expands highlight levels so white cove backdrops and studio lighting are not flagged.")
-                        checkToggle("IGNORE FULL-FRAME WHITE", isOn: $scannerState.ignoreFullWhiteFrames,
+                        checkToggle("Ignore Full-Frame White", isOn: $scannerState.ignoreFullWhiteFrames,
                                     help: "Skips solid white logo cards, slates and white flashes.")
                     }
                 }
                 
-                checkRow("RESULTS") {
-                    checkToggle("MARK FLAGGED FILES IN FINDER", isOn: $scannerState.tagInFinder,
+                checkRow("Results") {
+                    checkToggle("Mark flagged files in Finder", isOn: $scannerState.tagInFinder,
                                 help: "Applies a red Finder tag to every file with line glitches.")
                 }
             }
             
             if scannerState.isScanning {
-                stopButton(scannerState.isCancelling ? "STOPPING..." : "STOP LINE CHECK", help: "Stops the line check in progress.", action: cancelScan)
+                stopButton(scannerState.isCancelling ? "Stopping..." : "Stop Line Check", help: "Stops the line check in progress.", action: cancelScan)
             } else {
-                runButton("RUN LINE CHECK", icon: "viewfinder",
+                runButton("Run Line Check", icon: "viewfinder",
                           isReady: !videoFiles.isEmpty && RGBColor(hex: scannerState.hexCode) != nil && !scannerState.isFrameChecking,
                           help: "Checks every frame of every video in the batch for edge lines and split-screen seams.", action: { startScan() })
             }
@@ -239,12 +238,11 @@ extension ContentView {
     var activeScanProgressView: some View {
         VStack(alignment: .leading, spacing: 24) {
             HStack {
-                Text("SCANNING IN PROGRESS")
-                    .font(.system(size: 28, weight: .heavy, design: .default))
+                Text("Scanning in Progress")
+                    .font(.system(size: 22, weight: .semibold))
                     .foregroundColor(textMain)
-                    .tracking(1.0)
                 Spacer()
-                Text("PROCESSING")
+                Text("Processing")
                     .font(.ui(size: 10, weight: .semibold))
                     .foregroundColor(textMain)
                     .padding(.horizontal, 8)
@@ -254,20 +252,20 @@ extension ContentView {
             if let p = scannerState.progressInfo {
                 VStack(alignment: .leading, spacing: 16) {
                     VStack(alignment: .leading, spacing: 4) {
-                        Text("CURRENT ASSET")
+                        Text("Current Asset")
                             .font(.ui(size: 10, weight: .semibold))
                             .foregroundColor(textMuted)
-                        Text(p.currentFileName.uppercased())
-                            .font(.system(size: 18, weight: .heavy, design: .monospaced))
+                        Text(p.currentFileName)
+                            .font(.ui(size: 18, weight: .semibold))
                             .foregroundColor(textMain)
                             .lineLimit(1)
                     }
                     
                     HStack(spacing: 20) {
-                        statItem(label: "BATCH PROGRESS", val: "FILE \(String(format: "%02d", p.currentFileIndex)) / \(String(format: "%02d", p.totalFiles))", width: 140)
-                        statItem(label: "FRAME INDEX", val: "\(p.currentFrame) / \(p.totalFramesInFile)", width: 140)
-                        statItem(label: "SPEED", val: "\(String(format: "%.0f", p.fps)) FPS", width: 110)
-                        statItem(label: "FLAGGED", val: "\(p.flaggedVideosCount)", width: 80, isAlert: p.flaggedVideosCount > 0)
+                        statItem(label: "Batch Progress", val: "File \(String(format: "%02d", p.currentFileIndex)) / \(String(format: "%02d", p.totalFiles))", width: 140)
+                        statItem(label: "Frame Index", val: "\(p.currentFrame) / \(p.totalFramesInFile)", width: 140)
+                        statItem(label: "Speed", val: "\(String(format: "%.0f", p.fps)) fps", width: 110)
+                        statItem(label: "Flagged", val: "\(p.flaggedVideosCount)", width: 80, isAlert: p.flaggedVideosCount > 0)
                     }
                     
                     GeometryReader { geo in
@@ -320,9 +318,8 @@ extension ContentView {
         HStack(alignment: .center) {
             VStack(alignment: .leading, spacing: 2) {
                 Text(title)
-                    .font(.system(size: 28, weight: .black, design: .default))
+                    .font(.system(size: 22, weight: .semibold))
                     .foregroundColor(textMain)
-                    .tracking(1.0)
                 Text(status)
                     .font(.ui(size: 11, weight: .semibold))
                     .foregroundColor(textMuted)
@@ -334,7 +331,7 @@ extension ContentView {
     }
     
     private func resultsStatus(count: Int, cancelled: Bool) -> String {
-        "\(cancelled ? "STOPPED" : "COMPLETE") // \(count) VIDEOS ANALYZED\(cancelled ? " (PARTIAL)" : "")"
+        "\(cancelled ? "Stopped" : "Complete") · \(count) video\(count == 1 ? "" : "s") analyzed\(cancelled ? " (partial)" : "")"
     }
     
     private var lineExportMenu: some View {
@@ -351,7 +348,7 @@ extension ContentView {
             }
         } label: {
             HStack(spacing: 5) {
-                Text("EXPORT")
+                Text("Export")
                     .font(.ui(size: 11, weight: .semibold))
                 Image(systemName: "chevron.down")
                     .font(.system(size: 8, weight: .bold))
@@ -372,21 +369,21 @@ extension ContentView {
         let clean = scannerState.scanResults.count - flagged.count
         let totalSegments = flagged.reduce(0) { $0 + $1.glitchSegments.count }
         
-        resultsSectionTitle("LINE CHECK", status: resultsStatus(count: scannerState.scanResults.count, cancelled: scannerState.wasScanCancelled)) {
+        resultsSectionTitle("Line Check", status: resultsStatus(count: scannerState.scanResults.count, cancelled: scannerState.wasScanCancelled)) {
             lineExportMenu
         }
         HStack(spacing: 12) {
-            statBox(title: "TOTAL SCANNED", val: String(format: "%02d", scannerState.scanResults.count))
-            statBox(title: "FLAGGED FILES", val: String(format: "%02d", flagged.count), isRed: !flagged.isEmpty)
-            statBox(title: "PASSED FILES", val: String(format: "%02d", clean), isPositive: clean > 0)
-            statBox(title: "GLITCH SEGMENTS", val: String(format: "%02d", totalSegments), isRed: totalSegments > 0)
+            statBox(title: "Total Scanned", val: String(format: "%02d", scannerState.scanResults.count))
+            statBox(title: "Flagged Files", val: String(format: "%02d", flagged.count), isRed: !flagged.isEmpty)
+            statBox(title: "Passed Files", val: String(format: "%02d", clean), isPositive: clean > 0)
+            statBox(title: "Glitch Segments", val: String(format: "%02d", totalSegments), isRed: totalSegments > 0)
         }
         if flagged.isEmpty {
             VStack(spacing: 8) {
-                Text("STATUS // ALL DELIVERIES PASSED")
-                    .font(.system(size: 16, weight: .black, design: .monospaced))
+                Text("All Deliveries Passed")
+                    .font(.ui(size: 16, weight: .semibold))
                     .foregroundColor(accentPositive)
-                Text("NO COLORED EDGE LINES OR MATTE ARTIFACTS DETECTED.")
+                Text("No colored edge lines or matte artifacts detected.")
                     .font(.ui(size: 11, weight: .medium))
                     .foregroundColor(textMuted)
             }
@@ -409,14 +406,14 @@ extension ContentView {
             
             HStack(spacing: 8) {
                 Text("#").frame(width: 25, alignment: .leading)
-                Text("FRAME").frame(width: 76, alignment: .leading)
-                Text("LOCATION").frame(width: 140, alignment: .leading)
-                Text("TIMECODE RANGE").frame(width: 155, alignment: .leading)
-                Text("DURATION").frame(width: 130, alignment: .leading)
-                Text("FRAMES").frame(width: 75, alignment: .leading)
+                Text("Frame").frame(width: 76, alignment: .leading)
+                Text("Location").frame(width: 140, alignment: .leading)
+                Text("Timecode Range").frame(width: 155, alignment: .leading)
+                Text("Duration").frame(width: 130, alignment: .leading)
+                Text("Frames").frame(width: 75, alignment: .leading)
                 Spacer()
-                Text("COLOR").frame(width: 75, alignment: .trailing)
-                Text("PLAYER").frame(width: 75, alignment: .trailing)
+                Text("Color").frame(width: 75, alignment: .trailing)
+                Text("Player").frame(width: 75, alignment: .trailing)
             }
             .font(.ui(size: 9, weight: .semibold))
             .foregroundColor(textMuted)
@@ -463,16 +460,16 @@ extension ContentView {
                 .frame(width: 76, alignment: .leading)
                 
                 VStack(alignment: .leading, spacing: 1) {
-                    Text("\(seg.edge.rawValue.uppercased()) (\(seg.avgThickness)PX)")
+                    Text("\(seg.edge.rawValue.capitalized) (\(seg.avgThickness)px)")
                         .fontWeight(.bold)
                         .foregroundColor(textMain)
                     if let detail = seg.locationDetail {
-                        Text(detail.uppercased())
+                        Text(detail)
                             .font(.ui(size: 8, weight: .semibold))
                             .foregroundColor(textMuted)
                     }
                     if seg.isOffColor {
-                        Text("OFF-COLOUR")
+                        Text("Off-Colour")
                             .font(.ui(size: 8, weight: .semibold))
                             .foregroundColor(textMuted)
                             .help("A line of another colour than the target, flagged because it persists")
@@ -485,7 +482,7 @@ extension ContentView {
                     .fontWeight(.heavy)
                     .foregroundColor(textMain)
                 
-                Text(seg.frameCount == 1 ? "1 FRAME (0.04S)" : "\(seg.frameCount) FRAMES (\(String(format: "%.2f", seg.durationSeconds))S)")
+                Text(seg.frameCount == 1 ? "1 frame (0.04s)" : "\(seg.frameCount) frames (\(String(format: "%.2f", seg.durationSeconds))s)")
                     .frame(width: 130, alignment: .leading)
                     .foregroundColor(textSubtle)
                 
@@ -510,7 +507,7 @@ extension ContentView {
                 HStack(spacing: 4) {
                     Image(systemName: "play.fill")
                         .font(.system(size: 8, weight: .bold))
-                    Text("INSPECT")
+                    Text("Inspect")
                         .font(.ui(size: 9, weight: .semibold))
                 }
                 .padding(.horizontal, 7)
@@ -531,21 +528,21 @@ extension ContentView {
     private func flaggedResultHeader(result: VideoQCResult, segmentsCount: Int) -> some View {
         HStack {
             VStack(alignment: .leading, spacing: 3) {
-                Text(result.fileName.uppercased())
-                    .font(.system(size: 14, weight: .heavy, design: .monospaced))
+                Text(result.fileName)
+                    .font(.ui(size: 14, weight: .semibold))
                     .foregroundColor(textMain)
-                Text("\(result.resolution) // \(String(format: "%.2f", result.fps)) FPS // \(result.totalFrames) FRAMES")
-                    .font(.system(size: 10, weight: .bold, design: .monospaced))
+                Text("\(result.resolution) · \(String(format: "%.2f", result.fps)) fps · \(result.totalFrames) frames")
+                    .font(.ui(size: 10, weight: .semibold))
                     .foregroundColor(textMuted)
             }
             Spacer()
             
             VStack(alignment: .trailing, spacing: 3) {
-                Text("[\(segmentsCount) OCCURRENCE(S) // \(result.errorFrames.count) FRAMES]")
+                Text("\(segmentsCount) occurrence\(segmentsCount == 1 ? "" : "s") · \(result.errorFrames.count) frames")
                     .font(.ui(size: 10, weight: .semibold))
                     .foregroundColor(alertRed)
                 if scannerState.lastScanTagInFinder {
-                    Text("FINDER RED TAG APPLIED")
+                    Text("Finder Red Tag Applied")
                         .font(.ui(size: 8, weight: .semibold))
                         .foregroundColor(textMuted)
                 }
@@ -570,13 +567,12 @@ extension ContentView {
         VStack(alignment: .leading, spacing: 18) {
             Spacer()
             
-            Text("STATUS // READY TO CHECK")
-                .font(.system(size: 32, weight: .black, design: .default))
+            Text("Ready to Check")
+                .font(.system(size: 26, weight: .semibold))
                 .foregroundColor(textMain)
-                .tracking(1.0)
             
-            Text("CHOOSE A DELIVERY FOLDER OR VIDEO FILES ON THE LEFT, THEN RUN A CHECK.\nLINE CHECK: EDGE LINES AND SPLIT-SCREEN SEAMS. FRAME CHECK: FRAME-RATE MISMATCH, FLASH FRAMES AND MEDIA OFFLINE.")
-                .font(.ui(size: 12, weight: .medium))
+            Text("Choose a delivery folder or video files on the left, then run a check.\nLine Check finds edge lines and split-screen seams. Frame Check finds frame-rate mismatch, flash frames and Media Offline.")
+                .font(.ui(size: 13))
                 .foregroundColor(textMuted)
                 .lineSpacing(4)
             
@@ -594,10 +590,10 @@ extension ContentView {
     
     var frameCheckSection: some View {
         VStack(alignment: .leading, spacing: 10) {
-            sectionHeader(num: "03", title: "FRAME CHECK")
+            sectionHeader("Frame Check")
             
             checkCard {
-                checkRow("WHAT IT FINDS", divider: false) {
+                checkRow("What It Finds", divider: false) {
                     Text("Frame-rate mismatch (e.g. 23.976 fps material exported at 25 fps), flash frames (stray black or solid frames mid-edit) and Media Offline frames. One fast pass per video.")
                         .font(.ui(size: 10))
                         .foregroundColor(textSubtle)
@@ -606,12 +602,12 @@ extension ContentView {
             }
             
             if scannerState.isFrameChecking {
-                stopButton(scannerState.wasFrameCheckCancelled ? "STOPPING..." : "STOP FRAME CHECK",
+                stopButton(scannerState.wasFrameCheckCancelled ? "Stopping..." : "Stop Frame Check",
                            help: "Stops the frame check; files already checked keep their results.") {
                     scannerState.cancelFrameCheck()
                 }
             } else {
-                runButton("RUN FRAME CHECK", icon: "waveform.path.ecg",
+                runButton("Run Frame Check", icon: "waveform.path.ecg",
                           isReady: frameCheckVideoCount > 0 && !scannerState.isScanning,
                           help: "Checks every video in the batch (fast, low resolution) for frame-rate mismatch, flash frames and Media Offline.") {
                     scannerState.startFrameCheck(videoFiles: videoFiles)
@@ -622,12 +618,12 @@ extension ContentView {
     
     var fullCheckSection: some View {
         VStack(alignment: .leading, spacing: 10) {
-            sectionHeader(num: "04", title: "FULL CHECK")
+            sectionHeader("Full Check")
             if scannerState.isFullCheck {
-                stopButton("STOP FULL CHECK", help: "Stops the running check and skips the rest; finished files keep their results.",
+                stopButton("Stop Full Check", help: "Stops the running check and skips the rest; finished files keep their results.",
                            action: cancelFullCheck)
             } else {
-                runButton("RUN FULL CHECK", icon: "checklist",
+                runButton("Run Full Check", icon: "checklist",
                           isReady: frameCheckVideoCount > 0 && RGBColor(hex: scannerState.hexCode) != nil
                               && !scannerState.isScanning && !scannerState.isFrameChecking,
                           help: "Runs the Line Check, then the Frame Check, on every video with the settings above.",
@@ -638,20 +634,19 @@ extension ContentView {
     
     var frameCheckProgressView: some View {
         VStack(alignment: .leading, spacing: 24) {
-            Text("CHECKING FRAMES")
-                .font(.system(size: 28, weight: .heavy))
+            Text("Checking Frames")
+                .font(.system(size: 22, weight: .semibold))
                 .foregroundColor(textMain)
-                .tracking(1.0)
             if let p = scannerState.frameCheckProgress {
                 VStack(alignment: .leading, spacing: 16) {
-                    Text(p.fileName.uppercased())
-                        .font(.system(size: 18, weight: .heavy, design: .monospaced))
+                    Text(p.fileName)
+                        .font(.ui(size: 18, weight: .semibold))
                         .foregroundColor(textMain)
                         .lineLimit(1)
                     HStack(spacing: 20) {
-                        statItem(label: "BATCH PROGRESS", val: "FILE \(String(format: "%02d", p.fileIndex)) / \(String(format: "%02d", p.totalFiles))", width: 140)
-                        statItem(label: "FRAME", val: "\(p.frame) / \(p.totalFrames)", width: 140)
-                        statItem(label: "SPEED", val: "\(String(format: "%.0f", p.speed)) FPS", width: 110)
+                        statItem(label: "Batch Progress", val: "File \(String(format: "%02d", p.fileIndex)) / \(String(format: "%02d", p.totalFiles))", width: 140)
+                        statItem(label: "Frame", val: "\(p.frame) / \(p.totalFrames)", width: 140)
+                        statItem(label: "Speed", val: "\(String(format: "%.0f", p.speed)) fps", width: 110)
                     }
                     GeometryReader { geo in
                         let ratio = (Double(p.fileIndex - 1) + Double(p.frame) / Double(max(1, p.totalFrames))) / Double(max(1, p.totalFiles))
@@ -675,23 +670,23 @@ extension ContentView {
         let results = scannerState.frameCheckResults
         let flagged = results.filter(\.isFlagged)
         
-        resultsSectionTitle("FRAME CHECK", status: resultsStatus(count: results.count, cancelled: scannerState.wasFrameCheckCancelled)) {
+        resultsSectionTitle("Frame Check", status: resultsStatus(count: results.count, cancelled: scannerState.wasFrameCheckCancelled)) {
             EmptyView()
         }
         HStack(spacing: 12) {
-            statBox(title: "TOTAL SCANNED", val: String(format: "%02d", results.count))
-            statBox(title: "FPS MISMATCH", val: String(format: "%02d", results.filter { $0.mismatch != nil }.count),
+            statBox(title: "Total Scanned", val: String(format: "%02d", results.count))
+            statBox(title: "FPS Mismatch", val: String(format: "%02d", results.filter { $0.mismatch != nil }.count),
                     isRed: results.contains { $0.mismatch != nil })
-            statBox(title: "FLASH / OFFLINE", val: String(format: "%02d", results.filter { !$0.flashFrames.isEmpty || !$0.offline.isEmpty }.count),
+            statBox(title: "Flash / Offline", val: String(format: "%02d", results.filter { !$0.flashFrames.isEmpty || !$0.offline.isEmpty }.count),
                     isRed: results.contains { !$0.flashFrames.isEmpty || !$0.offline.isEmpty })
-            statBox(title: "CLEAN", val: String(format: "%02d", results.count - flagged.count), isPositive: results.count > flagged.count)
+            statBox(title: "Clean", val: String(format: "%02d", results.count - flagged.count), isPositive: results.count > flagged.count)
         }
         if flagged.isEmpty {
             VStack(spacing: 8) {
-                Text("STATUS // ALL VIDEOS CLEAN")
-                    .font(.system(size: 16, weight: .black, design: .monospaced))
+                Text("All Videos Clean")
+                    .font(.ui(size: 16, weight: .semibold))
                     .foregroundColor(accentPositive)
-                Text("NO FRAME-RATE MISMATCH, FLASH FRAMES OR MEDIA OFFLINE DETECTED.")
+                Text("No frame-rate mismatch, flash frames or Media offline detected.")
                     .font(.ui(size: 11, weight: .medium))
                     .foregroundColor(textMuted)
             }
@@ -716,15 +711,15 @@ extension ContentView {
     private func frameCheckRows(_ result: FrameCheckResult) -> [FrameCheckRow] {
         var rows: [FrameCheckRow] = []
         if let m = result.mismatch {
-            rows.append(FrameCheckRow(id: "mismatch", kind: "FPS MISMATCH", what: m.title, detail: m.pattern, frame: m.firstFrame))
+            rows.append(FrameCheckRow(id: "mismatch", kind: "FPS mismatch", what: m.title, detail: m.pattern, frame: m.firstFrame))
         }
         for run in result.offline {
             let seconds = Double(run.count) / max(1, result.fps)
-            rows.append(FrameCheckRow(id: "offline\(run.start)", kind: "MEDIA OFFLINE", what: run.timecode,
+            rows.append(FrameCheckRow(id: "offline\(run.start)", kind: "Media Offline", what: run.timecode,
                                       detail: "\(run.count) frame\(run.count == 1 ? "" : "s") (\(String(format: "%.1f", seconds)) s)", frame: run.start))
         }
         for run in result.flashFrames {
-            rows.append(FrameCheckRow(id: "flash\(run.start)", kind: "FLASH FRAME", what: run.timecode,
+            rows.append(FrameCheckRow(id: "flash\(run.start)", kind: "Flash frame", what: run.timecode,
                                       detail: "\(run.detail), \(run.count) frame\(run.count == 1 ? "" : "s")", frame: run.start))
         }
         return rows
@@ -736,15 +731,15 @@ extension ContentView {
         return VStack(alignment: .leading, spacing: 0) {
             HStack(alignment: .top) {
                 VStack(alignment: .leading, spacing: 3) {
-                    Text(result.fileName.uppercased())
-                        .font(.system(size: 14, weight: .heavy, design: .monospaced))
+                    Text(result.fileName)
+                        .font(.ui(size: 14, weight: .semibold))
                         .foregroundColor(textMain)
-                    Text("\(FrameCheckAnalyzer.rateLabel(result.fps).uppercased()) // \(result.totalFrames) FRAMES")
-                        .font(.system(size: 10, weight: .bold, design: .monospaced))
+                    Text("\(FrameCheckAnalyzer.rateLabel(result.fps)) · \(result.totalFrames) frames")
+                        .font(.ui(size: 10, weight: .semibold))
                         .foregroundColor(textMuted)
                 }
                 Spacer()
-                Text(result.verdict.uppercased())
+                Text(result.verdict)
                     .font(.ui(size: 10, weight: .semibold))
                     .foregroundColor(alertRed)
                     .multilineTextAlignment(.trailing)
@@ -764,7 +759,7 @@ extension ContentView {
                         Spacer()
                         HStack(spacing: 4) {
                             Image(systemName: "play.fill").font(.system(size: 8, weight: .bold))
-                            Text("INSPECT").font(.ui(size: 9, weight: .semibold))
+                            Text("Inspect").font(.ui(size: 9, weight: .semibold))
                         }
                         .padding(.horizontal, 7)
                         .padding(.vertical, 3)
@@ -777,13 +772,13 @@ extension ContentView {
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .explain(row.kind == "FPS MISMATCH"
+                .explain(row.kind == "FPS mismatch"
                          ? "Open the first frame of the pattern in the Player (step with ← → to see it)."
                          : "Open \(row.what) in the Player.")
                 if idx < shown.count - 1 { Rectangle().fill(borderLine.opacity(0.6)).frame(height: 1) }
             }
             if rows.count > shown.count {
-                Text("+ \(rows.count - shown.count) MORE")
+                Text("+ \(rows.count - shown.count) More")
                     .font(.ui(size: 9, weight: .semibold))
                     .foregroundColor(textMuted)
                     .padding(.horizontal, 14)

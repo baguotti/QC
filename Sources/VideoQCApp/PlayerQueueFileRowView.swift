@@ -242,8 +242,8 @@ public struct PlayerQueueFileRowView: View, Equatable {
                 .truncationMode(.middle)
             
             if let info = sequenceInfo, info.isReadAsSequence {
-                Text("SEQ \(info.frameCount)")
-                    .font(.system(size: 7.5, weight: .black, design: .monospaced))
+                Text("Seq \(info.frameCount)")
+                    .font(.ui(size: 7.5, weight: .semibold))
                     .foregroundColor(textMuted)
                     .padding(.horizontal, 3)
                     .padding(.vertical, 1)
@@ -415,8 +415,8 @@ public struct PlayerQueueFileRowView: View, Equatable {
     private var queueActionButtons: some View {
         HStack(spacing: StudioTheme.scale(4)) {
             if isSlotA {
-                Text("A: MASTER")
-                    .font(.system(size: StudioTheme.scaleFont(8), weight: .black, design: .monospaced))
+                Text("A: Master")
+                    .font(.ui(size: StudioTheme.scaleFont(8), weight: .semibold))
                     .padding(.horizontal, StudioTheme.scale(5))
                     .padding(.vertical, displayMode == "inline" ? StudioTheme.scale(2) : StudioTheme.scale(3))
                     .foregroundColor(accentPositive)
@@ -435,8 +435,8 @@ public struct PlayerQueueFileRowView: View, Equatable {
             
             if isSlotB {
                 HStack(spacing: StudioTheme.scale(2)) {
-                    Text("B: COMPARE")
-                        .font(.system(size: StudioTheme.scaleFont(8), weight: .black, design: .monospaced))
+                    Text("B: Compare")
+                        .font(.ui(size: StudioTheme.scaleFont(8), weight: .semibold))
                         .padding(.horizontal, StudioTheme.scale(5))
                         .padding(.vertical, displayMode == "inline" ? StudioTheme.scale(2) : StudioTheme.scale(3))
                         .foregroundColor(accentSlotB)
