@@ -38,7 +38,7 @@ struct AddNotePopoverView: View {
                 // Header Bar
                 HStack(spacing: 8) {
                     Image(systemName: "bubble.left.fill")
-                        .font(.system(size: 13, weight: .bold))
+                        .font(.system(size: StudioTheme.scaleFont(13), weight: .bold))
                         .foregroundColor(palette.textMain)
                     
                     Text("Add Review Note")
@@ -57,7 +57,7 @@ struct AddNotePopoverView: View {
                     
                     Button(action: { dismiss() }) {
                         Image(systemName: "xmark")
-                            .font(.system(size: 10, weight: .bold))
+                            .font(.system(size: StudioTheme.scaleFont(10), weight: .bold))
                             .foregroundColor(palette.textMuted)
                             .frame(width: 20, height: 20)
                     }
@@ -80,7 +80,7 @@ struct AddNotePopoverView: View {
                         
                         HStack {
                             Image(systemName: "person.fill")
-                                .font(.system(size: 10))
+                                .font(.system(size: StudioTheme.scaleFont(10)))
                                 .foregroundColor(palette.textMuted)
                             
                             TextField("Enter your name...", text: $author, prompt: Text("Enter your name...").foregroundColor(isLightMode ? Color(white: 0.35) : Color(white: 0.65)))
@@ -155,7 +155,7 @@ struct AddNotePopoverView: View {
                 // Bottom Actions
                 HStack {
                     Text("Frame \(frameIndex)")
-                        .font(.system(size: 10, design: .monospaced))
+                        .font(.system(size: StudioTheme.scaleFont(10), design: .monospaced))
                         .foregroundColor(palette.textSubtle)
                     
                     Spacer()
@@ -173,7 +173,7 @@ struct AddNotePopoverView: View {
                     Button(action: saveNote) {
                         HStack(spacing: 5) {
                             Image(systemName: "checkmark")
-                                .font(.system(size: 9, weight: .bold))
+                                .font(.system(size: StudioTheme.scaleFont(9), weight: .bold))
                             Text("Save Note (⏎)")
                                 .font(.ui(size: 10, weight: .semibold))
                         }

@@ -159,7 +159,7 @@ public struct PlayerQueuePanelView: View, Equatable {
             if !videoFiles.isEmpty {
                 HStack(spacing: 6) {
                     Image(systemName: "magnifyingglass")
-                        .font(.system(size: 10))
+                        .font(.system(size: StudioTheme.scaleFont(10)))
                         .foregroundColor(textMuted)
                     
                     ZStack(alignment: .leading) {
@@ -181,7 +181,7 @@ public struct PlayerQueuePanelView: View, Equatable {
                     if !playerFilterText.isEmpty {
                         Button(action: { playerFilterText = "" }) {
                             Image(systemName: "xmark.circle.fill")
-                                .font(.system(size: 10))
+                                .font(.system(size: StudioTheme.scaleFont(10)))
                                 .foregroundColor(textMuted)
                         }
                         .buttonStyle(.plain)
@@ -199,125 +199,24 @@ public struct PlayerQueuePanelView: View, Equatable {
             
             // Asset List
             VStack(alignment: .leading, spacing: 6) {
-                HStack(spacing: StudioTheme.scale(5)) {
-                    Text("Queue (\(filteredFiles.count))")
-                        .font(.ui(size: StudioTheme.scaleFont(12), weight: .semibold))
-                        .foregroundColor(textMuted)
-                    
-                    if hasSubfolders && !hideAllFolders {
-                        Button(action: onToggleAllPlayerFolders) {
-                            Image(systemName: playerCollapsedFolderIDs.isEmpty ? "chevron.down.circle" : "chevron.right.circle")
-                                .font(.system(size: StudioTheme.scaleFont(10), weight: .bold))
-                                .foregroundColor(textMuted)
-                        }
-                        .buttonStyle(.plain)
-                        .explain(playerCollapsedFolderIDs.isEmpty ? "Collapse all folders in playback queue." : "Expand all folders in playback queue.")
+                // One row when it fits, otherwise the tools wrap under the title (large Button Size, narrow panel).
+                ViewThatFits(in: .horizontal) {
+                    HStack(spacing: StudioTheme.scale(5)) {
+                        queueTitle
+                        Spacer(minLength: StudioTheme.scale(8))
+                        queueTools
                     }
-                    
-                    Spacer()
-                    
-                    // View Mode Options Popover (Thumbnail View / List View / Thumbnail Size Slider)
-                    Button(action: { showViewOptionsPopover.toggle() }) {
-                        HStack(spacing: StudioTheme.scale(4)) {
-                            Image(systemName: queueDisplayMode == "thumbnail" ? "square.grid.2x2" : "list.bullet")
-                                .font(.system(size: StudioTheme.scaleFont(10.5), weight: .medium))
-                            Image(systemName: "chevron.down")
-                                .font(.system(size: StudioTheme.scaleFont(8), weight: .semibold))
-                        }
-                        .padding(.horizontal, StudioTheme.scale(5))
-                        .frame(height: StudioTheme.scale(26))
-                        .foregroundColor(textMain)
+                    VStack(alignment: .leading, spacing: StudioTheme.scale(4)) {
+                        queueTitle
+                        queueTools
                     }
-                    .buttonStyle(TransportIconButtonStyle())
-                    .explain("Queue display options: Switch between List and Thumbnail view, and adjust thumbnail size.")
-                    .popover(isPresented: $showViewOptionsPopover, arrowEdge: .bottom) {
-                        viewOptionsPopoverContent
-                    }
-                    
-                    // Hide / Show Folders Toggle (Moved before Autoplay)
-                    let isHidden = hideAllFolders || !hiddenFolderIDs.isEmpty
-                    let canToggle = hasSubfolders || !videoFiles.isEmpty
-                    Button(action: onToggleHideFolders) {
-                        HStack(spacing: StudioTheme.scale(4)) {
-                            Image(systemName: isHidden ? "folder" : "folder.badge.minus")
-                                .font(.system(size: StudioTheme.scaleFont(10.5), weight: .medium))
-                            SlotText(
-                                isHidden ? "Show" : "Hide",
-                                mode: .word,
-                                direction: .up,
-                                font: .ui(size: StudioTheme.scaleFont(11), weight: .medium),
-                                foregroundColor: canToggle ? (isHidden ? accentBlue : textMain) : textSubtle,
-                                tracking: 0,
-                                stagger: 0.018,
-                                rollDistance: 12,
-                                trigger: isHidden
-                            )
-                        }
-                        .padding(.horizontal, StudioTheme.scale(5))
-                        .frame(height: StudioTheme.scale(26))
-                        .foregroundColor(canToggle ? (isHidden ? accentBlue : textMain) : textSubtle)
-                    }
-                    .buttonStyle(TransportIconButtonStyle())
-                    .fixedSize()
-                    .disabled(isScanning || !canToggle)
-                    .explain(isHidden ? "Show all folder headers in asset lists." : "Hide folder headers and display assets in a flat list.")
-                    
-                    // Autoplay Toggle Button
-                    Button(action: onToggleAutoplay) {
-                        HStack(spacing: StudioTheme.scale(4)) {
-                            Image(systemName: isAutoplayEnabled ? "play.fill" : "play.slash.fill")
-                                .font(.system(size: StudioTheme.scaleFont(10.5), weight: .medium))
-                            SlotText(
-                                "Auto",
-                                mode: .word,
-                                direction: .up,
-                                font: .ui(size: StudioTheme.scaleFont(11), weight: .medium),
-                                foregroundColor: isAutoplayEnabled ? accentBlue : textMuted,
-                                tracking: 0,
-                                stagger: 0.018,
-                                rollDistance: 12,
-                                trigger: isAutoplayEnabled
-                            )
-                        }
-                        .padding(.horizontal, StudioTheme.scale(5))
-                        .frame(height: StudioTheme.scale(26))
-                        .foregroundColor(isAutoplayEnabled ? accentBlue : textMuted)
-                    }
-                    .buttonStyle(TransportIconButtonStyle())
-                    .fixedSize()
-                    .explain(isAutoplayEnabled ? "Autoplay: ON (Videos play from start when clicked or navigating with ↑/↓) [A]" : "Autoplay: OFF (Videos load paused at frame 0) [A]")
-                    
-                    // Waveform Toggle: audio is only decoded for the timeline when this is on
-                    Button(action: onToggleWaveforms) {
-                        HStack(spacing: StudioTheme.scale(4)) {
-                            Image(systemName: "waveform")
-                                .font(.system(size: StudioTheme.scaleFont(10.5), weight: .medium))
-                            SlotText(
-                                "Wave",
-                                mode: .word,
-                                direction: .up,
-                                font: .ui(size: StudioTheme.scaleFont(11), weight: .medium),
-                                foregroundColor: drawsWaveforms ? accentBlue : textMuted,
-                                tracking: 0,
-                                stagger: 0.018,
-                                rollDistance: 12,
-                                trigger: drawsWaveforms
-                            )
-                        }
-                        .padding(.horizontal, StudioTheme.scale(5))
-                        .frame(height: StudioTheme.scale(26))
-                        .foregroundColor(drawsWaveforms ? accentBlue : textMuted)
-                    }
-                    .buttonStyle(TransportIconButtonStyle())
-                    .fixedSize()
-                    .explain(drawsWaveforms ? "Waveform: ON (audio waveform under the timeline; scroll over it to resize) [W]" : "Waveform: OFF (click to draw the audio waveform under the timeline) [W]")
                 }
                 
                 if videoFiles.isEmpty {
                     VStack(spacing: 8) {
                         Spacer()
                         Image(systemName: "video")
-                            .font(.system(size: 24))
+                            .font(.system(size: StudioTheme.scaleFont(24)))
                             .foregroundColor(textMuted)
                         Text("No Video Files Loaded")
                             .font(.ui(size: 10, weight: .semibold))
@@ -384,6 +283,128 @@ public struct PlayerQueuePanelView: View, Equatable {
         }
     }
     
+    private var queueTitle: some View {
+        HStack(spacing: StudioTheme.scale(5)) {
+            Text("Queue (\(filteredFiles.count))")
+                .font(.ui(size: 12, weight: .semibold))
+                .foregroundColor(textMuted)
+            
+            if hasSubfolders && !hideAllFolders {
+                Button(action: onToggleAllPlayerFolders) {
+                    Image(systemName: playerCollapsedFolderIDs.isEmpty ? "chevron.down.circle" : "chevron.right.circle")
+                        .font(.system(size: StudioTheme.scaleFont(10), weight: .bold))
+                        .foregroundColor(textMuted)
+                }
+                .buttonStyle(.plain)
+                .explain(playerCollapsedFolderIDs.isEmpty ? "Collapse all folders in playback queue." : "Expand all folders in playback queue.")
+            }
+            
+        }
+        .fixedSize()
+    }
+    
+    private var queueTools: some View {
+        HStack(spacing: StudioTheme.scale(5)) {
+            
+            // View Mode Options Popover (Thumbnail View / List View / Thumbnail Size Slider)
+            Button(action: { showViewOptionsPopover.toggle() }) {
+                HStack(spacing: StudioTheme.scale(4)) {
+                    Image(systemName: queueDisplayMode == "thumbnail" ? "square.grid.2x2" : "list.bullet")
+                        .font(.system(size: StudioTheme.scaleFont(10.5), weight: .medium))
+                    Image(systemName: "chevron.down")
+                        .font(.system(size: StudioTheme.scaleFont(8), weight: .semibold))
+                }
+                .padding(.horizontal, StudioTheme.scale(5))
+                .frame(height: StudioTheme.scale(26))
+                .foregroundColor(textMain)
+            }
+            .buttonStyle(TransportIconButtonStyle())
+            .explain("Queue display options: Switch between List and Thumbnail view, and adjust thumbnail size.")
+            .popover(isPresented: $showViewOptionsPopover, arrowEdge: .bottom) {
+                viewOptionsPopoverContent
+            }
+            
+            // Hide / Show Folders Toggle (Moved before Autoplay)
+            let isHidden = hideAllFolders || !hiddenFolderIDs.isEmpty
+            let canToggle = hasSubfolders || !videoFiles.isEmpty
+            Button(action: onToggleHideFolders) {
+                HStack(spacing: StudioTheme.scale(4)) {
+                    Image(systemName: isHidden ? "folder" : "folder.badge.minus")
+                        .font(.system(size: StudioTheme.scaleFont(10.5), weight: .medium))
+                    SlotText(
+                        isHidden ? "Show" : "Hide",
+                        mode: .word,
+                        direction: .up,
+                        font: .ui(size: 11, weight: .medium),
+                        foregroundColor: canToggle ? (isHidden ? accentBlue : textMain) : textSubtle,
+                        tracking: 0,
+                        stagger: 0.018,
+                        rollDistance: 12,
+                        trigger: isHidden
+                    )
+                }
+                .padding(.horizontal, StudioTheme.scale(5))
+                .frame(height: StudioTheme.scale(26))
+                .foregroundColor(canToggle ? (isHidden ? accentBlue : textMain) : textSubtle)
+            }
+            .buttonStyle(TransportIconButtonStyle())
+            .fixedSize()
+            .disabled(isScanning || !canToggle)
+            .explain(isHidden ? "Show all folder headers in asset lists." : "Hide folder headers and display assets in a flat list.")
+            
+            // Autoplay Toggle Button
+            Button(action: onToggleAutoplay) {
+                HStack(spacing: StudioTheme.scale(4)) {
+                    Image(systemName: isAutoplayEnabled ? "play.fill" : "play.slash.fill")
+                        .font(.system(size: StudioTheme.scaleFont(10.5), weight: .medium))
+                    SlotText(
+                        "Auto",
+                        mode: .word,
+                        direction: .up,
+                        font: .ui(size: 11, weight: .medium),
+                        foregroundColor: isAutoplayEnabled ? accentBlue : textMuted,
+                        tracking: 0,
+                        stagger: 0.018,
+                        rollDistance: 12,
+                        trigger: isAutoplayEnabled
+                    )
+                }
+                .padding(.horizontal, StudioTheme.scale(5))
+                .frame(height: StudioTheme.scale(26))
+                .foregroundColor(isAutoplayEnabled ? accentBlue : textMuted)
+            }
+            .buttonStyle(TransportIconButtonStyle())
+            .fixedSize()
+            .explain(isAutoplayEnabled ? "Autoplay: ON (Videos play from start when clicked or navigating with ↑/↓) [A]" : "Autoplay: OFF (Videos load paused at frame 0) [A]")
+            
+            // Waveform Toggle: audio is only decoded for the timeline when this is on
+            Button(action: onToggleWaveforms) {
+                HStack(spacing: StudioTheme.scale(4)) {
+                    Image(systemName: "waveform")
+                        .font(.system(size: StudioTheme.scaleFont(10.5), weight: .medium))
+                    SlotText(
+                        "Wave",
+                        mode: .word,
+                        direction: .up,
+                        font: .ui(size: 11, weight: .medium),
+                        foregroundColor: drawsWaveforms ? accentBlue : textMuted,
+                        tracking: 0,
+                        stagger: 0.018,
+                        rollDistance: 12,
+                        trigger: drawsWaveforms
+                    )
+                }
+                .padding(.horizontal, StudioTheme.scale(5))
+                .frame(height: StudioTheme.scale(26))
+                .foregroundColor(drawsWaveforms ? accentBlue : textMuted)
+            }
+            .buttonStyle(TransportIconButtonStyle())
+            .fixedSize()
+            .explain(drawsWaveforms ? "Waveform: ON (audio waveform under the timeline; scroll over it to resize) [W]" : "Waveform: OFF (click to draw the audio waveform under the timeline) [W]")
+        }
+        .fixedSize()
+    }
+    
     private var deliveryAssetsSection: some View {
         AssetSourcePanel(folderURL: folderURL, files: videoFiles, isBusy: isScanning, isLightMode: isLightMode,
                          onSelect: onSelectAssets, onRefresh: onRefreshAssets)
@@ -394,12 +415,12 @@ public struct PlayerQueuePanelView: View, Equatable {
         
         return HStack(spacing: 6) {
             Image(systemName: isCollapsed ? "chevron.right" : "chevron.down")
-                .font(.system(size: 9, weight: .bold))
+                .font(.system(size: StudioTheme.scaleFont(9), weight: .bold))
                 .foregroundColor(textMuted)
                 .frame(width: 12)
             
             Image(systemName: "folder")
-                .font(.system(size: 11, weight: .medium))
+                .font(.system(size: StudioTheme.scaleFont(11), weight: .medium))
                 .foregroundColor(textSubtle)
                 .frame(width: 14, height: 14)
             
@@ -496,18 +517,18 @@ public struct PlayerQueuePanelView: View, Equatable {
                 HStack(spacing: 7) {
                     if queueDisplayMode == "thumbnail" {
                         Image(systemName: "checkmark")
-                            .font(.system(size: 9.5, weight: .bold))
+                            .font(.system(size: StudioTheme.scaleFont(9.5), weight: .bold))
                             .foregroundColor(textMain)
                             .frame(width: 14, alignment: .center)
                     } else {
                         Spacer().frame(width: 14)
                     }
                     Image(systemName: "square.grid.2x2")
-                        .font(.system(size: 11, weight: .medium))
+                        .font(.system(size: StudioTheme.scaleFont(11), weight: .medium))
                         .foregroundColor(textMain)
                         .frame(width: 16, alignment: .center)
                     Text("Thumbnail View")
-                        .font(.system(size: 11.5, weight: .medium))
+                        .font(.system(size: StudioTheme.scaleFont(11.5), weight: .medium))
                         .foregroundColor(textMain)
                     Spacer()
                 }
@@ -524,18 +545,18 @@ public struct PlayerQueuePanelView: View, Equatable {
                 HStack(spacing: 7) {
                     if queueDisplayMode == "inline" {
                         Image(systemName: "checkmark")
-                            .font(.system(size: 9.5, weight: .bold))
+                            .font(.system(size: StudioTheme.scaleFont(9.5), weight: .bold))
                             .foregroundColor(textMain)
                             .frame(width: 14, alignment: .center)
                     } else {
                         Spacer().frame(width: 14)
                     }
                     Image(systemName: "list.bullet")
-                        .font(.system(size: 11, weight: .medium))
+                        .font(.system(size: StudioTheme.scaleFont(11), weight: .medium))
                         .foregroundColor(textMain)
                         .frame(width: 16, alignment: .center)
                     Text("List View")
-                        .font(.system(size: 11.5, weight: .medium))
+                        .font(.system(size: StudioTheme.scaleFont(11.5), weight: .medium))
                         .foregroundColor(textMain)
                     Spacer()
                 }

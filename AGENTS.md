@@ -218,6 +218,11 @@
 
 ---
 
+## 8g. Type Scale & Button Size
+
+- All UI text uses `Font.ui(size:weight:)`, which snaps to six sizes (`TypeScale`: 10 caption, 11 small, 12 body, 13 emphasis, 15 title, 22 large title) and multiplies by the Button Size factor (Small 1.0, Medium 1.2, Large 1.25). Never pass `StudioTheme.scaleFont` into `.ui` (double scaling); `.system(size:)` fonts (icons, monospaced) go through `StudioTheme.scaleFont`.
+- Bars that can run out of width degrade instead of clipping: the timecode bar's Notes/Tags/Missed Line drop to icons (`ViewThatFits`), the queue tools wrap under "Queue (n)", Inspect stats sit on their own row. Check all three Button Sizes when changing a toolbar.
+
 ## 9. Pre-Commit Checklist for Future Amends
 
 Before committing any changes affecting `VideoViewportView.swift`, `PlayerEngine.swift`, `PlayerTransportDeckView.swift`, or `KeyboardShortcutRouter.swift`:

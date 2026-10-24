@@ -35,11 +35,28 @@ enum AppTab: Int, CaseIterable, Identifiable {
 
 // MARK: - Typography
 
+/// The app's type scale. Every `Font.ui` size snaps to one of six steps (10 caption, 11 small, 12 body, 13 emphasis,
+/// 15 title, 22 large title) and grows with the Button Size setting, so text, icons and spacing scale together.
+enum TypeScale {
+    /// Button Size factor; written by `ThemeManager` on the main thread, read while building fonts.
+    nonisolated(unsafe) static var factor: CGFloat = 1
+
+    static func snap(_ size: CGFloat) -> CGFloat {
+        switch size {
+        case ..<10: return 10
+        case ..<11.5: return 11
+        case ..<13: return 12
+        case ..<15: return 13
+        case ..<20: return 15
+        default: return 22
+        }
+    }
+}
+
 extension Font {
-    /// Body/UI text: SF Pro (Finder style) with tabular digits so values stay aligned.
-    /// Titles (heavy/black weights, section headers, tabs) and timecodes keep SF Mono.
+    /// Body/UI text: SF Pro (Finder style) with tabular digits so values stay aligned, on the app's type scale.
     public static func ui(size: CGFloat, weight: Font.Weight = .regular) -> Font {
-        .system(size: size, weight: weight).monospacedDigit()
+        .system(size: (TypeScale.snap(size) * TypeScale.factor).rounded(), weight: weight).monospacedDigit()
     }
 }
 

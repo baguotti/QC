@@ -44,7 +44,7 @@ struct UpdateModalView: View {
                 HStack {
                     HStack(spacing: 8) {
                         Image(systemName: "arrow.triangle.2.circlepath.circle.fill")
-                            .font(.system(size: 13))
+                            .font(.system(size: StudioTheme.scaleFont(13)))
                             .foregroundColor(textMain)
                         Text("Software Update")
                             .font(.ui(size: 12, weight: .semibold))
@@ -153,7 +153,7 @@ struct UpdateModalView: View {
             HStack(spacing: 8) {
                 Image(systemName: "checkmark.circle.fill")
                     .foregroundColor(accentPositive)
-                    .font(.system(size: 20))
+                    .font(.system(size: StudioTheme.scaleFont(20)))
                 Text("You are on the latest version")
                     .font(.ui(size: 12, weight: .semibold))
                     .foregroundColor(textMain)
@@ -225,7 +225,7 @@ struct UpdateModalView: View {
                     Button(action: { updateManager.startOneClickUpdate() }) {
                         HStack(spacing: 6) {
                             Image(systemName: "bolt.fill")
-                                .font(.system(size: 11))
+                                .font(.system(size: StudioTheme.scaleFont(11)))
                             Text("Update & Restart")
                                 .font(.ui(size: 11, weight: .semibold))
                         }
@@ -238,7 +238,7 @@ struct UpdateModalView: View {
                     Button(action: { updateManager.downloadDMGManually() }) {
                         HStack(spacing: 4) {
                             Image(systemName: "arrow.down.circle")
-                                .font(.system(size: 10))
+                                .font(.system(size: StudioTheme.scaleFont(10)))
                             Text("Manual DMG")
                                 .font(.ui(size: 10, weight: .semibold))
                         }
@@ -255,7 +255,7 @@ struct UpdateModalView: View {
                     }) {
                         HStack(spacing: 6) {
                             Image(systemName: "arrow.up.right.square")
-                                .font(.system(size: 11))
+                                .font(.system(size: StudioTheme.scaleFont(11)))
                             Text("View GitHub Release")
                                 .font(.ui(size: 11, weight: .semibold))
                         }
@@ -357,7 +357,7 @@ struct UpdateModalView: View {
             HStack(spacing: 8) {
                 Image(systemName: "checkmark.seal.fill")
                     .foregroundColor(accentPositive)
-                    .font(.system(size: 18))
+                    .font(.system(size: StudioTheme.scaleFont(18)))
                 
                 Text("Disk Image Downloaded & Mounted")
                     .font(.ui(size: 12, weight: .semibold))
@@ -394,7 +394,7 @@ struct UpdateModalView: View {
                 Button(action: { updateManager.quitAppToReplace() }) {
                     HStack(spacing: 6) {
                         Image(systemName: "power")
-                            .font(.system(size: 11))
+                            .font(.system(size: StudioTheme.scaleFont(11)))
                         Text("Quit QCpie to Replace")
                             .font(.ui(size: 11, weight: .semibold))
                     }
@@ -430,7 +430,7 @@ struct UpdateModalView: View {
             HStack(spacing: 8) {
                 Image(systemName: "exclamationmark.triangle.fill")
                     .foregroundColor(accentNegative)
-                    .font(.system(size: 16))
+                    .font(.system(size: StudioTheme.scaleFont(16)))
                 
                 Text("Update Check Notice")
                     .font(.ui(size: 12, weight: .semibold))

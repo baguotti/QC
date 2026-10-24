@@ -535,7 +535,7 @@ public struct PropertiesModalView: View {
                             .frame(width: 12, height: 12)
                             .overlay(
                                 Image(systemName: "xmark")
-                                    .font(.system(size: 7, weight: .black))
+                                    .font(.system(size: StudioTheme.scaleFont(7), weight: .black))
                                     .foregroundColor(Color.black.opacity(0.6))
                                     .opacity(0.8)
                             )
@@ -602,7 +602,7 @@ public struct PropertiesModalView: View {
                     VStack(spacing: 12) {
                         Spacer()
                         Image(systemName: "exclamationmark.triangle")
-                            .font(.system(size: 28))
+                            .font(.system(size: StudioTheme.scaleFont(28)))
                             .foregroundColor(palette.textMuted)
                         Text("Unable to load Media info")
                             .font(.ui(size: 12, weight: .semibold))
@@ -814,7 +814,7 @@ public struct PropertiesModalView: View {
                     copyToClipboard(value)
                 }) {
                     Image(systemName: "doc.on.doc")
-                        .font(.system(size: 9, weight: .bold))
+                        .font(.system(size: StudioTheme.scaleFont(9), weight: .bold))
                         .foregroundColor(palette.textSubtle)
                 }
                 .buttonStyle(.plain)
@@ -836,7 +836,7 @@ public struct PropertiesModalView: View {
                 }) {
                     HStack(spacing: 4) {
                         Image(systemName: "doc.on.doc")
-                            .font(.system(size: 9, weight: .bold))
+                            .font(.system(size: StudioTheme.scaleFont(9), weight: .bold))
                         Text("Copy Specs")
                             .font(.ui(size: 9, weight: .semibold))
                     }
@@ -854,7 +854,7 @@ public struct PropertiesModalView: View {
                 }) {
                     HStack(spacing: 4) {
                         Image(systemName: "folder")
-                            .font(.system(size: 9, weight: .bold))
+                            .font(.system(size: StudioTheme.scaleFont(9), weight: .bold))
                         Text("Reveal")
                             .font(.ui(size: 9, weight: .semibold))
                     }

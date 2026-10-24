@@ -164,7 +164,7 @@ struct NotesDrawerPanelView: View {
                             if tab == .notes && newSyncedNotesCount > 0 && !isSelected {
                                 HStack(spacing: 2) {
                                     Image(systemName: "icloud.and.arrow.down")
-                                        .font(.system(size: 8, weight: .bold))
+                                        .font(.system(size: StudioTheme.scaleFont(8), weight: .bold))
                                     Text("+\(newSyncedNotesCount)")
                                         .font(.ui(size: 9, weight: .semibold))
                                 }
@@ -218,7 +218,7 @@ struct NotesDrawerPanelView: View {
             // Close 'X' Button
             Button(action: { withAnimation(.spring(response: 0.32, dampingFraction: 0.78)) { isPresented = false } }) {
                 Image(systemName: "xmark")
-                    .font(.system(size: 10, weight: .bold))
+                    .font(.system(size: StudioTheme.scaleFont(10), weight: .bold))
                     .foregroundColor(palette.textMuted)
                     .padding(6)
                     .contentShape(Rectangle())
@@ -259,7 +259,7 @@ struct NotesDrawerPanelView: View {
                     Button(action: { showClearConfirmation = true }) {
                         HStack(spacing: 3) {
                             Image(systemName: "trash")
-                                .font(.system(size: 7.5, weight: .bold))
+                                .font(.system(size: StudioTheme.scaleFont(7.5), weight: .bold))
                             Text("Clear All")
                                 .font(.ui(size: 8, weight: .semibold))
                                 .lineLimit(1)
@@ -276,7 +276,7 @@ struct NotesDrawerPanelView: View {
                 Button(action: onAddNote) {
                     HStack(spacing: 3) {
                         Image(systemName: "plus")
-                            .font(.system(size: 7.5, weight: .bold))
+                            .font(.system(size: StudioTheme.scaleFont(7.5), weight: .bold))
                         Text("Add (N)")
                             .font(.ui(size: 8, weight: .semibold))
                             .lineLimit(1)
@@ -301,13 +301,13 @@ struct NotesDrawerPanelView: View {
                 VStack(spacing: 12) {
                     Spacer()
                     Image(systemName: "note.text")
-                        .font(.system(size: 28))
+                        .font(.system(size: StudioTheme.scaleFont(28)))
                         .foregroundColor(palette.textMuted.opacity(0.5))
                     Text("No Review Notes")
                         .font(.ui(size: 11, weight: .semibold))
                         .foregroundColor(palette.textMain)
                     Text("Pause on any frame and type below or press N to log a timecoded note.")
-                        .font(.system(size: 10, design: .monospaced))
+                        .font(.system(size: StudioTheme.scaleFont(10), design: .monospaced))
                         .foregroundColor(palette.textSubtle)
                         .multilineTextAlignment(.center)
                         .padding(.horizontal, 20)
@@ -380,13 +380,13 @@ struct NotesDrawerPanelView: View {
                 } label: {
                     HStack(spacing: 4) {
                         Image(systemName: "square.and.arrow.up")
-                            .font(.system(size: 9, weight: .bold))
+                            .font(.system(size: StudioTheme.scaleFont(9), weight: .bold))
                             .foregroundColor(palette.textMain)
                         Text("Export")
                             .font(.ui(size: 9, weight: .semibold))
                             .foregroundColor(palette.textMain)
                         Image(systemName: "chevron.down")
-                            .font(.system(size: 7, weight: .bold))
+                            .font(.system(size: StudioTheme.scaleFont(7), weight: .bold))
                             .foregroundColor(palette.textMain)
                     }
                     .padding(.horizontal, 8)
@@ -402,7 +402,7 @@ struct NotesDrawerPanelView: View {
                 Button(action: onImportNotes) {
                     HStack(spacing: 4) {
                         Image(systemName: "square.and.arrow.down")
-                            .font(.system(size: 9, weight: .bold))
+                            .font(.system(size: StudioTheme.scaleFont(9), weight: .bold))
                         Text("Import")
                             .font(.ui(size: 9, weight: .semibold))
                     }
@@ -459,7 +459,7 @@ struct NotesDrawerPanelView: View {
                 VStack(spacing: 10) {
                     Spacer()
                     Image(systemName: "info.circle")
-                        .font(.system(size: 26))
+                        .font(.system(size: StudioTheme.scaleFont(26)))
                         .foregroundColor(palette.textMuted.opacity(0.4))
                     Text("No Media Loaded")
                         .font(.ui(size: 11, weight: .semibold))
@@ -597,7 +597,7 @@ struct NotesDrawerPanelView: View {
                             onToast("Copied file name")
                         }) {
                             Image(systemName: "doc.on.doc")
-                                .font(.system(size: 8.5, weight: .bold))
+                                .font(.system(size: StudioTheme.scaleFont(8.5), weight: .bold))
                                 .foregroundColor(palette.textSubtle)
                         }
                         .buttonStyle(.plain)
@@ -621,7 +621,7 @@ struct NotesDrawerPanelView: View {
                                 }) {
                                     HStack(spacing: 3) {
                                         Image(systemName: "doc.on.doc")
-                                            .font(.system(size: 8))
+                                            .font(.system(size: StudioTheme.scaleFont(8)))
                                         Text("Copy")
                                             .font(.ui(size: 8, weight: .semibold))
                                     }
@@ -640,7 +640,7 @@ struct NotesDrawerPanelView: View {
                             Button(action: { revealInFinder(url) }) {
                                 HStack(alignment: .center, spacing: 6) {
                                     Image(systemName: "folder.fill")
-                                        .font(.system(size: 9.5))
+                                        .font(.system(size: StudioTheme.scaleFont(9.5)))
                                         .foregroundColor(palette.accentBlue)
                                     
                                     Text(url.path)
@@ -654,7 +654,7 @@ struct NotesDrawerPanelView: View {
                                     Spacer(minLength: 4)
                                     
                                     Image(systemName: "arrow.up.right")
-                                        .font(.system(size: 8, weight: .bold))
+                                        .font(.system(size: StudioTheme.scaleFont(8), weight: .bold))
                                         .foregroundColor(palette.textMuted)
                                 }
                                 .padding(.horizontal, 8)
@@ -738,7 +738,7 @@ struct NotesDrawerPanelView: View {
                     onToast("Copied \(label.replacingOccurrences(of: ":", with: ""))")
                 }) {
                     Image(systemName: "doc.on.doc")
-                        .font(.system(size: 8.5, weight: .bold))
+                        .font(.system(size: StudioTheme.scaleFont(8.5), weight: .bold))
                         .foregroundColor(palette.textSubtle)
                 }
                 .buttonStyle(.plain)
@@ -807,7 +807,7 @@ struct NotesDrawerPanelView: View {
                 }) {
                     HStack(spacing: 3) {
                         Image(systemName: "doc.on.doc")
-                            .font(.system(size: 8.5, weight: .bold))
+                            .font(.system(size: StudioTheme.scaleFont(8.5), weight: .bold))
                         Text("Specs")
                             .font(.ui(size: 8.5, weight: .semibold))
                     }
@@ -826,7 +826,7 @@ struct NotesDrawerPanelView: View {
                 }) {
                     HStack(spacing: 3) {
                         Image(systemName: "folder")
-                            .font(.system(size: 8.5, weight: .bold))
+                            .font(.system(size: StudioTheme.scaleFont(8.5), weight: .bold))
                         Text("Reveal")
                             .font(.ui(size: 8.5, weight: .semibold))
                     }
@@ -854,7 +854,7 @@ struct NotesDrawerPanelView: View {
             HStack(spacing: 6) {
                 HStack(spacing: 3.5) {
                     Image(systemName: "clock.fill")
-                        .font(.system(size: 7.5))
+                        .font(.system(size: StudioTheme.scaleFont(7.5)))
                     PlaybackClockText(
                         clock: clock,
                         value: .timecode,
@@ -913,7 +913,7 @@ struct NotesDrawerPanelView: View {
                 let canSubmit = !inlineNoteText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                 Button(action: submitInlineNote) {
                     Image(systemName: "arrow.up.circle.fill")
-                        .font(.system(size: 16, weight: .semibold))
+                        .font(.system(size: StudioTheme.scaleFont(16), weight: .semibold))
                         .foregroundColor(canSubmit ? colorForTag(inlineSelectedColor) : palette.textMuted.opacity(0.35))
                 }
                 .buttonStyle(.plain)
@@ -986,7 +986,7 @@ struct NotesDrawerPanelView: View {
                 Button(action: { onSeekToFrame(note.frameIndex) }) {
                     HStack(spacing: 3) {
                         Image(systemName: "play.fill")
-                            .font(.system(size: 6))
+                            .font(.system(size: StudioTheme.scaleFont(6)))
                         SlotText(
                             note.timecode,
                             mode: .character,
@@ -1016,7 +1016,7 @@ struct NotesDrawerPanelView: View {
                 // Resolved Checkbox
                 Button(action: { onToggleResolved(note.id) }) {
                     Image(systemName: note.isResolved ? "checkmark.circle.fill" : "circle")
-                        .font(.system(size: 11))
+                        .font(.system(size: StudioTheme.scaleFont(11)))
                         .foregroundColor(note.isResolved ? palette.accentPositive : palette.textMuted)
                 }
                 .buttonStyle(.plain)
@@ -1029,7 +1029,7 @@ struct NotesDrawerPanelView: View {
                     editingNoteID = note.id
                 }) {
                     Image(systemName: "pencil")
-                        .font(.system(size: 9))
+                        .font(.system(size: StudioTheme.scaleFont(9)))
                         .foregroundColor(palette.textMuted)
                 }
                 .buttonStyle(.plain)
@@ -1038,7 +1038,7 @@ struct NotesDrawerPanelView: View {
                 // Delete Button
                 Button(action: { onDeleteNote(note.id) }) {
                     Image(systemName: "trash")
-                        .font(.system(size: 9))
+                        .font(.system(size: StudioTheme.scaleFont(9)))
                         .foregroundColor(palette.textMuted)
                 }
                 .buttonStyle(.plain)
@@ -1073,7 +1073,7 @@ struct NotesDrawerPanelView: View {
                         Button(action: { item.open() }) {
                             HStack(spacing: 4) {
                                 Image(systemName: item.iconName)
-                                    .font(.system(size: 8, weight: .bold))
+                                    .font(.system(size: StudioTheme.scaleFont(8), weight: .bold))
                                 Text(item.label)
                                     .font(.ui(size: 8.5, weight: .semibold))
                                     .lineLimit(1)
@@ -1242,7 +1242,7 @@ struct NotesDrawerPanelView: View {
             }) {
                 HStack(spacing: 3) {
                     Image(systemName: "arrowshape.turn.up.left")
-                        .font(.system(size: 8, weight: .bold))
+                        .font(.system(size: StudioTheme.scaleFont(8), weight: .bold))
                     Text(note.replies.isEmpty ? "Reply" : "Reply (\(note.replies.count))")
                         .font(.ui(size: 8, weight: .semibold))
                 }
@@ -1382,7 +1382,7 @@ private struct NotesSyncProjectBar: View {
             VStack(spacing: 0) {
                 HStack(spacing: 6) {
                     Image(systemName: "icloud")
-                        .font(.system(size: 9, weight: .bold))
+                        .font(.system(size: StudioTheme.scaleFont(9), weight: .bold))
                         .foregroundColor(palette.textMuted)
                     Text("Sync")
                         .font(.ui(size: 8, weight: .semibold))

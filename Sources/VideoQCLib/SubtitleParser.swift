@@ -51,11 +51,13 @@ public enum SubtitleParser {
     public static func loadFile(from url: URL) throws -> SubtitleFile {
         let data = try Data(contentsOf: url)
         let utf8 = String(data: data, encoding: .utf8)
-        let text = utf8 ?? String(data: data, encoding: .windowsCP1252) ?? String(decoding: data, as: UTF8.self)
+        // UTF-16 files (some subtitle tools' default) start with a byte-order mark; read them as such, not as CP1252.
+        let utf16 = data.starts(with: [0xFF, 0xFE]) || data.starts(with: [0xFE, 0xFF]) ? String(data: data, encoding: .utf16) : nil
+        let text = utf8 ?? utf16 ?? String(data: data, encoding: .windowsCP1252) ?? String(decoding: data, as: UTF8.self)
         let format = SubtitleFileFormat(
             usesCRLF: text.contains("\r\n"),
             hasBOM: data.starts(with: [0xEF, 0xBB, 0xBF]),
-            isUTF8: utf8 != nil
+            isUTF8: utf8 != nil || utf16 != nil   // UTF-16 files are saved back as UTF-8
         )
         return SubtitleFile(cues: parseSRT(text), format: format)
     }

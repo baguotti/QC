@@ -88,11 +88,27 @@ final class SubtitleSpellingModel: ObservableObject {
     private var task: Task<Void, Never>?
     private let documentTag = NSSpellChecker.uniqueSpellDocumentTag()
 
+    static let languageKey = "subtitleSpellLanguage"
+
+    /// Uses the chosen dictionary ("" = detect the language automatically) for this check and for the line editor's
+    /// live underlines, which share the system spellchecker.
+    static func applyLanguage(_ language: String) {
+        let checker = NSSpellChecker.shared
+        if language.isEmpty {
+            checker.automaticallyIdentifiesLanguages = true
+        } else {
+            checker.automaticallyIdentifiesLanguages = false
+            checker.setLanguage(language)
+        }
+    }
+
     func recheck(_ cues: [SubtitleCue], delay: Duration = .milliseconds(350)) {
         task?.cancel()
         task = Task { @MainActor [weak self] in
             try? await Task.sleep(for: delay)
             guard let self, !Task.isCancelled else { return }
+            let language = UserDefaults.standard.string(forKey: Self.languageKey) ?? ""
+            Self.applyLanguage(language)
             var result: [Int: [NSRange]] = [:]
             for (index, cue) in cues.enumerated() {
                 if Task.isCancelled { return }
@@ -125,6 +141,7 @@ struct SubtitlesPanelView: View {
 
     @StateObject private var tracker = SubtitleCueTracker()
     @StateObject private var spelling = SubtitleSpellingModel()
+    @AppStorage(SubtitleSpellingModel.languageKey) private var spellLanguage: String = ""
 
     /// Line open in the editor (double-click, or find / spelling navigation).
     @State private var selectedIndex: Int? = nil
@@ -205,10 +222,12 @@ struct SubtitlesPanelView: View {
             }
             Spacer(minLength: 4)
 
+            spellLanguageMenu
+
             Button(action: goToNextIssue) {
                 HStack(spacing: 3) {
                     Image(systemName: spelling.issueCount == 0 ? "checkmark.seal" : "text.badge.xmark")
-                        .font(.system(size: 9, weight: .bold))
+                        .font(.system(size: StudioTheme.scaleFont(9), weight: .bold))
                     Text(spelling.issueCount == 0 ? "Spelling OK" : "\(spelling.issueCount) typo\(spelling.issueCount == 1 ? "" : "s")")
                         .font(.ui(size: 8.5, weight: .semibold))
                 }
@@ -248,7 +267,7 @@ struct SubtitlesPanelView: View {
                     .disabled(engine.subtitlePosition == PlayerEngine.defaultSubtitlePosition)
             } label: {
                 Image(systemName: "ellipsis.circle")
-                    .font(.system(size: 11))
+                    .font(.system(size: StudioTheme.scaleFont(11)))
                     .foregroundColor(palette.textMuted)
             }
             .menuStyle(.borderlessButton)
@@ -267,7 +286,7 @@ struct SubtitlesPanelView: View {
             HStack(spacing: 5) {
                 fieldBox {
                     Image(systemName: "magnifyingglass")
-                        .font(.system(size: 9))
+                        .font(.system(size: StudioTheme.scaleFont(9)))
                         .foregroundColor(palette.textMuted)
                     TextField("Find", text: $query)
                         .textFieldStyle(.plain)
@@ -298,7 +317,7 @@ struct SubtitlesPanelView: View {
             HStack(spacing: 5) {
                 fieldBox {
                     Image(systemName: "arrow.2.squarepath")
-                        .font(.system(size: 9))
+                        .font(.system(size: StudioTheme.scaleFont(9)))
                         .foregroundColor(palette.textMuted)
                     TextField("Replace with", text: $replacement)
                         .textFieldStyle(.plain)
@@ -314,6 +333,29 @@ struct SubtitlesPanelView: View {
         .padding(.horizontal, 10)
         .padding(.vertical, 8)
         .background(palette.bgPanel)
+    }
+
+    /// Spellcheck dictionary: automatic, or any language the Mac has a dictionary for (UK / US English etc.).
+    private var spellLanguageMenu: some View {
+        let languages = NSSpellChecker.shared.availableLanguages
+            .map { (id: $0, name: Locale.current.localizedString(forIdentifier: $0) ?? $0) }
+            .sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+        return Menu {
+            Picker("Spelling Language", selection: $spellLanguage) {
+                Text("Automatic").tag("")
+                Divider()
+                ForEach(languages, id: \.id) { Text($0.name).tag($0.id) }
+            }
+            .pickerStyle(.inline)
+        } label: {
+            Text(spellLanguage.isEmpty ? "Auto" : spellLanguage.replacingOccurrences(of: "_", with: "-"))
+                .font(.ui(size: 9, weight: .semibold))
+                .foregroundColor(palette.textMuted)
+        }
+        .menuStyle(.borderlessButton)
+        .fixedSize()
+        .help("Spelling language for the typo check")
+        .onChange(of: spellLanguage) { _, _ in spelling.recheck(cues, delay: .zero) }
     }
 
     // MARK: Line List
@@ -389,7 +431,7 @@ struct SubtitlesPanelView: View {
                     .font(.ui(size: 9, weight: .semibold))
                     .foregroundColor(palette.accentBlue)
                 Text("\(timecode(cue.start)) → \(timecode(cue.end))")
-                    .font(.system(size: 9, weight: .semibold, design: .monospaced))
+                    .font(.system(size: StudioTheme.scaleFont(9), weight: .semibold, design: .monospaced))
                     .foregroundColor(palette.textMuted)
                 Spacer()
                 Button(action: { deselect() }) {
@@ -563,7 +605,7 @@ struct SubtitlesPanelView: View {
     private func iconButton(_ icon: String, help: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Image(systemName: icon)
-                .font(.system(size: 9, weight: .bold))
+                .font(.system(size: StudioTheme.scaleFont(9), weight: .bold))
                 .frame(width: 22, height: 22)
                 .foregroundColor(palette.textMain)
                 .studioBox(background: palette.bgSubtle, border: palette.borderLine)
@@ -627,12 +669,14 @@ struct SubtitleCueRow: View, Equatable {
                     Spacer(minLength: 0)
                     if !spellingIssues.isEmpty {
                         Image(systemName: "textformat.abc.dottedunderline")
-                            .font(.system(size: 8.5, weight: .bold))
+                            .font(.system(size: StudioTheme.scaleFont(8.5), weight: .bold))
                             .foregroundColor(palette.alertRed)
                     }
                 }
+                // The selected row shows an Edit button in this corner; keep the typo mark clear of it.
+                .padding(.trailing, isSelected ? StudioTheme.scale(46) : 0)
                 Text(attributedText)
-                    .font(.system(size: 11.5, weight: .medium))
+                    .font(.system(size: StudioTheme.scaleFont(11.5), weight: .medium))
                     .foregroundColor(palette.textMain)
                     .fixedSize(horizontal: false, vertical: true)
             }
@@ -665,7 +709,7 @@ struct SubtitleCueRow: View, Equatable {
             let isItalic = covers(styled.italic, a)
             let isBold = covers(styled.bold, a)
             if isItalic || isBold {
-                var font = Font.system(size: 11.5, weight: isBold ? .bold : .medium)
+                var font = Font.system(size: StudioTheme.scaleFont(11.5), weight: isBold ? .bold : .medium)
                 if isItalic { font = font.italic() }
                 piece.font = font
             }

@@ -336,7 +336,7 @@ public enum UIButtonZoomLevel: Int, CaseIterable, Identifiable, Codable, Sendabl
         switch self {
         case .small: return 1.0
         case .medium: return 1.2
-        case .large: return 1.4
+        case .large: return 1.25
         }
     }
 }
@@ -369,6 +369,7 @@ public final class ThemeManager: ObservableObject {
     @Published public var buttonZoom: UIButtonZoomLevel {
         didSet {
             UserDefaults.standard.set(buttonZoom.rawValue, forKey: buttonZoomKey)
+            TypeScale.factor = buttonZoom.scaleFactor
         }
     }
     
@@ -394,7 +395,9 @@ public final class ThemeManager: ObservableObject {
     
     public init() {
         let savedZoom = UserDefaults.standard.integer(forKey: buttonZoomKey)
-        self.buttonZoom = UIButtonZoomLevel(rawValue: savedZoom) ?? .small
+        let zoom = UIButtonZoomLevel(rawValue: savedZoom) ?? .small
+        self.buttonZoom = zoom
+        TypeScale.factor = zoom.scaleFactor
         
         // Load custom user presets
         let loadedUserPresets: [StudioThemeConfig]

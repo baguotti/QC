@@ -75,7 +75,7 @@ struct MediaKindFilterChips: View {
                     if toggled & present != 0 { mask = toggled }
                 }) {
                     Image(systemName: kind.symbolName)
-                        .font(.system(size: 9.5, weight: .semibold))
+                        .font(.system(size: StudioTheme.scaleFont(9.5), weight: .semibold))
                         .frame(width: 20, height: 16)
                         .foregroundColor(isOn ? StudioTheme.textMain(isLightMode) : StudioTheme.textMuted(isLightMode).opacity(0.5))
                         .background(RoundedRectangle(cornerRadius: 3).fill(isOn ? StudioTheme.accentBlue(isLightMode).opacity(0.18) : .clear))

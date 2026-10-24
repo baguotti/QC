@@ -28,7 +28,7 @@ struct ThemeSettingsModalView: View {
                 HStack {
                     HStack(spacing: 8) {
                         Image(systemName: "paintpalette.fill")
-                            .font(.system(size: 13, weight: .bold))
+                            .font(.system(size: StudioTheme.scaleFont(13), weight: .bold))
                             .foregroundColor(themeManager.currentTheme.playColor)
                         Text("Appearance & Theme")
                             .font(.ui(size: 12, weight: .semibold))
@@ -89,7 +89,7 @@ struct ThemeSettingsModalView: View {
                     }) {
                         HStack(spacing: 6) {
                             Image(systemName: "arrow.counterclockwise")
-                                .font(.system(size: 10, weight: .bold))
+                                .font(.system(size: StudioTheme.scaleFont(10), weight: .bold))
                             Text("Reset to Default")
                                 .font(.ui(size: 10, weight: .semibold))
                         }
@@ -154,7 +154,7 @@ struct ThemeSettingsModalView: View {
                 }) {
                     HStack(spacing: 10) {
                         Image(systemName: "moon.stars.fill")
-                            .font(.system(size: 13, weight: .bold))
+                            .font(.system(size: StudioTheme.scaleFont(13), weight: .bold))
                             .foregroundColor(!isLightMode ? themeManager.currentTheme.playColor : palette.textMuted)
                             .frame(width: 20)
                         
@@ -164,7 +164,7 @@ struct ThemeSettingsModalView: View {
                                 .foregroundColor(!isLightMode ? palette.textMain : palette.textMuted)
                             
                             Text("Low-glare studio environment (Default)")
-                                .font(.system(size: 8, weight: .medium))
+                                .font(.system(size: StudioTheme.scaleFont(8), weight: .medium))
                                 .foregroundColor(palette.textSubtle)
                         }
                         
@@ -172,7 +172,7 @@ struct ThemeSettingsModalView: View {
                         
                         if !isLightMode {
                             Image(systemName: "checkmark")
-                                .font(.system(size: 9, weight: .black))
+                                .font(.system(size: StudioTheme.scaleFont(9), weight: .black))
                                 .foregroundColor(themeManager.currentTheme.playColor)
                         }
                     }
@@ -195,7 +195,7 @@ struct ThemeSettingsModalView: View {
                 }) {
                     HStack(spacing: 10) {
                         Image(systemName: "sun.max.fill")
-                            .font(.system(size: 13, weight: .bold))
+                            .font(.system(size: StudioTheme.scaleFont(13), weight: .bold))
                             .foregroundColor(isLightMode ? themeManager.currentTheme.playColor : palette.textMuted)
                             .frame(width: 20)
                         
@@ -205,7 +205,7 @@ struct ThemeSettingsModalView: View {
                                 .foregroundColor(isLightMode ? palette.textMain : palette.textMuted)
                             
                             Text("High-ambient office & daylight inspection")
-                                .font(.system(size: 8, weight: .medium))
+                                .font(.system(size: StudioTheme.scaleFont(8), weight: .medium))
                                 .foregroundColor(palette.textSubtle)
                         }
                         
@@ -213,7 +213,7 @@ struct ThemeSettingsModalView: View {
                         
                         if isLightMode {
                             Image(systemName: "checkmark")
-                                .font(.system(size: 9, weight: .black))
+                                .font(.system(size: StudioTheme.scaleFont(9), weight: .black))
                                 .foregroundColor(themeManager.currentTheme.playColor)
                         }
                     }
@@ -259,7 +259,7 @@ struct ThemeSettingsModalView: View {
                 HStack(spacing: 8) {
                     HStack(spacing: 4) {
                         Image(systemName: "tag.fill")
-                            .font(.system(size: 9, weight: .bold))
+                            .font(.system(size: StudioTheme.scaleFont(9), weight: .bold))
                             .foregroundColor(palette.textSubtle)
                         TextField("Preset Name", text: $newPresetName)
                             .textFieldStyle(.plain)
@@ -317,7 +317,7 @@ struct ThemeSettingsModalView: View {
                     }) {
                         HStack(spacing: 6) {
                             Image(systemName: showUpdatedNotice ? "checkmark.circle.fill" : "arrow.triangle.2.circlepath")
-                                .font(.system(size: 9, weight: .bold))
+                                .font(.system(size: StudioTheme.scaleFont(9), weight: .bold))
                             Text(showUpdatedNotice ? "Updated!" : "Update '\(themeManager.currentTheme.name)'")
                                 .font(.ui(size: 9, weight: .semibold))
                         }
@@ -340,7 +340,7 @@ struct ThemeSettingsModalView: View {
                     }) {
                         HStack(spacing: 6) {
                             Image(systemName: "plus")
-                                .font(.system(size: 9, weight: .bold))
+                                .font(.system(size: StudioTheme.scaleFont(9), weight: .bold))
                             Text("Save as New")
                                 .font(.ui(size: 9, weight: .semibold))
                         }
@@ -363,7 +363,7 @@ struct ThemeSettingsModalView: View {
                     }) {
                         HStack(spacing: 5) {
                             Image(systemName: "arrow.counterclockwise")
-                                .font(.system(size: 8, weight: .bold))
+                                .font(.system(size: StudioTheme.scaleFont(8), weight: .bold))
                             Text("Revert")
                                 .font(.ui(size: 9, weight: .semibold))
                         }
@@ -385,7 +385,7 @@ struct ThemeSettingsModalView: View {
                     }) {
                         HStack(spacing: 6) {
                             Image(systemName: "plus")
-                                .font(.system(size: 9, weight: .bold))
+                                .font(.system(size: StudioTheme.scaleFont(9), weight: .bold))
                             Text("Save Current as Preset")
                                 .font(.ui(size: 9, weight: .semibold))
                         }
@@ -467,7 +467,7 @@ struct ThemeSettingsModalView: View {
                     
                     if isSelected {
                         Image(systemName: "checkmark")
-                            .font(.system(size: 8, weight: .black))
+                            .font(.system(size: StudioTheme.scaleFont(8), weight: .black))
                             .foregroundColor(themeManager.currentTheme.playColor)
                     }
                 }
@@ -483,7 +483,7 @@ struct ThemeSettingsModalView: View {
                     }
                 }) {
                     Image(systemName: "xmark")
-                        .font(.system(size: 8, weight: .black))
+                        .font(.system(size: StudioTheme.scaleFont(8), weight: .black))
                         .foregroundColor(palette.textSubtle)
                         .padding(5)
                 }
@@ -579,7 +579,7 @@ struct ThemeSettingsModalView: View {
                     }
                     
                     Text(level.subtitle)
-                        .font(.system(size: 8, weight: .medium))
+                        .font(.system(size: StudioTheme.scaleFont(8), weight: .medium))
                         .foregroundColor(palette.textSubtle)
                         .lineLimit(1)
                 }
@@ -588,7 +588,7 @@ struct ThemeSettingsModalView: View {
                 
                 if isSelected {
                     Image(systemName: "checkmark")
-                        .font(.system(size: 9, weight: .black))
+                        .font(.system(size: StudioTheme.scaleFont(9), weight: .black))
                         .foregroundColor(themeManager.currentTheme.playColor)
                 }
             }
@@ -618,7 +618,7 @@ struct ThemeSettingsModalView: View {
                     // Active Tab: PLAYER (with film icon & active indicator)
                     HStack(spacing: 5) {
                         Image(systemName: "film")
-                            .font(.system(size: 9, weight: .bold))
+                            .font(.system(size: StudioTheme.scaleFont(9), weight: .bold))
                             .foregroundColor(themeManager.currentTheme.playColor)
                         Text("Play")
                             .font(.ui(size: 9.5, weight: .semibold))
@@ -639,7 +639,7 @@ struct ThemeSettingsModalView: View {
                     // Inactive Tab: SPECS
                     HStack(spacing: 5) {
                         Image(systemName: "doc.text")
-                            .font(.system(size: 8.5, weight: .medium))
+                            .font(.system(size: StudioTheme.scaleFont(8.5), weight: .medium))
                         Text("Inspect")
                             .font(.ui(size: 9, weight: .semibold))
                     }
@@ -650,7 +650,7 @@ struct ThemeSettingsModalView: View {
                     // Inactive Tab: GLITCH FINDER
                     HStack(spacing: 5) {
                         Image(systemName: "viewfinder")
-                            .font(.system(size: 8.5, weight: .medium))
+                            .font(.system(size: StudioTheme.scaleFont(8.5), weight: .medium))
                         Text("Scan")
                             .font(.ui(size: 9, weight: .semibold))
                     }
@@ -661,7 +661,7 @@ struct ThemeSettingsModalView: View {
                     // Inactive Tab: INGEST
                     HStack(spacing: 5) {
                         Image(systemName: "tray.and.arrow.down")
-                            .font(.system(size: 8.5, weight: .medium))
+                            .font(.system(size: StudioTheme.scaleFont(8.5), weight: .medium))
                         Text("Ingest")
                             .font(.ui(size: 9, weight: .semibold))
                     }
@@ -737,7 +737,7 @@ struct ThemeSettingsModalView: View {
                             // Playhead Line & Downward Indicator
                             VStack(spacing: 0) {
                                 Image(systemName: "arrowtriangle.down.fill")
-                                    .font(.system(size: 7))
+                                    .font(.system(size: StudioTheme.scaleFont(7)))
                                     .foregroundColor(themeManager.currentTheme.playColor)
                                 Rectangle()
                                     .fill(themeManager.currentTheme.playColor)
@@ -759,13 +759,13 @@ struct ThemeSettingsModalView: View {
                     // Transport Controls
                     HStack(spacing: 6) {
                         Image(systemName: "backward.fill")
-                            .font(.system(size: 9, weight: .bold))
+                            .font(.system(size: StudioTheme.scaleFont(9), weight: .bold))
                             .foregroundColor(palette.textMain)
                         Image(systemName: "play.fill")
-                            .font(.system(size: 11, weight: .bold))
+                            .font(.system(size: StudioTheme.scaleFont(11), weight: .bold))
                             .foregroundColor(palette.textMain)
                         Image(systemName: "forward.fill")
-                            .font(.system(size: 9, weight: .bold))
+                            .font(.system(size: StudioTheme.scaleFont(9), weight: .bold))
                             .foregroundColor(palette.textMain)
                     }
                     .padding(.horizontal, 7)
@@ -775,7 +775,7 @@ struct ThemeSettingsModalView: View {
                     // Timecode Readout (Playhead Accent)
                     HStack(spacing: 4) {
                         Image(systemName: "clock")
-                            .font(.system(size: 8, weight: .bold))
+                            .font(.system(size: StudioTheme.scaleFont(8), weight: .bold))
                             .foregroundColor(themeManager.currentTheme.playColor)
                         Text("00:00:50:10")
                             .font(.ui(size: 9.5, weight: .semibold))
@@ -824,7 +824,7 @@ struct ThemeSettingsModalView: View {
                     // Glitch Alert Pill
                     HStack(spacing: 4) {
                         Image(systemName: "exclamationmark.triangle.fill")
-                            .font(.system(size: 8, weight: .bold))
+                            .font(.system(size: StudioTheme.scaleFont(8), weight: .bold))
                             .foregroundColor(themeManager.currentTheme.warnColor)
                         Text("2 Glitches")
                             .font(.ui(size: 8, weight: .semibold))
@@ -841,7 +841,7 @@ struct ThemeSettingsModalView: View {
                     // QC Pass Badge
                     HStack(spacing: 4) {
                         Image(systemName: "checkmark.circle.fill")
-                            .font(.system(size: 8, weight: .bold))
+                            .font(.system(size: StudioTheme.scaleFont(8), weight: .bold))
                             .foregroundColor(themeManager.currentTheme.slotaColor)
                         Text("QC Pass")
                             .font(.ui(size: 8, weight: .semibold))
@@ -881,7 +881,7 @@ private struct AccentColorSlotCard: View {
                     .foregroundColor(palette.textMain)
                     .lineLimit(1)
                 Text(slot.roleDescription)
-                    .font(.system(size: 7.5, weight: .medium))
+                    .font(.system(size: StudioTheme.scaleFont(7.5), weight: .medium))
                     .foregroundColor(palette.textSubtle)
                     .lineLimit(1)
             }

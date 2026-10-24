@@ -92,7 +92,7 @@ struct FeedbackModalView: View {
                 HStack {
                     HStack(spacing: 8) {
                         Image(systemName: "envelope.badge.fill")
-                            .font(.system(size: 13))
+                            .font(.system(size: StudioTheme.scaleFont(13)))
                             .foregroundColor(textMain)
                         Text("Feedback & Support")
                             .font(.ui(size: 12, weight: .semibold))
@@ -132,7 +132,7 @@ struct FeedbackModalView: View {
                     // Success View
                     VStack(spacing: 16) {
                         Image(systemName: "checkmark.seal.fill")
-                            .font(.system(size: 44))
+                            .font(.system(size: StudioTheme.scaleFont(44)))
                             .foregroundColor(accentPositive)
                         
                         Text("Feedback Sent Automatically")
@@ -162,7 +162,7 @@ struct FeedbackModalView: View {
                                     Button(action: { feedbackType = type }) {
                                         HStack(spacing: 6) {
                                             Image(systemName: type.icon)
-                                                .font(.system(size: 10))
+                                                .font(.system(size: StudioTheme.scaleFont(10)))
                                             Text(type.rawValue)
                                                 .font(.ui(size: 10, weight: .semibold))
                                         }
@@ -228,7 +228,7 @@ struct FeedbackModalView: View {
                                 }
                             }) {
                                 Image(systemName: includeSystemSpecs ? "checkmark.square.fill" : "square")
-                                    .font(.system(size: 13))
+                                    .font(.system(size: StudioTheme.scaleFont(13)))
                                     .foregroundColor(includeSystemSpecs ? textMain : textMuted)
                             }
                             .buttonStyle(.plain)
@@ -259,7 +259,7 @@ struct FeedbackModalView: View {
                     if copySuccessNotice {
                         HStack(spacing: 5) {
                             Image(systemName: "checkmark.circle.fill")
-                                .font(.system(size: 10))
+                                .font(.system(size: StudioTheme.scaleFont(10)))
                                 .foregroundColor(accentPositive)
                             Text("Copied to Clipboard!")
                                 .font(.ui(size: 10, weight: .semibold))
@@ -269,7 +269,7 @@ struct FeedbackModalView: View {
                     } else if let err = errorMessage {
                         HStack(spacing: 5) {
                             Image(systemName: "exclamationmark.triangle.fill")
-                                .font(.system(size: 10))
+                                .font(.system(size: StudioTheme.scaleFont(10)))
                                 .foregroundColor(accentNegative)
                             Text(err)
                                 .font(.ui(size: 9, weight: .semibold))
@@ -286,7 +286,7 @@ struct FeedbackModalView: View {
                         Button(action: copyToClipboard) {
                             HStack(spacing: 6) {
                                 Image(systemName: "doc.on.doc")
-                                    .font(.system(size: 10))
+                                    .font(.system(size: StudioTheme.scaleFont(10)))
                                 Text("Copy")
                                     .font(.ui(size: 10, weight: .semibold))
                             }
@@ -309,7 +309,7 @@ struct FeedbackModalView: View {
                                         .font(.ui(size: 10, weight: .semibold))
                                 } else {
                                     Image(systemName: "paperplane.fill")
-                                        .font(.system(size: 10))
+                                        .font(.system(size: StudioTheme.scaleFont(10)))
                                     Text("Send Feedback")
                                         .font(.ui(size: 10, weight: .semibold))
                                 }

@@ -45,9 +45,13 @@ struct ExposureScrubberView: View {
                     engine.resetExposure()
                 }
             }) {
+                // The iris turns and opens slightly with EV (−5…+5 → −30°…+30°, 92%…108%), like a lens aperture.
                 Image(systemName: "camera.aperture")
                     .font(.system(size: StudioTheme.scaleFont(12), weight: .semibold))
                     .foregroundColor(iconColor)
+                    .rotationEffect(.degrees(engine.exposureEV * 6))
+                    .scaleEffect(1 + engine.exposureEV * 0.016)
+                    .animation(.easeOut(duration: 0.18), value: engine.exposureEV)
                     .frame(width: StudioTheme.scale(22), height: StudioTheme.scale(26))
                     .contentShape(Rectangle())
             }
@@ -55,9 +59,14 @@ struct ExposureScrubberView: View {
             .explain("Reset Exposure to +0.0 EV")
             
             // Drag-Scrub Number
-            Text(formattedEV)
-                .font(.ui(size: StudioTheme.scaleFont(11), weight: .semibold))
+            // Fixed width (widest value reserved underneath) so dragging doesn't shift the transport row.
+            ZStack(alignment: .leading) {
+                Text("+8.8").hidden()
+                Text(formattedEV)
+            }
+                .font(.ui(size: 11, weight: .semibold))
                 .foregroundColor(scrubberBlue)
+                .fixedSize()
                 .frame(height: StudioTheme.scale(26))
                 .contentShape(Rectangle())
                 .gesture(
@@ -351,69 +360,9 @@ extension ContentView {
     
     // MARK: - Left Panel: Queue Resize Handle Divider
     private func playerQueueResizeHandle(maxWidth: Double) -> some View {
-        ZStack {
-            // Hit target: generous 28 pt wide grab area (14 pt on each side of the border line)
-            Rectangle()
-                .fill(Color.clear)
-                .frame(width: 28)
-                .contentShape(Rectangle())
-            
-            // Visual border highlight line (1px on hover, 2px during active drag)
-            Rectangle()
-                .fill(isDraggingQueueResize ? accentBlue : (isHoveringQueueResize ? borderStrong : Color.clear))
-                .frame(width: isDraggingQueueResize ? 2 : 1)
-        }
-        .frame(width: 28)
-        .offset(x: 14)
-        .zIndex(200)
-        .onHover { isHovered in
-            if !isDraggingQueueResize {
-                if isHovered != isHoveringQueueResize {
-                    isHoveringQueueResize = isHovered
-                    if isHovered {
-                        NSCursor.resizeLeftRight.push()
-                    } else {
-                        NSCursor.pop()
-                    }
-                }
-            } else {
-                isHoveringQueueResize = isHovered
-            }
-        }
-        .onTapGesture(count: 2) {
-            withAnimation(.spring(response: 0.28, dampingFraction: 0.82)) {
-                playerQueueWidth = min(maxWidth, 360.0)
-            }
-        }
-        .gesture(
-            DragGesture(minimumDistance: 1, coordinateSpace: .global)
-                .onChanged { value in
-                    if !isDraggingQueueResize {
-                        isDraggingQueueResize = true
-                        dragStartQueueWidth = playerQueueWidth
-                    }
-                    let newWidth = dragStartQueueWidth + Double(value.translation.width)
-                    let clamped = max(240.0, min(maxWidth, newWidth))
-                    if abs(playerQueueWidth - clamped) > 0.5 {
-                        playerQueueWidth = clamped
-                    }
-                }
-                .onEnded { _ in
-                    isDraggingQueueResize = false
-                    UserDefaults.standard.set(playerQueueWidth, forKey: "playerQueueWidth")
-                    if !isHoveringQueueResize {
-                        NSCursor.pop()
-                    }
-                }
-        )
-        .onDisappear {
-            if isHoveringQueueResize || isDraggingQueueResize {
-                isHoveringQueueResize = false
-                isDraggingQueueResize = false
-                NSCursor.pop()
-            }
-        }
-        .explain("Drag to resize Assets & Queue panel. Double-click to reset width (360px).")
+        PanelResizeHandle(width: $playerQueueWidth, range: 240...maxWidth, defaultWidth: 360, isLightMode: isLightMode,
+                          help: "Drag to resize the Assets & Queue panel. Double-click to reset (360 pt).")
+            .zIndex(200)
     }
     
     // MARK: - Right Panel: Program Monitor & Timeline
@@ -434,7 +383,7 @@ extension ContentView {
                         } else {
                             VStack(spacing: 12) {
                                 Image(systemName: "play.rectangle.fill")
-                                    .font(.system(size: 40))
+                                    .font(.system(size: StudioTheme.scaleFont(40)))
                                     .foregroundColor(textMuted)
                                 Text("No Video Selected")
                                     .font(.ui(size: 13, weight: .semibold))
@@ -667,14 +616,17 @@ extension ContentView {
     // MARK: - Review Navigation & Timecode Bar
     
     // 1. Compact Review Notes Controls: [+ NOTE] and < 💬 count >
-    private var playerNotesGroup: some View {
+    /// `compact`: icons only (labels move to the tooltip) when the timecode bar is too narrow for them.
+    private func playerNotesGroup(compact: Bool) -> some View {
         HStack(spacing: StudioTheme.scale(2)) {
             Button(action: { openAddNoteModal() }) {
                 HStack(spacing: StudioTheme.scale(3)) {
                     Image(systemName: "plus")
                         .font(.system(size: StudioTheme.scaleFont(9), weight: .bold))
-                    Text("Note")
-                        .font(.ui(size: StudioTheme.scaleFont(9), weight: .semibold))
+                    if !compact {
+                        Text("Note")
+                            .font(.ui(size: 9, weight: .semibold))
+                    }
                 }
                 .frame(height: StudioTheme.scale(24))
                 .padding(.horizontal, StudioTheme.scale(5))
@@ -714,13 +666,15 @@ extension ContentView {
                     HStack(spacing: 3) {
                         Image(systemName: isNotesActive ? "bubble.left.fill" : "bubble.left")
                             .font(.system(size: StudioTheme.scaleFont(9), weight: .semibold))
+                        if hasNotes || !compact {
                         SlotText(
                             hasNotes ? "\(notesCount)" : "Notes",
                             mode: hasNotes ? .character : .word,
                             direction: .up,
-                            font: .ui(size: StudioTheme.scaleFont(9), weight: .semibold),
+                            font: .ui(size: 9, weight: .semibold),
                             foregroundColor: isNotesActive ? accentBlue : (hasNotes ? textMain : textMuted)
                         )
+                        }
                     }
                     .frame(height: StudioTheme.scale(24))
                     .padding(.horizontal, 4)
@@ -751,7 +705,7 @@ extension ContentView {
         if let (icon, text) = shuttleBadgeContent {
             HStack(spacing: 3) {
                 Image(systemName: icon)
-                    .font(.system(size: 10, weight: .bold))
+                    .font(.system(size: StudioTheme.scaleFont(10), weight: .bold))
                 Text(text)
                     .font(.ui(size: 11, weight: .semibold))
                     .monospacedDigit()
@@ -801,7 +755,7 @@ extension ContentView {
             )
             
             Text("Line")
-                .font(.ui(size: StudioTheme.scaleFont(9), weight: .semibold))
+                .font(.ui(size: 9, weight: .semibold))
                 .foregroundColor(hasGlitches ? alertRed : textMuted)
                 .padding(.horizontal, 3)
             
@@ -822,7 +776,7 @@ extension ContentView {
     
     // 4. Finder Tags Button
     /// Sends the frame on screen to the developer when Line Check missed a line.
-    private var missedLineButton: some View {
+    private func missedLineButton(compact: Bool) -> some View {
         let hasPicture = playerEngine.activeURL != nil
         return Button(action: {
             playerEngine.pause()
@@ -835,8 +789,10 @@ extension ContentView {
                     Image(systemName: "paperplane.fill")
                         .font(.system(size: StudioTheme.scaleFont(9), weight: .bold))
                 }
-                Text("Missed Line")
-                    .font(.ui(size: StudioTheme.scaleFont(9), weight: .semibold))
+                if !compact {
+                    Text("Missed Line")
+                        .font(.ui(size: 9, weight: .semibold))
+                }
             }
             .frame(height: StudioTheme.scale(24))
             .padding(.horizontal, 5)
@@ -858,10 +814,10 @@ extension ContentView {
         return VStack(alignment: .leading, spacing: 14) {
             HStack(spacing: 8) {
                 Image(systemName: "paperplane.fill")
-                    .font(.system(size: 13, weight: .bold))
+                    .font(.system(size: StudioTheme.scaleFont(13), weight: .bold))
                     .foregroundColor(accentBlue)
                 Text("Report a missed line")
-                    .font(.system(size: 14, weight: .bold))
+                    .font(.system(size: StudioTheme.scaleFont(14), weight: .bold))
                     .foregroundColor(textMain)
             }
             if let frame = slotState.lastDecodedFrame {
@@ -900,13 +856,13 @@ extension ContentView {
                 .foregroundColor(textMuted)
                 .frame(width: 44, alignment: .leading)
             Text(value)
-                .font(.system(size: 11))
+                .font(.system(size: StudioTheme.scaleFont(11)))
                 .foregroundColor(textMain)
                 .fixedSize(horizontal: false, vertical: true)
         }
     }
     
-    private var playerTagsButton: some View {
+    private func playerTagsButton(compact: Bool) -> some View {
         let activeURL = playerEngine.activeURL
         let activeTag = activeURL.flatMap { fileTagsMap[$0] }
         return Button(action: {
@@ -921,8 +877,10 @@ extension ContentView {
                     Image(systemName: "tag.fill")
                         .font(.system(size: StudioTheme.scaleFont(9), weight: .bold))
                 }
-                Text("Tags")
-                    .font(.ui(size: StudioTheme.scaleFont(9), weight: .semibold))
+                if !compact {
+                    Text("Tags")
+                        .font(.ui(size: 9, weight: .semibold))
+                }
             }
             .frame(height: StudioTheme.scale(24))
             .padding(.horizontal, 5)
@@ -956,9 +914,23 @@ extension ContentView {
     // 7. Duration / Total Frames Label
     private var playerDurationLabel: some View {
         Text(playerEngine.displayTimeAsFrames ? "\(playerEngine.totalFrames) frames" : playerEngine.durationTimecode)
-            .font(.system(size: 11, weight: .medium, design: .monospaced))
+            .font(.system(size: StudioTheme.scaleFont(11), weight: .medium, design: .monospaced))
             .foregroundColor(textMuted)
             .lineLimit(1)
+    }
+    
+    private func playerReviewTools(compact: Bool) -> some View {
+        HStack(spacing: StudioTheme.scale(10)) {
+            playerLineGlitchGroup
+            Rectangle()
+                .fill(borderLine.opacity(0.45))
+                .frame(width: 1, height: 14)
+            playerTagsButton(compact: compact)
+            Rectangle()
+                .fill(borderLine.opacity(0.45))
+                .frame(width: 1, height: 14)
+            missedLineButton(compact: compact)
+        }
     }
     
     // MARK: - Timecode Bar (above timeline)
@@ -980,24 +952,20 @@ extension ContentView {
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 
-                playerNotesGroup
-                    .frame(maxWidth: .infinity, alignment: .trailing)
+                ViewThatFits(in: .horizontal) {
+                    playerNotesGroup(compact: false).fixedSize()
+                    playerNotesGroup(compact: true).fixedSize()
+                }
+                .frame(maxWidth: .infinity, alignment: .trailing)
                 
                 // Clearance for the centred shuttle badge.
                 Color.clear
                     .frame(width: 72, height: 24)
                     .allowsHitTesting(false)
                 
-                HStack(spacing: 10) {
-                    playerLineGlitchGroup
-                    Rectangle()
-                        .fill(borderLine.opacity(0.45))
-                        .frame(width: 1, height: 14)
-                    playerTagsButton
-                    Rectangle()
-                        .fill(borderLine.opacity(0.45))
-                        .frame(width: 1, height: 14)
-                    missedLineButton
+                ViewThatFits(in: .horizontal) {
+                    playerReviewTools(compact: false).fixedSize()
+                    playerReviewTools(compact: true).fixedSize()
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 
@@ -1005,7 +973,7 @@ extension ContentView {
                     .frame(maxWidth: .infinity, alignment: .trailing)
             }
         }
-        .frame(height: 24)
+        .frame(height: StudioTheme.scale(24))
     }
     
     // MARK: - Transport Bar
@@ -1299,7 +1267,7 @@ extension ContentView {
                         
                         if currentTag == tag {
                             Image(systemName: "checkmark")
-                                .font(.system(size: 9, weight: .black))
+                                .font(.system(size: StudioTheme.scaleFont(9), weight: .black))
                                 .foregroundColor(.white)
                         }
                     }
@@ -1319,7 +1287,7 @@ extension ContentView {
                 showTagPickerPopover = false
             }) {
                 Image(systemName: "xmark.circle.fill")
-                    .font(.system(size: 16))
+                    .font(.system(size: StudioTheme.scaleFont(16)))
                     .foregroundColor(currentTag != nil ? textMain : textMuted)
             }
             .buttonStyle(.plain)
@@ -1415,7 +1383,7 @@ struct PlayerComparisonBar: View {
                         Image(systemName: "speaker.wave.2.fill")
                             .font(.system(size: StudioTheme.scaleFont(11), weight: .bold))
                         Text(engine.audioSlot == .slotA ? "A" : "B")
-                            .font(.ui(size: StudioTheme.scaleFont(9), weight: .semibold))
+                            .font(.ui(size: 9, weight: .semibold))
                     }
                     .frame(height: StudioTheme.scale(26))
                     .padding(.horizontal, StudioTheme.scale(4))
@@ -1456,7 +1424,7 @@ struct PlayerComparisonBar: View {
                         Image(systemName: "xmark")
                             .font(.system(size: StudioTheme.scaleFont(9), weight: .bold))
                         Text("Clear B")
-                            .font(.ui(size: StudioTheme.scaleFont(9), weight: .semibold))
+                            .font(.ui(size: 9, weight: .semibold))
                     }
                     .frame(height: StudioTheme.scale(26))
                     .padding(.horizontal, StudioTheme.scale(4))
@@ -1790,7 +1758,7 @@ struct PlayerZoomMenuView: View {
                     .frame(maxWidth: .infinity, alignment: .center)
                 
                 Image(systemName: "chevron.down")
-                    .font(.system(size: 8, weight: .bold))
+                    .font(.system(size: StudioTheme.scaleFont(8), weight: .bold))
                     .foregroundColor(textMuted)
             }
             .padding(.horizontal, 6)

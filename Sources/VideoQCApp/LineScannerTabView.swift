@@ -6,7 +6,7 @@ extension ContentView {
     // MARK: ==================== TAB 3: GLITCH FINDER ====================
     
     var lineScannerTabView: some View {
-        HSplitView {
+        HStack(spacing: 0) {
             // Left Panel: Configuration
             ScrollView {
                 VStack(alignment: .leading, spacing: 22) {
@@ -18,8 +18,15 @@ extension ContentView {
                 .padding(22)
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
-            .frame(minWidth: 360, idealWidth: 400, maxWidth: 440)
+            .scrollIndicators(.never)
+            .frame(width: scanPanelWidth)
             .background(bgPanel)
+            .overlay(alignment: .trailing) { Rectangle().fill(borderLine).frame(width: 1) }
+            .overlay(alignment: .trailing) {
+                PanelResizeHandle(width: $scanPanelWidth, range: 320...560, defaultWidth: 400, isLightMode: isLightMode,
+                                  help: "Drag to resize the settings panel. Double-click to reset.")
+            }
+            .zIndex(1)
             
             // Right Panel: Results / Live Progress / Empty State
             VStack(alignment: .leading, spacing: 0) {
@@ -75,7 +82,7 @@ extension ContentView {
     func runButton(_ title: String, icon: String, isReady: Bool, help: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             HStack(spacing: 7) {
-                Image(systemName: icon).font(.system(size: 11, weight: .bold))
+                Image(systemName: icon).font(.system(size: StudioTheme.scaleFont(11), weight: .bold))
                 Text(title).font(.ui(size: 11, weight: .semibold)).tracking(0.5)
             }
             .frame(maxWidth: .infinity)
@@ -93,7 +100,7 @@ extension ContentView {
     func stopButton(_ title: String, help: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             HStack(spacing: 7) {
-                Image(systemName: "stop.fill").font(.system(size: 10, weight: .bold))
+                Image(systemName: "stop.fill").font(.system(size: StudioTheme.scaleFont(10), weight: .bold))
                 Text(title).font(.ui(size: 11, weight: .semibold)).tracking(0.5)
             }
             .frame(maxWidth: .infinity)
@@ -239,7 +246,7 @@ extension ContentView {
         VStack(alignment: .leading, spacing: 24) {
             HStack {
                 Text("Scanning in Progress")
-                    .font(.system(size: 22, weight: .semibold))
+                    .font(.system(size: StudioTheme.scaleFont(22), weight: .semibold))
                     .foregroundColor(textMain)
                 Spacer()
                 Text("Processing")
@@ -318,7 +325,7 @@ extension ContentView {
         HStack(alignment: .center) {
             VStack(alignment: .leading, spacing: 2) {
                 Text(title)
-                    .font(.system(size: 22, weight: .semibold))
+                    .font(.system(size: StudioTheme.scaleFont(22), weight: .semibold))
                     .foregroundColor(textMain)
                 Text(status)
                     .font(.ui(size: 11, weight: .semibold))
@@ -351,7 +358,7 @@ extension ContentView {
                 Text("Export")
                     .font(.ui(size: 11, weight: .semibold))
                 Image(systemName: "chevron.down")
-                    .font(.system(size: 8, weight: .bold))
+                    .font(.system(size: StudioTheme.scaleFont(8), weight: .bold))
             }
             .padding(.horizontal, 10)
             .padding(.vertical, 8)
@@ -506,7 +513,7 @@ extension ContentView {
                 // Jump to Player Inspect Action Button
                 HStack(spacing: 4) {
                     Image(systemName: "play.fill")
-                        .font(.system(size: 8, weight: .bold))
+                        .font(.system(size: StudioTheme.scaleFont(8), weight: .bold))
                     Text("Inspect")
                         .font(.ui(size: 9, weight: .semibold))
                 }
@@ -568,7 +575,7 @@ extension ContentView {
             Spacer()
             
             Text("Ready to Check")
-                .font(.system(size: 26, weight: .semibold))
+                .font(.system(size: StudioTheme.scaleFont(26), weight: .semibold))
                 .foregroundColor(textMain)
             
             Text("Choose a delivery folder or video files on the left, then run a check.\nLine Check finds edge lines and split-screen seams. Frame Check finds frame-rate mismatch, flash frames and Media Offline.")
@@ -635,7 +642,7 @@ extension ContentView {
     var frameCheckProgressView: some View {
         VStack(alignment: .leading, spacing: 24) {
             Text("Checking Frames")
-                .font(.system(size: 22, weight: .semibold))
+                .font(.system(size: StudioTheme.scaleFont(22), weight: .semibold))
                 .foregroundColor(textMain)
             if let p = scannerState.frameCheckProgress {
                 VStack(alignment: .leading, spacing: 16) {
@@ -758,7 +765,7 @@ extension ContentView {
                         Text(row.detail).lineLimit(1).foregroundColor(textSubtle)
                         Spacer()
                         HStack(spacing: 4) {
-                            Image(systemName: "play.fill").font(.system(size: 8, weight: .bold))
+                            Image(systemName: "play.fill").font(.system(size: StudioTheme.scaleFont(8), weight: .bold))
                             Text("Inspect").font(.ui(size: 9, weight: .semibold))
                         }
                         .padding(.horizontal, 7)

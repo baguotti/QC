@@ -153,7 +153,7 @@ struct FullscreenPlayerView: View {
                         Image(systemName: "square.split.2x1")
                             .font(.system(size: StudioTheme.scaleFont(10), weight: .bold))
                         Text("[ + Compare (B) ]")
-                            .font(.ui(size: StudioTheme.scaleFont(11), weight: .semibold))
+                            .font(.ui(size: 11, weight: .semibold))
                     }
                     .padding(.horizontal, StudioTheme.scale(10))
                     .padding(.vertical, StudioTheme.scale(6))
@@ -172,7 +172,7 @@ struct FullscreenPlayerView: View {
                     Image(systemName: "arrow.down.right.and.arrow.up.left")
                         .font(.system(size: StudioTheme.scaleFont(10), weight: .bold))
                     Text("[ Exit Fullscreen (Esc) ]")
-                        .font(.ui(size: StudioTheme.scaleFont(11), weight: .semibold))
+                        .font(.ui(size: 11, weight: .semibold))
                 }
                 .padding(.horizontal, StudioTheme.scale(14))
                 .padding(.vertical, StudioTheme.scale(8))

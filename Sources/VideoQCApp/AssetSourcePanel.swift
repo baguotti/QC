@@ -26,12 +26,14 @@ struct AssetSourcePanel: View {
             HStack(alignment: .center, spacing: 10) {
                 if !files.isEmpty {
                     Image(systemName: folderURL == nil ? "doc.on.doc" : "folder")
-                        .font(.system(size: 17, weight: .regular))
+                        .font(.system(size: StudioTheme.scaleFont(17), weight: .regular))
                         .foregroundColor(palette.accentBlue)
                     summary
                 } else {
                     Text("No assets loaded")
                         .font(.ui(size: 12))
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.85)
                         .foregroundColor(palette.textMuted)
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
@@ -74,7 +76,7 @@ struct AssetSourcePanel: View {
     private func segment(_ title: String, tint: Color, help: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Text(title)
-                .font(.ui(size: StudioTheme.scaleFont(11.5), weight: .medium))
+                .font(.ui(size: 11.5, weight: .medium))
                 .lineLimit(1)
             .foregroundColor(tint)
             .padding(.horizontal, StudioTheme.scale(9))

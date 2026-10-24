@@ -3,6 +3,17 @@ import SwiftUI
 struct GuideTopic: Hashable {
     let title: String
     let body: String
+    /// Keyboard Shortcuts pages: rows of keys (each drawn as a keycap) and what they do.
+    var shortcuts: [GuideShortcut] = []
+}
+
+struct GuideShortcut: Hashable {
+    let keys: [String]
+    let action: String
+    init(_ keys: [String], _ action: String) {
+        self.keys = keys
+        self.action = action
+    }
 }
 
 struct GuideChapter {
@@ -23,6 +34,53 @@ struct UserGuideView: View {
         let chapter: Int
         let topic: Int
     }
+    
+    /// Every keyboard shortcut (as registered in `KeyboardShortcutRouter`), one page per group.
+    static let shortcutsChapter = GuideChapter(title: "Keyboard Shortcuts", icon: "keyboard", topics: [
+        GuideTopic(title: "Playback", body: "", shortcuts: [
+            GuideShortcut(["Space"], "Play / pause"),
+            GuideShortcut(["J", "K", "L"], "Reverse · stop · forward (press again to speed up)"),
+            GuideShortcut(["⇧J", "⇧L"], "Slow frame-by-frame reverse / forward"),
+            GuideShortcut(["←", "→"], "Step one frame"),
+            GuideShortcut(["⇧←", "⇧→"], "Step five frames"),
+            GuideShortcut(["Home", "⇧I"], "Go to the first frame"),
+            GuideShortcut(["End"], "Go to the last frame"),
+            GuideShortcut(["⌘L"], "Loop on / off"),
+        ]),
+        GuideTopic(title: "Queue", body: "", shortcuts: [
+            GuideShortcut(["↑", "↓"], "Previous / next file in slot A"),
+            GuideShortcut(["⌥↑", "⌥↓"], "Previous / next file in slot B"),
+            GuideShortcut(["A"], "Autoplay on / off"),
+            GuideShortcut(["W"], "Audio waveform on / off"),
+            GuideShortcut(["+", "−"], "Thumbnail size"),
+        ]),
+        GuideTopic(title: "Compare", body: "", shortcuts: [
+            GuideShortcut(["Tab"], "Blink between A and B"),
+            GuideShortcut(["C"], "Cycle compare modes"),
+            GuideShortcut(["S", "X"], "Swap A and B"),
+        ]),
+        GuideTopic(title: "Review", body: "", shortcuts: [
+            GuideShortcut(["N"], "Add a note at the playhead"),
+            GuideShortcut(["[", "]"], "Previous / next note"),
+            GuideShortcut(["⌥⇧N", "⌥N"], "Previous / next note"),
+            GuideShortcut(["⇧M", "M"], "Previous / next Scan finding"),
+            GuideShortcut(["1", "–", "7"], "Finder tag: red, green, blue, yellow, orange, purple, grey"),
+            GuideShortcut(["0"], "Clear the Finder tag"),
+            GuideShortcut(["I"], "Cycle the clip info overlay"),
+            GuideShortcut(["⌘I"], "Media Info"),
+        ]),
+        GuideTopic(title: "View", body: "", shortcuts: [
+            GuideShortcut(["F"], "Video full screen"),
+            GuideShortcut(["⇧F"], "Review full screen"),
+            GuideShortcut(["Esc"], "Exit full screen / close a window"),
+            GuideShortcut(["⌘⇧←", "⌘⇧→"], "Show / hide the left and right panels"),
+            GuideShortcut(["⇧1", "⇧2", "⇧3"], "Play · Inspect · Scan"),
+            GuideShortcut(["⌘+", "⌘−"], "Button size"),
+            GuideShortcut(["T"], "Light / dark mode"),
+            GuideShortcut(["⇧T"], "Next accent theme"),
+            GuideShortcut(["?", "⌘/"], "User Guide"),
+        ]),
+    ])
     
     static let chapters: [GuideChapter] = [
         GuideChapter(title: "Play", icon: "play.fill", topics: [
@@ -70,6 +128,7 @@ struct UserGuideView: View {
             GuideTopic(title: "Mark Flagged Files in Finder", body: "Adds a red Finder tag to every file with line glitches."),
             GuideTopic(title: "Defaults", body: "Set the Line Check defaults (target, sensitivity, options, edge depth) in User Settings; they apply each time QCpie opens."),
         ]),
+        shortcutsChapter,
     ]
     
     var body: some View {
@@ -78,7 +137,7 @@ struct UserGuideView: View {
             ForEach(Array(Self.chapters.enumerated()), id: \.offset) { c, chapter in
                 HStack(spacing: 6) {
                     Image(systemName: chapter.icon)
-                        .font(.system(size: 10))
+                        .font(.system(size: StudioTheme.scaleFont(10)))
                         .foregroundColor(palette.textMuted)
                     Text(chapter.title)
                         .font(.ui(size: 11, weight: .semibold))
@@ -109,13 +168,16 @@ struct UserGuideView: View {
                 .foregroundColor(palette.accentBlue)
                 .padding(.bottom, 6)
             Text(topic.title)
-                .font(.system(size: 24, weight: .bold))
+                .font(.system(size: StudioTheme.scaleFont(24), weight: .bold))
                 .foregroundColor(palette.textMain)
                 .fixedSize(horizontal: false, vertical: true)
                 .padding(.bottom, 14)
+            if !topic.shortcuts.isEmpty {
+                shortcutTable(topic.shortcuts)
+            }
             ForEach(Array(paragraphs(topic.body).enumerated()), id: \.offset) { _, paragraph in
                 Text(paragraph)
-                    .font(.system(size: 14))
+                    .font(.system(size: StudioTheme.scaleFont(14)))
                     .foregroundColor(palette.textMain.opacity(0.88))
                     .lineSpacing(5)
                     .fixedSize(horizontal: false, vertical: true)
@@ -127,7 +189,7 @@ struct UserGuideView: View {
                 Button(action: { selection = next }) {
                     HStack(spacing: 4) {
                         Text("Next: \(Self.chapters[next.chapter].topics[next.topic].title)")
-                        Image(systemName: "chevron.right").font(.system(size: 10, weight: .semibold))
+                        Image(systemName: "chevron.right").font(.system(size: StudioTheme.scaleFont(10), weight: .semibold))
                     }
                     .font(.ui(size: 12, weight: .medium))
                     .foregroundColor(palette.accentBlue)
@@ -139,6 +201,46 @@ struct UserGuideView: View {
         .padding(.vertical, 28)
         .frame(maxWidth: 560, alignment: .leading)
         .id(selection)
+    }
+    
+    private func shortcutTable(_ rows: [GuideShortcut]) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            ForEach(Array(rows.enumerated()), id: \.offset) { index, row in
+                HStack(alignment: .center, spacing: 16) {
+                    HStack(spacing: 5) {
+                        ForEach(row.keys, id: \.self) { key in
+                            if key == "–" {
+                                Text("–").font(.ui(size: 12)).foregroundColor(palette.textMuted)
+                            } else {
+                                keycap(key)
+                            }
+                        }
+                    }
+                    .frame(width: StudioTheme.scale(120), alignment: .leading)
+                    Text(row.action)
+                        .font(.ui(size: 13))
+                        .foregroundColor(palette.textMain.opacity(0.88))
+                        .fixedSize(horizontal: false, vertical: true)
+                    Spacer(minLength: 0)
+                }
+                .padding(.vertical, 9)
+                if index < rows.count - 1 {
+                    Rectangle().fill(palette.borderLine.opacity(0.6)).frame(height: 1)
+                }
+            }
+        }
+        .padding(.bottom, 8)
+    }
+    
+    /// One key, drawn as a subtle keycap.
+    private func keycap(_ key: String) -> some View {
+        Text(key)
+            .font(.system(size: StudioTheme.scaleFont(12), weight: .medium, design: .rounded))
+            .foregroundColor(palette.textMain)
+            .padding(.horizontal, StudioTheme.scale(7))
+            .frame(minWidth: StudioTheme.scale(24), minHeight: StudioTheme.scale(22))
+            .background(RoundedRectangle(cornerRadius: 5).fill(palette.bgSubtle))
+            .overlay(RoundedRectangle(cornerRadius: 5).stroke(palette.borderStrong.opacity(0.7), lineWidth: 1))
     }
     
     /// Splits long entries into short paragraphs at sentence ends ("e.g. 23.976" is not a sentence end).

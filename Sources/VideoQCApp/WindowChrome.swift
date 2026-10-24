@@ -69,7 +69,7 @@ struct WindowControls: View {
                 .fill(isHovered ? color : Color(white: isLightMode ? 0.78 : 0.36))
                 .overlay(
                     Image(systemName: symbol)
-                        .font(.system(size: 6.5, weight: .heavy))
+                        .font(.system(size: StudioTheme.scaleFont(6.5), weight: .heavy))
                         .foregroundColor(Color.black.opacity(0.55))
                         .opacity(isHovered ? 1 : 0)
                 )

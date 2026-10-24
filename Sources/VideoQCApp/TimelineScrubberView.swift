@@ -33,7 +33,7 @@ public struct RulerTicksCanvasView: View, Equatable {
             // Label step: the smallest "nice" interval whose labels (measured) keep a clear gap at this width.
             let fpsSafe = max(1.0, fps)
             let sample = context.resolve(Text(TimecodeFormatter.format(frameIndex: 0, fps: fpsSafe))
-                .font(.system(size: 8, weight: .semibold, design: .monospaced)))
+                .font(.system(size: StudioTheme.scaleFont(8), weight: .semibold, design: .monospaced)))
             let labelWidth = sample.measure(in: CGSize(width: 400, height: 40)).width
             let pointsPerSecond = trackWidth / CGFloat(duration)
             let steps: [Double] = [1, 2, 5, 10, 15, 30, 60, 120, 300, 600, 900, 1800, 3600, 7200]
@@ -66,7 +66,7 @@ public struct RulerTicksCanvasView: View, Equatable {
                 let x = trackInset + trackWidth * CGFloat(labelSec / duration)
                 let tc = TimecodeFormatter.format(frameIndex: Int(round(labelSec * fpsSafe)), fps: fpsSafe)
                 let text = context.resolve(Text(tc)
-                    .font(.system(size: 8, weight: .semibold, design: .monospaced))
+                    .font(.system(size: StudioTheme.scaleFont(8), weight: .semibold, design: .monospaced))
                     .foregroundColor(textColor))
                 let w = text.measure(in: CGSize(width: 400, height: 40)).width
                 let anchor: UnitPoint

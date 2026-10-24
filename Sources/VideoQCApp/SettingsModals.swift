@@ -24,7 +24,7 @@ struct SettingsModalShell<Content: View>: View {
                 HStack {
                     HStack(spacing: 8) {
                         Image(systemName: icon)
-                            .font(.system(size: 13, weight: .bold))
+                            .font(.system(size: StudioTheme.scaleFont(13), weight: .bold))
                             .foregroundColor(themeManager.currentTheme.playColor)
                         Text(title)
                             .font(.ui(size: 12, weight: .semibold))
@@ -133,7 +133,7 @@ struct NotesSyncModalView: View {
             
             if syncStatus.state == .unavailable {
                 Text("No sync server is configured in this build.")
-                    .font(.system(size: 10))
+                    .font(.system(size: StudioTheme.scaleFont(10)))
                     .foregroundColor(palette.textSubtle)
             } else {
                 ForEach(syncProjects) { project in
@@ -151,7 +151,7 @@ struct NotesSyncModalView: View {
                 }
                 
                 Text("Each project has its own password; everyone using it shares that project's notes. Passwords are 8+ characters, not case-sensitive (longer is safer: anyone who guesses one can read its notes). A clip joins the project that already has notes for it, otherwise the DEFAULT project when it gets notes; change it from the Notes panel. Notes are encrypted on this Mac before upload. Clips match by file name and size, so each person can keep files in any folder.")
-                    .font(.system(size: 9))
+                    .font(.system(size: StudioTheme.scaleFont(9)))
                     .foregroundColor(palette.textSubtle)
                     .fixedSize(horizontal: false, vertical: true)
             }

@@ -158,7 +158,7 @@ struct SubtitleCrossCheckSheet: View {
                 VStack(alignment: .leading, spacing: 3) {
                     badge(difference.kind.rawValue.uppercased(), kindColor(difference.kind))
                     Text(timecode(difference.time, fps: file.fps))
-                        .font(.system(size: 9, weight: .semibold, design: .monospaced))
+                        .font(.system(size: StudioTheme.scaleFont(9), weight: .semibold, design: .monospaced))
                         .foregroundColor(palette.textMuted)
                 }
                 .frame(width: 110, alignment: .leading)
@@ -172,7 +172,7 @@ struct SubtitleCrossCheckSheet: View {
                 }
                 Spacer(minLength: 0)
                 Image(systemName: "arrow.right.circle")
-                    .font(.system(size: 11))
+                    .font(.system(size: StudioTheme.scaleFont(11)))
                     .foregroundColor(palette.textMuted)
             }
             .padding(7)
@@ -191,12 +191,12 @@ struct SubtitleCrossCheckSheet: View {
                 .frame(width: 58, alignment: .leading)
             VStack(alignment: .leading, spacing: 1) {
                 Text(cue.displayText)
-                    .font(.system(size: 11, weight: .medium))
+                    .font(.system(size: StudioTheme.scaleFont(11), weight: .medium))
                     .foregroundColor(palette.textMain)
                     .fixedSize(horizontal: false, vertical: true)
                 if showTiming {
                     Text("\(timecode(cue.start, fps: fps)) → \(timecode(cue.end, fps: fps))")
-                        .font(.system(size: 9, design: .monospaced))
+                        .font(.system(size: StudioTheme.scaleFont(9), design: .monospaced))
                         .foregroundColor(palette.textMuted)
                 }
             }

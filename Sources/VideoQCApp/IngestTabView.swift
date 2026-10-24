@@ -66,7 +66,7 @@ extension ContentView {
                             Image(systemName: ingestState.intakeFolderURL == nil ? "folder.badge.plus" : "arrow.triangle.2.circlepath")
                                 .font(.system(size: StudioTheme.scaleFont(9), weight: .bold))
                             Text(ingestState.intakeFolderURL == nil ? "Select Intake Folder" : "Change Folder")
-                                .font(.ui(size: StudioTheme.scaleFont(9), weight: .semibold))
+                                .font(.ui(size: 9, weight: .semibold))
                                 .lineLimit(1)
                         }
                         .frame(maxWidth: .infinity)
@@ -79,7 +79,7 @@ extension ContentView {
                     if let folder = ingestState.intakeFolderURL {
                         Button(action: { ingestState.scanIntake(urls: [folder]) }) {
                             Image(systemName: "arrow.clockwise")
-                                .font(.system(size: 10, weight: .bold))
+                                .font(.system(size: StudioTheme.scaleFont(10), weight: .bold))
                                 .frame(width: 28, height: 28)
                                 .foregroundColor(textMain)
                                 .studioBox(background: bgSubtle, border: borderLine)
@@ -92,7 +92,7 @@ extension ContentView {
                 if let folder = ingestState.intakeFolderURL {
                     HStack(spacing: 6) {
                         Image(systemName: "folder.fill")
-                            .font(.system(size: 10))
+                            .font(.system(size: StudioTheme.scaleFont(10)))
                             .foregroundColor(textMuted)
                         Text(folder.lastPathComponent)
                             .font(.ui(size: 10.5, weight: .semibold))
@@ -154,7 +154,7 @@ extension ContentView {
                     Button(action: { ingestState.manifest.addedToClientDrives.toggle() }) {
                         HStack(spacing: 5) {
                             Image(systemName: ingestState.manifest.addedToClientDrives ? "checkmark.square.fill" : "square")
-                                .font(.system(size: 11, weight: .bold))
+                                .font(.system(size: StudioTheme.scaleFont(11), weight: .bold))
                             Text(ingestState.manifest.addedToClientDrives ? "Yes" : "No")
                                 .font(.ui(size: 10, weight: .semibold))
                         }
@@ -218,11 +218,11 @@ extension ContentView {
         Button(action: { isChecked.wrappedValue.toggle() }) {
             HStack(spacing: 8) {
                 Image(systemName: isChecked.wrappedValue ? "checkmark.square.fill" : "square")
-                    .font(.system(size: 12, weight: .bold))
+                    .font(.system(size: StudioTheme.scaleFont(12), weight: .bold))
                     .foregroundColor(isChecked.wrappedValue ? textMain : textMuted)
                 
                 Image(systemName: icon)
-                    .font(.system(size: 10))
+                    .font(.system(size: StudioTheme.scaleFont(10)))
                     .foregroundColor(textMuted)
                     .frame(width: 14)
                 
@@ -359,7 +359,7 @@ extension ContentView {
                 if let url = ingestState.ditReportURL {
                     HStack(spacing: 6) {
                         Image(systemName: "doc.text.fill")
-                            .font(.system(size: 10))
+                            .font(.system(size: StudioTheme.scaleFont(10)))
                             .foregroundColor(textMuted)
                         VStack(alignment: .leading, spacing: 1) {
                             Text(url.lastPathComponent)
@@ -373,7 +373,7 @@ extension ContentView {
                         Spacer()
                         Button(action: { ingestState.clearDITReport() }) {
                             Image(systemName: "xmark.circle")
-                                .font(.system(size: 12))
+                                .font(.system(size: StudioTheme.scaleFont(12)))
                                 .foregroundColor(textMuted)
                         }
                         .buttonStyle(.plain)
@@ -385,7 +385,7 @@ extension ContentView {
                     Button(action: { ingestState.promptImportDITReport() }) {
                         HStack(spacing: 5) {
                             Image(systemName: "square.and.arrow.down")
-                                .font(.system(size: 9, weight: .bold))
+                                .font(.system(size: StudioTheme.scaleFont(9), weight: .bold))
                             Text("Cross-reference dit report (CSV / rtf / txt)")
                                 .font(.ui(size: 9, weight: .semibold))
                                 .lineLimit(1)
@@ -404,7 +404,7 @@ extension ContentView {
                     Button(action: { ingestState.exportManifestCSV() }) {
                         HStack(spacing: 4) {
                             Image(systemName: "doc.text")
-                                .font(.system(size: 8.5, weight: .bold))
+                                .font(.system(size: StudioTheme.scaleFont(8.5), weight: .bold))
                             Text("Save CSV")
                                 .font(.ui(size: 9, weight: .semibold))
                         }
@@ -419,7 +419,7 @@ extension ContentView {
                     Button(action: { ingestState.openManifestHTML() }) {
                         HStack(spacing: 4) {
                             Image(systemName: "safari")
-                                .font(.system(size: 8.5, weight: .bold))
+                                .font(.system(size: StudioTheme.scaleFont(8.5), weight: .bold))
                             Text("Open HTML")
                                 .font(.ui(size: 9, weight: .semibold))
                         }
@@ -437,7 +437,7 @@ extension ContentView {
                     }) {
                         HStack(spacing: 4) {
                             Image(systemName: "doc.on.clipboard")
-                                .font(.system(size: 8.5, weight: .bold))
+                                .font(.system(size: StudioTheme.scaleFont(8.5), weight: .bold))
                             Text("Copy")
                                 .font(.ui(size: 9, weight: .semibold))
                         }
@@ -499,7 +499,7 @@ extension ContentView {
             Spacer()
             
             Image(systemName: "tray.and.arrow.down")
-                .font(.system(size: 46, weight: .light))
+                .font(.system(size: StudioTheme.scaleFont(46), weight: .light))
                 .foregroundColor(textMuted.opacity(0.5))
             
             Text("Drop Intake Folder Here")
@@ -516,7 +516,7 @@ extension ContentView {
             Button(action: { selectAssets(forTab: .ingest) }) {
                 HStack(spacing: 6) {
                     Image(systemName: "folder.badge.plus")
-                        .font(.system(size: 10, weight: .bold))
+                        .font(.system(size: StudioTheme.scaleFont(10), weight: .bold))
                     Text("Select Intake Folder")
                         .font(.ui(size: 10, weight: .semibold))
                 }
@@ -569,7 +569,7 @@ extension ContentView {
                 // Search Input
                 HStack(spacing: 6) {
                     Image(systemName: "magnifyingglass")
-                        .font(.system(size: 10))
+                        .font(.system(size: StudioTheme.scaleFont(10)))
                         .foregroundColor(textMuted)
                     
                     TextField("Filter ingest items...", text: $ingestState.filterText)
@@ -580,7 +580,7 @@ extension ContentView {
                     if !ingestState.filterText.isEmpty {
                         Button(action: { ingestState.filterText = "" }) {
                             Image(systemName: "xmark.circle.fill")
-                                .font(.system(size: 10))
+                                .font(.system(size: StudioTheme.scaleFont(10)))
                                 .foregroundColor(textMuted)
                         }
                         .buttonStyle(.plain)
@@ -618,10 +618,10 @@ extension ContentView {
                     Button(action: { ingestState.isFlagsExpanded.toggle() }) {
                         HStack(spacing: 8) {
                             Image(systemName: ingestState.isFlagsExpanded ? "chevron.down" : "chevron.right")
-                                .font(.system(size: 9, weight: .bold))
+                                .font(.system(size: StudioTheme.scaleFont(9), weight: .bold))
                             
                             Image(systemName: "exclamationmark.triangle.fill")
-                                .font(.system(size: 11))
+                                .font(.system(size: StudioTheme.scaleFont(11)))
                                 .foregroundColor(alertRed)
                             
                             Text("Dit Audit Discrepancies (\(ingestState.flags.count))")
@@ -743,7 +743,7 @@ extension ContentView {
                     .foregroundColor(ingestState.sortColumn == column ? textMain : textMuted)
                 if ingestState.sortColumn == column {
                     Image(systemName: ingestState.sortAscending ? "chevron.up" : "chevron.down")
-                        .font(.system(size: 7, weight: .bold))
+                        .font(.system(size: StudioTheme.scaleFont(7), weight: .bold))
                         .foregroundColor(textMain)
                 }
             }
@@ -760,7 +760,7 @@ extension ContentView {
             // Category
             HStack(spacing: 5) {
                 Image(systemName: item.fileCategory.iconName)
-                    .font(.system(size: 9))
+                    .font(.system(size: StudioTheme.scaleFont(9)))
                     .foregroundColor(textMuted)
                 Text(item.fileCategory.rawValue)
                     .font(.ui(size: 9.5, weight: .semibold))
@@ -799,7 +799,7 @@ extension ContentView {
             
             // FPS
             Text(item.mediaMetadata.map { String(format: "%.2f", $0.fps) } ?? "--")
-                .font(.system(size: 9.5, design: .monospaced))
+                .font(.system(size: StudioTheme.scaleFont(9.5), design: .monospaced))
                 .foregroundColor(textMuted)
                 .frame(width: 55, alignment: .leading)
             

@@ -28,17 +28,19 @@ struct PlaybackClockText: View {
     var hoverState: Bool? = nil
 
     var body: some View {
+        // The template reserves exactly the drawn text's size: same monospaced bold face, same Button Size scaling.
+        let size = (fontSize * TypeScale.factor).rounded()
         Text(template)
-            .font(.ui(size: fontSize, weight: .semibold))
-            .monospacedDigit()
+            .font(.system(size: size, weight: .bold, design: .monospaced))
             .tracking(tracking)
             .lineLimit(1)
+            .fixedSize()
             .hidden()
             .overlay {
                 PlaybackClockTextRepresentable(
                     clock: clock,
                     value: value,
-                    fontSize: fontSize,
+                    fontSize: size,
                     color: NSColor(color),
                     kern: tracking,
                     alignment: alignment == .trailing ? .right : .left,

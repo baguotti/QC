@@ -120,7 +120,7 @@ struct SidebarRow: View {
             HStack(spacing: 7) {
                 if let icon {
                     Image(systemName: icon)
-                        .font(.system(size: 11))
+                        .font(.system(size: StudioTheme.scaleFont(11)))
                         .frame(width: 14)
                         .foregroundColor(isSelected ? .white : palette.textMuted)
                 }

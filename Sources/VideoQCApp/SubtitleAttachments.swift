@@ -19,14 +19,21 @@ enum SubtitleAttachments {
         UserDefaults.standard.set(map, forKey: defaultsKey)
     }
 
-    /// Same-name .srt next to the video (disk access: call off the main thread).
+    /// The .srt next to the video with the same name, ignoring case: `clip.srt`, then `clip.mov.srt`, then a language
+    /// suffix such as `clip.en.srt` (disk access: call off the main thread).
     static func sidecar(for video: URL) -> URL? {
-        let base = video.deletingPathExtension()
-        for ext in ["srt", "SRT"] {
-            let candidate = base.appendingPathExtension(ext)
-            if FileManager.default.fileExists(atPath: candidate.path) { return candidate }
-        }
-        return nil
+        let folder = video.deletingLastPathComponent()
+        guard let names = try? FileManager.default.contentsOfDirectory(atPath: folder.path) else { return nil }
+        let base = video.deletingPathExtension().lastPathComponent.lowercased()
+        let full = video.lastPathComponent.lowercased()
+        let srts = names.filter { $0.lowercased().hasSuffix(".srt") }.sorted()
+        let match = srts.first { $0.lowercased() == base + ".srt" }
+            ?? srts.first { $0.lowercased() == full + ".srt" }
+            ?? srts.first { name in
+                let stem = (name as NSString).deletingPathExtension.lowercased()
+                return stem.hasPrefix(base + ".") && !stem.dropFirst(base.count + 1).contains(".")
+            }
+        return match.map { folder.appendingPathComponent($0) }
     }
 
     /// The .srt to use for a video: an existing manual attachment, else the sidecar (disk access: off the main thread).

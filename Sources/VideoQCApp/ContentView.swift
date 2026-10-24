@@ -27,9 +27,7 @@ struct ContentView: View {
     @AppStorage("queueDisplayMode") var queueDisplayMode: String = "inline"
     @AppStorage("playerThumbnailSize") var playerThumbnailSize: Double = 52.0
     @AppStorage("playerQueueWidth") var playerQueueWidth: Double = 360.0
-    @State var isDraggingQueueResize: Bool = false
-    @State var isHoveringQueueResize: Bool = false
-    @State var dragStartQueueWidth: Double = 360.0
+    @AppStorage("scanPanelWidth") var scanPanelWidth: Double = 400.0
     @AppStorage("specsDisplayMode") var specsDisplayMode: String = "inline"
     @AppStorage("specsThumbnailSize") var specsThumbnailSize: Double = 50.0
     @State var showSpecsViewOptionsPopover: Bool = false
@@ -40,6 +38,7 @@ struct ContentView: View {
     @ObservedObject var themeManager = ThemeManager.shared
     @ObservedObject private var fileOpenManager = FileOpenManager.shared
     @State private var hoveredTab: AppTab? = nil
+    @State var hoveredResizeColumn: SpecsSortColumn? = nil
     
     // Shared Folder & Video Files
     @State var folderURL: URL? = nil
@@ -439,7 +438,7 @@ struct ContentView: View {
                 Spacer()
                 HStack(spacing: 10) {
                     Image(systemName: "checkmark.circle.fill")
-                        .font(.system(size: 13, weight: .bold))
+                        .font(.system(size: StudioTheme.scaleFont(13), weight: .bold))
                         .foregroundColor(accentPositive)
                     Text(toast)
                         .font(.ui(size: 11, weight: .semibold))
@@ -471,7 +470,7 @@ struct ContentView: View {
                 Button(action: { updateManager.showModal = true }) {
                     HStack(spacing: 5) {
                         Image(systemName: "arrow.down.circle.fill")
-                            .font(.system(size: 10))
+                            .font(.system(size: StudioTheme.scaleFont(10)))
                         Text("UPDATE v\(updateManager.latestVersion)")
                             .font(.ui(size: 10, weight: .semibold))
                     }
@@ -521,7 +520,7 @@ struct ContentView: View {
                     }) {
                         HStack(spacing: 8) {
                             Image(systemName: updateManager.hasUpdate ? "arrow.down.circle.fill" : "arrow.triangle.2.circlepath")
-                                .font(.system(size: 11, weight: .bold))
+                                .font(.system(size: StudioTheme.scaleFont(11), weight: .bold))
                                 .foregroundColor(updateManager.hasUpdate ? accentPositive : textMain)
                                 .frame(width: 16)
                             Text(updateManager.hasUpdate ? "Software Update (v\(updateManager.latestVersion) available)" : "Software Update (v\(AppVersionInfo.version))")
@@ -547,7 +546,7 @@ struct ContentView: View {
                     }) {
                         HStack(spacing: 8) {
                             Image(systemName: "person.crop.circle")
-                                .font(.system(size: 11, weight: .bold))
+                                .font(.system(size: StudioTheme.scaleFont(11), weight: .bold))
                                 .foregroundColor(textMain)
                                 .frame(width: 16)
                             Text("User Settings")
@@ -573,7 +572,7 @@ struct ContentView: View {
                     }) {
                         HStack(spacing: 8) {
                             Image(systemName: "paintpalette.fill")
-                                .font(.system(size: 11, weight: .bold))
+                                .font(.system(size: StudioTheme.scaleFont(11), weight: .bold))
                                 .foregroundColor(themeManager.currentTheme.playColor)
                                 .frame(width: 16)
                             VStack(alignment: .leading, spacing: 1) {
@@ -612,7 +611,7 @@ struct ContentView: View {
                     }) {
                         HStack(spacing: 8) {
                             Image(systemName: "icloud")
-                                .font(.system(size: 11, weight: .bold))
+                                .font(.system(size: StudioTheme.scaleFont(11), weight: .bold))
                                 .foregroundColor(textMain)
                                 .frame(width: 16)
                             Text("Synced Projects")
@@ -638,7 +637,7 @@ struct ContentView: View {
                     }) {
                         HStack(spacing: 8) {
                             Image(systemName: "info.circle")
-                                .font(.system(size: 11, weight: .bold))
+                                .font(.system(size: StudioTheme.scaleFont(11), weight: .bold))
                                 .foregroundColor(textMain)
                                 .frame(width: 16)
                             Text("Info / Guide")
@@ -664,7 +663,7 @@ struct ContentView: View {
                     }) {
                         HStack(spacing: 8) {
                             Image(systemName: "envelope")
-                                .font(.system(size: 11, weight: .bold))
+                                .font(.system(size: StudioTheme.scaleFont(11), weight: .bold))
                                 .foregroundColor(textMain)
                                 .frame(width: 16)
                             Text("Feedback & Support")
@@ -1283,10 +1282,13 @@ struct ContentView: View {
             Text(title)
                 .font(.ui(size: 8, weight: .semibold))
                 .foregroundColor(textMuted)
+                .lineLimit(1)
             Text(val)
                 .font(.ui(size: 16, weight: .semibold))
                 .foregroundColor(isRed ? alertRed : (isPositive ? accentPositive : textMain))
+                .lineLimit(1)
         }
+        .fixedSize()
         .padding(.trailing, 16)
         .padding(.vertical, 4)
     }
@@ -1419,13 +1421,13 @@ struct ContentView: View {
                 withAnimation(.easeInOut(duration: 0.15)) {
                     _ = self.themeManager.increaseButtonZoom()
                 }
-                self.showToast("BUTTON SIZE: \(self.themeManager.buttonZoom.title) (\(String(format: "%.1fx", self.themeManager.buttonZoom.scaleFactor)))")
+                self.showToast("Button size: \(self.themeManager.buttonZoom.title) (\(String(format: "%g", self.themeManager.buttonZoom.scaleFactor))×)")
             },
             onZoomOut: {
                 withAnimation(.easeInOut(duration: 0.15)) {
                     _ = self.themeManager.decreaseButtonZoom()
                 }
-                self.showToast("BUTTON SIZE: \(self.themeManager.buttonZoom.title) (\(String(format: "%.1fx", self.themeManager.buttonZoom.scaleFactor)))")
+                self.showToast("Button size: \(self.themeManager.buttonZoom.title) (\(String(format: "%g", self.themeManager.buttonZoom.scaleFactor))×)")
             },
             onSelectPlayerTab: {
                 withAnimation(.spring(response: 0.22, dampingFraction: 0.85)) {
@@ -2271,7 +2273,7 @@ struct StudioStatusBarView: View {
         HStack(spacing: 8) {
             HStack(spacing: 5) {
                 Image(systemName: "cursorarrow.rays")
-                    .font(.system(size: 9))
+                    .font(.system(size: StudioTheme.scaleFont(9)))
                     .foregroundColor(hoverCoordinator.text.isEmpty ? textMuted : textMain)
                 Text("Info")
                     .font(.ui(size: 9, weight: .semibold))
