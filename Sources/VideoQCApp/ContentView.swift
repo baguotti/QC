@@ -9,6 +9,7 @@ struct ContentView: View {
     @AppStorage("isLightMode") var isLightMode: Bool = false
     @State var selectedTab: AppTab = .player
     @State var isWindowFullScreen = false
+    @State var clipInfoBeforeFullscreen: Bool? = nil
     @State var showUserGuide: Bool = false
     @State var showFeedbackModal: Bool = false
     @State var showSettingsPopover: Bool = false
@@ -800,6 +801,23 @@ struct ContentView: View {
         }
     }
     
+    /// Empties the asset list (all tabs share it) and closes both player slots.
+    func clearQueue() {
+        withAnimation(.easeInOut(duration: 0.2)) {
+            playerEngine.clearSlotB()
+            playerEngine.unload()
+            videoFiles = []
+            folderURL = nil
+            specsState.cancelAudioAnalysis()
+            specsState.deliverableAssets = []
+            specsState.selectedDeliverableURL = nil
+            playerCollapsedFolderIDs.removeAll()
+            hiddenFolderIDs.removeAll()
+            FileSystemTreeBuilder.clearCache()
+            updatePlayerTreeNodes()
+        }
+    }
+    
     func clearFolder(node: FileSystemTreeNode) {
         let urlsToRemove = Set(node.videoURLs.map { $0.standardizedFileURL.path })
         withAnimation(.easeInOut(duration: 0.2)) {
@@ -1314,6 +1332,14 @@ struct ContentView: View {
     func enterFullscreen(mode: FullscreenMode = .videoOnly) {
         guard playerEngine.activeURL != nil else { return }
         fullscreenMode = mode
+        // Clean full screen is picture only: no clip info overlay (restored on exit).
+        if mode == .videoOnly {
+            if clipInfoBeforeFullscreen == nil { clipInfoBeforeFullscreen = playerEngine.showResolutionLabels }
+            playerEngine.showResolutionLabels = false
+        } else if let shown = clipInfoBeforeFullscreen {
+            playerEngine.showResolutionLabels = shown
+            clipInfoBeforeFullscreen = nil
+        }
         playerEngine.setZoomFit()
         
         if let window = NSApp.keyWindow ?? NSApp.mainWindow ?? NSApp.windows.first(where: { $0.isVisible && !$0.isMiniaturized }) {
@@ -1327,6 +1353,10 @@ struct ContentView: View {
     }
     
     func exitFullscreen() {
+        if let shown = clipInfoBeforeFullscreen {
+            playerEngine.showResolutionLabels = shown
+        }
+        clipInfoBeforeFullscreen = nil
         fullscreenMode = .none
         if didToggleWindowForFullscreen {
             if let window = NSApp.keyWindow ?? NSApp.mainWindow ?? NSApp.windows.first(where: { $0.isVisible && !$0.isMiniaturized }),
@@ -1541,7 +1571,7 @@ struct ContentView: View {
                 return true
             },
             onToggleUserGuide: { self.showUserGuide.toggle() },
-            onCycleClipInfo: { self.playerEngine.cycleClipInfoOverlayMode() },
+            onCycleClipInfo: { if self.fullscreenMode != .videoOnly { self.playerEngine.cycleClipInfoOverlayMode() } },
             onToggleProperties: { self.togglePropertiesModalForActiveOrSelected() },
             onToggleLeftSleeve: {
                 if self.selectedTab == .player {
@@ -2122,6 +2152,17 @@ struct ContentView: View {
         }
         saveNotes(playerEngine.activeNotes, for: url)
         showToast("Note deleted")
+    }
+    
+    /// Deletes the given notes (Notes drawer: "Clear Filtered") and keeps the rest.
+    func deleteNotes(ids: Set<UUID>) {
+        guard let url = notesTargetURL, !ids.isEmpty else { return }
+        withAnimation(.easeInOut(duration: 0.2)) {
+            playerEngine.activeNotes.removeAll { ids.contains($0.id) }
+            playerEngine.activeNotesURL = url
+        }
+        saveNotes(playerEngine.activeNotes, for: url)
+        showToast("\(ids.count) note\(ids.count == 1 ? "" : "s") deleted")
     }
     
     func clearAllNotes() {

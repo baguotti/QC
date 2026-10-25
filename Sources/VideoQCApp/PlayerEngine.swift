@@ -530,7 +530,20 @@ public final class PlayerEngine: ObservableObject {
     @Published public var displayTimeAsFrames: Bool = false
     
     @Published public var rate: Float = 0.0
-    @Published public var isPlaying: Bool = false
+    @Published public var isPlaying: Bool = false {
+        didSet { if isPlaying != oldValue { updateDisplaySleepAssertion() } }
+    }
+    /// Held while playing so the display doesn't sleep mid-review (released on pause).
+    private var displaySleepActivity: NSObjectProtocol?
+    
+    private func updateDisplaySleepAssertion() {
+        if isPlaying, displaySleepActivity == nil {
+            displaySleepActivity = ProcessInfo.processInfo.beginActivity(options: [.idleDisplaySleepDisabled], reason: "Playing video")
+        } else if !isPlaying, let activity = displaySleepActivity {
+            ProcessInfo.processInfo.endActivity(activity)
+            displaySleepActivity = nil
+        }
+    }
     @Published public var isLooping: Bool = true
     
     // Zoom & Pan

@@ -40,6 +40,7 @@ struct NotesDrawerPanelView: View {
     var onToggleResolved: (UUID) -> Void
     var onDeleteNote: (UUID) -> Void
     var onClearAllNotes: () -> Void
+    var onDeleteNotes: (Set<UUID>) -> Void
     var onUpdateNote: (QCFileNote) -> Void
     var onExportNotes: () -> Void
     var onImportNotes: () -> Void
@@ -260,7 +261,7 @@ struct NotesDrawerPanelView: View {
                         HStack(spacing: 3) {
                             Image(systemName: "trash")
                                 .font(.system(size: StudioTheme.scaleFont(7.5), weight: .bold))
-                            Text("Clear All")
+                            Text(filteredNoteIDs == nil ? "Clear All" : "Clear Filtered")
                                 .font(.ui(size: 8, weight: .semibold))
                                 .lineLimit(1)
                         }
@@ -270,7 +271,7 @@ struct NotesDrawerPanelView: View {
                         .studioBox(background: palette.alertRed.opacity(0.12), border: palette.alertRed.opacity(0.45))
                     }
                     .buttonStyle(.plain)
-                    .help("Clear all markers and review notes for this clip")
+                    .help(filteredNoteIDs == nil ? "Clear all markers and review notes for this clip" : "Delete the notes shown by the filter (the others stay)")
                 }
                 
                 Button(action: onAddNote) {
@@ -330,7 +331,7 @@ struct NotesDrawerPanelView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .background(palette.bgMain)
             } else {
-                let presentColors = QCNoteTheme.availableColors.map(\.id).filter { id in notes.contains { $0.colorTag == id } }
+                let presentColors = Self.filterColors.filter { id in notes.contains { $0.colorTag == id } }
                 let activeFilter = colorFilter.intersection(presentColors)
                 if presentColors.count > 1 {
                     noteColorFilterBar(presentColors: presentColors, active: activeFilter)
@@ -932,13 +933,17 @@ struct NotesDrawerPanelView: View {
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
         .background(palette.bgPanel)
-        .alert("Clear All Markers for This Clip?", isPresented: $showClearConfirmation) {
-            Button("Clear All", role: .destructive) {
-                onClearAllNotes()
+        .alert(filteredNoteIDs == nil ? "Clear All Markers for This Clip?" : "Delete the Filtered Notes?", isPresented: $showClearConfirmation) {
+            Button(filteredNoteIDs == nil ? "Clear All" : "Delete", role: .destructive) {
+                if let ids = filteredNoteIDs { onDeleteNotes(ids) } else { onClearAllNotes() }
             }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("This will permanently remove all \(notes.count) review notes and markers for \(mediaName). This cannot be undone.")
+            if let ids = filteredNoteIDs {
+                Text("This will permanently remove the \(ids.count) filtered note\(ids.count == 1 ? "" : "s") for \(mediaName). The other notes stay. This cannot be undone.")
+            } else {
+                Text("This will permanently remove all \(notes.count) review notes and markers for \(mediaName). This cannot be undone.")
+            }
         }
     }
     
@@ -1096,6 +1101,17 @@ struct NotesDrawerPanelView: View {
     }
     
     // MARK: - Colour Filter
+    
+    /// Filterable colours: red (Line Check glitches) plus the user note colours.
+    private static let filterColors = ["red"] + QCNoteTheme.availableColors.map(\.id)
+    
+    /// IDs of the notes the colour filter shows, or nil when no filter is on.
+    private var filteredNoteIDs: Set<UUID>? {
+        let present = Set(notes.map(\.colorTag))
+        let active = colorFilter.intersection(present)
+        guard !active.isEmpty else { return nil }
+        return Set(notes.filter { active.contains($0.colorTag) }.map(\.id))
+    }
     
     private func noteColorFilterBar(presentColors: [String], active: Set<String>) -> some View {
         HStack(spacing: 4) {

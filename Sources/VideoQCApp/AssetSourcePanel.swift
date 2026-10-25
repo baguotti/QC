@@ -97,6 +97,8 @@ struct AssetSourcePanel: View {
             Text(breakdownText)
                 .font(.ui(size: 11))
                 .foregroundColor(palette.textMuted)
+                .lineLimit(1)
+                .truncationMode(.tail)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .contentShape(Rectangle())

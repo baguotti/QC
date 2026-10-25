@@ -42,6 +42,7 @@ public struct PlayerQueuePanelView: View, Equatable {
     // Action Callbacks:
     public var onSelectAssets: (_ append: Bool) -> Void
     public var onRefreshAssets: () -> Void
+    public var onClearQueue: () -> Void
     public var onToggleHideFolders: () -> Void
     public var onToggleAutoplay: () -> Void
     public var onToggleWaveforms: () -> Void
@@ -274,6 +275,23 @@ public struct PlayerQueuePanelView: View, Equatable {
                 }
             }
             .frame(maxHeight: .infinity)
+            
+            if !videoFiles.isEmpty {
+                Button(action: onClearQueue) {
+                    HStack(spacing: 4) {
+                        Image(systemName: "xmark")
+                            .font(.system(size: StudioTheme.scaleFont(8), weight: .bold))
+                        Text("Clear List")
+                            .font(.ui(size: 9, weight: .semibold))
+                    }
+                    .foregroundColor(textMuted)
+                    .frame(maxWidth: .infinity, alignment: .center)
+                    .padding(.top, 6)
+                }
+                .buttonStyle(TransportIconButtonStyle())
+                .disabled(isScanning)
+                .explain("Removes all files from the queue and closes the player.")
+            }
         }
         .padding(22)
         .frame(maxWidth: .infinity, maxHeight: .infinity)

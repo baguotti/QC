@@ -1225,12 +1225,22 @@ extension ContentView {
             }
             
             let effectivePathWidth = pathWidth > 0 ? pathWidth : CGFloat(specsState.columnWidth(for: .path))
-            Text(asset.fileURL.path)
-                .font(.ui(size: 10))
+            // Start of the path only (less clutter); click reveals the file in Finder, full path on hover.
+            Button(action: { NSWorkspace.shared.activateFileViewerSelecting([asset.fileURL]) }) {
+                HStack(spacing: 4) {
+                    Image(systemName: "folder")
+                        .font(.system(size: StudioTheme.scaleFont(9)))
+                    Text(asset.fileURL.deletingLastPathComponent().path)
+                        .font(.ui(size: 10))
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                }
                 .foregroundColor(textSubtle)
-                .frame(width: effectivePathWidth, alignment: .leading)
-                .lineLimit(1)
-                .truncationMode(.middle)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(TransportIconButtonStyle())
+            .frame(width: effectivePathWidth, alignment: .leading)
+            .help("Reveal in Finder: \(asset.fileURL.path)")
         }
         .font(.ui(size: 11))
         .padding(.horizontal, 14)

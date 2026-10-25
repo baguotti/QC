@@ -295,6 +295,9 @@ extension ContentView {
             onRefreshAssets: {
                 refreshPlayerAssets()
             },
+            onClearQueue: {
+                clearQueue()
+            },
             onToggleHideFolders: {
                 toggleHideFolders()
             },
@@ -472,6 +475,9 @@ extension ContentView {
             },
             onClearAllNotes: {
                 clearAllNotes()
+            },
+            onDeleteNotes: { ids in
+                deleteNotes(ids: ids)
             },
             onUpdateNote: { note in
                 updateNote(note)

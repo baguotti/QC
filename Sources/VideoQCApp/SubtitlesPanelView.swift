@@ -252,10 +252,21 @@ struct SubtitlesPanelView: View {
             }
             .buttonStyle(.plain)
             .disabled(!engine.hasUnsavedSubtitleEdits)
-            .help("Save changes to \(engine.subtitleFileName ?? "the .srt")")
+            .help("Save changes to \(engine.subtitleFileName ?? "the .srt") (overwrites it)")
+
+            Button(action: saveAs) {
+                Text("Save As…")
+                    .font(.ui(size: 8.5, weight: .semibold))
+                    .padding(.horizontal, 7)
+                    .padding(.vertical, 3.5)
+                    .foregroundColor(palette.textMain)
+                    .studioBox(background: palette.bgSubtle, border: palette.borderLine)
+            }
+            .buttonStyle(.plain)
+            .disabled(engine.subtitleCues.isEmpty)
+            .help("Save the subtitles as a new .srt file")
 
             Menu {
-                Button("Save As…") { saveAs() }
                 Button("Reveal in Finder") {
                     if let url = engine.subtitleSourceURL { NSWorkspace.shared.activateFileViewerSelecting([url]) }
                 }
