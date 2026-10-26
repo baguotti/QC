@@ -811,6 +811,9 @@ struct ContentView: View {
             specsState.cancelAudioAnalysis()
             specsState.deliverableAssets = []
             specsState.selectedDeliverableURL = nil
+            scannerState.scanResults = []
+            scannerState.frameCheckResults = []
+            playerEngine.setScanResults([])
             playerCollapsedFolderIDs.removeAll()
             hiddenFolderIDs.removeAll()
             FileSystemTreeBuilder.clearCache()

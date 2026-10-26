@@ -1544,6 +1544,7 @@ public final class PlayerEngine: ObservableObject {
     
     public func clearSlotA() {
         self.objectWillChange.send()
+        stopSlowStep()
         slotA.player.pause()
         slotA.detachVideoOutput()
         slotA.player.replaceCurrentItem(with: nil)

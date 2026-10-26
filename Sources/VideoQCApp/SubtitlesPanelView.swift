@@ -180,7 +180,11 @@ struct SubtitlesPanelView: View {
             spelling.recheck(cues, delay: .zero)
         }
         .onChange(of: engine.subtitleSourceURL) { _, _ in
+            // A pending edit belongs to the previous file: drop it rather than write it into this one.
+            commitTask?.cancel()
+            commitTask = nil
             selectedIndex = nil
+            highlightedIndex = nil
             tracker.bind(clock: engine.clock, cues: cues, fps: fps)
             spelling.recheck(cues, delay: .zero)
         }

@@ -1139,7 +1139,7 @@ struct NotesDrawerPanelView: View {
             }
             Spacer()
             if !active.isEmpty {
-                Button("SHOW ALL") { colorFilter.removeAll() }
+                Button("Show All") { colorFilter.removeAll() }
                     .buttonStyle(.plain)
                     .font(.ui(size: 8.5, weight: .semibold))
                     .foregroundColor(palette.accentBlue)
