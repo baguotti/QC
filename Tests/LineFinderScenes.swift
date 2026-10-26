@@ -319,6 +319,16 @@ struct LineCase: Sendable {
             for x in 0..<Scenes.width { f[x, 40] = (0, 255, 0) }
             return f
         },
+        LineCase(name: "line as thick as the edge depth (12 px)", config: greenConfig, expectedEdge: .bottom) {
+            var f = Scenes.picture()
+            f.drawEdgeLine(.bottom, thickness: 12, color: Scenes.green)
+            return f
+        },
+        LineCase(name: "3 px line with a 2 px edge depth", config: QCConfig(targetHex: "#00FF00", tolerance: 0.25, edgeDepth: 2), expectedEdge: .left) {
+            var f = Scenes.picture()
+            f.drawEdgeLine(.left, thickness: 3, color: Scenes.green)
+            return f
+        },
     ]
 
     static let negatives: [LineCase] = [
@@ -375,7 +385,12 @@ struct LineCase: Sendable {
         LineCase(name: "full black frame", config: blackConfig, expectedEdge: nil) { Scenes.solid(Scenes.black) },
         LineCase(name: "full white frame", config: whiteConfig, expectedEdge: nil) { Scenes.solid(Scenes.white) },
         LineCase(name: "full green frame", config: greenConfig, expectedEdge: nil) { Scenes.solid(Scenes.green) },
-        LineCase(name: "dark scene with no line", config: blackConfig, expectedEdge: nil) { Scenes.darkPicture() }
+        LineCase(name: "dark scene with no line", config: blackConfig, expectedEdge: nil) { Scenes.darkPicture() },
+        LineCase(name: "green band deeper than edge depth + 16 px", config: greenConfig, expectedEdge: nil) {
+            var f = Scenes.picture()
+            f.drawEdgeLine(.bottom, thickness: 40, color: Scenes.green)
+            return f
+        }
     ]
 }
 

@@ -41,6 +41,9 @@ public final class ScannerState: ObservableObject {
     @Published public var isFullCheck: Bool = false
     private var frameCheckScanner: FrameCheckScanner? = nil
     
+    /// A Line Check or Frame Check is running: the asset list must not change under it.
+    public var isCheckRunning: Bool { isScanning || isFrameChecking }
+    
     public init() {
         self.tagInFinder = UserDefaults.standard.bool(forKey: "tagInFinder")
     }

@@ -209,6 +209,9 @@ private struct BlendLineModel {
     /// The picture just inside a line must fall back to at most this fraction of the innermost line row's α.
     static let maxInnerAlphaRatio: Float = 0.6
     static let anyColorMinAlpha: Float = 0.6
+    /// A line that fills the whole scan depth is followed this many px further in to find where it stops; a band
+    /// that doesn't stop by then is a bar or picture content.
+    static let thickLineMargin = 16
     
     let lut: [Float]
     let target: SIMD3<Float>?
@@ -259,9 +262,7 @@ private struct BlendLineModel {
             (.right, LineWalk(origin: (w - 1) * 4, depthStride: -4, positionStride: bpr, length: h), w)
         ]
         for (edge, walk, extent) in edges {
-            let depthCount = min(edgeDepth, extent / 2 - 4)
-            guard depthCount >= 1 else { continue }
-            if let detection = scanEdge(edge, walk: walk, frame: frame, depthCount: depthCount) {
+            if let detection = findEdgeLine(edge, walk: walk, frame: frame, maxDepth: extent / 2 - 4) {
                 detections.append(detection)
                 continue
             }
@@ -271,8 +272,7 @@ private struct BlendLineModel {
             guard matte > edgeDepth, !(target.map { $0.max() < 30 } ?? false) else { continue }
             let inner = LineWalk(origin: walk.origin + matte * walk.depthStride, depthStride: walk.depthStride,
                                  positionStride: walk.positionStride, length: walk.length)
-            let innerDepth = min(edgeDepth, (extent - 2 * matte) / 2 - 4)
-            if innerDepth >= 1, let detection = scanEdge(edge, walk: inner, frame: frame, depthCount: innerDepth) {
+            if let detection = findEdgeLine(edge, walk: inner, frame: frame, maxDepth: (extent - 2 * matte) / 2 - 4) {
                 detections.append(detection.withPosition(matte))
             }
         }
@@ -286,7 +286,21 @@ private struct BlendLineModel {
     
     // MARK: Edges
     
-    private func scanEdge(_ edge: EdgeLocation, walk: LineWalk, frame: BGRAFrame, depthCount: Int) -> LineDetection? {
+    /// A line starting within `edgeDepth` of the edge. Thicker lines (up to `thickLineMargin` px more) are only looked
+    /// for when a band fills the whole scan depth, so ordinary frames pay for one pass.
+    private func findEdgeLine(_ edge: EdgeLocation, walk: LineWalk, frame: BGRAFrame, maxDepth: Int) -> LineDetection? {
+        let depthCount = min(edgeDepth, maxDepth)
+        guard depthCount >= 1 else { return nil }
+        let first = scanEdge(edge, walk: walk, frame: frame, depthCount: depthCount, maxStart: depthCount)
+        if let line = first.line { return line }
+        let deepCount = min(edgeDepth + Self.thickLineMargin, maxDepth)
+        guard first.reachesEnd, deepCount > depthCount else { return nil }
+        return scanEdge(edge, walk: walk, frame: frame, depthCount: deepCount, maxStart: depthCount).line
+    }
+    
+    /// `maxStart`: bands must start at a shallower depth. `reachesEnd`: a band was rejected for filling the scan depth.
+    private func scanEdge(_ edge: EdgeLocation, walk: LineWalk, frame: BGRAFrame, depthCount: Int,
+                          maxStart: Int) -> (line: LineDetection?, reachesEnd: Bool) {
         let n = walk.length
         let ptr = frame.ptr
         let minRun = minimumRun(length: n)
@@ -318,26 +332,26 @@ private struct BlendLineModel {
                 alphas[d * n + p] = alpha
             }
         }
-        if let line = bestBand(edge, walk: walk, ptr: ptr, refs: refs, states: states, alphas: alphas, targets: targets,
-                               depthCount: depthCount, minRun: minRun, offColor: false) {
-            return line
-        }
-        guard reportOffColor else { return nil }
-        return bestBand(edge, walk: walk, ptr: ptr, refs: refs, states: states, alphas: alphas, targets: targets,
-                        depthCount: depthCount, minRun: minRun, offColor: true)
+        let target = bestBand(edge, walk: walk, ptr: ptr, refs: refs, states: states, alphas: alphas, targets: targets,
+                              depthCount: depthCount, maxStart: maxStart, minRun: minRun, offColor: false)
+        if target.line != nil || !reportOffColor { return target }
+        let off = bestBand(edge, walk: walk, ptr: ptr, refs: refs, states: states, alphas: alphas, targets: targets,
+                           depthCount: depthCount, maxStart: maxStart, minRun: minRun, offColor: true)
+        return (off.line, target.reachesEnd || off.reachesEnd)
     }
     
     /// The strongest band of consecutive depths with a long run, that steps back to the picture before the band ends.
     /// `offColor` also accepts loose-only positions and reports the line as off-colour (always weak: persistence-gated).
     private func bestBand(_ edge: EdgeLocation, walk: LineWalk, ptr: UnsafePointer<UInt8>, refs: [SIMD3<Float>],
                           states: [Int8], alphas: [Float], targets: [SIMD3<Float>],
-                          depthCount: Int, minRun: Int, offColor: Bool) -> LineDetection? {
+                          depthCount: Int, maxStart: Int, minRun: Int, offColor: Bool) -> (line: LineDetection?, reachesEnd: Bool) {
         let n = walk.length
         let runs = (0..<depthCount).map { Self.longestRun(states, from: $0 * n, count: n, includeOffColor: offColor) }
         func accepted(_ state: Int8) -> Bool { state == Self.pass || (offColor && state == Self.offColor) }
         var best: LineDetection?
+        var reachesEnd = false
         var lo = 0
-        while lo < depthCount {
+        while lo < maxStart {
             guard runs[lo].passes >= minRun else {
                 lo += 1
                 continue
@@ -346,8 +360,11 @@ private struct BlendLineModel {
             while hi + 1 < depthCount && runs[hi + 1].passes >= minRun { hi += 1 }
             defer { lo = hi + 1 }
             
-            // Reaches the end of the band: letterbox / pillarbox or picture content, not a line.
-            guard hi < depthCount - 1 else { continue }
+            // Fills the scan depth: a thicker line, a letterbox / pillarbox or picture content.
+            guard hi < depthCount - 1 else {
+                reachesEnd = true
+                continue
+            }
             
             let core = (lo...hi).max { runs[$0].passes < runs[$1].passes } ?? lo
             let run = runs[core]
@@ -391,7 +408,7 @@ private struct BlendLineModel {
                 best = detection
             }
         }
-        return best
+        return (best, reachesEnd)
     }
     
     // MARK: Mattes

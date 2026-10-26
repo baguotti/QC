@@ -765,7 +765,7 @@ struct ContentView: View {
     
     func deliveryAssetsSection(forTab: AppTab) -> some View {
         VStack(alignment: .leading, spacing: 10) {
-            AssetSourcePanel(folderURL: folderURL, files: videoFiles, isBusy: scannerState.isScanning, isLightMode: isLightMode,
+            AssetSourcePanel(folderURL: folderURL, files: videoFiles, isBusy: scannerState.isCheckRunning, isLightMode: isLightMode,
                              onSelect: { selectAssets(forTab: forTab, append: $0) }, onRefresh: { refreshPlayerAssets() })
             if folderURL == nil && videoFiles.isEmpty {
                 Text("Drop a folder or media files here")

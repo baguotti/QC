@@ -270,7 +270,7 @@ public struct EndFrameCheck: Equatable, Sendable {
     public let verdict: Verdict
     /// Mean luma 0…255 of the last frame.
     public let meanLuma: Double
-    /// Share of pixels brighter than video black (luma > 16), in percent.
+    /// Share of pixels with a luma above 16 of 255 (full-range RGB, where video black is 0), in percent.
     public let litPercent: Double
     /// Timecode of the frame checked.
     public let timecode: String

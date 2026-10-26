@@ -57,12 +57,15 @@ public struct FrameCheckResult: Identifiable, Sendable {
     public let mismatch: FrameRateMismatch?
     public let flashFrames: [FrameRun]
     public let offline: [FrameRun]
+    /// Set when the file couldn't be opened or decoding stopped early (the checks then cover only what was read).
+    public let readError: String?
 
-    public var isFlagged: Bool { mismatch != nil || !flashFrames.isEmpty || !offline.isEmpty }
+    public var isFlagged: Bool { mismatch != nil || !flashFrames.isEmpty || !offline.isEmpty || readError != nil }
 
     /// One line for lists and notes.
     public var verdict: String {
         var parts: [String] = []
+        if readError != nil { parts.append("Unreadable") }
         if let mismatch { parts.append(mismatch.title) }
         if !flashFrames.isEmpty { parts.append("\(flashFrames.count) flash frame\(flashFrames.count == 1 ? "" : "s")") }
         if !offline.isEmpty { parts.append("Media Offline") }
@@ -414,7 +417,10 @@ public actor FrameCheckScanner {
     static func scan(_ url: URL, fileIndex: Int, totalFiles: Int, cancellation: CancellationState?,
                      progress: (@Sendable (ScanProgress) -> Void)?) async -> FrameCheckResult? {
         let asset = AVURLAsset(url: url)
-        guard let track = try? await asset.loadTracks(withMediaType: .video).first else { return nil }
+        guard let track = try? await asset.loadTracks(withMediaType: .video).first else {
+            return FrameCheckResult(fileURL: url, fileName: url.lastPathComponent, fps: 0, totalFrames: 0, mismatch: nil,
+                                    flashFrames: [], offline: [], readError: "Couldn't open the video")
+        }
         let natural = (try? await track.load(.naturalSize)) ?? CGSize(width: 1920, height: 1080)
         let nominal = Double((try? await track.load(.nominalFrameRate)) ?? 25)
         let fps = nominal > 0 ? nominal : 25
@@ -448,38 +454,41 @@ public actor FrameCheckScanner {
                                    frame: frames, totalFrames: max(estimatedFrames, frames),
                                    speed: Double(frames) / max(0.001, CFAbsoluteTimeGetCurrent() - start)))
         }
-        let parts = await withTaskGroup(of: (Int, SegmentMeasure?).self) { group in
+        let parts = await withTaskGroup(of: (Int, SegmentMeasure).self) { group in
             for (i, segment) in segments.enumerated() {
                 group.addTask {
                     (i, await measureSegment(url: url, range: segment.range, keep: segment.keep, width: w, height: h,
                                              cancellation: cancellation, report: report))
                 }
             }
-            var parts: [SegmentMeasure?] = Array(repeating: nil, count: segments.count)
+            var parts = Array(repeating: SegmentMeasure(), count: segments.count)
             for await (i, part) in group { parts[i] = part }
             return parts
         }
         if cancellation?.isCancelled == true { return nil }
-        guard !parts.contains(where: { $0 == nil }) else { return nil }
-        let metrics = parts.flatMap { $0!.metrics }
-        let looks = parts.flatMap { $0!.looks }
+        let metrics = parts.flatMap(\.metrics)
+        let looks = parts.flatMap(\.looks)
+        let readError = parts.lazy.compactMap(\.error).first ?? (metrics.isEmpty ? "No frames could be decoded" : nil)
         return FrameCheckResult(fileURL: url, fileName: url.lastPathComponent, fps: fps, totalFrames: metrics.count,
                                 mismatch: FrameCheckAnalyzer.mismatch(metrics, fps: fps),
                                 flashFrames: FrameCheckAnalyzer.flashFrames(looks, fps: fps),
-                                offline: FrameCheckAnalyzer.offlineRuns(looks, fps: fps))
+                                offline: FrameCheckAnalyzer.offlineRuns(looks, fps: fps),
+                                readError: readError)
     }
 
     struct SegmentMeasure: Sendable {
         var metrics: [StutterFrameMetrics] = []
         var looks: [FrameLook] = []
+        /// The segment couldn't be opened or decoding failed before its end.
+        var error: String?
     }
 
     /// Measures one time range (the whole file when `range` is nil); frames outside `keep` only serve as context.
     static func measureSegment(url: URL, range: CMTimeRange?, keep: Range<Double>, width w: Int, height h: Int,
-                               cancellation: CancellationState?, report: @Sendable (Int) -> Void) async -> SegmentMeasure? {
+                               cancellation: CancellationState?, report: @Sendable (Int) -> Void) async -> SegmentMeasure {
         let asset = AVURLAsset(url: url)
         guard let track = try? await asset.loadTracks(withMediaType: .video).first,
-              let reader = try? AVAssetReader(asset: asset) else { return nil }
+              let reader = try? AVAssetReader(asset: asset) else { return SegmentMeasure(error: "Couldn't open the video") }
         if let range { reader.timeRange = range }
         let output = AVAssetReaderTrackOutput(track: track, outputSettings: [
             kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_420YpCbCr8BiPlanarFullRange,
@@ -487,16 +496,18 @@ public actor FrameCheckScanner {
             kCVPixelBufferHeightKey as String: h
         ])
         output.alwaysCopiesSampleData = false
-        guard reader.canAdd(output) else { return nil }
+        guard reader.canAdd(output) else { return SegmentMeasure(error: "Couldn't decode the video") }
         reader.add(output)
-        guard reader.startReading() else { return nil }
+        guard reader.startReading() else {
+            return SegmentMeasure(error: reader.error?.localizedDescription ?? "Couldn't start decoding")
+        }
 
         var measure = SegmentMeasure()
         var frames: [[UInt8]] = []   // last three luma images
         var previousProfiles: RegionProfiles?
         var pending = 0
         while let sample = output.copyNextSampleBuffer() {
-            if cancellation?.isCancelled == true { reader.cancelReading(); return nil }
+            if cancellation?.isCancelled == true { reader.cancelReading(); return measure }
             guard let buffer = CMSampleBufferGetImageBuffer(sample) else { continue }
             let pts = CMSampleBufferGetPresentationTimeStamp(sample)
             let kept = !pts.isNumeric || keep.contains(CMTimeGetSeconds(pts))
@@ -516,6 +527,9 @@ public actor FrameCheckScanner {
             previousProfiles = profiles
         }
         report(pending)
+        if reader.status == .failed {
+            measure.error = "Decoding stopped early: \(reader.error?.localizedDescription ?? "unknown error")"
+        }
         return measure
     }
 

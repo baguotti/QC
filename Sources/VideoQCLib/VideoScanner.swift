@@ -116,8 +116,11 @@ public actor VideoScanner {
             
             // As each video finishes, submit the next one
             for await (idx, result) in group {
-                results.append((idx, result))
-                onFileCompleted?(result)
+                // A file the scan was stopped in only counts when it already has findings (not as passed).
+                if !result.stoppedEarly || result.isFlagged {
+                    results.append((idx, result))
+                    onFileCompleted?(result)
+                }
                 if result.isFlagged {
                     flaggedCount += 1
                 }
@@ -160,6 +163,7 @@ public actor VideoScanner {
         // Load video tracks and properties asynchronously
         guard let tracks = try? await asset.loadTracks(withMediaType: .video),
               let videoTrack = tracks.first else {
+            // Stills and audio have no video track to check; a video file without one is broken.
             return VideoQCResult(
                 fileURL: url,
                 fileName: fileName,
@@ -167,7 +171,8 @@ public actor VideoScanner {
                 fps: 0,
                 totalFrames: 0,
                 durationSeconds: 0,
-                errorFrames: []
+                errorFrames: [],
+                readError: QCUtilities.mediaKind(of: url) == .video ? "Couldn't open the video" : nil
             )
         }
         
@@ -204,44 +209,59 @@ public actor VideoScanner {
         }
         let detector = self.detector
         let cancellation = self.cancellationState
-        let parts = await withTaskGroup(of: (Int, SegmentScan?).self) { group in
+        let parts = await withTaskGroup(of: (Int, SegmentScan).self) { group in
             for (i, segment) in segments.enumerated() {
                 group.addTask {
                     (i, await Self.scanSegment(url: url, range: segment.range, keep: segment.keep, detector: detector, config: config,
                                                cancellation: cancellation, report: reportProgress))
                 }
             }
-            var parts: [SegmentScan?] = Array(repeating: nil, count: segments.count)
+            var parts = Array(repeating: SegmentScan(), count: segments.count)
             for await (i, part) in group { parts[i] = part }
             return parts
         }
+        let readError = parts.lazy.compactMap(\.error).first
+        let stoppedEarly = readError == nil && parts.contains { !$0.finished }
         // Frame numbers count from the file's first frame (the first segment's first sample), like the Player.
-        guard let first = parts.first ?? nil, let firstPTS = first.firstPTS else {
-            return VideoQCResult(fileURL: url, fileName: fileName, resolution: resolutionStr, fps: fps,
-                                 totalFrames: totalEstimatedFrames, durationSeconds: durationSeconds, errorFrames: [])
+        guard let firstPTS = parts[0].firstPTS else {
+            var result = VideoQCResult(fileURL: url, fileName: fileName, resolution: resolutionStr, fps: fps,
+                                       totalFrames: 0, durationSeconds: durationSeconds, errorFrames: [],
+                                       readError: readError ?? (stoppedEarly ? nil : "No frames could be decoded"))
+            result.stoppedEarly = stoppedEarly
+            return result
         }
         var candidateFrames: [FrameError] = []
         var frameCount = 0
-        for part in parts.compactMap({ $0 }) {
+        for part in parts {
             frameCount += part.frameCount
             for hit in part.hits {
                 let secs = hit.pts - firstPTS
-                let frameIndex = secs.isFinite && secs >= 0 ? Int(floor(secs * fps + 1e-4)) : hit.ordinal
-                let oriented = transform.isIdentity ? hit.detections : hit.detections.map { $0.withEdge($0.edge.oriented(by: transform)) }
+                let frameIndex = secs.isFinite && secs >= 0 ? Self.frameIndex(seconds: secs, fps: fps) : hit.ordinal
+                let oriented = transform.isIdentity ? hit.detections : hit.detections.map { $0.oriented(by: transform) }
                 candidateFrames.append(FrameError(frameIndex: frameIndex, timecode: TimecodeFormatter.format(frameIndex: frameIndex, fps: fps),
                                                   detections: oriented))
             }
         }
         
-        return VideoQCResult(
+        var result = VideoQCResult(
             fileURL: url,
             fileName: fileName,
             resolution: resolutionStr,
             fps: fps,
             totalFrames: frameCount,
             durationSeconds: durationSeconds,
-            errorFrames: LineHysteresis.filter(candidateFrames, minRun: config.persistenceFrames)
+            errorFrames: LineHysteresis.filter(candidateFrames, minRun: config.persistenceFrames),
+            readError: readError
         )
+        result.stoppedEarly = stoppedEarly
+        return result
+    }
+    
+    /// Frame number of a sample `seconds` after the first one: the nearest frame, as the Player shows it (it seeks to frame
+    /// centres). On a 600 time base (QuickTime, iPhone) NTSC-rate timestamps sit up to half a tick early, so `floor` would
+    /// land one frame low.
+    static func frameIndex(seconds: Double, fps: Double) -> Int {
+        Int((seconds * fps).rounded())
     }
     
     /// Files at least this long are split into two segments.
@@ -256,14 +276,18 @@ public actor VideoScanner {
         var hits: [Hit] = []
         var frameCount = 0
         var firstPTS: Double?
+        /// The segment couldn't be opened or decoding failed before its end.
+        var error: String?
+        /// Decoding reached the end of the segment (false when the scan was stopped).
+        var finished = false
     }
     
     /// Decodes one time range (the whole file when `range` is nil) and checks the frames whose timestamp is in `keep`.
     static func scanSegment(url: URL, range: CMTimeRange?, keep: Range<Double>, detector: EdgeDetector, config: QCConfig,
-                            cancellation: CancellationState, report: @Sendable (Int, Bool) -> Void) async -> SegmentScan? {
+                            cancellation: CancellationState, report: @Sendable (Int, Bool) -> Void) async -> SegmentScan {
         let asset = AVURLAsset(url: url)
         guard let track = try? await asset.loadTracks(withMediaType: .video).first,
-              let reader = try? AVAssetReader(asset: asset) else { return nil }
+              let reader = try? AVAssetReader(asset: asset) else { return SegmentScan(error: "Couldn't open the video") }
         if let range { reader.timeRange = range }
         let output = AVAssetReaderTrackOutput(track: track, outputSettings: [
             kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA,
@@ -271,7 +295,9 @@ public actor VideoScanner {
         ])
         output.alwaysCopiesSampleData = false
         reader.add(output)
-        guard reader.startReading() else { return nil }
+        guard reader.startReading() else {
+            return SegmentScan(error: reader.error?.localizedDescription ?? "Couldn't start decoding")
+        }
         
         var scan = SegmentScan()
         var pending = 0
@@ -295,7 +321,10 @@ public actor VideoScanner {
                     pendingStrong = pendingStrong || detections.contains { !$0.isWeak }
                 }
             }
-            if done { break }
+            if done {
+                scan.finished = true
+                break
+            }
             if pending >= 15 {
                 report(pending, pendingStrong)
                 pending = 0
@@ -304,6 +333,9 @@ public actor VideoScanner {
         }
         report(pending, pendingStrong)
         if reader.status == .reading { reader.cancelReading() }
+        if reader.status == .failed {
+            scan.error = "Decoding stopped early: \(reader.error?.localizedDescription ?? "unknown error")"
+        }
         return scan
     }
 }

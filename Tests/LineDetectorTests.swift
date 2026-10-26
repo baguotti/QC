@@ -96,6 +96,25 @@ struct LineDetectorTests {
         #expect(EdgeLocation.top.oriented(by: .identity) == .top)
     }
 
+    @Test("Seam positions follow the track's preferred transform")
+    func seamPositionRotation() {
+        let green = RGBColor(r: 0, g: 255, b: 0)
+        let portrait = CGAffineTransform(a: 0, b: 1, c: -1, d: 0, tx: 1080, ty: 0)
+        let seam = LineDetection(edge: .splitHorizontal, thickness: 2, detectedColor: green, spanRatio: 1, position: 100)
+            .oriented(by: portrait)
+        #expect(seam.edge == .splitVertical)
+        #expect(seam.position == 978)   // rows 100–101 show as columns 979 and 978
+
+        let mirrored = LineDetection(edge: .splitVertical, thickness: 1, detectedColor: green, spanRatio: 1, position: 300)
+            .oriented(by: CGAffineTransform(a: -1, b: 0, c: 0, d: 1, tx: 1920, ty: 0))
+        #expect(mirrored.edge == .splitVertical)
+        #expect(mirrored.position == 1619)
+
+        let insideBar = LineDetection(edge: .top, thickness: 1, detectedColor: green, spanRatio: 1, position: 140).oriented(by: portrait)
+        #expect(insideBar.edge == .right)
+        #expect(insideBar.position == 140)
+    }
+
     @Test("Any-colour mode finds an untargeted line and ignores clean pictures")
     func anyColour() {
         let config = QCConfig(targetHex: "#00FF00", anyColor: true)
@@ -103,6 +122,32 @@ struct LineDetectorTests {
         f.drawEdgeLine(.right, thickness: 2, color: RGBColor(r: 255, g: 140, b: 0))
         #expect(detector.scanPixelBuffer(f.makePixelBuffer(), config: config).contains { $0.edge == .right })
         #expect(detector.scanPixelBuffer(Scenes.picture().makePixelBuffer(), config: config).isEmpty)
+    }
+
+    @Test("Frame numbers match the Player on a 600 time base (NTSC rates)")
+    func frameNumbersOn600TimeBase() {
+        for rate in [30000.0 / 1001, 24000.0 / 1001, 60000.0 / 1001] {
+            let fps = Double(Float(rate))
+            let wrong = (0..<40_000).filter { n in
+                let pts = (Double(n) * 600 / rate).rounded() / 600
+                return VideoScanner.frameIndex(seconds: pts, fps: fps) != n
+            }
+            #expect(wrong.isEmpty, "\(rate) fps: first wrong frame \(wrong.first ?? -1)")
+        }
+    }
+
+    @Test("Two seams in the same frames stay two segments")
+    func twoSeams() {
+        var f = Scenes.picture()
+        for y in 0..<Scenes.height { for x in [150, 330] { f[x, y] = (0, 255, 0) } }
+        let config = QCConfig(targetHex: "#00FF00", scanFullScreen: true)
+        let detections = detector.scanPixelBuffer(f.makePixelBuffer(), config: config)
+        #expect(detections.filter { $0.edge == .splitVertical }.count == 2, "got \(Self.describe(detections))")
+        let frames = (0..<3).map { FrameError(frameIndex: $0, timecode: "", detections: detections) }
+        let result = VideoQCResult(fileURL: URL(fileURLWithPath: "/seams.mov"), fileName: "seams.mov", resolution: "", fps: 25,
+                                   totalFrames: 3, durationSeconds: 0.12, errorFrames: frames)
+        #expect(result.glitchSegments.map(\.position) == [150, 330])
+        #expect(result.glitchSegments.allSatisfy { $0.frameCount == 3 })
     }
 
     static func describe(_ detections: [LineDetection]) -> String {

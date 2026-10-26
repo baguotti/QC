@@ -2622,11 +2622,14 @@ public final class PlayerEngine: ObservableObject {
     // MARK: - Pixel-Perfect Still Frame Capture (For export)
     
     /// Returns the frame as displayed, i.e. with the current exposure applied exactly once.
-    /// `applyingExposure: false` returns the decoded pixels as they are (missed-line reports); the cached
-    /// `lastDecodedFrame` is only updated for display-ready (exposure-applied) frames.
+    /// `applyingExposure: false` returns the decoded pixels as they are (missed-line reports), or nil when only
+    /// exposure-adjusted pixels are available; the cached `lastDecodedFrame` is only updated for display-ready frames.
     public func captureCurrentFrame(for slot: SlotTarget = .slotA, at time: CMTime? = nil, applyingExposure: Bool = true) async -> CGImage? {
         let currentSlot = (slot == .slotA) ? slotA : slotB
-        guard let url = currentSlot.url else { return currentSlot.lastDecodedFrame }
+        // The video output and the viewport's cached frame already carry the exposure: only usable as originals at EV 0.
+        let exposureFreeFallbacks = applyingExposure || exposureEV == 0
+        func cachedFrame() -> CGImage? { exposureFreeFallbacks ? currentSlot.lastDecodedFrame : nil }
+        guard let url = currentSlot.url else { return cachedFrame() }
         guard currentSlot.mediaKind == .video else { return currentSlot.stillImage }
         
         let targetTime: CMTime
@@ -2648,10 +2651,10 @@ public final class PlayerEngine: ObservableObject {
             }
         }
         
-        guard targetTime.isValid && targetTime.isNumeric else { return currentSlot.lastDecodedFrame }
+        guard targetTime.isValid && targetTime.isNumeric else { return cachedFrame() }
         let fps = max(1.0, currentSlot.fps)
         let rawSecs = CMTimeGetSeconds(targetTime)
-        guard rawSecs.isFinite && !rawSecs.isNaN else { return currentSlot.lastDecodedFrame }
+        guard rawSecs.isFinite && !rawSecs.isNaN else { return cachedFrame() }
         
         // Snap to exact frame-center PTS so AVAssetImageGenerator zero tolerance lands squarely inside target frame
         let frameIdx = max(0, Int(floor(rawSecs * fps + 1e-4)))
@@ -2660,10 +2663,10 @@ public final class PlayerEngine: ObservableObject {
         
         // Sequences: the exact frame from the sequence's cache (decoded on a miss, reads ahead for stepping).
         if let seq = currentSlot.sequence {
-            guard let source = currentSlot.sequenceSource else { return currentSlot.lastDecodedFrame }
+            guard let source = currentSlot.sequenceSource else { return cachedFrame() }
             let index = min(frameIdx, seq.length - 1)
             guard let decoded = await Task.detached(priority: .userInitiated, operation: { source.displayImage(at: index) }).value else {
-                return currentSlot.lastDecodedFrame
+                return cachedFrame()
             }
             guard applyingExposure else { return decoded }
             let image = ExposureAdjuster.shared.applyExposure(to: decoded, ev: exposureEV)
@@ -2680,7 +2683,7 @@ public final class PlayerEngine: ObservableObject {
         }
         
         // 2. Try video output pixel buffer (already composited with exposure)
-        if let output = currentSlot.videoOutput {
+        if exposureFreeFallbacks, let output = currentSlot.videoOutput {
             var displayTime = CMTime.zero
             var pb = output.copyPixelBuffer(forItemTime: centerTime, itemTimeForDisplay: &displayTime)
             if pb == nil {
@@ -2697,7 +2700,7 @@ public final class PlayerEngine: ObservableObject {
         }
         
         // 3. Fallback to cached frame from viewport
-        return currentSlot.lastDecodedFrame
+        return cachedFrame()
     }
     
     // MARK: - Pixel-Perfect Frame & Compare Screenshot Export

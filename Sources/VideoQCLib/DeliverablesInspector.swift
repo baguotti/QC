@@ -657,12 +657,11 @@ public struct DeliverablesInspector: Sendable {
         return await extractAudioLevels(asset: asset, tracks: audioTracks)
     }
     
-    /// Analyzes audio levels for an array of deliverable assets in parallel with bounded concurrency and progress reporting
     // MARK: - End Frame Check
     
     /// Decodes the last frame at full resolution (a small logo must not be averaged away): BLACK when ≤ 0.1% of pixels
-    /// are brighter than video black (luma 16, room for compression noise), otherwise NOT BLACK (a logo on black is not
-    /// black). Stills and audio-only files are unavailable.
+    /// have a luma above 16 of 255 (the frame is decoded to full-range RGB, where video black is 0, so 16 leaves room for
+    /// compression noise), otherwise NOT BLACK (a logo on black is not black). Stills and audio-only files are unavailable.
     public static func checkEndFrame(url: URL) async -> EndFrameCheck {
         if let seq = ImageSequenceStore.shared.sequence(for: url) {
             guard let last = seq.frameURLs.last,
@@ -685,7 +684,7 @@ public struct DeliverablesInspector: Sendable {
         generator.requestedTimeToleranceBefore = CMTimeMultiplyByFloat64(frameDuration, multiplier: 1.5)
         generator.requestedTimeToleranceAfter = .zero
         guard let (image, actual) = try? await generator.image(at: target) else { return .unavailable }
-        let frameIndex = max(0, Int((actual.seconds * fps).rounded(.down)))
+        let frameIndex = max(0, VideoScanner.frameIndex(seconds: actual.seconds, fps: fps))
         return classifyEndFrame(image, timecode: TimecodeFormatter.format(frameIndex: frameIndex, fps: fps))
     }
     
@@ -739,6 +738,7 @@ public struct DeliverablesInspector: Sendable {
         }
     }
     
+    /// Analyzes audio levels for an array of deliverable assets in parallel with bounded concurrency and progress reporting
     public static func analyzeBatchAudioLevels(
         assets: [DeliverableAsset],
         maxConcurrency: Int = 4,

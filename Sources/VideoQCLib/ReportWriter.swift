@@ -23,7 +23,10 @@ public struct ReportWriter: Sendable {
         
         for result in results {
             let fileName = result.fileName
-            if !result.isFlagged || result.glitchSegments.isEmpty {
+            if let readError = result.readError {
+                csv += "\(QCUtilities.escapeCSV(fileName)),Unreadable,--,\(QCUtilities.escapeCSV(readError)),\(result.totalFrames) frames checked,--\n"
+            }
+            if result.glitchSegments.isEmpty && result.readError == nil {
                 // Clean file
                 csv += "\(QCUtilities.escapeCSV(fileName)),No,--,--,--,--\n"
             } else {
@@ -39,7 +42,7 @@ public struct ReportWriter: Sendable {
                     case .splitHorizontal, .splitVertical:
                         location = "\(seg.edge.rawValue) (\(seg.avgThickness)px)\(seg.locationDetail.map { ", \($0)" } ?? "")"
                     }
-                    let duration = seg.frameCount == 1 ? "1 frame (0.04s)" : "\(seg.frameCount) frames (\(String(format: "%.2f", seg.durationSeconds))s)"
+                    let duration = "\(seg.frameCount) frame\(seg.frameCount == 1 ? "" : "s") (\(String(format: "%.2f", seg.durationSeconds))s)"
                     let color = seg.detectedColor.hexString.uppercased()
                     
                     csv += "\(QCUtilities.escapeCSV(displayName)),\(QCUtilities.escapeCSV(linesFound)),\(QCUtilities.escapeCSV(timecode)),\(QCUtilities.escapeCSV(location)),\(QCUtilities.escapeCSV(duration)),\(QCUtilities.escapeCSV(color))\n"
@@ -60,7 +63,10 @@ public struct ReportWriter: Sendable {
         
         for result in results {
             let fileName = result.fileName
-            if !result.isFlagged || result.glitchSegments.isEmpty {
+            if let readError = result.readError {
+                tsv += "\(QCUtilities.escapeTSV(fileName))\tUnreadable\t--\t\(QCUtilities.escapeTSV(readError))\t\(result.totalFrames) frames checked\t--\n"
+            }
+            if result.glitchSegments.isEmpty && result.readError == nil {
                 // Clean file
                 tsv += "\(QCUtilities.escapeTSV(fileName))\tNo\t--\t--\t--\t--\n"
             } else {
@@ -76,7 +82,7 @@ public struct ReportWriter: Sendable {
                     case .splitHorizontal, .splitVertical:
                         location = "\(seg.edge.rawValue) (\(seg.avgThickness)px)\(seg.locationDetail.map { ", \($0)" } ?? "")"
                     }
-                    let duration = seg.frameCount == 1 ? "1 frame (0.04s)" : "\(seg.frameCount) frames (\(String(format: "%.2f", seg.durationSeconds))s)"
+                    let duration = "\(seg.frameCount) frame\(seg.frameCount == 1 ? "" : "s") (\(String(format: "%.2f", seg.durationSeconds))s)"
                     let color = seg.detectedColor.hexString.uppercased()
                     
                     tsv += "\(QCUtilities.escapeTSV(displayName))\t\(QCUtilities.escapeTSV(linesFound))\t\(QCUtilities.escapeTSV(timecode))\t\(QCUtilities.escapeTSV(location))\t\(QCUtilities.escapeTSV(duration))\t\(QCUtilities.escapeTSV(color))\n"
@@ -594,10 +600,20 @@ public struct ReportWriter: Sendable {
                         <tbody>
                 """
                 
+                if let readError = video.readError {
+                    let reason = readError.replacingOccurrences(of: "&", with: "&amp;").replacingOccurrences(of: "<", with: "&lt;").replacingOccurrences(of: ">", with: "&gt;")
+                    html += """
+                            <tr>
+                                <td style="color:var(--text-muted); font-family:var(--font-mono)">!!</td>
+                                <td class="edge-box" colspan="5">UNREADABLE · \(reason.uppercased()) · \(video.totalFrames) FRAMES CHECKED</td>
+                            </tr>
+                    """
+                }
+                
                 for (idx, seg) in segments.enumerated() {
                     let tcDisplay = seg.startTimecode == seg.endTimecode ? seg.startTimecode : "\(seg.startTimecode) &rarr; \(seg.endTimecode)"
                     let frameDisplay = seg.startFrame == seg.endFrame ? "\(seg.startFrame)" : "\(seg.startFrame) - \(seg.endFrame)"
-                    let durationDisplay = seg.frameCount == 1 ? "1 FRAME (0.04S)" : "\(seg.frameCount) FRAMES (\(String(format: "%.2f", seg.durationSeconds))S)"
+                    let durationDisplay = "\(seg.frameCount) FRAME\(seg.frameCount == 1 ? "" : "S") (\(String(format: "%.2f", seg.durationSeconds))S)"
                     let colorHex = seg.detectedColor.hexString.uppercased()
                     
                     html += """

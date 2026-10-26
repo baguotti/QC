@@ -67,8 +67,24 @@ public struct LineDetection: Identifiable, Sendable {
         self.position = position
     }
 
-    public func withEdge(_ edge: EdgeLocation) -> LineDetection {
-        LineDetection(edge: edge, thickness: thickness, detectedColor: detectedColor, spanRatio: spanRatio, score: score, isWeak: isWeak, isOffColor: isOffColor, position: position)
+    /// This line as it appears once the track's `preferredTransform` is applied: the edge, and for split seams the first
+    /// row / column on screen (bar depths are distances from the edge and don't change).
+    public func oriented(by transform: CGAffineTransform) -> LineDetection {
+        let oriented = LineDetection(edge: edge.oriented(by: transform), thickness: thickness, detectedColor: detectedColor,
+                                     spanRatio: spanRatio, score: score, isWeak: isWeak, isOffColor: isOffColor, position: position)
+        guard let position, edge == .splitHorizontal || edge == .splitVertical else { return oriented }
+        // The seam covers pixels position ..< position + thickness across it; map both ends of that span.
+        let quarterTurn = abs(transform.b) > abs(transform.a)
+        func mapped(_ v: CGFloat) -> CGFloat {
+            switch (edge, quarterTurn) {
+            case (.splitHorizontal, true): return transform.c * v + transform.tx
+            case (.splitHorizontal, false): return transform.d * v + transform.ty
+            case (_, true): return transform.b * v + transform.ty
+            default: return transform.a * v + transform.tx
+            }
+        }
+        let start = min(mapped(CGFloat(position)), mapped(CGFloat(position + thickness)))
+        return oriented.withPosition(Int(start.rounded()))
     }
 
     /// Same line found `matte` px in, at the picture edge inside a letterbox / pillarbox bar.
@@ -205,9 +221,13 @@ public struct VideoQCResult: Identifiable, Sendable {
     public let durationSeconds: Double
     public let errorFrames: [FrameError]
     public let glitchSegments: [GlitchSegment]
+    /// Set when the file couldn't be opened or decoding stopped early: lines found up to that point are still listed.
+    public let readError: String?
+    /// The scan was stopped before this file's last frame: a clean result here proves nothing.
+    var stoppedEarly = false
     
     public var isFlagged: Bool {
-        !errorFrames.isEmpty
+        !errorFrames.isEmpty || readError != nil
     }
     
     public init(
@@ -218,7 +238,8 @@ public struct VideoQCResult: Identifiable, Sendable {
         fps: Double,
         totalFrames: Int,
         durationSeconds: Double,
-        errorFrames: [FrameError]
+        errorFrames: [FrameError],
+        readError: String? = nil
     ) {
         self.id = id
         self.fileURL = fileURL
@@ -228,78 +249,79 @@ public struct VideoQCResult: Identifiable, Sendable {
         self.totalFrames = totalFrames
         self.durationSeconds = durationSeconds
         self.errorFrames = errorFrames
+        self.readError = readError
         self.glitchSegments = Self.calculateGlitchSegments(from: errorFrames, fps: fps)
     }
     
-    /// Groups individual error frames into continuous glitch segments (start TC -> end TC, duration)
+    /// Groups individual error frames into continuous glitch segments (start TC -> end TC, duration). A segment follows one
+    /// line through consecutive frames: same edge and, for split seams, the same row / column (±2 px), so two seams in
+    /// the same frames stay two segments.
     private static func calculateGlitchSegments(from errorFrames: [FrameError], fps: Double) -> [GlitchSegment] {
-        guard !errorFrames.isEmpty else { return [] }
-        
-        var segments: [GlitchSegment] = []
-        
-        // Group by edge location
-        for edge in EdgeLocation.allCases {
-            // Find all frames with detections on this edge
-            let edgeFrames = errorFrames.compactMap { frame -> (index: Int, tc: String, detection: LineDetection)? in
-                guard let det = frame.detections.first(where: { $0.edge == edge }) else { return nil }
-                return (frame.frameIndex, frame.timecode, det)
-            }.sorted { $0.index < $1.index }
-            
-            guard !edgeFrames.isEmpty else { continue }
-            
-            var currentStart = edgeFrames[0]
-            var currentEnd = edgeFrames[0]
-            var thicknessSum = edgeFrames[0].detection.thickness
+        struct Track {
+            let edge: EdgeLocation
+            let start: (index: Int, tc: String, detection: LineDetection)
+            var end: (index: Int, tc: String)
+            var position: Int?
+            var thicknessSum: Int
             var count = 1
-            var allOffColor = edgeFrames[0].detection.isOffColor
+            var allOffColor: Bool
             
-            for i in 1..<edgeFrames.count {
-                let item = edgeFrames[i]
-                if item.index == currentEnd.index + 1 {
-                    // Consecutive frame -> extend current segment
-                    currentEnd = item
-                    thicknessSum += item.detection.thickness
-                    count += 1
-                    allOffColor = allOffColor && item.detection.isOffColor
-                } else {
-                    // Gap encountered -> finalize segment
-                    let avgThick = max(1, thicknessSum / count)
-                    segments.append(GlitchSegment(
-                        startFrame: currentStart.index,
-                        endFrame: currentEnd.index,
-                        startTimecode: currentStart.tc,
-                        endTimecode: currentEnd.tc,
-                        edge: edge,
-                        avgThickness: avgThick,
-                        detectedColor: currentStart.detection.detectedColor,
-                        fps: fps,
-                        isOffColor: allOffColor,
-                        position: currentStart.detection.position
-                    ))
-                    
-                    currentStart = item
-                    currentEnd = item
-                    thicknessSum = item.detection.thickness
-                    count = 1
-                    allOffColor = item.detection.isOffColor
-                }
+            init(index: Int, tc: String, detection: LineDetection) {
+                edge = detection.edge
+                start = (index, tc, detection)
+                end = (index, tc)
+                position = detection.position
+                thicknessSum = detection.thickness
+                allOffColor = detection.isOffColor
             }
             
-            // Finalize trailing segment
-            let avgThick = max(1, thicknessSum / count)
-            segments.append(GlitchSegment(
-                startFrame: currentStart.index,
-                endFrame: currentEnd.index,
-                startTimecode: currentStart.tc,
-                endTimecode: currentEnd.tc,
-                edge: edge,
-                avgThickness: avgThick,
-                detectedColor: currentStart.detection.detectedColor,
-                fps: fps,
-                isOffColor: allOffColor,
-                position: currentStart.detection.position
-            ))
+            func continues(_ detection: LineDetection, at index: Int) -> Bool {
+                guard detection.edge == edge, index == end.index + 1 else { return false }
+                guard edge == .splitHorizontal || edge == .splitVertical, let position, let other = detection.position else { return true }
+                return abs(other - position) <= 2
+            }
+            
+            mutating func extend(_ detection: LineDetection, index: Int, tc: String) {
+                end = (index, tc)
+                position = detection.position ?? position
+                thicknessSum += detection.thickness
+                count += 1
+                allOffColor = allOffColor && detection.isOffColor
+            }
+            
+            func segment(fps: Double) -> GlitchSegment {
+                GlitchSegment(
+                    startFrame: start.index,
+                    endFrame: end.index,
+                    startTimecode: start.tc,
+                    endTimecode: end.tc,
+                    edge: edge,
+                    avgThickness: max(1, thicknessSum / count),
+                    detectedColor: start.detection.detectedColor,
+                    fps: fps,
+                    isOffColor: allOffColor,
+                    position: start.detection.position
+                )
+            }
         }
+        
+        var segments: [GlitchSegment] = []
+        var open: [Track] = []
+        for frame in errorFrames.sorted(by: { $0.frameIndex < $1.frameIndex }) {
+            var continued: [Track] = []
+            for detection in frame.detections {
+                if let k = open.firstIndex(where: { $0.continues(detection, at: frame.frameIndex) }) {
+                    var track = open.remove(at: k)
+                    track.extend(detection, index: frame.frameIndex, tc: frame.timecode)
+                    continued.append(track)
+                } else {
+                    continued.append(Track(index: frame.frameIndex, tc: frame.timecode, detection: detection))
+                }
+            }
+            segments += open.map { $0.segment(fps: fps) }
+            open = continued
+        }
+        segments += open.map { $0.segment(fps: fps) }
         
         return segments.sorted { $0.startFrame < $1.startFrame }
     }

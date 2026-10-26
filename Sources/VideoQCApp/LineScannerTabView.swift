@@ -411,29 +411,36 @@ extension ContentView {
             
             Rectangle().fill(borderLine).frame(height: 1)
             
-            HStack(spacing: 8) {
-                Text("#").frame(width: 25, alignment: .leading)
-                Text("Frame").frame(width: 76, alignment: .leading)
-                Text("Location").frame(width: 140, alignment: .leading)
-                Text("Timecode Range").frame(width: 155, alignment: .leading)
-                Text("Duration").frame(width: 130, alignment: .leading)
-                Text("Frames").frame(width: 75, alignment: .leading)
-                Spacer()
-                Text("Color").frame(width: 75, alignment: .trailing)
-                Text("Player").frame(width: 75, alignment: .trailing)
+            if let readError = result.readError {
+                unreadableNotice(readError, framesChecked: result.totalFrames)
+                if !segments.isEmpty { Rectangle().fill(borderLine).frame(height: 1) }
             }
-            .font(.ui(size: 9, weight: .semibold))
-            .foregroundColor(textMuted)
-            .padding(.horizontal, 14)
-            .padding(.vertical, 8)
-            .background(bgCardSubtle)
             
-            Rectangle().fill(borderLine).frame(height: 1)
+            if !segments.isEmpty {
+                HStack(spacing: 8) {
+                    Text("#").frame(width: 25, alignment: .leading)
+                    Text("Frame").frame(width: 76, alignment: .leading)
+                    Text("Location").frame(width: 140, alignment: .leading)
+                    Text("Timecode Range").frame(width: 155, alignment: .leading)
+                    Text("Duration").frame(width: 130, alignment: .leading)
+                    Text("Frames").frame(width: 75, alignment: .leading)
+                    Spacer()
+                    Text("Color").frame(width: 75, alignment: .trailing)
+                    Text("Player").frame(width: 75, alignment: .trailing)
+                }
+                .font(.ui(size: 9, weight: .semibold))
+                .foregroundColor(textMuted)
+                .padding(.horizontal, 14)
+                .padding(.vertical, 8)
+                .background(bgCardSubtle)
             
-            ForEach(Array(segments.enumerated()), id: \.offset) { idx, seg in
-                glitchTableRow(result: result, seg: seg, idx: idx)
-                if idx < segments.count - 1 {
-                    Rectangle().fill(borderLine.opacity(0.6)).frame(height: 1)
+                Rectangle().fill(borderLine).frame(height: 1)
+            
+                ForEach(Array(segments.enumerated()), id: \.offset) { idx, seg in
+                    glitchTableRow(result: result, seg: seg, idx: idx)
+                    if idx < segments.count - 1 {
+                        Rectangle().fill(borderLine.opacity(0.6)).frame(height: 1)
+                    }
                 }
             }
         }
@@ -532,6 +539,15 @@ extension ContentView {
         .explain("Click to jump immediately to \(seg.startTimecode) in the Player tab to inspect this glitch frame.")
     }
     
+    /// A file that couldn't be opened or stopped decoding early (shown instead of, or above, its findings).
+    private func unreadableNotice(_ reason: String, framesChecked: Int) -> some View {
+        Text("Unreadable: \(reason). \(framesChecked) frames checked.")
+            .font(.ui(size: 10, weight: .semibold))
+            .foregroundColor(alertRed)
+            .padding(.horizontal, 14)
+            .padding(.vertical, 8)
+    }
+    
     private func flaggedResultHeader(result: VideoQCResult, segmentsCount: Int) -> some View {
         HStack {
             VStack(alignment: .leading, spacing: 3) {
@@ -545,7 +561,7 @@ extension ContentView {
             Spacer()
             
             VStack(alignment: .trailing, spacing: 3) {
-                Text("\(segmentsCount) occurrence\(segmentsCount == 1 ? "" : "s") · \(result.errorFrames.count) frames")
+                Text(result.readError != nil && segmentsCount == 0 ? "Unreadable" : "\(segmentsCount) occurrence\(segmentsCount == 1 ? "" : "s") · \(result.errorFrames.count) frames")
                     .font(.ui(size: 10, weight: .semibold))
                     .foregroundColor(alertRed)
                 if scannerState.lastScanTagInFinder {
@@ -757,6 +773,10 @@ extension ContentView {
             .explain(result.fileURL.path)
             
             Rectangle().fill(borderLine).frame(height: 1)
+            if let readError = result.readError {
+                unreadableNotice(readError, framesChecked: result.totalFrames)
+                if !shown.isEmpty { Rectangle().fill(borderLine).frame(height: 1) }
+            }
             ForEach(Array(shown.enumerated()), id: \.element.id) { idx, row in
                 Button(action: { jumpToGlitchInPlayer(fileURL: result.fileURL, frameIndex: row.frame) }) {
                     HStack(spacing: 8) {

@@ -272,7 +272,7 @@ extension ContentView {
             hiddenFolderIDs: hiddenFolderIDs,
             hideAllFolders: hideAllFolders,
             fileTagsMap: fileTagsMap,
-            isScanning: scannerState.isScanning,
+            isScanning: scannerState.isCheckRunning,
             isAutoplayEnabled: playerEngine.isAutoplayEnabled,
             drawsWaveforms: playerEngine.drawsWaveforms,
             queueVersion: queueVersion,

@@ -3,7 +3,7 @@
 # Usage: scripts/LineFinderBench/run.sh [footage folder, default _TEST] [--no-real]
 set -e
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
-SDK="/Library/Developer/CommandLineTools/SDKs/MacOSX26.5.sdk"
+SDK="$(xcrun --show-sdk-path)"
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
 cp "$ROOT"/Sources/VideoQCLib/*.swift "$ROOT"/Tests/LegacyEdgeDetector.swift "$ROOT"/Tests/LineFinderScenes.swift "$ROOT"/scripts/LineFinderBench/main.swift "$WORK"/
