@@ -68,13 +68,11 @@ public struct DeliverablesInspector: Sendable {
             
             // 5. Audio Info (Codec, Bitrate, Sub-Details, Full Config or NONE)
             let audioInfo = await extractAudioInfo(tracks: audioTracks)
-            let audioLevels: (peakDB: Double?, isMute: Bool, levelString: String)
+            let audioLevels: AudioLevels
             if calculateAudioLevels && !audioTracks.isEmpty {
                 audioLevels = await extractAudioLevels(asset: asset, tracks: audioTracks)
-            } else if audioTracks.isEmpty {
-                audioLevels = (peakDB: nil, isMute: false, levelString: "NO AUDIO")
             } else {
-                audioLevels = (peakDB: nil, isMute: false, levelString: "--")
+                audioLevels = audioTracks.isEmpty ? .noAudio : .unread
             }
             
             // 6. Subtitles & Closed Captions
@@ -98,7 +96,7 @@ public struct DeliverablesInspector: Sendable {
                 audioLevelString: audioLevels.levelString
             )
             
-            return DeliverableAsset(
+            var inspected = DeliverableAsset(
                 fileURL: url,
                 fileName: url.lastPathComponent,
                 fileSizeBytes: fileSizeBytes,
@@ -127,6 +125,8 @@ public struct DeliverablesInspector: Sendable {
                 subtitlesInfo: subInfo.info,
                 validation: validation
             )
+            inspected.loudness = audioLevels.loudness
+            return inspected
         } catch {
             return nil
         }
@@ -379,11 +379,7 @@ public struct DeliverablesInspector: Sendable {
         if hasAudioTrack && isAudioMute {
             isAudioMuteFlagged = true
             let levelClean = audioLevelString.trimmingCharacters(in: .whitespaces)
-            if levelClean.isEmpty || levelClean == "-∞ dB" {
-                audioMuteDetail = "MUTE (-∞ dB)"
-            } else {
-                audioMuteDetail = "MUTE (\(levelClean))"
-            }
+            audioMuteDetail = levelClean.isEmpty || levelClean == "Silent" ? "MUTE" : "MUTE (\(levelClean))"
         }
         
         return DeliverableValidation(
@@ -567,17 +563,22 @@ public struct DeliverablesInspector: Sendable {
         return (codec: codecName, bitrate: bitrateStr, subDetail: subDetail, fullDesc: fullDesc)
     }
     
-    /// Reads audio track samples using AVAssetReader to measure peak level (dBFS) and detect mute/silent tracks.
-    /// Hardware-accelerated using Apple Accelerate framework vDSP SIMD instructions.
-    public static func extractAudioLevels(asset: AVAsset, tracks: [AVAssetTrack]) async -> (peakDB: Double?, isMute: Bool, levelString: String) {
-        guard let audioTrack = tracks.first else {
-            return (peakDB: nil, isMute: false, levelString: "NO AUDIO")
-        }
-        
-        guard let reader = try? AVAssetReader(asset: asset) else {
-            return (peakDB: nil, isMute: false, levelString: "--")
-        }
-        
+    public struct AudioLevels: Sendable {
+        public let peakDB: Double?
+        public let isMute: Bool
+        public let levelString: String
+        public let loudness: LoudnessMeasurement?
+
+        static let noAudio = AudioLevels(peakDB: nil, isMute: false, levelString: "NO AUDIO", loudness: nil)
+        static let unread = AudioLevels(peakDB: nil, isMute: false, levelString: "--", loudness: nil)
+    }
+
+    /// Decodes the first audio track once (AVAssetReader, Float32) and measures BS.1770 loudness, true peak, LRA and
+    /// channel problems (`LoudnessMeter`, vDSP). `peakDB` is the true peak; silence (nothing above the −70 LUFS gate,
+    /// or true peak under −60 dBTP) is reported as mute.
+    public static func extractAudioLevels(asset: AVAsset, tracks: [AVAssetTrack]) async -> AudioLevels {
+        guard let audioTrack = tracks.first else { return .noAudio }
+        guard let reader = try? AVAssetReader(asset: asset) else { return .unread }
         let outputSettings: [String: Any] = [
             AVFormatIDKey: kAudioFormatLinearPCM,
             AVLinearPCMBitDepthKey: 32,
@@ -585,78 +586,61 @@ public struct DeliverablesInspector: Sendable {
             AVLinearPCMIsBigEndianKey: false,
             AVLinearPCMIsNonInterleaved: false
         ]
-        
         let trackOutput = AVAssetReaderTrackOutput(track: audioTrack, outputSettings: outputSettings)
         trackOutput.alwaysCopiesSampleData = false
-        guard reader.canAdd(trackOutput) else {
-            return (peakDB: nil, isMute: false, levelString: "--")
-        }
+        guard reader.canAdd(trackOutput) else { return .unread }
         reader.add(trackOutput)
-        
-        guard reader.startReading() else {
-            return (peakDB: nil, isMute: false, levelString: "--")
-        }
-        
-        var maxPeakFloat: Float = 0.0
-        var totalSamplesAnalyzed: Int64 = 0
-        
+        guard reader.startReading() else { return .unread }
+
+        var meter: LoudnessMeter? = nil
+        var scratch: [Float] = []
+        defer { meter?.destroy() }
         while reader.status == .reading {
             if Task.isCancelled {
                 reader.cancelReading()
-                break
+                return .unread
             }
             guard let sampleBuffer = trackOutput.copyNextSampleBuffer() else { break }
-            guard let blockBuffer = CMSampleBufferGetDataBuffer(sampleBuffer) else { continue }
-            
+            guard let blockBuffer = CMSampleBufferGetDataBuffer(sampleBuffer),
+                  let format = CMSampleBufferGetFormatDescription(sampleBuffer),
+                  let asbd = CMAudioFormatDescriptionGetStreamBasicDescription(format)?.pointee else { continue }
+            let channels = Int(asbd.mChannelsPerFrame)
+            if meter == nil {
+                meter = LoudnessMeter(channels: channels, sampleRate: asbd.mSampleRate, labels: LoudnessMeter.channelLabels(format))
+            }
+            // The meter is set up for the first buffer's layout; a mid-track change would misread the samples.
+            guard meter?.channels == channels else { reader.cancelReading(); return .unread }
+
             var length = 0
             var total = 0
             var dataPointer: UnsafeMutablePointer<CChar>?
-            let status = CMBlockBufferGetDataPointer(
-                blockBuffer,
-                atOffset: 0,
-                lengthAtOffsetOut: &length,
-                totalLengthOut: &total,
-                dataPointerOut: &dataPointer
-            )
-            
-            if status == noErr, let ptr = dataPointer, total >= MemoryLayout<Float>.size {
-                let sampleCount = total / MemoryLayout<Float>.size
-                ptr.withMemoryRebound(to: Float.self, capacity: sampleCount) { floatPtr in
-                    var bufferPeak: Float = 0.0
-                    vDSP_maxmgv(floatPtr, 1, &bufferPeak, vDSP_Length(sampleCount))
-                    if bufferPeak > maxPeakFloat {
-                        maxPeakFloat = bufferPeak
-                    }
-                }
-                totalSamplesAnalyzed += Int64(sampleCount)
+            guard CMBlockBufferGetDataPointer(blockBuffer, atOffset: 0, lengthAtOffsetOut: &length,
+                                              totalLengthOut: &total, dataPointerOut: &dataPointer) == noErr else { continue }
+            let frames = total / (MemoryLayout<Float>.size * channels)
+            guard frames > 0 else { continue }
+            if length == total, let ptr = dataPointer {
+                ptr.withMemoryRebound(to: Float.self, capacity: frames * channels) { meter!.process($0, frames: frames) }
+            } else {
+                // Non-contiguous block buffer: copy it out first.
+                if scratch.count < frames * channels { scratch = Array(repeating: 0, count: frames * channels) }
+                scratch.withUnsafeMutableBytes { _ = CMBlockBufferCopyDataBytes(blockBuffer, atOffset: 0, dataLength: frames * channels * 4, destination: $0.baseAddress!) }
+                scratch.withUnsafeBufferPointer { meter!.process($0.baseAddress!, frames: frames) }
             }
         }
-        
-        if reader.status == .reading {
-            reader.cancelReading()
+        if reader.status == .failed { return .unread }
+        guard let result = meter?.finish() else {
+            return AudioLevels(peakDB: nil, isMute: true, levelString: "Silent", loudness: nil)
         }
-        
-        guard totalSamplesAnalyzed > 0 else {
-            return (peakDB: nil, isMute: true, levelString: "MUTE")
-        }
-        
-        if maxPeakFloat <= 0.000000001 {
-            return (peakDB: -Double.infinity, isMute: true, levelString: "-∞ dB")
-        }
-        
-        let peakDB = Double(20.0 * log10(maxPeakFloat))
-        let isMute = peakDB < -60.0
-        let levelString = String(format: "%.1f dB", peakDB)
-        return (peakDB: peakDB, isMute: isMute, levelString: levelString)
+        return AudioLevels(peakDB: result.truePeak.isFinite ? result.truePeak : nil, isMute: result.isSilent,
+                           levelString: result.summary, loudness: result)
     }
-    
-    /// Extracts audio levels for a single media file URL using hardware-accelerated SIMD
-    public static func extractAudioLevels(for url: URL) async -> (peakDB: Double?, isMute: Bool, levelString: String) {
+
+    public static func extractAudioLevels(for url: URL) async -> AudioLevels {
         let asset = AVURLAsset(url: url, options: [AVURLAssetPreferPreciseDurationAndTimingKey: false])
         let audioTracks = (try? await asset.loadTracks(withMediaType: .audio)) ?? []
         return await extractAudioLevels(asset: asset, tracks: audioTracks)
     }
-    
+
     // MARK: - End Frame Check
     
     /// Decodes the last frame at full resolution (a small logo must not be averaged away): BLACK when ≤ 0.1% of pixels
@@ -795,7 +779,7 @@ public struct DeliverablesInspector: Sendable {
                 isAudioMute: false,
                 audioLevelString: "NO AUDIO"
             )
-            return asset.withAudioLevels(peakDB: nil, isMute: false, levelString: "NO AUDIO", validation: validation)
+            return asset.withAudioLevels(.noAudio, validation: validation)
         }
         
         let levels = await extractAudioLevels(for: asset.fileURL)
@@ -809,7 +793,7 @@ public struct DeliverablesInspector: Sendable {
             isAudioMute: levels.isMute,
             audioLevelString: levels.levelString
         )
-        return asset.withAudioLevels(peakDB: levels.peakDB, isMute: levels.isMute, levelString: levels.levelString, validation: validation)
+        return asset.withAudioLevels(levels, validation: validation)
     }
     
     // MARK: - Subtitles & Closed Captions Extraction
@@ -935,8 +919,17 @@ public struct DeliverablesInspector: Sendable {
     
     // MARK: - CSV Generator
     
-    public static func generateManifestCSV(assets: [DeliverableAsset], rootFolderURL: URL? = nil) -> String {
-        var csv = "Folder,File Name,Status,Validation Notes,Timecode,Duration,Total Frames,Resolution,Aspect Ratio,FPS,File Size,Created Date,Subtitles / CC,Video Codec,Audio Codec,Audio Bitrate,Audio Details,End Frame,Container,File Path\n"
+    /// Integrated, true peak, LRA, max short-term, verdict ("PASS (EBU R128)"), notes; blank until Check Loudness runs.
+    static func loudnessColumns(_ a: DeliverableAsset, target: LoudnessTarget) -> [String] {
+        guard let m = a.loudness else { return Array(repeating: "", count: 6) }
+        let f = { (v: Double?) in v.map { String(format: "%.1f", $0) } ?? "" }
+        let result = target.evaluate(m)
+        return [m.integrated.map { String(format: "%.1f", $0) } ?? "Silent", m.truePeak.isFinite ? f(m.truePeak) : "",
+                f(m.range), f(m.maxShortTerm), "\(result.verdict.rawValue) (\(target.name))", result.issues.joined(separator: "; ")]
+    }
+
+    public static func generateManifestCSV(assets: [DeliverableAsset], rootFolderURL: URL? = nil, target: LoudnessTarget = .current) -> String {
+        var csv = "Folder,File Name,Status,Validation Notes,Timecode,Duration,Total Frames,Resolution,Aspect Ratio,FPS,File Size,Created Date,Subtitles / CC,Video Codec,Audio Codec,Audio Bitrate,Audio Details,Loudness (LUFS),True Peak (dBTP),LRA (LU),Max Short-Term (LUFS),Loudness Verdict,Loudness Notes,End Frame,Container,File Path\n"
         
         for a in assets {
             var folderRel = ""
@@ -953,7 +946,7 @@ public struct DeliverablesInspector: Sendable {
             }
             let status = a.validation.hasAnyMismatch ? "MISMATCH FLAGGED" : "MATCHED"
             let notes = a.validation.summaryString
-            csv += "\(QCUtilities.escapeCSV(folderRel)),\(QCUtilities.escapeCSV(a.fileName)),\(QCUtilities.escapeCSV(status)),\(QCUtilities.escapeCSV(notes)),\(QCUtilities.escapeCSV(a.timecode)),\(QCUtilities.escapeCSV(a.formattedDuration)),\(a.totalFrames),\(QCUtilities.escapeCSV(a.resolutionString)),\(QCUtilities.escapeCSV(a.aspectRatioString)),\(String(format: "%.2f", a.fps)),\(QCUtilities.escapeCSV(a.formattedFileSize)),\(QCUtilities.escapeCSV(a.formattedCreationDate)),\(QCUtilities.escapeCSV(a.subtitlesInfo)),\(QCUtilities.escapeCSV(a.videoCodec)),\(QCUtilities.escapeCSV(a.audioCodec)),\(QCUtilities.escapeCSV(a.audioBitrate)),\(QCUtilities.escapeCSV(a.audioConfig)),\(QCUtilities.escapeCSV(a.endFrame?.verdict.rawValue ?? "")),\(QCUtilities.escapeCSV(a.container)),\(QCUtilities.escapeCSV(a.fileURL.path))\n"
+            csv += "\(QCUtilities.escapeCSV(folderRel)),\(QCUtilities.escapeCSV(a.fileName)),\(QCUtilities.escapeCSV(status)),\(QCUtilities.escapeCSV(notes)),\(QCUtilities.escapeCSV(a.timecode)),\(QCUtilities.escapeCSV(a.formattedDuration)),\(a.totalFrames),\(QCUtilities.escapeCSV(a.resolutionString)),\(QCUtilities.escapeCSV(a.aspectRatioString)),\(String(format: "%.2f", a.fps)),\(QCUtilities.escapeCSV(a.formattedFileSize)),\(QCUtilities.escapeCSV(a.formattedCreationDate)),\(QCUtilities.escapeCSV(a.subtitlesInfo)),\(QCUtilities.escapeCSV(a.videoCodec)),\(QCUtilities.escapeCSV(a.audioCodec)),\(QCUtilities.escapeCSV(a.audioBitrate)),\(QCUtilities.escapeCSV(a.audioConfig)),\(loudnessColumns(a, target: target).map(QCUtilities.escapeCSV).joined(separator: ",")),\(QCUtilities.escapeCSV(a.endFrame?.verdict.rawValue ?? "")),\(QCUtilities.escapeCSV(a.container)),\(QCUtilities.escapeCSV(a.fileURL.path))\n"
         }
         
         return csv
@@ -961,8 +954,8 @@ public struct DeliverablesInspector: Sendable {
     
     // MARK: - TSV Generator (Google Sheets / Clipboard)
     
-    public static func generateManifestTSV(assets: [DeliverableAsset], rootFolderURL: URL? = nil) -> String {
-        var tsv = "Folder\tFile Name\tStatus\tValidation Notes\tTimecode\tDuration\tTotal Frames\tResolution\tAspect Ratio\tFPS\tFile Size\tCreated Date\tSubtitles / CC\tVideo Codec\tAudio Codec\tAudio Bitrate\tAudio Details\tEnd Frame\tContainer\tFile Path\n"
+    public static func generateManifestTSV(assets: [DeliverableAsset], rootFolderURL: URL? = nil, target: LoudnessTarget = .current) -> String {
+        var tsv = "Folder\tFile Name\tStatus\tValidation Notes\tTimecode\tDuration\tTotal Frames\tResolution\tAspect Ratio\tFPS\tFile Size\tCreated Date\tSubtitles / CC\tVideo Codec\tAudio Codec\tAudio Bitrate\tAudio Details\tLoudness (LUFS)\tTrue Peak (dBTP)\tLRA (LU)\tMax Short-Term (LUFS)\tLoudness Verdict\tLoudness Notes\tEnd Frame\tContainer\tFile Path\n"
         
         for a in assets {
             var folderRel = ""
@@ -979,7 +972,7 @@ public struct DeliverablesInspector: Sendable {
             }
             let status = a.validation.hasAnyMismatch ? "MISMATCH FLAGGED" : "MATCHED"
             let notes = a.validation.summaryString
-            tsv += "\(QCUtilities.escapeTSV(folderRel))\t\(QCUtilities.escapeTSV(a.fileName))\t\(QCUtilities.escapeTSV(status))\t\(QCUtilities.escapeTSV(notes))\t\(QCUtilities.escapeTSV(a.timecode))\t\(QCUtilities.escapeTSV(a.formattedDuration))\t\(a.totalFrames)\t\(QCUtilities.escapeTSV(a.resolutionString))\t\(QCUtilities.escapeTSV(a.aspectRatioString))\t\(String(format: "%.2f", a.fps))\t\(QCUtilities.escapeTSV(a.formattedFileSize))\t\(QCUtilities.escapeTSV(a.formattedCreationDate))\t\(QCUtilities.escapeTSV(a.subtitlesInfo))\t\(QCUtilities.escapeTSV(a.videoCodec))\t\(QCUtilities.escapeTSV(a.audioCodec))\t\(QCUtilities.escapeTSV(a.audioBitrate))\t\(QCUtilities.escapeTSV(a.audioConfig))\t\(QCUtilities.escapeTSV(a.endFrame?.verdict.rawValue ?? ""))\t\(QCUtilities.escapeTSV(a.container))\t\(QCUtilities.escapeTSV(a.fileURL.path))\n"
+            tsv += "\(QCUtilities.escapeTSV(folderRel))\t\(QCUtilities.escapeTSV(a.fileName))\t\(QCUtilities.escapeTSV(status))\t\(QCUtilities.escapeTSV(notes))\t\(QCUtilities.escapeTSV(a.timecode))\t\(QCUtilities.escapeTSV(a.formattedDuration))\t\(a.totalFrames)\t\(QCUtilities.escapeTSV(a.resolutionString))\t\(QCUtilities.escapeTSV(a.aspectRatioString))\t\(String(format: "%.2f", a.fps))\t\(QCUtilities.escapeTSV(a.formattedFileSize))\t\(QCUtilities.escapeTSV(a.formattedCreationDate))\t\(QCUtilities.escapeTSV(a.subtitlesInfo))\t\(QCUtilities.escapeTSV(a.videoCodec))\t\(QCUtilities.escapeTSV(a.audioCodec))\t\(QCUtilities.escapeTSV(a.audioBitrate))\t\(QCUtilities.escapeTSV(a.audioConfig))\t\(loudnessColumns(a, target: target).map(QCUtilities.escapeTSV).joined(separator: "\t"))\t\(QCUtilities.escapeTSV(a.endFrame?.verdict.rawValue ?? ""))\t\(QCUtilities.escapeTSV(a.container))\t\(QCUtilities.escapeTSV(a.fileURL.path))\n"
         }
         
         return tsv
@@ -987,7 +980,7 @@ public struct DeliverablesInspector: Sendable {
     
     // MARK: - HTML Specs Generator
     
-    public static func generateManifestHTML(assets: [DeliverableAsset], folderName: String, rootFolderURL: URL? = nil) -> String {
+    public static func generateManifestHTML(assets: [DeliverableAsset], folderName: String, rootFolderURL: URL? = nil, target: LoudnessTarget = .current) -> String {
         let dateFormatter = DateFormatter()
         dateFormatter.dateFormat = "yyyy.MM.dd // HH:mm:ss"
         let dateString = dateFormatter.string(from: Date())
@@ -995,8 +988,8 @@ public struct DeliverablesInspector: Sendable {
         let totalSize = assets.reduce(Int64(0)) { $0 + $1.fileSizeBytes }
         let formattedTotalSize = formatFileSize(bytes: totalSize)
         let mismatchCount = assets.filter { $0.validation.hasAnyMismatch }.count
-        let rawCSV = generateManifestCSV(assets: assets, rootFolderURL: rootFolderURL)
-        let rawTSV = generateManifestTSV(assets: assets, rootFolderURL: rootFolderURL)
+        let rawCSV = generateManifestCSV(assets: assets, rootFolderURL: rootFolderURL, target: target)
+        let rawTSV = generateManifestTSV(assets: assets, rootFolderURL: rootFolderURL, target: target)
         
         var html = """
         <!DOCTYPE html>
@@ -1349,7 +1342,12 @@ public struct DeliverablesInspector: Sendable {
                 """
             } else {
                 let bitrateTag = a.audioBitrate != "--" ? "<span class='tag' style='margin-left:4px'>\(a.audioBitrate)</span>" : ""
-                let levelTag = (!a.audioLevelString.isEmpty && a.audioLevelString != "--") ? "<span class='tag tag-ok' style='margin-left:4px'>\(a.audioLevelString)</span>" : ""
+                var levelTag = ""
+                if let m = a.loudness {
+                    let result = target.evaluate(m)
+                    let colour = ["PASS": "", "WARN": " color:#f5a623;", "FAIL": " color:#e5484d;"][result.verdict.rawValue] ?? ""
+                    levelTag = "<span class='tag\(result.verdict == .pass ? " tag-ok" : "")' style='margin-left:4px;\(colour)' title='\(result.issues.joined(separator: "; "))'>\(result.verdict.rawValue) · \(m.summary)</span>"
+                }
                 let subLine = !a.audioFormatDetail.isEmpty ? "<div class='audio-detail-sub'>\(a.audioFormatDetail)</div>" : ""
                 audioDisplay = """
                 <div style="display:flex; align-items:center;">

@@ -461,7 +461,7 @@ public struct ExtendedMediaInfo: Sendable {
             }
             let lvl = (info?.audioLevelString.isEmpty == false && info?.audioLevelString != "--") ? info!.audioLevelString : asset.audioLevelString
             if !lvl.isEmpty && lvl != "--" {
-                lines.append("Audio Peak Level: \(lvl)")
+                lines.append("Audio Loudness: \(lvl)")
             }
         } else {
             lines.append("Audio: No Audio Streams")

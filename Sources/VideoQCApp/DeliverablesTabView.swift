@@ -160,55 +160,52 @@ extension ContentView {
             
             // Actions & Export Controls
             VStack(spacing: 6) {
-                // Audio Check Button (Sidebar)
-                Button(action: {
-                    if specsState.isAnalyzingAudioLevels {
-                        specsState.cancelAudioAnalysis()
-                    } else {
-                        specsState.analyzeAudioLevels()
-                    }
-                }) {
-                    HStack(spacing: 6) {
+                // Loudness Check (BS.1770 loudness, true peak, LRA, channel checks) against the chosen target
+                VStack(spacing: 4) {
+                    Button(action: {
                         if specsState.isAnalyzingAudioLevels {
-                            ProgressView()
-                                .controlSize(.mini)
-                                .scaleEffect(0.65)
-                                .frame(width: 10, height: 10)
-                            Text("Scanning Audio (\(specsState.analyzedAudioCount)/\(specsState.totalAudioCount))")
-                                .font(.ui(size: 9.5, weight: .semibold))
-                                .foregroundColor(accentBlue)
-                            Spacer()
-                            Image(systemName: "xmark.circle.fill")
-                                .font(.system(size: StudioTheme.scaleFont(9), weight: .bold))
-                                .foregroundColor(textMuted)
+                            specsState.cancelAudioAnalysis()
                         } else {
-                            Image(systemName: "waveform")
-                                .font(.system(size: StudioTheme.scaleFont(8.5), weight: .bold))
-                            Text(hasPendingAudioAnalysis ? "Check Audio Levels" : "Recheck Audio Levels")
-                                .font(.ui(size: 9.5, weight: .semibold))
-                            Spacer()
-                            Text("SIMD")
-                                .font(.ui(size: 7.5, weight: .semibold))
-                                .foregroundColor(hasPendingAudioAnalysis ? accentBlue : textMuted)
-                                .padding(.horizontal, 4)
-                                .padding(.vertical, 1.5)
-                                .background(borderLine)
-                                .cornerRadius(2)
+                            specsState.analyzeAudioLevels()
                         }
+                    }) {
+                        HStack(spacing: 6) {
+                            if specsState.isAnalyzingAudioLevels {
+                                ProgressView()
+                                    .controlSize(.mini)
+                                    .scaleEffect(0.65)
+                                    .frame(width: 10, height: 10)
+                                Text("Measuring Loudness (\(specsState.analyzedAudioCount)/\(specsState.totalAudioCount))")
+                                    .font(.ui(size: 9.5, weight: .semibold))
+                                    .foregroundColor(accentBlue)
+                                Spacer()
+                                Image(systemName: "xmark.circle.fill")
+                                    .font(.system(size: StudioTheme.scaleFont(9), weight: .bold))
+                                    .foregroundColor(textMuted)
+                            } else {
+                                Image(systemName: "waveform")
+                                    .font(.system(size: StudioTheme.scaleFont(8.5), weight: .bold))
+                                Text(hasPendingAudioAnalysis ? "Check Loudness" : "Recheck Loudness")
+                                    .font(.ui(size: 9.5, weight: .semibold))
+                                Spacer()
+                            }
+                        }
+                        .frame(maxWidth: .infinity, alignment: .center)
+                        .frame(height: 28)
+                        .padding(.horizontal, 8)
+                        .foregroundColor(specsState.deliverableAssets.isEmpty ? textMuted : (hasPendingAudioAnalysis ? textMain : textSubtle))
+                        .studioBox(
+                            background: hasPendingAudioAnalysis ? accentBlue.opacity(0.12) : bgSubtle,
+                            border: hasPendingAudioAnalysis ? accentBlue.opacity(0.5) : borderLine
+                        )
                     }
-                    .frame(maxWidth: .infinity, alignment: .center)
-                    .frame(height: 28)
-                    .padding(.horizontal, 8)
-                    .foregroundColor(specsState.deliverableAssets.isEmpty ? textMuted : (hasPendingAudioAnalysis ? textMain : textSubtle))
-                    .studioBox(
-                        background: hasPendingAudioAnalysis ? accentBlue.opacity(0.12) : bgSubtle,
-                        border: hasPendingAudioAnalysis ? accentBlue.opacity(0.5) : borderLine
-                    )
+                    .buttonStyle(.plain)
+                    .disabled(specsState.deliverableAssets.isEmpty)
+                    .explain("Measures loudness (LUFS), true peak, loudness range and channel problems (silent channel, out of phase, dual mono) per ITU-R BS.1770-4, and checks them against the target.")
+
+                    loudnessTargetMenu
                 }
-                .buttonStyle(.plain)
-                .disabled(specsState.deliverableAssets.isEmpty)
-                .explain("Decodes audio tracks with Apple Accelerate SIMD to measure peak dBFS and detect silence.")
-                
+
                 // End Frame Check (on demand: one decoded frame per file)
                 Button(action: {
                     if specsState.isCheckingEndFrames { specsState.cancelEndFrameCheck() } else { specsState.checkEndFrames() }
@@ -408,6 +405,9 @@ extension ContentView {
         let totalBytes = displayAssets.reduce(Int64(0)) { $0 + $1.fileSizeBytes }
         let totalSeconds = displayAssets.reduce(0.0) { $0 + $1.durationSeconds }
         let mismatchCount = displayAssets.filter { $0.validation.hasAnyMismatch && !specsState.isMismatchDismissed(for: $0.fileURL) }.count
+        let target = loudnessTarget
+        let measured = displayAssets.compactMap(\.loudness)
+        let loudnessFails = measured.filter { target.evaluate($0).verdict == .fail }.count
         
         return VStack(alignment: .leading, spacing: 20) {
             // Header: Clean audit status
@@ -431,6 +431,9 @@ extension ContentView {
                 HStack(spacing: 12) {
                     statBox(title: specsState.specsFilterText.isEmpty ? "Total Assets" : "Filtered Assets", val: String(format: "%02d", displayAssets.count))
                     statBox(title: "Name Mismatches", val: String(format: "%02d", mismatchCount), isRed: mismatchCount > 0, isPositive: mismatchCount == 0 && !displayAssets.isEmpty)
+                    if !measured.isEmpty {
+                        statBox(title: "Loudness Fails (\(target.name))", val: String(format: "%02d", loudnessFails), isRed: loudnessFails > 0, isPositive: loudnessFails == 0)
+                    }
                     statBox(title: "Total Runtime", val: TimecodeFormatter.format(frameIndex: Int(round(totalSeconds * 25.0)), fps: 25.0))
                     statBox(title: "Total Batch Size", val: DeliverablesInspector.formatFileSize(bytes: totalBytes))
                 }
@@ -849,8 +852,63 @@ extension ContentView {
         FileSystemTreeBuilder.hasSubfolders(in: deliverablesTree)
     }
     
+    private var loudnessTargetMenu: some View {
+        Menu {
+            Picker("Loudness Target", selection: $loudnessTargetID) {
+                ForEach(LoudnessTarget.presets) { preset in
+                    Text("\(preset.name)  (\(preset.spec))").tag(preset.id)
+                }
+                Text("Custom  (\(LoudnessTarget.custom(integrated: loudnessCustomLUFS, tolerance: loudnessCustomTolerance, maxTruePeak: loudnessCustomTruePeak).spec))").tag("custom")
+            }
+            .pickerStyle(.inline)
+            Divider()
+            Button("Edit Custom Target…") {
+                UserDefaults.standard.set("Loudness", forKey: UserSettingsModalView.paneKey)
+                loudnessTargetID = "custom"
+                showUserSettingsModal = true
+            }
+        } label: {
+            HStack(spacing: 4) {
+                Text("Target")
+                    .foregroundColor(textMuted)
+                Text("\(loudnessTarget.name) · \(loudnessTarget.spec)")
+                    .foregroundColor(textSubtle)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                Spacer(minLength: 0)
+                Image(systemName: "chevron.up.chevron.down")
+                    .font(.system(size: StudioTheme.scaleFont(7), weight: .semibold))
+                    .foregroundColor(textMuted)
+            }
+            .font(.ui(size: 10, weight: .medium))
+            .padding(.horizontal, 8)
+            .contentShape(Rectangle())
+        }
+        .menuStyle(.button)
+        .buttonStyle(.plain)
+        .menuIndicator(.hidden)
+        .help("Loudness target used to pass or fail each file")
+    }
+
+    func loudnessColor(_ verdict: LoudnessTarget.Verdict) -> Color {
+        switch verdict {
+        case .pass: return accentPositive
+        case .warn: return .orange
+        case .fail: return alertRed
+        }
+    }
+
+    private func loudnessHelp(for asset: DeliverableAsset) -> String {
+        guard let loudness = asset.loudness else { return asset.audioConfig }
+        let result = loudnessTarget.evaluate(loudness)
+        var lines = [asset.audioConfig, "", "\(result.verdict.rawValue) · \(loudnessTarget.name) (\(loudnessTarget.spec))"]
+        lines += result.issues.filter { !loudness.channelNotes.contains($0) }
+        lines += ["", loudness.detail]
+        return lines.joined(separator: "\n")
+    }
+
     var hasPendingAudioAnalysis: Bool {
-        specsState.deliverableAssets.contains { $0.hasAudio && ($0.audioLevelString == "--" || $0.audioLevelString.isEmpty) }
+        specsState.deliverableAssets.contains { $0.hasAudio && $0.loudness == nil && !$0.isAudioMute }
     }
     
     var flattenedDeliverableNodes: [FileSystemTreeNode] {
@@ -1204,13 +1262,21 @@ extension ContentView {
                         .lineLimit(1)
                         .minimumScaleFactor(0.8)
                         .help("Audio Track is Mute: \(asset.audioLevelString) (Codec: \(asset.audioCodec))")
+                    } else if let loudness = asset.loudness {
+                        let result = loudnessTarget.evaluate(loudness)
+                        HStack(spacing: 3) {
+                            if result.verdict != .pass {
+                                Image(systemName: result.verdict == .fail ? "exclamationmark.triangle.fill" : "exclamationmark.circle")
+                                    .font(.system(size: StudioTheme.scaleFont(7), weight: .bold))
+                            }
+                            Text(loudness.summary)
+                                .font(.ui(size: 8, weight: .semibold))
+                                .lineLimit(1)
+                                .minimumScaleFactor(0.8)
+                        }
+                        .foregroundColor(loudnessColor(result.verdict))
                     } else {
                         HStack(spacing: 4) {
-                            if !asset.audioLevelString.isEmpty && asset.audioLevelString != "--" {
-                                Text(asset.audioLevelString)
-                                    .font(.ui(size: 8, weight: .semibold))
-                                    .foregroundColor(accentPositive)
-                            }
                             if !asset.audioFormatDetail.isEmpty {
                                 Text(asset.audioFormatDetail)
                                     .font(.ui(size: 8, weight: .medium))
@@ -1221,7 +1287,7 @@ extension ContentView {
                     }
                 }
                 .frame(width: CGFloat(specsState.columnWidth(for: .audioCodec)), alignment: .center)
-                .help(asset.audioConfig + (asset.audioLevelString.isEmpty ? "" : "\nPeak Level: \(asset.audioLevelString)"))
+                .help(loudnessHelp(for: asset))
             }
             
             let effectivePathWidth = pathWidth > 0 ? pathWidth : CGFloat(specsState.columnWidth(for: .path))

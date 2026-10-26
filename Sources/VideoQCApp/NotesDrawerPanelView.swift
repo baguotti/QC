@@ -776,7 +776,7 @@ struct NotesDrawerPanelView: View {
                         .font(.ui(size: 8.5, weight: .semibold))
                         .foregroundColor(palette.alertRed)
                 } else {
-                    Text("Peak")
+                    Text("Loudness")
                         .font(.ui(size: 8.5, weight: .medium))
                         .foregroundColor(palette.textMuted)
                 }

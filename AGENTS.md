@@ -214,6 +214,12 @@
 - **Flash frame**: 1–2 solid frames (spread ≤ 12; up to fps/12.5 frames at high rates) with a picture (spread ≥ 30) on both sides. Head/tail black, holds and dips to black are not flash frames.
 - **Media Offline**: ≥ 60% of the frame in saturated red (Cr ≥ 180, 70 ≤ Cb ≤ 140, Y ≤ 140: Premiere/Resolve/FCP offline cards; excludes orange and magenta).
 
+## 8e2. Inspect → Check Loudness (`Loudness.swift`)
+
+- One decode of the first audio track (`DeliverablesInspector.extractAudioLevels`, Float32 via AVAssetReader) feeds `LoudnessMeter`: K-weighting (vDSP biquads, coefficients for any sample rate), 100 ms sub-blocks → 400 ms momentary / 3 s short-term, gated integrated loudness (−70 abs, −10 rel), LRA (EBU 3342: −20 rel, p10–p95), true peak with the BS.1770-4 Annex 2 48-tap 4× interpolator (vDSP_conv), plus channel notes (silent channel, out of phase, dual mono). Channel weights come from the track's channel layout labels (LFE excluded, surrounds 1.41; AAC 5.1 decodes C L R Ls Rs LFE, so never assume an order when labels exist); unlabelled 6-channel audio is taken as SMPTE order. Clips shorter than one 400 ms block are measured as a single block. Late results of a cancelled run are dropped (`audioAnalysisRun`).
+- `peakDB` = true peak; mute = nothing above the gate or true peak < −60 dBTP. Pass/warn/fail is evaluated at display/export time against `LoudnessTarget` (`prefLoudnessTarget`, Settings → Loudness), so changing the target recolours without re-measuring.
+- **Benchmark**: `scripts/LoudnessBench/run.sh` compares against ffmpeg `ebur128=peak=true` (integrated ±0.1 LU, true peak ±0.5 dB, LRA ±0.5 LU) and an exact inter-sample-peak case (ffmpeg over-reads it). Must print ALL PASSED.
+
 ## 8f. Missed Line Report (`MissedLineReporter.swift`, Player timecode bar)
 
 - MISSED LINE sends the frame on screen for the active slot (`notesTargetURL`), captured with `captureCurrentFrame(applyingExposure: false)` (original pixels; EV is noted in the email), as a lossless PNG to the notes-sync Worker (`POST /v1/frames`, KV binding `FRAMES`, 90-day TTL), then emails clip / timecode / settings / Line Check findings / reviewer / frame link via Web3Forms. Encoding runs off the main thread; nothing runs during playback (it pauses first).

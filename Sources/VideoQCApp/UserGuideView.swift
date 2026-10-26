@@ -106,7 +106,7 @@ struct UserGuideView: View {
         GuideChapter(title: "Inspect", icon: "doc.text", topics: [
             GuideTopic(title: "Specs Table", body: "Reads every file's metadata without decoding: timecode length, end frame, aspect ratio and size, frame rate, file size, creation date, video codec and audio spec. Click a column header to sort; drag a divider to resize."),
             GuideTopic(title: "Name Mismatches", body: "Flags files whose name (e.g. 16x9, 1080p, 15s) disagrees with the actual stream. Right-click a warning to dismiss it."),
-            GuideTopic(title: "Check Audio Levels", body: "Measures each file's loudness and peak and flags silent or muted tracks."),
+            GuideTopic(title: "Check Loudness", body: "Measures each file's integrated loudness (LUFS), true peak (dBTP), loudness range and max short-term loudness to ITU-R BS.1770-4, and passes, warns or fails it against the target picked under the button (EBU R128, ATSC A/85, Streaming / Social, Apple or a custom target in Settings → Loudness). It also flags a silent channel, out-of-phase stereo and dual mono. Hover the value in the Audio column for details; the numbers are included in exports."),
             GuideTopic(title: "Check End Frames", body: "Looks at the very last frame of every video and reports whether it is pure black or not."),
             GuideTopic(title: "Cross-Check Subtitles", body: "Compares the .srt files of the selected deliverables (all of them if none is selected) and lists every line that differs."),
             GuideTopic(title: "Filter and Kinds", body: "The filter field narrows the table by name. When a folder mixes videos, images and audio, the kind icons show or hide each kind."),

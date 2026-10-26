@@ -29,6 +29,13 @@ struct ContentView: View {
     @AppStorage("playerThumbnailSize") var playerThumbnailSize: Double = 52.0
     @AppStorage("playerQueueWidth") var playerQueueWidth: Double = 360.0
     @AppStorage("scanPanelWidth") var scanPanelWidth: Double = 400.0
+    @AppStorage(LoudnessTarget.presetKey) var loudnessTargetID: String = "r128"
+    @AppStorage(LoudnessTarget.customIntegratedKey) var loudnessCustomLUFS: Double = -23
+    @AppStorage(LoudnessTarget.customToleranceKey) var loudnessCustomTolerance: Double = 1
+    @AppStorage(LoudnessTarget.customTruePeakKey) var loudnessCustomTruePeak: Double = -1
+    var loudnessTarget: LoudnessTarget {
+        .resolve(id: loudnessTargetID, customIntegrated: loudnessCustomLUFS, customTolerance: loudnessCustomTolerance, customTruePeak: loudnessCustomTruePeak)
+    }
     @AppStorage("specsDisplayMode") var specsDisplayMode: String = "inline"
     @AppStorage("specsThumbnailSize") var specsThumbnailSize: Double = 50.0
     @State var showSpecsViewOptionsPopover: Bool = false

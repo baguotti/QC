@@ -46,6 +46,8 @@ public final class SpecsState: ObservableObject {
     @Published public var analyzedAudioCount: Int = 0
     @Published public var totalAudioCount: Int = 0
     private var audioAnalysisTask: Task<Void, Never>? = nil
+    /// Identifies the current run: results of a cancelled run arriving late are dropped.
+    private var audioAnalysisRun = 0
     
     // End-frame check (on demand)
     @Published public var isCheckingEndFrames: Bool = false
@@ -370,12 +372,14 @@ public final class SpecsState: ObservableObject {
         analyzedAudioCount = 0
         audioAnalysisProgress = 0.0
         isAnalyzingAudioLevels = true
+        audioAnalysisRun += 1
+        let run = audioAnalysisRun
         
         audioAnalysisTask = Task { @MainActor [weak self] in
             guard let self else { return }
             _ = await DeliverablesInspector.analyzeBatchAudioLevels(assets: assetsToAnalyze) { [weak self] updatedAsset, completed, total in
                 Task { @MainActor [weak self] in
-                    guard let self else { return }
+                    guard let self, self.audioAnalysisRun == run else { return }
                     if let index = self.deliverableAssets.firstIndex(where: { $0.id == updatedAsset.id }) {
                         self.deliverableAssets[index] = updatedAsset
                     }
@@ -384,6 +388,7 @@ public final class SpecsState: ObservableObject {
                     self.audioAnalysisProgress = total > 0 ? Double(completed) / Double(total) : 1.0
                 }
             }
+            guard self.audioAnalysisRun == run else { return }
             self.isAnalyzingAudioLevels = false
             self.audioAnalysisTask = nil
         }
@@ -420,6 +425,7 @@ public final class SpecsState: ObservableObject {
     }
     
     public func cancelAudioAnalysis() {
+        audioAnalysisRun += 1
         audioAnalysisTask?.cancel()
         audioAnalysisTask = nil
         isAnalyzingAudioLevels = false

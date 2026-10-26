@@ -86,7 +86,7 @@ public enum SpecsSortColumn: String, CaseIterable, Equatable, Sendable {
         case .size: return 75.0
         case .date: return 110.0
         case .videoCodec: return 140.0
-        case .audioCodec: return 145.0
+        case .audioCodec: return 165.0
         case .endFrame: return 95.0
         case .path: return 160.0
         }
@@ -159,12 +159,10 @@ public struct DeliverableAsset: Identifiable, Sendable, Equatable {
         audioConfig != "NONE" && audioCodec != "NONE"
     }
     
-    public func withAudioLevels(
-        peakDB: Double?,
-        isMute: Bool,
-        levelString: String,
-        validation: DeliverableValidation
-    ) -> DeliverableAsset {
+    /// BS.1770 measurement from Check Loudness (nil until it runs).
+    public var loudness: LoudnessMeasurement? = nil
+
+    public func withAudioLevels(_ levels: DeliverablesInspector.AudioLevels, validation: DeliverableValidation) -> DeliverableAsset {
         var copy = DeliverableAsset(
             id: self.id,
             fileURL: self.fileURL,
@@ -185,9 +183,9 @@ public struct DeliverableAsset: Identifiable, Sendable, Equatable {
             audioBitrate: self.audioBitrate,
             audioFormatDetail: self.audioFormatDetail,
             audioConfig: self.audioConfig,
-            audioPeakDB: peakDB,
-            audioLevelString: levelString,
-            isAudioMute: isMute,
+            audioPeakDB: levels.peakDB,
+            audioLevelString: levels.levelString,
+            isAudioMute: levels.isMute,
             container: self.container,
             creationDate: self.creationDate,
             formattedCreationDate: self.formattedCreationDate,
@@ -196,6 +194,7 @@ public struct DeliverableAsset: Identifiable, Sendable, Equatable {
             validation: validation
         )
         copy.endFrame = endFrame
+        copy.loudness = levels.loudness
         return copy
     }
     

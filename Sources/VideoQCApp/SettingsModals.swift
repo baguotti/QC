@@ -314,13 +314,18 @@ struct UserSettingsModalView: View {
     @AppStorage(UserPreferences.lineAnyColorKey) private var lineAnyColor: Bool = false
     @AppStorage(UserPreferences.lineSplitSeamsKey) private var lineSplitSeams: Bool = false
     @AppStorage(UserPreferences.lineEdgeDepthKey) private var lineEdgeDepth: Int = 12
+    @AppStorage(LoudnessTarget.presetKey) private var loudnessTargetID: String = "r128"
+    @AppStorage(LoudnessTarget.customIntegratedKey) private var loudnessCustomLUFS: Double = -23
+    @AppStorage(LoudnessTarget.customToleranceKey) private var loudnessCustomTolerance: Double = 1
+    @AppStorage(LoudnessTarget.customTruePeakKey) private var loudnessCustomTruePeak: Double = -1
     
     private var palette: StudioPalette { StudioPalette(isLightMode) }
     
     private enum Pane: String, CaseIterable {
-        case general = "General", playback = "Playback", queue = "Queue & Specs", lineCheck = "Line Check"
+        case general = "General", playback = "Playback", queue = "Queue & Specs", lineCheck = "Line Check", loudness = "Loudness"
         var icon: String {
             switch self {
+            case .loudness: return "waveform"
             case .general: return "person.crop.circle"
             case .playback: return "play.rectangle"
             case .queue: return "list.bullet.rectangle"
@@ -328,7 +333,8 @@ struct UserSettingsModalView: View {
             }
         }
     }
-    @State private var pane: Pane = .general
+    @AppStorage(UserSettingsModalView.paneKey) private var pane: Pane = .general
+    static let paneKey = "userSettingsPane"
     
     var body: some View {
         SidebarModalShell(isPresented: $isPresented, title: "User Settings", height: 440,
@@ -349,6 +355,7 @@ struct UserSettingsModalView: View {
                 case .playback: playbackPane
                 case .queue: queuePane
                 case .lineCheck: lineCheckPane
+                case .loudness: loudnessPane
                 }
             }
             .padding(.horizontal, 24)
@@ -450,6 +457,49 @@ struct UserSettingsModalView: View {
         }
     }
     
+    private var loudnessPane: some View {
+        let isCustom = loudnessTargetID == "custom"
+        return VStack(alignment: .leading, spacing: 10) {
+            Text("Inspect → Check Loudness passes or fails each file against this target (ITU-R BS.1770-4: integrated loudness and 4× true peak).")
+                .font(.ui(size: 11))
+                .foregroundColor(palette.textMuted)
+                .fixedSize(horizontal: false, vertical: true)
+            field("Target:", help: "Delivery loudness spec.") {
+                Picker("", selection: $loudnessTargetID) {
+                    ForEach(LoudnessTarget.presets) { preset in
+                        Text("\(preset.name)  (\(preset.spec))").tag(preset.id)
+                    }
+                    Text("Custom").tag("custom")
+                }
+                .labelsHidden()
+                .pickerStyle(.menu)
+                .frame(width: 260)
+            }
+            divider
+            loudnessStepper("Integrated:", value: $loudnessCustomLUFS, range: -40 ... -5, unit: "LUFS",
+                            help: "Target programme loudness.", enabled: isCustom)
+            loudnessStepper("Tolerance:", value: $loudnessCustomTolerance, range: 0.5...5, unit: "LU",
+                            help: "How far from the target still passes (warning within 0.5 LU of the edge).", enabled: isCustom)
+            loudnessStepper("Max true peak:", value: $loudnessCustomTruePeak, range: -10...0, unit: "dBTP",
+                            help: "Highest allowed true peak.", enabled: isCustom)
+        }
+    }
+
+    private func loudnessStepper(_ label: String, value: Binding<Double>, range: ClosedRange<Double>, unit: String, help: String, enabled: Bool) -> some View {
+        field(label, help: help) {
+            HStack(spacing: 4) {
+                Text(String(format: unit == "LU" ? "±%g %@" : "%g %@", value.wrappedValue, unit))
+                    .font(.ui(size: 12))
+                    .foregroundColor(enabled ? palette.textMain : palette.textMuted)
+                    .frame(width: 80, alignment: .leading)
+                Stepper("", value: value, in: range, step: 0.5)
+                    .labelsHidden()
+                    .controlSize(.small)
+            }
+            .disabled(!enabled)
+        }
+    }
+
     private var divider: some View {
         Rectangle().fill(palette.borderLine).frame(height: 1).padding(.vertical, 4)
     }
