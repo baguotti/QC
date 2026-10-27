@@ -9,7 +9,7 @@ public enum MediaKind: Sendable {
 public enum QCUtilities: Sendable {
     
     public static let supportedVideoExtensions: Set<String> = [
-        "mp4", "mov", "m4v", "mkv", "avi", "prores"
+        "mp4", "mov", "m4v", "mkv", "avi", "prores", "mxf"
     ]
     public static let supportedImageExtensions: Set<String> = [
         "png", "jpg", "jpeg", "tif", "tiff", "heic", "heif", "gif", "bmp", "webp", "psd", "exr"

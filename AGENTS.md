@@ -228,6 +228,12 @@
 - **Zebra** (`showLegalZebra`): sublayers of `stillFrameLayerA/B` (they inherit split masks, frames and visibility), **paused only**, hidden while playing/scrubbing and in difference/overlay modes. Each mask is one frame decoded with `AVAssetReader` off the main thread (≤ 1920 px, ~30 ms at 1080p long-GOP) 80 ms after stepping settles, keyed by file/frame/preset; nothing runs on the playback or scrub path. It shows source levels (no EV), same blocks as the scan. Image sequences, stills and audio have no zebra.
 - Benchmark: `scripts/FrameCheckBench/run.sh` includes super-white, super-black, illegal-colour, sub-1 % speck and full-swing bars cases plus zebra frame accuracy (H.264 long GOP, ProRes). Must print ALL PASSED.
 
+## 8e4. Pro Video Formats (`ProVideoFormats.swift`)
+
+- `App.init` registers Apple's Pro Video Formats decoders and format readers (`VTRegisterProfessionalVideoWorkflowVideoDecoders`, `MTRegisterProfessionalVideoWorkflowFormatReaders`) before any media is opened, only when the plug-ins folder is non-empty (registration costs ~17 ms at launch even with nothing installed; the folder check is microseconds), so MXF, AVC-Intra, XAVC and DNxHD/HR go through the normal AVFoundation pipeline. Existing formats are unaffected.
+- The package can't be bundled or installed silently (admin install, Apple distributes it via Software Update to Macs with Final Cut Pro/Motion/Compressor). Opening an MXF without it (`/Library/Video/Professional Video Workflow Plug-Ins` empty) shows `ProVideoFormatsPrompt` once per session; scans report "Needs Apple Pro Video Formats".
+- AVC-Intra/XAVC 10-bit 4:2:2 most likely decode in software: expect slower 4K playback and scans than hardware H.264/HEVC.
+
 ## 8f. Missed Line Report (`MissedLineReporter.swift`, Player timecode bar)
 
 - MISSED LINE sends the frame on screen for the active slot (`notesTargetURL`), captured with `captureCurrentFrame(applyingExposure: false)` (original pixels; EV is noted in the email), as a lossless PNG to the notes-sync Worker (`POST /v1/frames`, KV binding `FRAMES`, 90-day TTL), then emails clip / timecode / settings / Line Check findings / reviewer / frame link via Web3Forms. Encoding runs off the main thread; nothing runs during playback (it pauses first).
@@ -238,6 +244,12 @@
 
 - All UI text uses `Font.ui(size:weight:)`, which snaps to six sizes (`TypeScale`: 10 caption, 11 small, 12 body, 13 emphasis, 15 title, 22 large title) and multiplies by the Button Size factor (Small 1.0, Medium 1.2, Large 1.25). Never pass `StudioTheme.scaleFont` into `.ui` (double scaling); `.system(size:)` fonts (icons, monospaced) go through `StudioTheme.scaleFont`.
 - Bars that can run out of width degrade instead of clipping: the timecode bar's Notes/Tags/Missed Line drop to icons (`ViewThatFits`), the queue tools wrap under "Queue (n)", Inspect stats sit on their own row. Check all three Button Sizes when changing a toolbar.
+
+## 8h. Launch Time
+
+- Warm launch to window is ~310 ms (v0.9.21, M4 Max); an empty SwiftUI app takes ~150 ms. Nearly all of the difference is SwiftUI building the window's views (Player tab ~80 ms: timecode bar ~28, transport ~17, queue ~15); `NSApplication` setup (~47 ms) is unavoidable.
+- Nothing synchronous and slow in `App.init`, `ContentView` stored properties or `onAppear` (disk scans, decoding, network): defer it off the main thread.
+- `scripts/LaunchBench/run.sh` measures it against the empty app (budget: 230 ms over). Run it after adding startup work or large always-visible views; it must print ALL PASSED.
 
 ## 9. Pre-Commit Checklist for Future Amends
 

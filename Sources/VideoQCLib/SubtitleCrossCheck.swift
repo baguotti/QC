@@ -8,10 +8,11 @@ public enum SubtitleCrossCheck {
         /// `<font>`, `<i>`, positioning codes etc. don't count.
         public var ignoreFormatting: Bool
         public var ignoreCase: Bool
-        /// In / out times may differ by up to this much (seconds) before it is reported.
+        /// In / out times may differ by up to this much (seconds) before it is reported. Default: exact (half a
+        /// millisecond absorbs float rounding; SRT times are whole milliseconds).
         public var timingTolerance: Double
 
-        public init(ignoreLineBreaks: Bool = true, ignoreFormatting: Bool = true, ignoreCase: Bool = false, timingTolerance: Double = 0.041) {
+        public init(ignoreLineBreaks: Bool = true, ignoreFormatting: Bool = true, ignoreCase: Bool = false, timingTolerance: Double = 0.0005) {
             self.ignoreLineBreaks = ignoreLineBreaks
             self.ignoreFormatting = ignoreFormatting
             self.ignoreCase = ignoreCase

@@ -1,5 +1,6 @@
 import SwiftUI
 import AppKit
+import VideoQCLib
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private var didFinishInitialLaunch: Bool = false
@@ -36,6 +37,7 @@ struct QCpieApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
     
     init() {
+        ProVideoFormats.register()
         NSApplication.shared.setActivationPolicy(.regular)
         NSApplication.shared.activate(ignoringOtherApps: true)
 

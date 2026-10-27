@@ -120,6 +120,9 @@ final class KeyboardShortcutRouter {
         isModalActive: Bool,
         onEscape: () -> Bool
     ) -> NSEvent? {
+        // AppKit modal sessions (NSAlert) own the keyboard
+        if NSApp?.modalWindow != nil { return event }
+
         // 1. Text Field Responder Check (ESC or Return unfocuses)
         if let app = NSApp,
            let window = app.keyWindow,

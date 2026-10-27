@@ -172,7 +172,7 @@ public actor VideoScanner {
                 totalFrames: 0,
                 durationSeconds: 0,
                 errorFrames: [],
-                readError: QCUtilities.mediaKind(of: url) == .video ? "Couldn't open the video" : nil
+                readError: QCUtilities.mediaKind(of: url) == .video ? ProVideoFormats.openError(for: url) : nil
             )
         }
         
@@ -287,7 +287,7 @@ public actor VideoScanner {
                             cancellation: CancellationState, report: @Sendable (Int, Bool) -> Void) async -> SegmentScan {
         let asset = AVURLAsset(url: url)
         guard let track = try? await asset.loadTracks(withMediaType: .video).first,
-              let reader = try? AVAssetReader(asset: asset) else { return SegmentScan(error: "Couldn't open the video") }
+              let reader = try? AVAssetReader(asset: asset) else { return SegmentScan(error: ProVideoFormats.openError(for: url)) }
         if let range { reader.timeRange = range }
         let output = AVAssetReaderTrackOutput(track: track, outputSettings: [
             kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA,

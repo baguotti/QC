@@ -423,7 +423,7 @@ public actor FrameCheckScanner {
         let asset = AVURLAsset(url: url)
         guard let track = try? await asset.loadTracks(withMediaType: .video).first else {
             return FrameCheckResult(fileURL: url, fileName: url.lastPathComponent, fps: 0, totalFrames: 0, mismatch: nil,
-                                    flashFrames: [], offline: [], legalRange: [], legalSpec: legalSpec, readError: "Couldn't open the video")
+                                    flashFrames: [], offline: [], legalRange: [], legalSpec: legalSpec, readError: ProVideoFormats.openError(for: url))
         }
         let natural = (try? await track.load(.naturalSize)) ?? CGSize(width: 1920, height: 1080)
         let nominal = Double((try? await track.load(.nominalFrameRate)) ?? 25)
@@ -495,7 +495,7 @@ public actor FrameCheckScanner {
                                sourceHeight: Int, legalSpec: LegalRangeSpec, cancellation: CancellationState?, report: @Sendable (Int) -> Void) async -> SegmentMeasure {
         let asset = AVURLAsset(url: url)
         guard let track = try? await asset.loadTracks(withMediaType: .video).first,
-              let reader = try? AVAssetReader(asset: asset) else { return SegmentMeasure(error: "Couldn't open the video") }
+              let reader = try? AVAssetReader(asset: asset) else { return SegmentMeasure(error: ProVideoFormats.openError(for: url)) }
         if let range { reader.timeRange = range }
         let output = AVAssetReaderTrackOutput(track: track, outputSettings: [
             // Narrow range: a full-range output clips super-whites and super-blacks before the legal-range check sees them.

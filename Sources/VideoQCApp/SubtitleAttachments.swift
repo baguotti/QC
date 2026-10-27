@@ -12,11 +12,15 @@ enum SubtitleAttachments {
         return URL(fileURLWithPath: path)
     }
 
-    /// Attaches (or with nil, detaches) an .srt to a video.
+    /// Posted on the main thread after `setManual`; `object` is the video URL.
+    static let didChange = Notification.Name("SubtitleAttachments.didChange")
+
+    /// Attaches (or with nil, detaches) an .srt to a video, for Specs and the Player alike.
     static func setManual(_ srt: URL?, for video: URL) {
         var map = (UserDefaults.standard.dictionary(forKey: defaultsKey) as? [String: String]) ?? [:]
         map[video.standardizedFileURL.path] = srt?.standardizedFileURL.path
         UserDefaults.standard.set(map, forKey: defaultsKey)
+        NotificationCenter.default.post(name: didChange, object: video.standardizedFileURL)
     }
 
     /// The .srt next to the video with the same name, ignoring case: `clip.srt`, then `clip.mov.srt`, then a language
@@ -33,7 +37,19 @@ enum SubtitleAttachments {
                 let stem = (name as NSString).deletingPathExtension.lowercased()
                 return stem.hasPrefix(base + ".") && !stem.dropFirst(base.count + 1).contains(".")
             }
+            ?? looseMatch(base: base, full: full, in: srts)
         return match.map { folder.appendingPathComponent($0) }
+    }
+
+    /// Same name ignoring punctuation and spaces (`Clip 4 - Hero.mov` ↔ `Clip 4 | Hero.srt`), only when unambiguous.
+    private static func looseMatch(base: String, full: String, in srts: [String]) -> String? {
+        let keys = [letterDigits(base), letterDigits(full)]
+        let hits = srts.filter { keys.contains(letterDigits(($0 as NSString).deletingPathExtension)) }
+        return hits.count == 1 ? hits[0] : nil
+    }
+
+    private static func letterDigits(_ s: String) -> String {
+        String(s.lowercased().unicodeScalars.filter { CharacterSet.alphanumerics.contains($0) }.map(Character.init))
     }
 
     /// The .srt to use for a video: an existing manual attachment, else the sidecar (disk access: off the main thread).

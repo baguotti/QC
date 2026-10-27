@@ -1,5 +1,6 @@
 import SwiftUI
 import AppKit
+import Combine
 import UniformTypeIdentifiers
 import VideoQCLib
 
@@ -106,6 +107,7 @@ public final class SpecsState: ObservableObject {
     @Published public var showSubtitleCrossCheck: Bool = false
     @Published public private(set) var isCrossCheckingSubtitles: Bool = false
     private var sidecarTask: Task<Void, Never>? = nil
+    private var attachmentObserver: AnyCancellable?
     
     public func subtitleURL(for video: URL) -> URL? {
         subtitleURLs[video]
@@ -137,7 +139,6 @@ public final class SpecsState: ObservableObject {
     /// Attaches (nil: detaches) an .srt to a video; remembered across launches and used by the player too.
     public func attachSubtitles(_ srt: URL?, to video: URL) {
         SubtitleAttachments.setManual(srt, for: video)
-        refreshSubtitleSidecars()
     }
     
     /// Compares the .srt of each video (in list order; the first is the reference) and opens the results.
@@ -221,6 +222,8 @@ public final class SpecsState: ObservableObject {
         self.columnWidths = widths
         self.specsSortColumnRaw = UserDefaults.standard.string(forKey: "specsSortColumn") ?? SpecsSortColumn.name.rawValue
         self.specsSortAscending = UserDefaults.standard.object(forKey: "specsSortAscending") as? Bool ?? true
+        attachmentObserver = NotificationCenter.default.publisher(for: SubtitleAttachments.didChange)
+            .sink { [weak self] _ in self?.refreshSubtitleSidecars() }
     }
     
     public func columnWidth(for column: SpecsSortColumn) -> Double {

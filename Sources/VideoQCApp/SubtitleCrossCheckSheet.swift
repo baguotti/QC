@@ -1,4 +1,5 @@
 import SwiftUI
+import UniformTypeIdentifiers
 import VideoQCLib
 
 /// Results of a subtitle cross-check: each file compared with the reference, differences listed by line.
@@ -12,100 +13,124 @@ struct SubtitleCrossCheckSheet: View {
 
     private var palette: StudioPalette { StudioPalette(isLightMode) }
 
+    @State private var collapsed: Set<URL> = []
+    @State private var hoveredDifference: String? = nil
+
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             header
-            Rectangle().fill(palette.borderLine).frame(height: 1)
             optionsBar
             Rectangle().fill(palette.borderLine).frame(height: 1)
             ScrollView {
-                LazyVStack(alignment: .leading, spacing: 10) {
+                LazyVStack(alignment: .leading, spacing: 14) {
                     ForEach(report.files) { file in
                         fileSection(file)
                     }
                 }
-                .padding(14)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 12)
             }
             .background(palette.bgMain)
             Rectangle().fill(palette.borderLine).frame(height: 1)
-            HStack {
-                Text("Click a difference to open that file at the line.")
-                    .font(.ui(size: 9.5))
-                    .foregroundColor(palette.textSubtle)
-                Spacer()
-                Button("Done", action: onClose)
-                    .keyboardShortcut(.defaultAction)
-            }
-            .padding(.horizontal, 14)
-            .padding(.vertical, 10)
-            .background(palette.bgPanel)
+            footer
         }
-        .frame(minWidth: 680, idealWidth: 760, minHeight: 480, idealHeight: 560)
+        .frame(minWidth: 720, idealWidth: 860, maxWidth: 1200, minHeight: 520, idealHeight: 640)
         .background(palette.bgPanel)
     }
 
-    // MARK: Header & Options
+    // MARK: Header, Options & Footer
 
     private var header: some View {
         let total = report.totalDifferences
         let others = report.files.count - 1
-        return HStack(spacing: 8) {
-            CCBadge(color: palette.textMain, size: 12)
-            Text("Subtitle Cross-Check")
-                .font(.ui(size: 12, weight: .semibold))
-                .foregroundColor(palette.textMain)
+        let summary = total == 0
+            ? "All \(report.files.count) files match"
+            : "\(total) difference\(total == 1 ? "" : "s") in \(report.mismatchedVideos.count) of \(others) file\(others == 1 ? "" : "s")"
+        return HStack(alignment: .center, spacing: 10) {
+            CCBadge(color: palette.textMuted, size: 13)
+            VStack(alignment: .leading, spacing: 1) {
+                Text("Subtitle Cross-Check")
+                    .font(.ui(size: 13, weight: .semibold))
+                    .foregroundColor(palette.textMain)
+                Text(summary)
+                    .font(.ui(size: 11))
+                    .foregroundColor(total == 0 ? palette.accentPositive : palette.textMuted)
+            }
             Spacer()
-            Label(total == 0 ? "All \(report.files.count) files match" : "\(total) difference\(total == 1 ? "" : "s") in \(report.mismatchedVideos.count) of \(others) file\(others == 1 ? "" : "s")",
-                  systemImage: total == 0 ? "checkmark.seal.fill" : "exclamationmark.triangle.fill")
-                .font(.ui(size: 10.5, weight: .semibold))
-                .foregroundColor(total == 0 ? palette.accentPositive : palette.alertRed)
         }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 12)
+        .padding(.horizontal, 18)
+        .padding(.top, 14)
+        .padding(.bottom, 10)
     }
 
     private var optionsBar: some View {
-        let refFps = report.reference?.fps ?? 25
-        let toleranceFrames = Int((report.options.timingTolerance * refFps).rounded())
-        return HStack(spacing: 14) {
-            Menu {
-                ForEach(report.files) { file in
-                    Button(file.videoURL.lastPathComponent) { update { $0.referenceVideo = file.videoURL } }
+        HStack(spacing: 18) {
+            HStack(spacing: 6) {
+                Text("Reference:")
+                    .font(.ui(size: 11))
+                    .foregroundColor(palette.textMuted)
+                    .fixedSize()
+                Menu {
+                    ForEach(report.files) { file in
+                        Button(file.videoURL.lastPathComponent) { update { $0.referenceVideo = file.videoURL } }
+                    }
+                } label: {
+                    HStack(spacing: 4) {
+                        Text(report.referenceVideo.lastPathComponent)
+                            .font(.ui(size: 11, weight: .medium))
+                            .foregroundColor(palette.textMain)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                        Image(systemName: "chevron.down")
+                            .font(.system(size: StudioTheme.scaleFont(8), weight: .semibold))
+                            .foregroundColor(palette.textMuted)
+                    }
                 }
-            } label: {
-                Text("Reference: \(report.referenceVideo.lastPathComponent)")
-                    .font(.ui(size: 10, weight: .medium))
-                    .lineLimit(1)
-                    .truncationMode(.middle)
+                .menuStyle(.borderlessButton)
+                .menuIndicator(.hidden)
+                .help("The file every other file is compared with")
             }
-            .menuStyle(.borderlessButton)
-            .fixedSize()
-            .help("The file every other file is compared with")
-
-            Spacer(minLength: 4)
-            optionToggle("Ignore line breaks", report.options.ignoreLineBreaks) { $0.options.ignoreLineBreaks.toggle() }
-            optionToggle("Ignore formatting", report.options.ignoreFormatting) { $0.options.ignoreFormatting.toggle() }
-            optionToggle("Ignore case", report.options.ignoreCase) { $0.options.ignoreCase.toggle() }
-            Stepper(value: Binding(
-                get: { toleranceFrames },
-                set: { frames in update { $0.options.timingTolerance = (Double(max(0, frames)) + 0.01) / refFps } }
-            ), in: 0...25) {
-                Text("Timing ±\(toleranceFrames)f")
-                    .font(.ui(size: 10, weight: .medium))
-            }
-            .fixedSize()
-            .help("In/out times may differ by this many frames before it is reported")
+            .frame(maxWidth: 480, alignment: .leading)
+            Spacer(minLength: 8)
+            Text("Ignore:")
+                .font(.ui(size: 11))
+                .foregroundColor(palette.textMuted)
+                .fixedSize()
+            optionToggle("Line breaks", report.options.ignoreLineBreaks) { $0.options.ignoreLineBreaks.toggle() }
+            optionToggle("Formatting", report.options.ignoreFormatting) { $0.options.ignoreFormatting.toggle() }
+            optionToggle("Case", report.options.ignoreCase) { $0.options.ignoreCase.toggle() }
         }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 8)
-        .background(palette.bgSubtle)
+        .padding(.horizontal, 18)
+        .padding(.bottom, 10)
+    }
+
+    private var footer: some View {
+        HStack {
+            Text("Click a difference to open that file at the line.")
+                .font(.ui(size: 10))
+                .foregroundColor(palette.textSubtle)
+            Spacer()
+            Button(action: onClose) {
+                Text("Done")
+                    .font(.ui(size: 11, weight: .semibold))
+                    .foregroundColor(palette.primaryBtnFg)
+                    .padding(.horizontal, 18)
+                    .padding(.vertical, 5)
+                    .background(RoundedRectangle(cornerRadius: 6).fill(palette.primaryBtnBg))
+            }
+            .buttonStyle(.plain)
+            .keyboardShortcut(.defaultAction)
+        }
+        .padding(.horizontal, 18)
+        .padding(.vertical, 10)
     }
 
     private func optionToggle(_ title: String, _ isOn: Bool, _ change: @escaping (inout SubtitleCrossCheckReport) -> Void) -> some View {
         Toggle(isOn: Binding(get: { isOn }, set: { _ in update(change) })) {
-            Text(title).font(.ui(size: 10, weight: .medium))
+            Text(title).font(.ui(size: 11))
         }
         .toggleStyle(.checkbox)
+        .fixedSize()
     }
 
     private func update(_ change: (inout SubtitleCrossCheckReport) -> Void) {
@@ -119,97 +144,168 @@ struct SubtitleCrossCheckSheet: View {
 
     private func fileSection(_ file: SubtitleCrossCheckReport.File) -> some View {
         let isReference = file.videoURL == report.referenceVideo
-        let isMatch = file.differences.isEmpty
-        return VStack(alignment: .leading, spacing: 6) {
-            HStack(spacing: 6) {
-                Text(file.videoURL.lastPathComponent)
-                    .font(.ui(size: 11, weight: .semibold))
-                    .foregroundColor(palette.textMain)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-                Text("· \(file.srtURL.lastPathComponent) · \(file.cues.count) lines")
-                    .font(.ui(size: 9.5))
-                    .foregroundColor(palette.textSubtle)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-                Spacer()
-                if isReference {
-                    badge("Reference", palette.accentBlue)
-                } else if isMatch {
-                    badge("Match", palette.accentPositive)
-                } else {
-                    badge("\(file.differences.count) diff\(file.differences.count == 1 ? "" : "S")", palette.alertRed)
+        let hasDifferences = !isReference && !file.differences.isEmpty
+        let isOpen = hasDifferences && !collapsed.contains(file.videoURL)
+        let status: (String, Color) = isReference
+            ? ("Reference", palette.accentBlue)
+            : hasDifferences
+                ? ("\(file.differences.count) difference\(file.differences.count == 1 ? "" : "s")", palette.alertRed)
+                : ("Matches", palette.accentPositive)
+        return VStack(alignment: .leading, spacing: 2) {
+            Button(action: {
+                guard hasDifferences else { return }
+                if collapsed.contains(file.videoURL) { collapsed.remove(file.videoURL) } else { collapsed.insert(file.videoURL) }
+            }) {
+                HStack(spacing: 8) {
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: StudioTheme.scaleFont(9), weight: .bold))
+                        .foregroundColor(palette.textMuted)
+                        .rotationEffect(.degrees(isOpen ? 90 : 0))
+                        .opacity(hasDifferences ? 1 : 0)
+                        .frame(width: 10)
+                    Image(nsImage: fileIcon(file.videoURL))
+                        .resizable()
+                        .frame(width: 30, height: 30)
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(file.videoURL.lastPathComponent)
+                            .font(.ui(size: 12, weight: .semibold))
+                            .foregroundColor(palette.textMain)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                        Text("\(file.srtURL.lastPathComponent) — \(file.cues.count) lines")
+                            .font(.ui(size: 10))
+                            .foregroundColor(palette.textSubtle)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                    }
+                    .layoutPriority(1)
+                    Spacer(minLength: 12)
+                    statusLabel(status.0, status.1)
                 }
+                .padding(.horizontal, 6)
+                .padding(.vertical, 4)
+                .contentShape(Rectangle())
             }
-            if !isReference {
-                ForEach(file.differences) { difference in
-                    differenceRow(difference, in: file)
+            .buttonStyle(.plain)
+
+            if isOpen {
+                VStack(spacing: 0) {
+                    ForEach(Array(file.differences.enumerated()), id: \.element.id) { index, difference in
+                        differenceRow(difference, in: file, striped: index % 2 == 1)
+                    }
                 }
+                .padding(.leading, 24)
             }
         }
-        .padding(10)
-        .studioBox(background: palette.bgCardSubtle, border: !isReference && !isMatch ? palette.alertRed.opacity(0.45) : palette.borderLine)
     }
 
-    private func differenceRow(_ difference: SubtitleCrossCheck.Difference, in file: SubtitleCrossCheckReport.File) -> some View {
+    private func differenceRow(_ difference: SubtitleCrossCheck.Difference, in file: SubtitleCrossCheckReport.File, striped: Bool) -> some View {
         let refFps = report.reference?.fps ?? file.fps
+        let showTiming = difference.kind == .timing
+        let refText = difference.referenceCue?.displayText
+        let otherText = difference.otherCue?.displayText
+        let highlight = difference.kind == .text
+        let rowID = "\(file.videoURL.path)#\(difference.id)"
+        let isHovered = hoveredDifference == rowID
         return Button(action: { onOpen(file.videoURL, difference.time) }) {
-            HStack(alignment: .top, spacing: 8) {
+            HStack(alignment: .firstTextBaseline, spacing: 14) {
                 VStack(alignment: .leading, spacing: 3) {
-                    badge(difference.kind.rawValue.uppercased(), kindColor(difference.kind))
+                    statusLabel(difference.kind.rawValue, kindColor(difference.kind))
                     Text(timecode(difference.time, fps: file.fps))
-                        .font(.system(size: StudioTheme.scaleFont(9), weight: .semibold, design: .monospaced))
+                        .font(.system(size: StudioTheme.scaleFont(10), design: .monospaced))
                         .foregroundColor(palette.textMuted)
                 }
-                .frame(width: 110, alignment: .leading)
-                VStack(alignment: .leading, spacing: 3) {
-                    if let cue = difference.referenceCue {
-                        lineText("Ref #\(difference.referenceLine ?? 0)", cue, fps: refFps, showTiming: difference.kind == .timing)
-                    }
-                    if let cue = difference.otherCue {
-                        lineText("This #\(difference.otherLine ?? 0)", cue, fps: file.fps, showTiming: difference.kind == .timing)
-                    }
+                .frame(width: 104, alignment: .leading)
+
+                VStack(alignment: .leading, spacing: 4) {
+                    comparisonLine("Reference", difference.referenceLine, refText.map { highlight ? marked($0, against: otherText ?? "", color: palette.alertRed) : AttributedString($0) },
+                                   timing: showTiming ? difference.referenceCue.map { timing($0, fps: refFps) } : nil)
+                    comparisonLine("This file", difference.otherLine, otherText.map { highlight ? marked($0, against: refText ?? "", color: palette.alertRed) : AttributedString($0) },
+                                   timing: showTiming ? difference.otherCue.map { timing($0, fps: file.fps) } : nil)
                 }
-                Spacer(minLength: 0)
-                Image(systemName: "arrow.right.circle")
-                    .font(.system(size: StudioTheme.scaleFont(11)))
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+                Image(systemName: "arrow.right.circle.fill")
+                    .font(.system(size: StudioTheme.scaleFont(12)))
                     .foregroundColor(palette.textMuted)
+                    .opacity(isHovered ? 1 : 0)
             }
-            .padding(7)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 8)
+            .background(
+                RoundedRectangle(cornerRadius: 6)
+                    .fill(isHovered ? palette.textMain.opacity(0.08) : (striped ? palette.textMain.opacity(0.03) : .clear))
+            )
             .contentShape(Rectangle())
-            .studioBox(background: palette.bgPanel, border: palette.borderLine)
         }
         .buttonStyle(.plain)
+        .onHover { hoveredDifference = $0 ? rowID : (hoveredDifference == rowID ? nil : hoveredDifference) }
         .help("Open \(file.videoURL.lastPathComponent) at this line")
     }
 
-    private func lineText(_ label: String, _ cue: SubtitleCue, fps: Double, showTiming: Bool) -> some View {
-        HStack(alignment: .top, spacing: 6) {
-            Text(label)
-                .font(.ui(size: 8.5, weight: .semibold))
+    /// One side of a difference; a missing line reads "No line".
+    private func comparisonLine(_ label: String, _ line: Int?, _ text: AttributedString?, timing: String?) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 10) {
+            Text(line.map { "\(label) #\($0)" } ?? label)
+                .font(.ui(size: 10))
                 .foregroundColor(palette.textSubtle)
-                .frame(width: 58, alignment: .leading)
-            VStack(alignment: .leading, spacing: 1) {
-                Text(cue.displayText)
-                    .font(.system(size: StudioTheme.scaleFont(11), weight: .medium))
-                    .foregroundColor(palette.textMain)
-                    .fixedSize(horizontal: false, vertical: true)
-                if showTiming {
-                    Text("\(timecode(cue.start, fps: fps)) → \(timecode(cue.end, fps: fps))")
-                        .font(.system(size: StudioTheme.scaleFont(9), design: .monospaced))
+                .frame(width: 84, alignment: .leading)
+            VStack(alignment: .leading, spacing: 2) {
+                if let text {
+                    Text(text)
+                        .font(.ui(size: 12))
+                        .foregroundColor(palette.textMain)
+                        .fixedSize(horizontal: false, vertical: true)
+                } else {
+                    Text("No line")
+                        .font(.ui(size: 12).italic())
+                        .foregroundColor(palette.textSubtle)
+                }
+                if let timing {
+                    Text(timing)
+                        .font(.system(size: StudioTheme.scaleFont(10), design: .monospaced))
                         .foregroundColor(palette.textMuted)
                 }
             }
         }
     }
 
-    private func badge(_ text: String, _ color: Color) -> some View {
-        Text(text)
-            .font(.ui(size: 8, weight: .semibold))
-            .padding(.horizontal, 5)
-            .padding(.vertical, 2)
-            .foregroundColor(color)
-            .studioBox(background: color.opacity(0.14), border: color.opacity(0.5))
+    /// `text` with the words that differ from `other` tinted.
+    private func marked(_ text: String, against other: String, color: Color) -> AttributedString {
+        let words = text.split(whereSeparator: \.isWhitespace).map(String.init)
+        let otherWords = other.split(whereSeparator: \.isWhitespace).map(String.init)
+        var changed = Set<Int>()
+        for change in words.difference(from: otherWords) {
+            if case let .insert(offset, _, _) = change { changed.insert(offset) }
+        }
+        var result = AttributedString()
+        for (index, word) in words.enumerated() {
+            if index > 0 { result += AttributedString(" ") }
+            var part = AttributedString(word)
+            if changed.contains(index) {
+                part.foregroundColor = color
+                part.backgroundColor = color.opacity(0.16)
+            }
+            result += part
+        }
+        return result
+    }
+
+    /// Finder-style label: a coloured dot and the text.
+    private func statusLabel(_ text: String, _ color: Color) -> some View {
+        HStack(spacing: 5) {
+            Circle().fill(color).frame(width: 7, height: 7)
+            Text(text)
+                .font(.ui(size: 11, weight: .medium))
+                .foregroundColor(palette.textMain)
+                .lineLimit(1)
+        }
+        .fixedSize()
+    }
+
+    /// The system icon for the file type (no disk access).
+    private func fileIcon(_ url: URL) -> NSImage {
+        NSWorkspace.shared.icon(for: UTType(filenameExtension: url.pathExtension) ?? .movie)
     }
 
     private func kindColor(_ kind: SubtitleCrossCheck.Kind) -> Color {
@@ -218,6 +314,10 @@ struct SubtitleCrossCheckSheet: View {
         case .timing: return .orange
         case .missing, .extra: return palette.accentBlue
         }
+    }
+
+    private func timing(_ cue: SubtitleCue, fps: Double) -> String {
+        "\(timecode(cue.start, fps: fps)) → \(timecode(cue.end, fps: fps))"
     }
 
     private func timecode(_ seconds: Double, fps: Double) -> String {

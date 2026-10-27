@@ -681,6 +681,8 @@ public final class PlayerEngine: ObservableObject {
         subtitleLoadGeneration &+= 1
         applySubtitleFile(file, from: url)
         showSubtitles = true
+        // Remembered for the clip, so switching clips and back (or Specs) keeps it.
+        if let media = slotA.url { SubtitleAttachments.setManual(url, for: media) }
         return true
     }
     
@@ -968,6 +970,7 @@ public final class PlayerEngine: ObservableObject {
         }.store(in: &cancellables)
         setupTimeObserver()
         setupEndObserver()
+        setupSubtitleAttachmentObserver()
         updateAudioVolumes()
     }
     
@@ -999,6 +1002,7 @@ public final class PlayerEngine: ObservableObject {
     
     public func loadVideo(url: URL, into target: SlotTarget = .slotA, initialSeekFrame: Int? = nil, autoplay: Bool = false, forceAutoplay: Bool = false) {
         let shouldAutoplay = forceAutoplay || (autoplay && isAutoplayEnabled)
+        ProVideoFormatsPrompt.showIfNeeded(for: url)
         if target == .slotA || slotA.url == nil {
             loadVideoIntoSlotA(url: url, initialSeekFrame: initialSeekFrame, autoplay: shouldAutoplay)
         } else {
@@ -1859,6 +1863,19 @@ public final class PlayerEngine: ObservableObject {
                 self.setPlaybackRate(self.rate)
             }
         }
+    }
+    
+    /// An .srt attached in Specs to the clip on screen replaces the Player's subtitles.
+    private func setupSubtitleAttachmentObserver() {
+        NotificationCenter.default.publisher(for: SubtitleAttachments.didChange)
+            .sink { [weak self] notification in
+                guard let self, let video = notification.object as? URL,
+                      QCUtilities.isSameURL(video, self.slotA.url),
+                      SubtitleAttachments.manual(for: video).map({ !QCUtilities.isSameURL($0, self.subtitleSourceURL) }) ?? true
+                else { return }
+                self.autoLoadSubtitles(for: video)
+            }
+            .store(in: &cancellables)
     }
     
     private func setupEndObserver() {
