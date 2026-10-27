@@ -133,7 +133,9 @@ final class UploadQueue: ObservableObject {
             guard token == syncToken else { return }
             let existing = Dictionary(jobs.map { ($0.url.standardizedFileURL, $0) }, uniquingKeysWith: { a, _ in a })
             var next: [Job] = resolved.map { job in
-                if let old = existing[job.url.standardizedFileURL], old.files == job.files, old.folders == job.folders { return old }
+                guard let old = existing[job.url.standardizedFileURL] else { return job }
+                // Jobs of the running upload keep their identity: the upload reports progress by job id.
+                if old.files == job.files && old.folders == job.folders || (isRunning && runIDs.contains(old.id)) { return old }
                 return job
             }
             let kept = Set(next.map(\.id))
@@ -280,6 +282,7 @@ final class UploadQueue: ObservableObject {
     /// PUTs each part (two at a time), read from the file as it goes, retrying a failed part up to 3 times.
     nonisolated private static func sendParts(of file: URL, size: Int64, upload: FrameIO.LocalUpload,
                                               report: @escaping @Sendable (_ part: Int, _ sent: Int64) -> Void) async throws {
+        guard FileManager.default.fileExists(atPath: file.path) else { throw UploadError.missing }
         let current = (try? file.resourceValues(forKeys: [.fileSizeKey]))?.fileSize.map(Int64.init)
         guard current == size else { throw UploadError.changed }
         let contentType = upload.mediaType
@@ -413,12 +416,13 @@ struct UploadLogEntry: Codable, Identifiable, Equatable, Sendable {
 }
 
 enum UploadError: LocalizedError {
-    case changed, partsMismatch
+    case changed, missing, partsMismatch
     case part(Int, String)
 
     var errorDescription: String? {
         switch self {
         case .changed: return "The file changed while uploading."
+        case .missing: return "The file is no longer there (moved, renamed or the drive was disconnected)."
         case .partsMismatch: return "Frame.io's upload parts don't match the file size."
         case .part(let code, let message): return "Upload failed (\(code))\(message.isEmpty ? "" : ": \(message)")"
         }
