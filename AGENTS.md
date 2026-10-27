@@ -220,6 +220,14 @@
 - `peakDB` = true peak; mute = nothing above the gate or true peak < −60 dBTP. Pass/warn/fail is evaluated at display/export time against `LoudnessTarget` (`prefLoudnessTarget`, Settings → Loudness), so changing the target recolours without re-measuring.
 - **Benchmark**: `scripts/LoudnessBench/run.sh` compares against ffmpeg `ebur128=peak=true` (integrated ±0.1 LU, true peak ±0.5 dB, LRA ±0.5 LU) and an exact inter-sample-peak case (ffmpeg over-reads it). Must print ALL PASSED.
 
+## 8e3. Legal Range (`LegalRange.swift`: Frame Check + Player zebra)
+
+- Presets (`LegalRangeSpec`): **EBU R103 (UK)** is the default (luma −1…103 %, R′G′B′ −5…105 %, frames flagged when > 1 % of the picture is out), Strict 0…100 %. The choice lives on `PlayerEngine.legalRangePreset` (mirrored to UserDefaults `prefLegalRangePreset`), shared by the Scan tab menu and the zebra's context menu; Frame Check reads it at scan start.
+- **Frame Check decodes narrow range (`420v`)**: a full-range output clips super-whites/blacks before they can be measured (verified: Y 250 decodes as 255). The legal measure runs on the raw codes; the other Frame Check measures get a LUT expansion to full range, so their thresholds are unchanged.
+- Measured per 2×2 block (`LegalRangeBlocks`): luma per pixel, gamut with the block's mean luma, then 4-neighbour erosion. Without these, 4:2:0 chroma smear at hard edges (white text on red reads 130 %) and scaler/codec ringing flag clean graphics and colour bars; at the 192 px analysis size an un-eroded check flagged a `_TEST` clip that a full-resolution check (0.25 % of pixels) shows legal. Flagged frames ≤ ½ s apart form one run.
+- **Zebra** (`showLegalZebra`): sublayers of `stillFrameLayerA/B` (they inherit split masks, frames and visibility), **paused only**, hidden while playing/scrubbing and in difference/overlay modes. Each mask is one frame decoded with `AVAssetReader` off the main thread (≤ 1920 px, ~30 ms at 1080p long-GOP) 80 ms after stepping settles, keyed by file/frame/preset; nothing runs on the playback or scrub path. It shows source levels (no EV), same blocks as the scan. Image sequences, stills and audio have no zebra.
+- Benchmark: `scripts/FrameCheckBench/run.sh` includes super-white, super-black, illegal-colour, sub-1 % speck and full-swing bars cases plus zebra frame accuracy (H.264 long GOP, ProRes). Must print ALL PASSED.
+
 ## 8f. Missed Line Report (`MissedLineReporter.swift`, Player timecode bar)
 
 - MISSED LINE sends the frame on screen for the active slot (`notesTargetURL`), captured with `captureCurrentFrame(applyingExposure: false)` (original pixels; EV is noted in the email), as a lossless PNG to the notes-sync Worker (`POST /v1/frames`, KV binding `FRAMES`, 90-day TTL), then emails clip / timecode / settings / Line Check findings / reviewer / frame link via Web3Forms. Encoding runs off the main thread; nothing runs during playback (it pauses first).
@@ -239,6 +247,7 @@ Before committing any changes affecting `VideoViewportView.swift`, `PlayerEngine
 - [ ] Verify `videoGravity` and `contentsGravity` remain `.resize`.
 - [ ] Verify adaptive texture filtering operates correctly: `.linear` at fit/normal zoom for QuickTime-grade anti-aliasing, and `.nearest` when zoomed in (>= 1.75x) for pixel QC.
 - [ ] Verify rational aspect ratio with even pixel step sizing is used for canvas dimensions and `canvasLayer.masksToBounds` remains `false`.
+- [ ] Verify the legal-range zebra stays paused-only (no decode or mask work while playing or scrubbing).
 - [ ] Verify `layer.setNeedsDisplay()` is NEVER called on `playerLayer` or `stillFrameLayer`.
 - [ ] Verify `playerLayer.filters` is NEVER assigned a `CIFilter` (live video filtering belongs in `AVVideoComposition`).
 - [ ] Verify `scrubTo()` does not mutate `@Published` properties during dragging.

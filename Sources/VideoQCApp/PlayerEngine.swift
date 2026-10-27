@@ -325,6 +325,8 @@ public struct TransportState: Equatable, Sendable {
     public let safeAreaMode: SafeAreaMode
     public let isNineBySixteen: Bool
     public let showCenterCrosshair: Bool
+    public let showLegalZebra: Bool
+    public let legalRangePreset: String
     public let clipInfoOverlayMode: ClipInfoOverlayMode
     public let lastScreenshotPreset: ScreenshotPreset
     public let hasActiveURL: Bool
@@ -343,6 +345,8 @@ public struct TransportState: Equatable, Sendable {
         safeAreaMode: SafeAreaMode,
         isNineBySixteen: Bool,
         showCenterCrosshair: Bool,
+        showLegalZebra: Bool,
+        legalRangePreset: String,
         clipInfoOverlayMode: ClipInfoOverlayMode,
         lastScreenshotPreset: ScreenshotPreset,
         hasActiveURL: Bool,
@@ -358,6 +362,8 @@ public struct TransportState: Equatable, Sendable {
         self.safeAreaMode = safeAreaMode
         self.isNineBySixteen = isNineBySixteen
         self.showCenterCrosshair = showCenterCrosshair
+        self.showLegalZebra = showLegalZebra
+        self.legalRangePreset = legalRangePreset
         self.clipInfoOverlayMode = clipInfoOverlayMode
         self.lastScreenshotPreset = lastScreenshotPreset
         self.hasActiveURL = hasActiveURL
@@ -555,6 +561,12 @@ public final class PlayerEngine: ObservableObject {
     @Published public var showCenterCrosshair: Bool = false
     @Published public var safeAreaMode: SafeAreaMode = .off
     
+    // Legal-range zebra on paused frames; the preset is shared with Frame Check.
+    @Published public var showLegalZebra: Bool = false
+    @Published public var legalRangePreset: String = LegalRangeSpec.current.name {
+        didSet { UserDefaults.standard.set(legalRangePreset, forKey: LegalRangeSpec.preferenceKey) }
+    }
+    
     // Video Exposure Adjustment (EV stops: -5.0 to +5.0)
     @Published public var exposureEV: Double = 0.0 {
         didSet {
@@ -579,6 +591,8 @@ public final class PlayerEngine: ObservableObject {
             safeAreaMode: safeAreaMode,
             isNineBySixteen: isNineBySixteen,
             showCenterCrosshair: showCenterCrosshair,
+            showLegalZebra: showLegalZebra,
+            legalRangePreset: legalRangePreset,
             clipInfoOverlayMode: clipInfoOverlayMode,
             lastScreenshotPreset: lastScreenshotPreset,
             hasActiveURL: activeURL != nil,

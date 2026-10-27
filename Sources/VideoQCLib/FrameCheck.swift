@@ -57,10 +57,13 @@ public struct FrameCheckResult: Identifiable, Sendable {
     public let mismatch: FrameRateMismatch?
     public let flashFrames: [FrameRun]
     public let offline: [FrameRun]
+    /// Runs of frames outside the broadcast-legal range of `legalSpec`.
+    public let legalRange: [FrameRun]
+    public let legalSpec: LegalRangeSpec
     /// Set when the file couldn't be opened or decoding stopped early (the checks then cover only what was read).
     public let readError: String?
 
-    public var isFlagged: Bool { mismatch != nil || !flashFrames.isEmpty || !offline.isEmpty || readError != nil }
+    public var isFlagged: Bool { mismatch != nil || !flashFrames.isEmpty || !offline.isEmpty || !legalRange.isEmpty || readError != nil }
 
     /// One line for lists and notes.
     public var verdict: String {
@@ -69,6 +72,7 @@ public struct FrameCheckResult: Identifiable, Sendable {
         if let mismatch { parts.append(mismatch.title) }
         if !flashFrames.isEmpty { parts.append("\(flashFrames.count) flash frame\(flashFrames.count == 1 ? "" : "s")") }
         if !offline.isEmpty { parts.append("Media Offline") }
+        if !legalRange.isEmpty { parts.append("Out of legal range") }
         return parts.isEmpty ? "Clean" : parts.joined(separator: " · ")
     }
 }
@@ -388,7 +392,7 @@ public actor FrameCheckScanner {
 
     /// Two files at a time: one decode stream leaves the hardware decoder half idle (measured, M4 Max 1080p H.264:
     /// ~950 fps for one file, ~1,780 fps for two; more streams add nothing). Results keep the input order.
-    public func scanBatch(_ urls: [URL], concurrency: Int = 2, progress: @escaping @Sendable (ScanProgress) -> Void) async -> [FrameCheckResult] {
+    public func scanBatch(_ urls: [URL], concurrency: Int = 2, legalSpec: LegalRangeSpec = .current, progress: @escaping @Sendable (ScanProgress) -> Void) async -> [FrameCheckResult] {
         cancellation.reset()
         let cancellation = self.cancellation
         var results: [(Int, FrameCheckResult)] = []
@@ -399,7 +403,7 @@ public actor FrameCheckScanner {
                 let index = next, url = urls[index]
                 next += 1
                 group.addTask {
-                    (index, await Self.scan(url, fileIndex: index + 1, totalFiles: urls.count, cancellation: cancellation, progress: progress))
+                    (index, await Self.scan(url, fileIndex: index + 1, totalFiles: urls.count, legalSpec: legalSpec, cancellation: cancellation, progress: progress))
                 }
             }
             for _ in 0..<max(1, concurrency) { submit() }
@@ -414,12 +418,12 @@ public actor FrameCheckScanner {
     /// Long side of the analysed image: enough to see a 1-frame repeat in a slow pan, cheap to compare.
     static let analysisSize = 192
 
-    static func scan(_ url: URL, fileIndex: Int, totalFiles: Int, cancellation: CancellationState?,
+    static func scan(_ url: URL, fileIndex: Int, totalFiles: Int, legalSpec: LegalRangeSpec = .current, cancellation: CancellationState?,
                      progress: (@Sendable (ScanProgress) -> Void)?) async -> FrameCheckResult? {
         let asset = AVURLAsset(url: url)
         guard let track = try? await asset.loadTracks(withMediaType: .video).first else {
             return FrameCheckResult(fileURL: url, fileName: url.lastPathComponent, fps: 0, totalFrames: 0, mismatch: nil,
-                                    flashFrames: [], offline: [], readError: "Couldn't open the video")
+                                    flashFrames: [], offline: [], legalRange: [], legalSpec: legalSpec, readError: "Couldn't open the video")
         }
         let natural = (try? await track.load(.naturalSize)) ?? CGSize(width: 1920, height: 1080)
         let nominal = Double((try? await track.load(.nominalFrameRate)) ?? 25)
@@ -458,7 +462,7 @@ public actor FrameCheckScanner {
             for (i, segment) in segments.enumerated() {
                 group.addTask {
                     (i, await measureSegment(url: url, range: segment.range, keep: segment.keep, width: w, height: h,
-                                             cancellation: cancellation, report: report))
+                                             sourceHeight: Int(natural.height), legalSpec: legalSpec, cancellation: cancellation, report: report))
                 }
             }
             var parts = Array(repeating: SegmentMeasure(), count: segments.count)
@@ -473,25 +477,29 @@ public actor FrameCheckScanner {
                                 mismatch: FrameCheckAnalyzer.mismatch(metrics, fps: fps),
                                 flashFrames: FrameCheckAnalyzer.flashFrames(looks, fps: fps),
                                 offline: FrameCheckAnalyzer.offlineRuns(looks, fps: fps),
+                                legalRange: LegalRange.runs(parts.flatMap(\.legal), spec: legalSpec, fps: fps),
+                                legalSpec: legalSpec,
                                 readError: readError)
     }
 
     struct SegmentMeasure: Sendable {
         var metrics: [StutterFrameMetrics] = []
         var looks: [FrameLook] = []
+        var legal: [LegalRangeLook] = []
         /// The segment couldn't be opened or decoding failed before its end.
         var error: String?
     }
 
     /// Measures one time range (the whole file when `range` is nil); frames outside `keep` only serve as context.
     static func measureSegment(url: URL, range: CMTimeRange?, keep: Range<Double>, width w: Int, height h: Int,
-                               cancellation: CancellationState?, report: @Sendable (Int) -> Void) async -> SegmentMeasure {
+                               sourceHeight: Int, legalSpec: LegalRangeSpec, cancellation: CancellationState?, report: @Sendable (Int) -> Void) async -> SegmentMeasure {
         let asset = AVURLAsset(url: url)
         guard let track = try? await asset.loadTracks(withMediaType: .video).first,
               let reader = try? AVAssetReader(asset: asset) else { return SegmentMeasure(error: "Couldn't open the video") }
         if let range { reader.timeRange = range }
         let output = AVAssetReaderTrackOutput(track: track, outputSettings: [
-            kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_420YpCbCr8BiPlanarFullRange,
+            // Narrow range: a full-range output clips super-whites and super-blacks before the legal-range check sees them.
+            kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange,
             kCVPixelBufferWidthKey as String: w,
             kCVPixelBufferHeightKey as String: h
         ])
@@ -505,13 +513,22 @@ public actor FrameCheckScanner {
         var measure = SegmentMeasure()
         var frames: [[UInt8]] = []   // last three luma images
         var previousProfiles: RegionProfiles?
+        var matrix: LegalRangeMatrix?
         var pending = 0
         while let sample = output.copyNextSampleBuffer() {
             if cancellation?.isCancelled == true { reader.cancelReading(); return measure }
             guard let buffer = CMSampleBufferGetImageBuffer(sample) else { continue }
             let pts = CMSampleBufferGetPresentationTimeStamp(sample)
             let kept = !pts.isNumeric || keep.contains(CMTimeGetSeconds(pts))
-            let (luma, chroma) = planes(buffer, width: w, height: h)
+            var (luma, chroma) = planes(buffer, width: w, height: h)
+            if kept {
+                let m = matrix ?? LegalRangeMatrix.of(buffer, sourceHeight: sourceHeight)
+                matrix = m
+                measure.legal.append(LegalRangeLook.measure(luma: luma, chroma: chroma, width: w, height: h, matrix: m, spec: legalSpec))
+            }
+            // The other measures work on full-range values.
+            for i in luma.indices { luma[i] = Self.fullRangeLuma[Int(luma[i])] }
+            for i in chroma.indices { chroma[i] = Self.fullRangeChroma[Int(chroma[i])] }
             frames.append(luma)
             if frames.count > 3 { frames.removeFirst() }
             let profiles = RegionProfiles(luma, width: w, height: h)
@@ -533,8 +550,19 @@ public actor FrameCheckScanner {
         return measure
     }
 
+    static let fullRangeLuma = expansionTable(center: 16, nominal: 219, base: 0)
+    static let fullRangeChroma = expansionTable(center: 128, nominal: 224, base: 128)
+
+    /// Narrow → full range for one 8-bit plane (clipped, as a full-range decoder output would be).
+    private static func expansionTable(center: Double, nominal: Double, base: Double) -> [UInt8] {
+        (0..<256).map { code -> UInt8 in
+            let v: Double = (Double(code) - center) * 255 / nominal + base
+            return UInt8(min(255, max(0, v)).rounded())
+        }
+    }
+
     /// Copies the luma plane (width × height) and the interleaved CbCr plane (width/2 × height/2 pairs).
-    private static func planes(_ buffer: CVPixelBuffer, width: Int, height: Int) -> ([UInt8], [UInt8]) {
+    static func planes(_ buffer: CVPixelBuffer, width: Int, height: Int) -> ([UInt8], [UInt8]) {
         CVPixelBufferLockBaseAddress(buffer, .readOnly)
         defer { CVPixelBufferUnlockBaseAddress(buffer, .readOnly) }
         func copy(plane: Int, rowBytes: Int, rows: Int) -> [UInt8] {

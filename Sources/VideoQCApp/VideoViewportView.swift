@@ -70,6 +70,14 @@ public final class PlayerContainerNSView: NSView {
     private let maskLayerA = CAShapeLayer()
     private let stillMaskLayerA = CAShapeLayer()
     
+    // Legal-range zebra: sublayers of the still layers (they inherit split masks, frames and visibility). Paused only:
+    // each mask is one frame decoded off the main thread, so playback and scrubbing never pay for it.
+    private let zebraLayerA = CALayer()
+    private let zebraLayerB = CALayer()
+    private var zebraShownKey: [SlotTarget: String] = [:]
+    private var zebraPendingKey: [SlotTarget: String] = [:]
+    private var zebraTasks: [SlotTarget: Task<Void, Never>] = [:]
+    
     // Split Divider & Handle
     private let splitDividerLayer = CALayer()
     private let splitHandleLayer = CALayer()
@@ -269,6 +277,15 @@ public final class PlayerContainerNSView: NSView {
         stillFrameLayerA.isHidden = true
         stillFrameLayerA.actions = ["hidden": NSNull(), "opacity": NSNull(), "contents": NSNull(), "position": NSNull(), "bounds": NSNull(), "frame": NSNull(), "filters": NSNull(), "magnificationFilter": NSNull(), "minificationFilter": NSNull()]
         canvasLayer.addSublayer(stillFrameLayerA)
+        
+        for (zebra, still) in [(zebraLayerA, stillFrameLayerA), (zebraLayerB, stillFrameLayerB)] {
+            zebra.contentsGravity = .resize
+            zebra.magnificationFilter = .nearest
+            zebra.minificationFilter = .linear
+            zebra.isHidden = true
+            zebra.actions = ["hidden": NSNull(), "contents": NSNull(), "position": NSNull(), "bounds": NSNull(), "frame": NSNull()]
+            still.addSublayer(zebra)
+        }
         
         // Mask Layer for Layer A (disables implicit animation for instantaneous 120fps wipe tracking)
         maskLayerA.actions = ["position": NSNull(), "bounds": NSNull(), "path": NSNull(), "frame": NSNull()]
@@ -560,6 +577,60 @@ public final class PlayerContainerNSView: NSView {
         
         if !engine.isPlaying {
             watchForFreshStill(slot: slot, at: time)
+            updateZebra()
+        }
+    }
+    
+    // MARK: - Legal-Range Zebra
+    
+    /// Shows the zebra mask for each visible paused video frame, decoding it when the frame or standard changed.
+    private func updateZebra() {
+        guard let engine = engine else { return }
+        let isActive = engine.showLegalZebra && !engine.isPlaying && !engine.isScrubbing
+            && engine.compareMode != .difference && engine.compareMode != .overlay
+        let spec = LegalRangeSpec.named(engine.legalRangePreset)
+        for slot in [SlotTarget.slotA, .slotB] {
+            let zebra = slot == .slotA ? zebraLayerA : zebraLayerB
+            let state = slot == .slotA ? engine.slotA : engine.slotB
+            let still = stillLayer(for: slot)
+            let time = (slot == .slotA ? lastCapturedTimeA : lastCapturedTimeB) ?? .invalid
+            guard isActive, let url = state.url, state.mediaKind == .video, state.sequence == nil, !still.isHidden, time.isNumeric else {
+                zebra.isHidden = true
+                zebraTasks[slot]?.cancel()
+                zebraTasks[slot] = nil
+                zebraPendingKey[slot] = nil
+                // Kept while playing (pausing on the same frame shows it at once), freed when the zebra is off.
+                if !engine.showLegalZebra, zebra.contents != nil {
+                    zebra.contents = nil
+                    zebraShownKey[slot] = nil
+                }
+                continue
+            }
+            if zebra.frame != still.bounds { zebra.frame = still.bounds }
+            let key = "\(url.path)|\(frameIndex(of: time, fps: state.fps))|\(spec.name)"
+            if zebraShownKey[slot] == key {
+                zebra.isHidden = false
+                continue
+            }
+            zebra.isHidden = true
+            guard zebraPendingKey[slot] != key else { continue }
+            zebraPendingKey[slot] = key
+            zebraTasks[slot]?.cancel()
+            let fps = state.fps
+            zebraTasks[slot] = Task { [weak self] in
+                // Let stepping settle so a held arrow key doesn't queue a decode per frame.
+                try? await Task.sleep(for: .milliseconds(80))
+                guard !Task.isCancelled else { return }
+                let image = await LegalRange.zebraImage(url: url, time: time, fps: fps, spec: spec)
+                guard !Task.isCancelled, let self, self.zebraPendingKey[slot] == key else { return }
+                self.zebraPendingKey[slot] = nil
+                self.zebraShownKey[slot] = key
+                CATransaction.begin()
+                CATransaction.setDisableActions(true)
+                zebra.contents = image
+                CATransaction.commit()
+                self.updateZebra()
+            }
         }
     }
     
@@ -1783,6 +1854,7 @@ public final class PlayerContainerNSView: NSView {
     }
     
     private func checkStillFrameDisplay() {
+        defer { updateZebra() }
         guard let engine = engine, engine.slotA.url != nil else { return }
         
         // If actively playing or scrubbing, displayLink handles frame updates at screen refresh rate

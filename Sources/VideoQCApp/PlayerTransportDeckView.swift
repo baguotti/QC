@@ -210,6 +210,30 @@ struct PlayerTransportDeckView: View, Equatable {
                 }
                 
                 customTransportBtn(
+                    tooltip: "Legal Range Zebra: \(transportState.showLegalZebra ? "ON" : "OFF") (\(transportState.legalRangePreset)). Stripes paused frames where brightness or colour is outside broadcast-legal levels: red above, blue below. Right-click to choose the standard.",
+                    isActive: transportState.showLegalZebra,
+                    width: 26
+                ) {
+                    engine.showLegalZebra.toggle()
+                } content: {
+                    ZebraGlyph()
+                }
+                .disabled(!transportState.hasVideo)
+                .contextMenu {
+                    ForEach(LegalRangeSpec.presets, id: \.name) { spec in
+                        Button(action: { engine.legalRangePreset = spec.name }) {
+                            HStack {
+                                Text("\(spec.name): \(spec.limits)")
+                                if transportState.legalRangePreset == spec.name {
+                                    Spacer()
+                                    Image(systemName: "checkmark")
+                                }
+                            }
+                        }
+                    }
+                }
+                
+                customTransportBtn(
                     tooltip: transportState.hasSubtitles
                         ? "Subtitles: \(transportState.showSubtitles ? "ON" : "OFF") (\(engine.subtitleFileName ?? ".srt")). Drag them on the video to move (double-click to reset). Right-click to import or remove."
                         : "Subtitles: import an .srt (or drop one on the player)",
@@ -474,4 +498,24 @@ struct PlayerTransportDeckView: View, Equatable {
     }
     
 
+}
+
+/// Diagonal stripes in a frame: the zebra toggle's icon.
+private struct ZebraGlyph: View {
+    var body: some View {
+        ZStack {
+            Path { p in
+                for x in stride(from: -12.0, through: 16.0, by: 4.0) {
+                    p.move(to: CGPoint(x: x, y: 11.5))
+                    p.addLine(to: CGPoint(x: x + 11.5, y: 0))
+                }
+            }
+            .stroke(lineWidth: 1.3)
+            .frame(width: 16, height: 11.5)
+            .clipShape(RoundedRectangle(cornerRadius: 1.5))
+            RoundedRectangle(cornerRadius: 1.5)
+                .strokeBorder(lineWidth: 1.1)
+                .frame(width: 16, height: 11.5)
+        }
+    }
 }

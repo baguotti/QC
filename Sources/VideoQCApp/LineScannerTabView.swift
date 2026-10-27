@@ -594,7 +594,7 @@ extension ContentView {
                 .font(.system(size: StudioTheme.scaleFont(26), weight: .semibold))
                 .foregroundColor(textMain)
             
-            Text("Choose a delivery folder or video files on the left, then run a check.\nLine Check finds edge lines and split-screen seams. Frame Check finds frame-rate mismatch, flash frames and Media Offline.")
+            Text("Choose a delivery folder or video files on the left, then run a check.\nLine Check finds edge lines and split-screen seams. Frame Check finds frame-rate mismatch, flash frames, Media Offline and out-of-legal-range levels.")
                 .font(.ui(size: 13))
                 .foregroundColor(textMuted)
                 .lineSpacing(4)
@@ -617,10 +617,13 @@ extension ContentView {
             
             checkCard {
                 checkRow("What It Finds", divider: false) {
-                    Text("Frame-rate mismatch (e.g. 23.976 fps material exported at 25 fps), flash frames (stray black or solid frames mid-edit) and Media Offline frames. One fast pass per video.")
+                    Text("Frame-rate mismatch (e.g. 23.976 fps material exported at 25 fps), flash frames (stray black or solid frames mid-edit), Media Offline frames and brightness or colour outside broadcast-legal levels. One fast pass per video.")
                         .font(.ui(size: 10))
                         .foregroundColor(textSubtle)
                         .fixedSize(horizontal: false, vertical: true)
+                }
+                checkRow("Legal Range") {
+                    legalRangeMenu
                 }
             }
             
@@ -632,11 +635,36 @@ extension ContentView {
             } else {
                 runButton("Run Frame Check", icon: "waveform.path.ecg",
                           isReady: frameCheckVideoCount > 0 && !scannerState.isScanning,
-                          help: "Checks every video in the batch (fast, low resolution) for frame-rate mismatch, flash frames and Media Offline.") {
+                          help: "Checks every video in the batch (fast, low resolution) for frame-rate mismatch, flash frames, Media Offline and legal range.") {
                     scannerState.startFrameCheck(videoFiles: videoFiles)
                 }
             }
         }
+    }
+    
+    /// Shared with the Player's zebra (right-click its toggle).
+    private var legalRangeMenu: some View {
+        let spec = LegalRangeSpec.named(playerEngine.legalRangePreset)
+        return Menu {
+            Picker("Legal Range", selection: $playerEngine.legalRangePreset) {
+                ForEach(LegalRangeSpec.presets, id: \.name) { spec in
+                    Text("\(spec.name): \(spec.limits)").tag(spec.name)
+                }
+            }
+            .pickerStyle(.inline)
+        } label: {
+            HStack(spacing: 5) {
+                Text(spec.name)
+                    .font(.ui(size: 11, weight: .semibold))
+                Image(systemName: "chevron.down")
+                    .font(.system(size: StudioTheme.scaleFont(8), weight: .bold))
+            }
+            .foregroundColor(textMain)
+        }
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .fixedSize()
+        .explain("\(spec.limits). Frames are flagged when more than 1% of the picture is outside these levels. EBU R103 is the UK (DPP) and European delivery standard.")
     }
     
     var fullCheckSection: some View {
@@ -702,6 +730,8 @@ extension ContentView {
                     isRed: results.contains { $0.mismatch != nil })
             statBox(title: "Flash / Offline", val: String(format: "%02d", results.filter { !$0.flashFrames.isEmpty || !$0.offline.isEmpty }.count),
                     isRed: results.contains { !$0.flashFrames.isEmpty || !$0.offline.isEmpty })
+            statBox(title: "Out of Range", val: String(format: "%02d", results.filter { !$0.legalRange.isEmpty }.count),
+                    isRed: results.contains { !$0.legalRange.isEmpty })
             statBox(title: "Clean", val: String(format: "%02d", results.count - flagged.count), isPositive: results.count > flagged.count)
         }
         if flagged.isEmpty {
@@ -709,7 +739,7 @@ extension ContentView {
                 Text("All Videos Clean")
                     .font(.ui(size: 16, weight: .semibold))
                     .foregroundColor(accentPositive)
-                Text("No frame-rate mismatch, flash frames or Media offline detected.")
+                Text("No frame-rate mismatch, flash frames, Media Offline or out-of-range levels detected.")
                     .font(.ui(size: 11, weight: .medium))
                     .foregroundColor(textMuted)
             }
@@ -745,6 +775,10 @@ extension ContentView {
             rows.append(FrameCheckRow(id: "flash\(run.start)", kind: "Flash frame", what: run.timecode,
                                       detail: "\(run.detail), \(run.count) frame\(run.count == 1 ? "" : "s")", frame: run.start))
         }
+        for run in result.legalRange {
+            rows.append(FrameCheckRow(id: "legal\(run.start)", kind: "Legal range", what: run.timecode,
+                                      detail: "\(run.detail), \(run.count) frame\(run.count == 1 ? "" : "s")", frame: run.start))
+        }
         return rows
     }
     
@@ -757,7 +791,7 @@ extension ContentView {
                     Text(result.fileName)
                         .font(.ui(size: 14, weight: .semibold))
                         .foregroundColor(textMain)
-                    Text("\(FrameCheckAnalyzer.rateLabel(result.fps)) · \(result.totalFrames) frames")
+                    Text("\(FrameCheckAnalyzer.rateLabel(result.fps)) · \(result.totalFrames) frames\(result.legalRange.isEmpty ? "" : " · Legal range: \(result.legalSpec.name)")")
                         .font(.ui(size: 10, weight: .semibold))
                         .foregroundColor(textMuted)
                 }
@@ -778,7 +812,10 @@ extension ContentView {
                 if !shown.isEmpty { Rectangle().fill(borderLine).frame(height: 1) }
             }
             ForEach(Array(shown.enumerated()), id: \.element.id) { idx, row in
-                Button(action: { jumpToGlitchInPlayer(fileURL: result.fileURL, frameIndex: row.frame) }) {
+                Button(action: {
+                    if row.kind == "Legal range" { playerEngine.showLegalZebra = true }
+                    jumpToGlitchInPlayer(fileURL: result.fileURL, frameIndex: row.frame)
+                }) {
                     HStack(spacing: 8) {
                         Text(row.kind).frame(width: 120, alignment: .leading).fontWeight(.bold).foregroundColor(textMain)
                         Text(row.what).frame(width: 140, alignment: .leading).fontWeight(.heavy).foregroundColor(textMain)
@@ -801,6 +838,8 @@ extension ContentView {
                 .buttonStyle(.plain)
                 .explain(row.kind == "FPS mismatch"
                          ? "Open the first frame of the pattern in the Player (step with ← → to see it)."
+                         : row.kind == "Legal range"
+                         ? "Open \(row.what) in the Player with the legal-range zebra on (red: above the limits, blue: below)."
                          : "Open \(row.what) in the Player.")
                 if idx < shown.count - 1 { Rectangle().fill(borderLine.opacity(0.6)).frame(height: 1) }
             }

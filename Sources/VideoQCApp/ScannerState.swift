@@ -168,7 +168,7 @@ public final class ScannerState: ObservableObject {
         }
     }
     
-    /// One pass per video: frame-rate mismatch (stutter), flash frames and Media Offline frames.
+    /// One pass per video: frame-rate mismatch (stutter), flash frames, Media Offline frames and legal range.
     public func startFrameCheck(videoFiles: [URL]) {
         let videos = videoFiles.filter { QCUtilities.mediaKind(of: $0) == .video }
         guard !videos.isEmpty, !isFrameChecking, !isScanning else {
@@ -186,7 +186,7 @@ public final class ScannerState: ObservableObject {
         let scanner = FrameCheckScanner()
         frameCheckScanner = scanner
         Task(priority: .utility) {
-            let results = await scanner.scanBatch(videos) { progress in
+            let results = await scanner.scanBatch(videos, legalSpec: .current) { progress in
                 DispatchQueue.main.async { self.frameCheckProgress = progress }
             }
             await MainActor.run {
