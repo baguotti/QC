@@ -322,6 +322,8 @@ struct ContentView: View {
                 lineScannerTabView
             case .ingest:
                 ingestTabView
+            case .upload:
+                uploadTabView
             }
             
             // 4. Bottom Contextual Explanation Bar
@@ -1446,6 +1448,11 @@ struct ContentView: View {
             exitFullscreen()
             return true
         }
+        if selectedTab == .upload && (!UploadQueue.shared.selection.isEmpty || !FrameIOBrowser.shared.selection.isEmpty) {
+            UploadQueue.shared.selection = []
+            FrameIOBrowser.shared.selection = []
+            return true
+        }
         return false
     }
     
@@ -1529,6 +1536,8 @@ struct ContentView: View {
             onToggleLooping: { self.playerEngine.isLooping.toggle() },
             onToggleAutoplay: { self.playerEngine.isAutoplayEnabled.toggle() },
             onToggleWaveforms: { self.playerEngine.drawsWaveforms.toggle() },
+            onSelectAllUploads: { UploadQueue.shared.selectAll() },
+            onUndoFrameIO: { FrameIOBrowser.shared.performUndo() },
             onTogglePlayPause: { self.playerEngine.togglePlayPause() },
             onStepFrame: { forward in self.playerEngine.stepFrame(forward: forward) },
             onStepFrames: { count, forward in self.playerEngine.stepFrames(count: count, forward: forward) },

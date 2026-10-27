@@ -85,6 +85,7 @@ final class KeyboardShortcutRouter {
         case global
         case playerOrSpecs
         case playerOnly
+        case uploadOnly
     }
     
     struct Rule {
@@ -168,6 +169,8 @@ final class KeyboardShortcutRouter {
                 isScopeActive = (currentTab == .player || currentTab == .specs)
             case .playerOnly:
                 isScopeActive = (currentTab == .player)
+            case .uploadOnly:
+                isScopeActive = (currentTab == .upload)
             }
             
             guard isScopeActive else { continue }
@@ -244,6 +247,8 @@ struct KeyboardShortcutActions {
     var onToggleLooping: () -> Void
     var onToggleAutoplay: () -> Void
     var onToggleWaveforms: () -> Void
+    var onSelectAllUploads: () -> Void
+    var onUndoFrameIO: () -> Void
     var onTogglePlayPause: () -> Void
     
     // Player - Navigation
@@ -292,6 +297,8 @@ struct KeyboardShortcutActions {
         onToggleLooping: @escaping () -> Void = {},
         onToggleAutoplay: @escaping () -> Void = {},
         onToggleWaveforms: @escaping () -> Void = {},
+        onSelectAllUploads: @escaping () -> Void = {},
+        onUndoFrameIO: @escaping () -> Void = {},
         onTogglePlayPause: @escaping () -> Void = {},
         onStepFrame: @escaping (Bool) -> Void = { _ in },
         onStepFrames: @escaping (Int, Bool) -> Void = { _, _ in },
@@ -335,6 +342,8 @@ struct KeyboardShortcutActions {
         self.onToggleLooping = onToggleLooping
         self.onToggleAutoplay = onToggleAutoplay
         self.onToggleWaveforms = onToggleWaveforms
+        self.onSelectAllUploads = onSelectAllUploads
+        self.onUndoFrameIO = onUndoFrameIO
         self.onTogglePlayPause = onTogglePlayPause
         self.onStepFrame = onStepFrame
         self.onStepFrames = onStepFrames
@@ -500,6 +509,22 @@ extension KeyboardShortcutRouter {
                 scope: .playerOnly
             ) {
                 actions.onPressL()
+                return true
+            },
+            Rule(
+                id: "uploadSelectAll",
+                trigger: ShortcutTrigger(characters: ["a"], modifiers: [.command]),
+                scope: .uploadOnly
+            ) {
+                actions.onSelectAllUploads()
+                return true
+            },
+            Rule(
+                id: "frameioUndo",
+                trigger: ShortcutTrigger(characters: ["z"], modifiers: [.command]),
+                scope: .uploadOnly
+            ) {
+                actions.onUndoFrameIO()
                 return true
             },
             Rule(

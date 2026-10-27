@@ -109,7 +109,6 @@ public struct PlayerQueuePanelView: View, Equatable {
     private var accentBlue: Color { StudioTheme.accentBlue(isLightMode) }
     @AppStorage("queueDisplayMode") private var queueDisplayMode: String = "inline"
     @AppStorage("playerThumbnailSize") private var playerThumbnailSize: Double = 52.0
-    @State private var showViewOptionsPopover: Bool = false
     
     private var hasSubfolders: Bool {
         FileSystemTreeBuilder.hasSubfolders(in: playerTreeNodes)
@@ -324,23 +323,7 @@ public struct PlayerQueuePanelView: View, Equatable {
     private var queueTools: some View {
         HStack(spacing: StudioTheme.scale(5)) {
             
-            // View Mode Options Popover (Thumbnail View / List View / Thumbnail Size Slider)
-            Button(action: { showViewOptionsPopover.toggle() }) {
-                HStack(spacing: StudioTheme.scale(4)) {
-                    Image(systemName: queueDisplayMode == "thumbnail" ? "square.grid.2x2" : "list.bullet")
-                        .font(.system(size: StudioTheme.scaleFont(10.5), weight: .medium))
-                    Image(systemName: "chevron.down")
-                        .font(.system(size: StudioTheme.scaleFont(8), weight: .semibold))
-                }
-                .padding(.horizontal, StudioTheme.scale(5))
-                .frame(height: StudioTheme.scale(26))
-                .foregroundColor(textMain)
-            }
-            .buttonStyle(TransportIconButtonStyle())
-            .explain("Queue display options: Switch between List and Thumbnail view, and adjust thumbnail size.")
-            .popover(isPresented: $showViewOptionsPopover, arrowEdge: .bottom) {
-                viewOptionsPopoverContent
-            }
+            QueueViewOptionsButton(isLightMode: isLightMode)
             
             // Hide / Show Folders Toggle (Moved before Autoplay)
             let isHidden = hideAllFolders || !hiddenFolderIDs.isEmpty
@@ -526,7 +509,44 @@ public struct PlayerQueuePanelView: View, Equatable {
     }
     
     // MARK: - Queue View Options Popover (Thumbnail View / List View / Size Slider)
-    private var viewOptionsPopoverContent: some View {
+    private func revealFolderContaining(url: URL) {
+        withAnimation(.easeInOut(duration: 0.2)) {
+            FileSystemTreeBuilder.expandAncestors(of: url, in: playerTreeNodes, collapsedIDs: &playerCollapsedFolderIDs)
+        }
+    }
+}
+
+/// List / Thumbnail switch and thumbnail size for the queues (Play and Upload share the setting).
+struct QueueViewOptionsButton: View {
+    var isLightMode: Bool
+    @AppStorage("queueDisplayMode") private var queueDisplayMode: String = "inline"
+    @AppStorage("playerThumbnailSize") private var playerThumbnailSize: Double = 52.0
+    @State private var showViewOptionsPopover = false
+
+    private var textMain: Color { StudioTheme.textMain(isLightMode) }
+    private var borderLine: Color { StudioTheme.borderLine(isLightMode) }
+    private var bgPanel: Color { StudioTheme.bgPanel(isLightMode) }
+
+    var body: some View {
+        Button(action: { showViewOptionsPopover.toggle() }) {
+            HStack(spacing: StudioTheme.scale(4)) {
+                Image(systemName: queueDisplayMode == "thumbnail" ? "square.grid.2x2" : "list.bullet")
+                    .font(.system(size: StudioTheme.scaleFont(10.5), weight: .medium))
+                Image(systemName: "chevron.down")
+                    .font(.system(size: StudioTheme.scaleFont(8), weight: .semibold))
+            }
+            .padding(.horizontal, StudioTheme.scale(5))
+            .frame(height: StudioTheme.scale(26))
+            .foregroundColor(textMain)
+        }
+        .buttonStyle(TransportIconButtonStyle())
+        .explain("Queue display options: Switch between List and Thumbnail view, and adjust thumbnail size.")
+        .popover(isPresented: $showViewOptionsPopover, arrowEdge: .bottom) {
+            popoverContent
+        }
+    }
+
+    private var popoverContent: some View {
         VStack(alignment: .leading, spacing: 2) {
             // Thumbnail View
             Button(action: {
@@ -612,9 +632,4 @@ public struct PlayerQueuePanelView: View, Equatable {
         .background(bgPanel)
     }
     
-    private func revealFolderContaining(url: URL) {
-        withAnimation(.easeInOut(duration: 0.2)) {
-            FileSystemTreeBuilder.expandAncestors(of: url, in: playerTreeNodes, collapsedIDs: &playerCollapsedFolderIDs)
-        }
-    }
 }

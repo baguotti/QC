@@ -27,6 +27,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
     
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        guard UploadQueue.shared.isRunning else { return .terminateNow }
+        let alert = NSAlert()
+        alert.messageText = "Uploads to Frame.io are still running."
+        alert.informativeText = "Quitting stops them. Files that didn't finish will need to be uploaded again."
+        alert.addButton(withTitle: "Keep Uploading")
+        alert.addButton(withTitle: "Quit")
+        return alert.runModal() == .alertSecondButtonReturn ? .terminateNow : .terminateCancel
+    }
+
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
         true
     }
