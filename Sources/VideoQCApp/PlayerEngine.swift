@@ -597,7 +597,7 @@ public final class PlayerEngine: ObservableObject {
             lastScreenshotPreset: lastScreenshotPreset,
             hasActiveURL: activeURL != nil,
             notesCount: activeNotes.count,
-            hasSubtitles: !subtitleCues.isEmpty,
+            hasSubtitles: !subtitleCues.isEmpty || (slotB.url != nil && !subtitleCuesB.isEmpty),
             showSubtitles: showSubtitles,
             hasTimeline: hasTimeline,
             hasVideo: slotA.mediaKind == .video
@@ -642,6 +642,9 @@ public final class PlayerEngine: ObservableObject {
     }
     
     @Published public private(set) var subtitleCues: [SubtitleCue] = []
+    /// Slot B's attached / sidecar .srt (read-only, shown in A/B modes that show B).
+    @Published public private(set) var subtitleCuesB: [SubtitleCue] = []
+    private var subtitleLoadGenerationB: Int = 0
     @Published public private(set) var subtitleFileName: String? = nil
     @Published public private(set) var subtitleSourceURL: URL? = nil
     @Published public private(set) var hasUnsavedSubtitleEdits: Bool = false
@@ -772,6 +775,20 @@ public final class PlayerEngine: ObservableObject {
             }.value
             guard let self, let (url, file) = found, generation == self.subtitleLoadGeneration else { return }
             self.applySubtitleFile(file, from: url)
+        }
+    }
+    private func autoLoadSubtitlesB(for mediaURL: URL?) {
+        subtitleLoadGenerationB &+= 1
+        if !subtitleCuesB.isEmpty { subtitleCuesB = [] }
+        guard let mediaURL else { return }
+        let generation = subtitleLoadGenerationB
+        Task { [weak self] in
+            let cues: [SubtitleCue] = await Task.detached(priority: .utility) {
+                guard let url = SubtitleAttachments.resolve(for: mediaURL) else { return [] }
+                return (try? SubtitleParser.loadFile(from: url))?.cues ?? []
+            }.value
+            guard let self, generation == self.subtitleLoadGenerationB, !cues.isEmpty else { return }
+            self.subtitleCuesB = cues
         }
     }
     // MARK: - Exposure Video Composition (Single Exposure Pipeline)
@@ -1180,6 +1197,7 @@ public final class PlayerEngine: ObservableObject {
         slotB.fileName = stdURL.lastPathComponent
         slotB.formattedFileSize = "--"
         slotB.slipOffsetFrames = 0
+        autoLoadSubtitlesB(for: stdURL)
         if activeTarget == .slotB {
             self.activeNotes = []
             self.activeNotesURL = nil
@@ -1520,6 +1538,7 @@ public final class PlayerEngine: ObservableObject {
         updateCurrentTime(time: hasTimeline ? slotA.player.currentTime() : .zero)
         updateAudioVolumes()
         autoLoadSubtitles(for: slotA.url)
+        autoLoadSubtitlesB(for: slotB.url)
         
         if wasPlaying {
             self.play()
@@ -1536,6 +1555,7 @@ public final class PlayerEngine: ObservableObject {
         itemPresentationSizeCancellableB?.cancel()
         itemPresentationSizeCancellableB = nil
         slotB.url = nil
+        autoLoadSubtitlesB(for: nil)
         slotB.fileName = ""
         slotB.resolution = ""
         slotB.codec = ""
@@ -1869,8 +1889,9 @@ public final class PlayerEngine: ObservableObject {
     private func setupSubtitleAttachmentObserver() {
         NotificationCenter.default.publisher(for: SubtitleAttachments.didChange)
             .sink { [weak self] notification in
-                guard let self, let video = notification.object as? URL,
-                      QCUtilities.isSameURL(video, self.slotA.url),
+                guard let self, let video = notification.object as? URL else { return }
+                if QCUtilities.isSameURL(video, self.slotB.url) { self.autoLoadSubtitlesB(for: video) }
+                guard QCUtilities.isSameURL(video, self.slotA.url),
                       SubtitleAttachments.manual(for: video).map({ !QCUtilities.isSameURL($0, self.subtitleSourceURL) }) ?? true
                 else { return }
                 self.autoLoadSubtitles(for: video)

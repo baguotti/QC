@@ -129,7 +129,7 @@
 7. **Playback Clock & Per-Frame Views**:
    - `ContentView` owns the engine as `@StateObject`: any `PlayerEngine` publish re-renders the whole window. Per-frame values (`currentFrame`, `currentTimecode`, `currentProgress`) therefore live on `engine.clock` (`PlaybackClock`); `engine.currentFrame` etc. forward to it. **Never re-add per-frame state as `@Published` on `PlayerEngine`.**
    - Views that change every frame must not be SwiftUI views observing the clock: a SwiftUI transaction per frame costs ~4.7 ms in the window graph (measured, M4 Max) and ~0.6 ms even in an isolated `NSHostingView`. Use the AppKit-backed views in `PlaybackClockViews.swift` (`PlaybackClockText`, `TimelinePlayhead`, `TimelineProgressFill`), which subscribe to the clock directly. A hidden template `Text` reserves their layout size.
-   - Subtitles follow the same rule: the viewport's `subtitleLayer` (CATextLayer) and the Subtitles panel's `SubtitleCueTracker` subscribe to the clock and act only when the cue under the playhead changes; the panel's rows are `.equatable()`.
+   - Subtitles follow the same rule: the viewport's `subtitleLayer`/`subtitleLayerB` (CATextLayer; B's .srt shows side by side and in blink, at A's time + slip, toggled by the same CC button) and the Subtitles panel's `SubtitleCueTracker` subscribe to the clock and act only when the cue under the playhead changes; the panel's rows are `.equatable()`.
    - Background progress (Line Finder scans) is throttled to ~5 Hz and runs at `.utility` priority; any `@StateObject` owned by `ContentView` re-renders the whole window when it publishes.
 
 ---

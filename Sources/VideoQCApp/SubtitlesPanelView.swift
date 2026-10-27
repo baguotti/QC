@@ -1,4 +1,5 @@
 import SwiftUI
+import NaturalLanguage
 import AppKit
 import Combine
 import UniformTypeIdentifiers
@@ -102,13 +103,25 @@ final class SubtitleSpellingModel: ObservableObject {
         }
     }
 
+    /// The spellchecker dictionary matching the dominant language of the lines, or "" (detect per line) if unsure.
+    static func detectLanguage(_ cues: [SubtitleCue]) -> String {
+        let recognizer = NLLanguageRecognizer()
+        recognizer.processString(cues.prefix(400).map { SubtitleStyledText.make($0.text).plain }.joined(separator: "\n"))
+        guard let code = recognizer.dominantLanguage?.rawValue else { return "" }
+        let available = NSSpellChecker.shared.availableLanguages
+        if available.contains(code) { return code }
+        return available.first { $0.hasPrefix(code + "_") || $0.hasPrefix(code + "-") } ?? ""
+    }
+
     func recheck(_ cues: [SubtitleCue], delay: Duration = .milliseconds(350)) {
         task?.cancel()
         task = Task { @MainActor [weak self] in
             try? await Task.sleep(for: delay)
             guard let self, !Task.isCancelled else { return }
-            let language = UserDefaults.standard.string(forKey: Self.languageKey) ?? ""
-            Self.applyLanguage(language)
+            let chosen = UserDefaults.standard.string(forKey: Self.languageKey) ?? ""
+            // Auto: one language for the whole file. Per-line detection misreads short lines
+            // ("Impossible to ignore." reads as French) and flags correct words.
+            Self.applyLanguage(chosen.isEmpty ? Self.detectLanguage(cues) : chosen)
             var result: [Int: [NSRange]] = [:]
             for (index, cue) in cues.enumerated() {
                 if Task.isCancelled { return }
