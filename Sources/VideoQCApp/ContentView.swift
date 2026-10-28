@@ -269,6 +269,9 @@ struct ContentView: View {
             .onReceive(NotificationCenter.default.publisher(for: NotesSync.didMergeRemoteNotes)) { notification in
                 if let change = notification.object as? NotesSync.Change { applySyncedNotes(change) }
             }
+            .onReceive(NotificationCenter.default.publisher(for: DownloadQueue.addToQueue)) { notification in
+                if let urls = notification.object as? [URL], !urls.isEmpty { loadAssets(urls, append: true) }
+            }
             .onReceive(fileOpenManager.$pendingURLs) { urls in
                 guard !urls.isEmpty else { return }
                 let isInitial = fileOpenManager.isInitialLaunchBatch
@@ -916,7 +919,12 @@ struct ContentView: View {
         panel.message = append ? "Choose media files or folders to add to the current batch" : "Choose media files or a folder to load"
         
         guard panel.runModal() == .OK, !panel.urls.isEmpty else { return }
-        let urls = panel.urls
+        loadAssets(panel.urls, append: append)
+    }
+
+    /// Adds files or folders to the queue (`append`), or replaces it. Used by the Select / Add panels and by Frame.io
+    /// downloads that should join the queue.
+    func loadAssets(_ urls: [URL], append: Bool) {
         assetLoadQueue.enqueue({ ContentView.scanAssetInputs(urls) }) { inputs in
             var collectedVideos: [URL] = []
             var detectedFolder: URL? = nil

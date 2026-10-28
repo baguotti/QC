@@ -679,7 +679,6 @@ final class FrameIOBrowser: ObservableObject {
 /// Right side of the Upload tab: Adobe sign-in, then the Frame.io browser.
 struct FrameIOBrowserView: View {
     var isLightMode: Bool
-    @AppStorage("uploadLogOpen") private var showLog = false
     @ObservedObject private var browser = FrameIOBrowser.shared
     /// Row or breadcrumb under a drag.
     @State private var dropTarget: String?
@@ -785,7 +784,8 @@ struct FrameIOBrowserView: View {
 
     // MARK: Header
 
-    /// Where you are, and the actions that don't depend on it: refresh, the upload log, the account.
+    /// Where you are, and the actions that don't depend on it: refresh, Frame.io's status, the account, and the right
+    /// drawer's tabs (Downloads, Log) at the far right.
     private var header: some View {
         HStack(spacing: 4) {
             breadcrumbs
@@ -794,11 +794,8 @@ struct FrameIOBrowserView: View {
                 toolButton("New Folder", systemImage: "folder.badge.plus", help: "Create a folder here", action: browser.newFolder)
             }
             toolButton(nil, systemImage: "arrow.clockwise", help: "Refresh", action: browser.refresh)
-            toolButton("Log", systemImage: "list.bullet.rectangle", help: showLog ? "Hide the upload log" : "Show the upload log",
-                       isOn: showLog) {
-                withAnimation(.easeInOut(duration: 0.15)) { showLog.toggle() }
-            }
             toolDivider
+            FrameIOStatusBadge(isLightMode: isLightMode)
             Menu {
                 Button("Sign Out", action: browser.signOut)
             } label: {
@@ -808,6 +805,8 @@ struct FrameIOBrowserView: View {
             .menuIndicator(.hidden)
             .fixedSize()
             .modifier(ToolHover(fill: palette.bgSubtle))
+            toolDivider
+            DrawerTabs(isLightMode: isLightMode)
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 8)
@@ -971,6 +970,16 @@ struct FrameIOBrowserView: View {
         .buttonStyle(.plain)
         .modifier(ToolHover(fill: palette.bgSubtle, isOn: isOn))
         .help(help)
+    }
+
+    /// Right-click → Download…: files, folders (with their contents) and stacks (their current version).
+    @ViewBuilder
+    private func downloadButton(_ targets: [FrameIO.Item]) -> some View {
+        if let account = browser.accountID, !targets.isEmpty {
+            Button { DownloadQueue.shared.download(targets, account: account) } label: {
+                Label(targets.count == 1 ? "Download…" : "Download \(targets.count) Items…", systemImage: "arrow.down.circle")
+            }
+        }
     }
 
     private var toolDivider: some View {
@@ -1342,6 +1351,7 @@ struct FrameIOBrowserView: View {
             shareButton(targets)
             Divider()
             openInNewTab(targets.count == 1 ? item : nil)
+            downloadButton(targets)
             Divider()
             copyURLButton(targets)
             if targets.count == 1 {
@@ -1392,6 +1402,7 @@ struct FrameIOBrowserView: View {
         shareButton(targets)
         Divider()
         openInNewTab(single)
+        downloadButton(targets)
         Divider()
         if let single, single.isVersionStack {
             Button { browser.open(single) } label: { Label("Version History", systemImage: "square.stack") }
@@ -2613,5 +2624,64 @@ private enum ProjectColumn: CaseIterable {
         case .created: return item.createdDate?.formatted(date: .abbreviated, time: .shortened) ?? "—"
         case .status: return item.status == nil ? "—" : (item.isInactive ? "Inactive" : "Active")
         }
+    }
+}
+
+/// The right drawer's tabs at the far right of the Frame.io header, like the Player's review sleeve: a tab opens the
+/// drawer on its page (or closes it when already showing), the chevron opens / closes it, and starting a download
+/// opens Downloads. The only part of the header that observes `DownloadQueue` (its 5 Hz progress mustn't redraw the
+/// browser's list).
+private struct DrawerTabs: View {
+    let isLightMode: Bool
+    @AppStorage("uploadLogOpen") private var isOpen = false
+    @AppStorage("uploadDrawerTab") private var tab = "log"
+    @ObservedObject private var downloads = DownloadQueue.shared
+
+    private var palette: StudioPalette { StudioPalette(isLightMode) }
+    var body: some View {
+        HStack(spacing: 4) {
+            tabButton("downloads", "Downloads", badge: downloads.isRunning ? "\(downloads.percent)%" : nil)
+            tabButton("log", "Log", badge: nil)
+            Button(action: { toggle { isOpen.toggle() } }) {
+                Image(systemName: isOpen ? "chevron.right" : "chevron.left")
+                    .font(.system(size: StudioTheme.scaleFont(11), weight: .bold))
+                    .foregroundColor(isOpen ? palette.accentBlue : palette.textMain)
+                    .frame(width: StudioTheme.scale(22), height: StudioTheme.scale(24))
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .modifier(ToolHover(fill: palette.bgSubtle))
+            .help(isOpen ? "Close the drawer" : "Open Downloads & Log")
+        }
+        .onChange(of: downloads.startCount) {
+            toggle { tab = "downloads"; isOpen = true }
+        }
+    }
+
+    private func toggle(_ change: () -> Void) {
+        withAnimation(.spring(response: 0.32, dampingFraction: 0.78), change)
+    }
+
+    private func tabButton(_ id: String, _ title: String, badge: String?) -> some View {
+        let showing = isOpen && tab == id
+        return Button(action: { toggle { if showing { isOpen = false } else { tab = id; isOpen = true } } }) {
+            HStack(spacing: 4) {
+                Text(title)
+                    .font(.ui(size: 12))
+                    .foregroundColor(showing ? palette.accentBlue : palette.textMain)
+                if let badge {
+                    Text(badge)
+                        .font(.ui(size: 10, weight: .semibold))
+                        .monospacedDigit()
+                        .foregroundColor(palette.accentBlue)
+                }
+            }
+            .padding(.horizontal, 7)
+            .frame(height: StudioTheme.scale(24))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .modifier(ToolHover(fill: palette.bgSubtle, isOn: showing))
+        .help(showing ? "Close \(title)" : "Show \(title)")
     }
 }

@@ -28,14 +28,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
     
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
-        guard UploadQueue.shared.isRunning else { return .terminateNow }
+        let uploading = UploadQueue.shared.isRunning
+        let downloading = DownloadQueue.shared.isRunning
+        guard uploading || downloading else { return .terminateNow }
         let alert = NSAlert()
-        alert.messageText = "Uploads to Frame.io are still running."
-        alert.informativeText = "QCpie will pause them and save where they got to. Resume them from the Upload tab when you open QCpie again."
-        alert.addButton(withTitle: "Keep Uploading")
-        alert.addButton(withTitle: "Pause and Quit")
+        switch (uploading, downloading) {
+        case (true, true):
+            alert.messageText = "Uploads and downloads are still running."
+            alert.informativeText = "Uploads pause and can be resumed from the Upload tab when you open QCpie again. Unfinished downloads stop and need to be downloaded again."
+        case (true, false):
+            alert.messageText = "Uploads to Frame.io are still running."
+            alert.informativeText = "QCpie will pause them and save where they got to. Resume them from the Upload tab when you open QCpie again."
+        default:
+            alert.messageText = "Downloads from Frame.io are still running."
+            alert.informativeText = "Unfinished downloads stop and need to be downloaded again."
+        }
+        alert.addButton(withTitle: uploading ? "Keep Uploading" : "Keep Downloading")
+        alert.addButton(withTitle: uploading ? "Pause and Quit" : "Stop and Quit")
         guard alert.runModal() == .alertSecondButtonReturn else { return .terminateCancel }
-        UploadQueue.shared.pauseForQuit { sender.reply(toApplicationShouldTerminate: true) }
+        // Both stop (uploads save their progress, downloads remove their partial files), then the app quits.
+        var waiting = 2
+        let stopped = { waiting -= 1; if waiting == 0 { sender.reply(toApplicationShouldTerminate: true) } }
+        UploadQueue.shared.pauseForQuit(stopped)
+        DownloadQueue.shared.stopForQuit(stopped)
         return .terminateLater
     }
 

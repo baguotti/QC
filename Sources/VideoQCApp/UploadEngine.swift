@@ -300,41 +300,11 @@ final class UploadEngine: Sendable {
         }
     }
 
-    /// Runs `body` until it succeeds: transient failures wait for the network (time offline doesn't count) and back
-    /// off 1–30 s; the last error is thrown after `giveUpAfter` seconds of failing while online, fatal ones at once,
-    /// and `.expired` as `RetryExpired.expired`.
+    /// Runs `body` until it succeeds, with the upload's network rules (`NetworkRetry`).
     func withRetries<T>(classify: (Error) -> Retry, onTransient: @Sendable () async -> Void = {},
                         _ body: @Sendable () async throws -> T) async throws -> T {
-        var failures = 0
-        var failingSince: Date?
-        var offline: TimeInterval = 0
-        while true {
-            try Task.checkCancellation()
-            do {
-                return try await body()
-            } catch {
-                if Self.isCancellation(error) { throw error }
-                switch classify(error) {
-                case .fatal:
-                    throw error
-                case .expired:
-                    throw RetryExpired.expired
-                case .transient(let retryAfter):
-                    await onTransient()
-                    failures += 1
-                    let since = failingSince ?? Date()
-                    failingSince = since
-                    if -since.timeIntervalSinceNow - offline > limits.giveUpAfter { throw error }
-                    if !network.isOnline {
-                        let waited = Date()
-                        await network.waitUntilOnline()
-                        offline += -waited.timeIntervalSinceNow
-                    }
-                    try Task.checkCancellation()
-                    try await Task.sleep(for: .seconds(retryAfter ?? Self.backoff(failures, cap: limits.maxBackoff)))
-                }
-            }
-        }
+        try await NetworkRetry(network: network, maxBackoff: limits.maxBackoff, giveUpAfter: limits.giveUpAfter)
+            .run(classify: classify, onTransient: onTransient, body)
     }
 
     private func put(_ body: Data, to url: URL, contentType: String, report: @escaping @Sendable (Int64) -> Void) async throws {
@@ -472,6 +442,49 @@ final class UploadEngine: Sendable {
 // MARK: - Supporting types
 
 enum RetryExpired: Error { case expired }
+
+/// Runs a network operation until it succeeds (uploads and downloads share these rules): transient failures wait for
+/// the network (time offline doesn't count) and back off 1–30 s ± 25 %; the last error is thrown after `giveUpAfter`
+/// seconds of failing while online, fatal ones at once, and `.expired` as `RetryExpired.expired`.
+struct NetworkRetry: Sendable {
+    let network: NetworkStatus
+    var maxBackoff: Double = 30
+    var giveUpAfter: TimeInterval = 15 * 60
+
+    func run<T>(classify: (Error) -> UploadEngine.Retry, onTransient: @Sendable () async -> Void = {},
+                _ body: @Sendable () async throws -> T) async throws -> T {
+        var failures = 0
+        var failingSince: Date?
+        var offline: TimeInterval = 0
+        while true {
+            try Task.checkCancellation()
+            do {
+                return try await body()
+            } catch {
+                if UploadEngine.isCancellation(error) { throw error }
+                switch classify(error) {
+                case .fatal:
+                    throw error
+                case .expired:
+                    throw RetryExpired.expired
+                case .transient(let retryAfter):
+                    await onTransient()
+                    failures += 1
+                    let since = failingSince ?? Date()
+                    failingSince = since
+                    if -since.timeIntervalSinceNow - offline > giveUpAfter { throw error }
+                    if !network.isOnline {
+                        let waited = Date()
+                        await network.waitUntilOnline()
+                        offline += -waited.timeIntervalSinceNow
+                    }
+                    try Task.checkCancellation()
+                    try await Task.sleep(for: .seconds(retryAfter ?? UploadEngine.backoff(failures, cap: maxBackoff)))
+                }
+            }
+        }
+    }
+}
 
 final class AttemptCounter: @unchecked Sendable {
     private let lock = NSLock()

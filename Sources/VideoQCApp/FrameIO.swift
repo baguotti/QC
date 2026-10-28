@@ -62,10 +62,16 @@ actor FrameIO {
         struct MediaLinks: Decodable, Hashable, Sendable {
             let thumbnail: Link?
             let thumbnailHighQuality: Link?
+            /// The original file (`include=media_links.original`): a pre-signed, time-limited download link.
+            let original: Original?
             struct Link: Decodable, Hashable, Sendable { let url: String? }
+            struct Original: Decodable, Hashable, Sendable {
+                let downloadURL: String?
+                enum CodingKeys: String, CodingKey { case downloadURL = "download_url" }
+            }
 
             enum CodingKeys: String, CodingKey {
-                case thumbnail
+                case thumbnail, original
                 case thumbnailHighQuality = "thumbnail_high_quality"
             }
         }
@@ -379,6 +385,13 @@ actor FrameIO {
             let body = try JSONSerialization.data(withJSONObject: ["data": ["parent_id": stack]])
             _ = try await request("PATCH", "/v4/accounts/\(account)/files/\(file.id)/move", body: body)
         }
+    }
+
+    /// A file's original download link (pre-signed and time-limited: ask again for each download or retry after a 403).
+    /// Nil when Frame.io gives none (no download rights, or the file isn't finished).
+    func originalDownloadURL(account: String, file: String) async throws -> URL? {
+        let item = try JSONDecoder().decode(One.self, from: await request("GET", "/v4/accounts/\(account)/files/\(file)?include=media_links.original")).data
+        return item.mediaLinks?.original?.downloadURL.flatMap(URL.init(string:))
     }
 
     func uploadStatus(account: String, id: String) async throws -> UploadStatus {

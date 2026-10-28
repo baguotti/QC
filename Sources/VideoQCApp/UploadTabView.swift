@@ -31,7 +31,7 @@ struct UploadTabView: View {
     var onPlay: (URL) -> Void
     var onDrop: ([NSItemProvider]) -> Bool
     @AppStorage("uploadPanelWidth") private var panelWidth: Double = 380
-    @AppStorage("uploadLogOpen") private var showLog = false
+    @AppStorage("uploadLogOpen") private var isDrawerOpen = false   // the Downloads & Log drawer (key kept from when it was Log only)
 
     private var palette: StudioPalette { StudioPalette(isLightMode) }
 
@@ -56,9 +56,9 @@ struct UploadTabView: View {
                 .onDrop(of: [UTType.fileURL.identifier], isTargeted: nil, perform: onDrop)
 
                 FrameIOBrowserView(isLightMode: isLightMode)
-                if showLog {
-                    UploadLogDrawer(isLightMode: isLightMode)
-                        .frame(width: 340)
+                if isDrawerOpen {
+                    UploadSideDrawer(isLightMode: isLightMode)
+                        .frame(width: 360)
                         .overlay(Rectangle().fill(palette.borderLine).frame(width: 1), alignment: .leading)
                         .transition(.move(edge: .trailing).combined(with: .opacity))
                 }
@@ -588,19 +588,52 @@ private struct UploadProgressCard: View {
     var isLightMode: Bool
     @ObservedObject private var queue = UploadQueue.shared
 
-    private var palette: StudioPalette { StudioPalette(isLightMode) }
-    private var fraction: Double { min(1, Double(queue.sentBytes) / Double(max(queue.totalBytes, 1))) }
-    private var elapsed: TimeInterval {
-        guard let started = queue.runStarted else { return 0 }
-        return (queue.runFinished ?? Date()).timeIntervalSince(started)
-    }
-    private var average: Double { elapsed > 0 ? Double(queue.transferredBytes) / elapsed : 0 }
     private var failedCount: Int {
         queue.jobs.filter { job in
             guard queue.runIDs.contains(job.id), case .failed = job.status else { return false }
             return true
         }.count
     }
+
+    var body: some View {
+        TransferProgressCard(isLightMode: isLightMode, title: title, done: queue.sentBytes, total: queue.totalBytes,
+                             transferred: queue.transferredBytes, isRunning: queue.isRunning, failed: failedCount > 0,
+                             bytesPerSecond: queue.bytesPerSecond, history: queue.speedHistory,
+                             started: queue.runStarted, finished: queue.runFinished)
+    }
+
+    private var title: String {
+        if queue.isRunning {
+            return "Uploading \(min(queue.runFinishedCount + 1, queue.runCount)) of \(queue.runCount)"
+        }
+        if failedCount > 0 { return "\(failedCount) of \(queue.runCount) failed" }
+        if queue.runFinishedCount < queue.runCount { return "Cancelled" }
+        return queue.runCount == 1 ? "Upload complete" : "All \(queue.runCount) uploaded"
+    }
+}
+
+/// Progress of an upload or download run: percentage, bar, sizes, time left, and the live speed with its graph.
+struct TransferProgressCard: View {
+    var isLightMode: Bool
+    var title: String
+    var done: Int64
+    var total: Int64
+    /// Bytes actually moved over the network (the average speed comes from this).
+    var transferred: Int64
+    var isRunning: Bool
+    var failed: Bool
+    var bytesPerSecond: Double
+    var history: [Double]
+    var started: Date?
+    var finished: Date?
+
+    private var palette: StudioPalette { StudioPalette(isLightMode) }
+    private var fraction: Double { min(1, Double(done) / Double(max(total, 1))) }
+    private var elapsed: TimeInterval {
+        guard let started else { return 0 }
+        return (finished ?? Date()).timeIntervalSince(started)
+    }
+    private var average: Double { elapsed > 0 ? Double(transferred) / elapsed : 0 }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 9) {
@@ -612,7 +645,7 @@ private struct UploadProgressCard: View {
                 Text("\(Int((fraction * 100).rounded(.down)))%")
                     .font(.system(size: StudioTheme.scaleFont(17), weight: .semibold, design: .rounded))
                     .monospacedDigit()
-                    .foregroundColor(failedCount > 0 && !queue.isRunning ? palette.negative : palette.accentBlue)
+                    .foregroundColor(failed && !isRunning ? palette.negative : palette.accentBlue)
             }
 
             GeometryReader { geo in
@@ -627,33 +660,33 @@ private struct UploadProgressCard: View {
             .frame(height: StudioTheme.scale(8))
 
             HStack {
-                Text("\(UploadLogFormat.bytes(queue.sentBytes)) of \(UploadLogFormat.bytes(queue.totalBytes))")
+                Text("\(UploadLogFormat.bytes(done)) of \(UploadLogFormat.bytes(total))")
                 Spacer()
                 Text(timeText)
             }
             .font(.ui(size: 10))
             .foregroundColor(palette.textMuted)
 
-            if queue.isRunning || queue.transferredBytes > 0 {
+            if isRunning || transferred > 0 {
                 VStack(alignment: .leading, spacing: 5) {
                     HStack(alignment: .firstTextBaseline, spacing: 6) {
-                        Text(UploadLogFormat.speed(queue.isRunning ? queue.bytesPerSecond : average))
+                        Text(UploadLogFormat.speed(isRunning ? bytesPerSecond : average))
                             .font(.ui(size: 13, weight: .semibold))
                             .foregroundColor(palette.textMain)
-                        Text(UploadLogFormat.megabits(queue.isRunning ? queue.bytesPerSecond : average))
+                        Text(UploadLogFormat.megabits(isRunning ? bytesPerSecond : average))
                             .font(.ui(size: 10))
                             .foregroundColor(palette.textMuted)
                         Spacer()
-                        Text(queue.isRunning ? "now" : "average")
+                        Text(isRunning ? "now" : "average")
                             .font(.ui(size: 10))
                             .foregroundColor(palette.textMuted)
                     }
-                    SpeedGraph(samples: queue.speedHistory, color: palette.accentBlue)
+                    SpeedGraph(samples: history, color: palette.accentBlue)
                         .frame(height: StudioTheme.scale(30))
                     HStack {
                         Text("avg \(UploadLogFormat.speed(average))")
                         Spacer()
-                        Text("peak \(UploadLogFormat.speed(queue.speedHistory.max() ?? 0))")
+                        Text("peak \(UploadLogFormat.speed(history.max() ?? 0))")
                     }
                     .font(.ui(size: 10))
                     .foregroundColor(palette.textMuted)
@@ -664,20 +697,11 @@ private struct UploadProgressCard: View {
         .studioBox(background: palette.bgCardSubtle, border: palette.borderLine)
     }
 
-    private var title: String {
-        if queue.isRunning {
-            return "Uploading \(min(queue.runFinishedCount + 1, queue.runCount)) of \(queue.runCount)"
-        }
-        if failedCount > 0 { return "\(failedCount) of \(queue.runCount) failed" }
-        if queue.runFinishedCount < queue.runCount { return "Cancelled" }
-        return queue.runCount == 1 ? "Upload complete" : "All \(queue.runCount) uploaded"
-    }
-
     private var timeText: String {
-        guard queue.isRunning else { return "took \(UploadLogFormat.duration(elapsed))" }
-        let remaining = Double(queue.totalBytes - queue.sentBytes)
-        guard elapsed > 3, queue.bytesPerSecond > 0 else { return "\(UploadLogFormat.duration(elapsed)) elapsed" }
-        return "about \(UploadLogFormat.duration(remaining / queue.bytesPerSecond)) left"
+        guard isRunning else { return "took \(UploadLogFormat.duration(elapsed))" }
+        let remaining = Double(total - done)
+        guard elapsed > 3, bytesPerSecond > 0 else { return "\(UploadLogFormat.duration(elapsed)) elapsed" }
+        return "about \(UploadLogFormat.duration(remaining / bytesPerSecond)) left"
     }
 }
 
@@ -708,6 +732,237 @@ private struct SpeedGraph: View {
 }
 
 /// Right-hand drawer: what was uploaded where, when, how long it took and how fast. Selectable and copyable as text.
+/// The Upload tab's right drawer: Downloads and the upload Log, switched like the Player's review sleeve.
+private struct UploadSideDrawer: View {
+    var isLightMode: Bool
+    @AppStorage("uploadDrawerTab") private var tab = "log"
+
+    private var palette: StudioPalette { StudioPalette(isLightMode) }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            DrawerTabBar(isLightMode: isLightMode, tab: $tab)
+            Rectangle().fill(palette.borderLine).frame(height: 1)
+            if tab == "downloads" {
+                DownloadsDrawer(isLightMode: isLightMode)
+            } else {
+                UploadLogDrawer(isLightMode: isLightMode)
+            }
+        }
+    }
+}
+
+/// The drawer's Downloads | Log switcher (the review sleeve's pill). Observes downloads for its percentage on its own,
+/// so the Log page doesn't redraw at the download's 5 Hz.
+private struct DrawerTabBar: View {
+    var isLightMode: Bool
+    @Binding var tab: String
+    @ObservedObject private var downloads = DownloadQueue.shared
+
+    private var palette: StudioPalette { StudioPalette(isLightMode) }
+    var body: some View {
+        HStack(spacing: 4) {
+            tabButton("downloads", "Downloads", badge: downloads.isRunning ? "\(downloads.percent)%" : nil)
+            tabButton("log", "Log", badge: nil)
+        }
+        .padding(3)
+        .background(RoundedRectangle(cornerRadius: 8).fill(palette.bgSubtle)
+            .overlay(RoundedRectangle(cornerRadius: 8).stroke(palette.borderLine, lineWidth: 1)))
+        .padding(.horizontal, 12)
+        .padding(.vertical, 9)
+        .background(palette.bgPanel)
+    }
+
+    private func tabButton(_ id: String, _ title: String, badge: String?) -> some View {
+        let isSelected = tab == id
+        return Button(action: { withAnimation(.spring(response: 0.32, dampingFraction: 0.84)) { tab = id } }) {
+            HStack(spacing: 5) {
+                Text(title).font(.ui(size: 11, weight: isSelected ? .semibold : .medium))
+                if let badge {
+                    Text(badge)
+                        .font(.ui(size: 9, weight: .semibold))
+                        .monospacedDigit()
+                        .foregroundColor(palette.accentBlue)
+                }
+            }
+            .frame(maxWidth: .infinity)
+            .frame(height: 25)
+            .foregroundColor(isSelected ? (isLightMode ? Color.black : Color.white) : palette.textMuted)
+            .background {
+                if isSelected {
+                    RoundedRectangle(cornerRadius: 6)
+                        .fill(isLightMode ? palette.bgPanel : Color(white: 0.22))
+                        .overlay(RoundedRectangle(cornerRadius: 6).stroke(isLightMode ? palette.borderStrong : Color.white.opacity(0.18), lineWidth: 1))
+                        .shadow(color: Color.black.opacity(isLightMode ? 0.08 : 0.25), radius: 2, y: 1)
+                }
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+/// Frame.io downloads (right-click → Download…): the progress card with its speed graph, then each file.
+private struct DownloadsDrawer: View {
+    var isLightMode: Bool
+    @ObservedObject private var queue = DownloadQueue.shared
+
+    private var palette: StudioPalette { StudioPalette(isLightMode) }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack(spacing: 10) {
+                Text(queue.isPreparing ? "Listing files…" : "Downloads").font(.ui(size: 12, weight: .semibold))
+                Spacer()
+                if queue.isRunning {
+                    Button("Cancel", action: queue.cancel).font(.ui(size: 12)).buttonStyle(.borderless)
+                } else {
+                    if queue.failedCount > 0 {
+                        Button("Retry Failed", action: queue.retryFailed).font(.ui(size: 12)).buttonStyle(.borderless)
+                    }
+                    Button("Clear", action: queue.clearFinished)
+                        .font(.ui(size: 12))
+                        .buttonStyle(.borderless)
+                        .disabled(!queue.hasFinished)
+                }
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 10)
+            .background(palette.bgPanel)
+            Rectangle().fill(palette.borderLine).frame(height: 1)
+
+            if let error = queue.lastError {
+                Text(error)
+                    .font(.ui(size: 11))
+                    .foregroundColor(palette.negative)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 8)
+            }
+            if queue.jobs.isEmpty {
+                VStack(spacing: 6) {
+                    Spacer()
+                    Image(systemName: "arrow.down.circle")
+                        .font(.system(size: StudioTheme.scaleFont(20), weight: .light))
+                        .foregroundColor(palette.textMuted)
+                    Text(queue.isPreparing ? "Listing the folder's files…" : "Right-click a Frame.io file or folder → Download…")
+                        .font(.ui(size: 11))
+                        .foregroundColor(palette.textMuted)
+                        .multilineTextAlignment(.center)
+                    Spacer()
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.horizontal, 20)
+            } else {
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 10) {
+                        TransferProgressCard(isLightMode: isLightMode, title: title, done: queue.receivedBytes, total: queue.totalBytes,
+                                             transferred: queue.transferredBytes, isRunning: queue.isRunning,
+                                             failed: queue.failedCount > 0, bytesPerSecond: queue.bytesPerSecond,
+                                             history: queue.speedHistory, started: queue.runStarted, finished: queue.runFinished)
+                        LazyVStack(spacing: 0) {
+                            ForEach(queue.jobs) { job in
+                                DownloadRow(job: job, isLightMode: isLightMode)
+                            }
+                        }
+                    }
+                    .padding(12)
+                }
+            }
+        }
+        .background(palette.bgMain)
+    }
+
+    private var title: String {
+        let count = queue.jobs.count
+        if queue.isRunning { return "Downloading \(min(queue.finishedCount + 1, count)) of \(count)" }
+        if queue.failedCount > 0 { return "\(queue.failedCount) of \(count) failed" }
+        if queue.finishedCount < count { return "Stopped" }
+        return count == 1 ? "Download complete" : "All \(count) downloaded"
+    }
+}
+
+private struct DownloadRow: View, Equatable {
+    let job: DownloadQueue.Job
+    let isLightMode: Bool
+
+    private var palette: StudioPalette { StudioPalette(isLightMode) }
+    private var fraction: Double { Double(job.received) / Double(max(job.size, 1)) }
+
+    var body: some View {
+        HStack(spacing: 8) {
+            icon.font(.system(size: StudioTheme.scaleFont(9), weight: .semibold)).frame(width: 12)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(job.name)
+                    .font(.ui(size: 11, weight: .medium))
+                    .foregroundColor(palette.textMain)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                Text(detail)
+                    .font(.ui(size: 10))
+                    .foregroundColor(failure != nil ? palette.negative : palette.textMuted)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+            }
+            Spacer(minLength: 4)
+            if job.status == .done {
+                Button(action: { DownloadQueue.shared.revealInFinder(job) }) {
+                    Image(systemName: "magnifyingglass")
+                        .font(.system(size: StudioTheme.scaleFont(10)))
+                        .foregroundColor(palette.textMuted)
+                        .frame(width: 22, height: 22)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(TransportIconButtonStyle())
+                .help("Show in Finder")
+            } else if job.status == .downloading {
+                Text("\(Int(fraction * 100))%")
+                    .font(.ui(size: 10, weight: .semibold))
+                    .monospacedDigit()
+                    .foregroundColor(palette.accentBlue)
+            }
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 6)
+        .background(alignment: .leading) {
+            if job.status == .downloading {
+                GeometryReader { geo in
+                    Rectangle().fill(palette.accentBlue.opacity(0.12)).frame(width: geo.size.width * CGFloat(fraction))
+                }
+            }
+        }
+        .help(failure ?? job.localURL?.path ?? job.name)
+    }
+
+    private var failure: String? {
+        if case .failed(let message) = job.status { return message }
+        return nil
+    }
+
+    private var detail: String {
+        let size = UploadLogFormat.bytes(job.size)
+        let place = ([job.destination.lastPathComponent] + job.folders).joined(separator: " › ")
+        switch job.status {
+        case .queued: return "\(size) · to \(place)"
+        case .downloading: return "\(UploadLogFormat.bytes(job.received)) of \(size)"
+        case .done: return "Downloaded · \(size) · \(place)"
+        case .cancelled: return "Cancelled · \(size)"
+        case .failed(let message): return message
+        }
+    }
+
+    @ViewBuilder
+    private var icon: some View {
+        switch job.status {
+        case .queued: Image(systemName: "arrow.down").foregroundColor(palette.textMuted)
+        case .downloading: Image(systemName: "arrow.down").foregroundColor(palette.accentBlue)
+        case .done: Image(systemName: "checkmark").foregroundColor(palette.positive)
+        case .cancelled: Image(systemName: "minus").foregroundColor(palette.textMuted)
+        case .failed: Image(systemName: "exclamationmark.triangle.fill").foregroundColor(palette.negative)
+        }
+    }
+}
+
 private struct UploadLogDrawer: View {
     var isLightMode: Bool
     @ObservedObject private var queue = UploadQueue.shared

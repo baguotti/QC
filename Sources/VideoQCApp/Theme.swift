@@ -31,7 +31,7 @@ enum AppTab: Int, CaseIterable, Identifiable {
         case .specs: return "doc.text"
         case .lineFinder: return "viewfinder"
         case .ingest: return "tray.and.arrow.down"
-        case .upload: return "tray.and.arrow.up"
+        case .upload: return "square.and.arrow.up"
         }
     }
 }
