@@ -1326,26 +1326,7 @@ struct NotesDrawerPanelView: View {
         let exportNotes = notes
         let name = mediaName.isEmpty ? url.lastPathComponent : mediaName
         Task { @MainActor in
-            let asset = AVURLAsset(url: url)
-            var fps = 25.0
-            var size = CGSize(width: 1920, height: 1080)
-            var seconds = 0.0
-            if let track = try? await asset.loadTracks(withMediaType: .video).first {
-                if let rate = try? await track.load(.nominalFrameRate), rate > 0 { fps = Double(rate) }
-                if let natural = try? await track.load(.naturalSize), let transform = try? await track.load(.preferredTransform) {
-                    let rect = CGRect(origin: .zero, size: natural).applying(transform)
-                    size = CGSize(width: abs(rect.width), height: abs(rect.height))
-                }
-            }
-            if let duration = try? await asset.load(.duration) { seconds = CMTimeGetSeconds(duration) }
-            var audioChannels = 0
-            var audioSampleRate = 48000
-            if let track = try? await asset.loadTracks(withMediaType: .audio).first,
-               let desc = try? await track.load(.formatDescriptions).first,
-               let asbd = CMAudioFormatDescriptionGetStreamBasicDescription(desc)?.pointee {
-                audioChannels = max(1, Int(asbd.mChannelsPerFrame))
-                if asbd.mSampleRate > 0 { audioSampleRate = Int(asbd.mSampleRate) }
-            }
+            let (fps, size, seconds, audioChannels, audioSampleRate) = await Self.markerMediaInfo(url)
             let totalFrames = max(1, Int((seconds * fps).rounded()))
 
             let xml = QCNotesManager.generatePremiereXML(
@@ -1368,6 +1349,32 @@ struct NotesDrawerPanelView: View {
                 onToast("Couldn't save markers: \(error.localizedDescription)")
             }
         }
+    }
+
+    /// Frame rate, displayed size, duration and audio format for the Premiere marker XML. Nonisolated: the tracks
+    /// (not Sendable) never leave this function.
+    private nonisolated static func markerMediaInfo(_ url: URL) async -> (fps: Double, size: CGSize, seconds: Double, audioChannels: Int, audioSampleRate: Int) {
+        let asset = AVURLAsset(url: url)
+        var fps = 25.0
+        var size = CGSize(width: 1920, height: 1080)
+        var seconds = 0.0
+        if let track = try? await asset.loadTracks(withMediaType: .video).first {
+            if let rate = try? await track.load(.nominalFrameRate), rate > 0 { fps = Double(rate) }
+            if let natural = try? await track.load(.naturalSize), let transform = try? await track.load(.preferredTransform) {
+                let rect = CGRect(origin: .zero, size: natural).applying(transform)
+                size = CGSize(width: abs(rect.width), height: abs(rect.height))
+            }
+        }
+        if let duration = try? await asset.load(.duration) { seconds = CMTimeGetSeconds(duration) }
+        var audioChannels = 0
+        var audioSampleRate = 48000
+        if let track = try? await asset.loadTracks(withMediaType: .audio).first,
+           let desc = try? await track.load(.formatDescriptions).first,
+           let asbd = CMAudioFormatDescriptionGetStreamBasicDescription(desc)?.pointee {
+            audioChannels = max(1, Int(asbd.mChannelsPerFrame))
+            if asbd.mSampleRate > 0 { audioSampleRate = Int(asbd.mSampleRate) }
+        }
+        return (fps, size, seconds, audioChannels, audioSampleRate)
     }
 
     private func copyToClipboard(_ text: String) {

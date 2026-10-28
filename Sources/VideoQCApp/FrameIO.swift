@@ -38,6 +38,13 @@ actor FrameIO {
 
         /// Small thumbnail (listings ask for `media_links.thumbnail`); the URL is signed and expires.
         let mediaLinks: MediaLinks?
+        /// Projects: the icon set in Frame.io (nil when none was uploaded).
+        let image: String?
+        /// Projects: "active" or "inactive", storage used in bytes, and ISO 8601 timestamps (shown in the project list).
+        let status: String?
+        let storage: Int64?
+        let createdAt: String?
+        let updatedAt: String?
 
         struct Head: Decodable, Hashable, Sendable {
             let id: String
@@ -71,6 +78,9 @@ actor FrameIO {
             case viewURL = "view_url"
             case headVersion = "head_version"
             case mediaLinks = "media_links"
+            case image, status, storage
+            case createdAt = "created_at"
+            case updatedAt = "updated_at"
         }
 
         var title: String { name ?? displayName ?? email ?? "Untitled" }
@@ -85,12 +95,23 @@ actor FrameIO {
             (mediaLinks?.thumbnailHighQuality?.url ?? headVersion?.mediaLinks?.thumbnailHighQuality?.url).flatMap(URL.init(string:))
                 ?? thumbnailURL
         }
+        var projectImageURL: URL? { image.flatMap(URL.init(string:)) }
+        var isInactive: Bool { status == "inactive" }
+        var createdDate: Date? { Self.date(createdAt) }
+        var updatedDate: Date? { Self.date(updatedAt) }
+
+        private static func date(_ text: String?) -> Date? {
+            guard let text else { return nil }
+            return (try? Date(text, strategy: Date.ISO8601FormatStyle(includingFractionalSeconds: true)))
+                ?? (try? Date(text, strategy: Date.ISO8601FormatStyle()))
+        }
         /// Changes when the picture does (a stack's new current version).
         var thumbnailKey: String { headVersion?.id ?? id }
 
         func renamed(_ newName: String) -> Item {
             Item(id: id, name: newName, displayName: displayName, email: email, type: type, fileSize: fileSize,
-                 rootFolderID: rootFolderID, viewURL: viewURL, headVersion: headVersion, mediaLinks: mediaLinks)
+                 rootFolderID: rootFolderID, viewURL: viewURL, headVersion: headVersion, mediaLinks: mediaLinks, image: image,
+                 status: status, storage: storage, createdAt: createdAt, updatedAt: updatedAt)
         }
     }
 

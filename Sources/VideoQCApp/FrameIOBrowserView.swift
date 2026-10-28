@@ -64,6 +64,22 @@ final class FrameIOBrowser: ObservableObject {
     /// Filters the open listing by name (cleared when navigating).
     @Published var filter = ""
     @Published private(set) var favourites: [Favourite] = FrameIOBrowser.loadFavourites()
+    enum ProjectStatusFilter: String, CaseIterable, Identifiable {
+        case active, inactive, all
+        var id: String { rawValue }
+        var title: String {
+            switch self {
+            case .active: return "Active"
+            case .inactive: return "Inactive"
+            case .all: return "All Statuses"
+            }
+        }
+    }
+
+    /// The project list's status filter, like Frame.io's (default Active).
+    @Published var projectStatus = ProjectStatusFilter(rawValue: UserDefaults.standard.string(forKey: FrameIOBrowser.projectStatusKey) ?? "") ?? .active {
+        didSet { UserDefaults.standard.set(projectStatus.rawValue, forKey: Self.projectStatusKey) }
+    }
     /// The project list shows favourite projects only (default: a company workspace can hold dozens of projects).
     @Published var favouriteProjectsOnly = UserDefaults.standard.object(forKey: FrameIOBrowser.favouriteProjectsOnlyKey) as? Bool ?? true {
         didSet { UserDefaults.standard.set(favouriteProjectsOnly, forKey: Self.favouriteProjectsOnlyKey) }
@@ -97,11 +113,25 @@ final class FrameIOBrowser: ObservableObject {
 
     var showsFavouriteProjectsOnly: Bool { atProjectList && favouriteProjectsOnly }
 
-    /// The listing after the favourites switch (project list) and the name filter.
+    /// Projects passing the status filter (all items elsewhere).
+    var statusFilteredItems: [FrameIO.Item] {
+        guard atProjectList else { return items }
+        switch projectStatus {
+        case .active: return items.filter { !$0.isInactive }
+        case .inactive: return items.filter(\.isInactive)
+        case .all: return items
+        }
+    }
+
+    /// The listing after the status filter and favourites switch (project list), before the name filter.
+    var listedItems: [FrameIO.Item] {
+        showsFavouriteProjectsOnly ? statusFilteredItems.filter(isFavourite) : statusFilteredItems
+    }
+
+    /// The listing after the name filter too.
     var visibleItems: [FrameIO.Item] {
-        let listed = showsFavouriteProjectsOnly ? items.filter(isFavourite) : items
         let query = filter.trimmingCharacters(in: .whitespaces)
-        return query.isEmpty ? listed : listed.filter { $0.title.localizedCaseInsensitiveContains(query) }
+        return query.isEmpty ? listedItems : listedItems.filter { $0.title.localizedCaseInsensitiveContains(query) }
     }
 
     /// The open project's id (shares are created per project).
@@ -183,6 +213,7 @@ final class FrameIOBrowser: ObservableObject {
 
     private static let favouritesKey = "frameioFavourites"
     private static let favouriteProjectsOnlyKey = "frameioFavouriteProjectsOnly"
+    private static let projectStatusKey = "frameioProjectStatus"
 
     private static func loadFavourites() -> [Favourite] {
         guard let data = UserDefaults.standard.data(forKey: favouritesKey) else { return [] }
@@ -791,13 +822,27 @@ struct FrameIOBrowserView: View {
         return HStack(spacing: 4) {
             filterField
             if !browser.filter.isEmpty {
-                Text("\(browser.visibleItems.count) of \(browser.showsFavouriteProjectsOnly ? browser.items.filter(browser.isFavourite).count : browser.items.count)")
+                Text("\(browser.visibleItems.count) of \(browser.listedItems.count)")
                     .font(.ui(size: 10))
                     .foregroundColor(palette.textMuted)
                     .padding(.leading, 6)
             }
             Spacer(minLength: 12)
             if browser.atProjectList {
+                Menu {
+                    Picker("", selection: $browser.projectStatus) {
+                        ForEach(FrameIOBrowser.ProjectStatusFilter.allCases) { Text($0.title).tag($0) }
+                    }
+                    .pickerStyle(.inline)
+                    .labelsHidden()
+                } label: {
+                    toolLabel(browser.projectStatus.title, systemImage: "line.3.horizontal.decrease.circle", menu: true)
+                }
+                .menuStyle(.borderlessButton)
+                .menuIndicator(.hidden)
+                .fixedSize()
+                .modifier(ToolHover(fill: palette.bgSubtle))
+                .help("Show active, inactive or all projects")
                 Picker("", selection: $browser.favouriteProjectsOnly) {
                     Text("Favourites").tag(true)
                     Text("All Projects").tag(false)
@@ -989,26 +1034,41 @@ struct FrameIOBrowserView: View {
                     Spacer()
                 }
                 .frame(maxWidth: 520)
-            } else if visibleItems.isEmpty && browser.showsFavouriteProjectsOnly && browser.filter.isEmpty {
+            } else if visibleItems.isEmpty && browser.showsFavouriteProjectsOnly && browser.filter.isEmpty
+                        && !browser.items.contains(where: browser.isFavourite) {
                 noFavouriteProjects
+            } else if visibleItems.isEmpty && browser.atProjectList && browser.filter.isEmpty && !browser.items.isEmpty {
+                VStack {
+                    Spacer()
+                    Text(browser.projectStatus == .all ? "No projects" : "No \(browser.projectStatus.title.lowercased()) \(browser.showsFavouriteProjectsOnly ? "favourite " : "")projects")
+                        .font(.ui(size: 12)).foregroundColor(palette.textMuted)
+                    Spacer()
+                }
+                .frame(maxWidth: .infinity)
             } else if visibleItems.isEmpty {
                 VStack { Spacer(); Text(browser.items.isEmpty ? "Empty" : "No matches").font(.ui(size: 12)).foregroundColor(palette.textMuted); Spacer() }
                     .frame(maxWidth: .infinity)
                     .contentShape(Rectangle())
             } else {
                 ScrollView {
-                    LazyVStack(spacing: 0) {
-                        ForEach(Array(visibleItems.enumerated()), id: \.element.id) { index, item in
-                            if browser.inStack {
-                                versionRow(item, index: browser.filter.isEmpty ? index : (browser.items.firstIndex { $0.id == item.id } ?? index))
-                            } else if inFolder {
-                                contentRow(item, striped: index.isMultiple(of: 2))
-                            } else {
-                                navigationRow(item, striped: index.isMultiple(of: 2))
+                    // Pinned inside the scroll view so the column titles share the rows' width (scroll bar included).
+                    LazyVStack(spacing: 0, pinnedViews: [.sectionHeaders]) {
+                        Section {
+                            ForEach(Array(visibleItems.enumerated()), id: \.element.id) { index, item in
+                                if browser.inStack {
+                                    versionRow(item, index: browser.filter.isEmpty ? index : (browser.items.firstIndex { $0.id == item.id } ?? index))
+                                } else if inFolder {
+                                    contentRow(item, striped: index.isMultiple(of: 2))
+                                } else {
+                                    navigationRow(item, striped: index.isMultiple(of: 2))
+                                }
                             }
+                        } header: {
+                            if browser.atProjectList { projectColumnHeader }
                         }
                     }
-                    .padding(.vertical, 6)
+                    .padding(.bottom, 6)
+                    .padding(.top, browser.atProjectList ? 0 : 6)
                     Color.clear
                         .frame(height: 60)
                         .contentShape(Rectangle())
@@ -1032,6 +1092,27 @@ struct FrameIOBrowserView: View {
             }
             Button(action: browser.refresh) { Label("Refresh", systemImage: "arrow.clockwise") }
         }
+    }
+
+    /// Column titles over the project list (Frame.io's project table, minus Workspace: it's in the breadcrumbs).
+    private var projectColumnHeader: some View {
+        VStack(spacing: 0) {
+            HStack(spacing: 10) {
+                Text("Project")
+                    .padding(.leading, StudioTheme.scale(22) + 10)
+                Spacer()
+                ForEach(ProjectColumn.allCases, id: \.self) { column in
+                    Text(column.title).frame(width: StudioTheme.scale(column.width), alignment: .leading)
+                }
+                Color.clear.frame(width: StudioTheme.scale(10))
+            }
+            .font(.ui(size: 10, weight: .semibold))
+            .foregroundColor(palette.textMuted)
+            .padding(.horizontal, 20)
+            .padding(.vertical, 6)
+            Rectangle().fill(palette.borderLine).frame(height: 1)
+        }
+        .background(palette.bgPanel)
     }
 
     /// The Favourites view of a project list with no favourite projects yet.
@@ -1064,10 +1145,14 @@ struct FrameIOBrowserView: View {
         let key = item.id
         return Button(action: { browser.open(item) }) {
             HStack(spacing: 10) {
-                Image(systemName: browser.path.isEmpty ? "person.crop.circle" : (isProject ? "film.stack" : "square.grid.2x2"))
-                    .font(.system(size: StudioTheme.scaleFont(13)))
-                    .foregroundColor(palette.accentBlue)
-                    .frame(width: StudioTheme.scale(18))
+                if isProject {
+                    FrameIOProjectIcon(item: item, isLightMode: isLightMode)
+                } else {
+                    Image(systemName: browser.path.isEmpty ? "person.crop.circle" : "square.grid.2x2")
+                        .font(.system(size: StudioTheme.scaleFont(13)))
+                        .foregroundColor(palette.accentBlue)
+                        .frame(width: StudioTheme.scale(18))
+                }
                 Text(item.title)
                     .font(.ui(size: 12))
                     .foregroundColor(palette.textMain)
@@ -1076,6 +1161,13 @@ struct FrameIOBrowserView: View {
                 Spacer()
                 if isProject {
                     Color.clear.frame(width: StudioTheme.scale(24))   // room for the star overlay
+                    ForEach(ProjectColumn.allCases, id: \.self) { column in
+                        Text(column.value(for: item))
+                            .font(.ui(size: 11))
+                            .foregroundColor(column == .status && item.isInactive ? palette.textMuted : palette.textSubtle)
+                            .lineLimit(1)
+                            .frame(width: StudioTheme.scale(column.width), alignment: .leading)
+                    }
                 }
                 Image(systemName: "chevron.right")
                     .font(.system(size: StudioTheme.scaleFont(10), weight: .semibold))
@@ -1101,7 +1193,7 @@ struct FrameIOBrowserView: View {
                 .buttonStyle(.plain)
                 .modifier(ToolHover(fill: palette.bgSubtle))
                 .help(isFavourite ? "Remove from Favourites" : "Add to Favourites")
-                .padding(.trailing, 20 + StudioTheme.scale(10) + 10)   // left of the chevron
+                .padding(.trailing, 20 + StudioTheme.scale(10) + 10 + ProjectColumn.totalWidth)   // left of the columns
             }
         }
         .contextMenu {
@@ -2357,6 +2449,71 @@ private struct FrameIOThumbnail: View {
     }
 }
 
+/// A project's icon from Frame.io (the project image), or a Frame.io-style gradient when it has none.
+private struct FrameIOProjectIcon: View {
+    let item: FrameIO.Item
+    let isLightMode: Bool
+    @State private var image: CGImage?
+
+    var body: some View {
+        let side = StudioTheme.scale(22)
+        ZStack {
+            if let image {
+                Image(decorative: image, scale: 2)
+                    .resizable()
+                    .aspectRatio(contentMode: .fill)
+                    .frame(width: side, height: side)
+                    .clipShape(RoundedRectangle(cornerRadius: side * 0.24, style: .continuous))
+            } else {
+                ProjectGradientIcon(projectID: item.id, side: side)
+            }
+        }
+        .frame(width: side, height: side)
+        .task(id: item.image) {
+            guard let url = item.projectImageURL else { image = nil; return }
+            image = await FrameIOThumbnailCache.shared.image(for: "project-\(item.id)", url: url, maxPixels: 96)
+        }
+    }
+}
+
+/// Frame.io draws a gradient for projects without an image (not exposed by the API). The same look, with the
+/// gradient picked from the project id so each project keeps its colours.
+private struct ProjectGradientIcon: View {
+    let projectID: String
+    let side: CGFloat
+
+    private static let gradients: [(Color, Color)] = [
+        (Color(red: 0.42, green: 0.55, blue: 1.00), Color(red: 0.40, green: 0.16, blue: 0.94)),   // blue → violet
+        (Color(red: 0.86, green: 0.38, blue: 0.62), Color(red: 0.95, green: 0.55, blue: 0.40)),   // pink → orange
+        (Color(red: 0.95, green: 0.47, blue: 0.43), Color(red: 0.97, green: 0.62, blue: 0.50)),   // coral → peach
+        (Color(red: 0.78, green: 0.35, blue: 0.67), Color(red: 0.95, green: 0.55, blue: 0.38)),   // magenta → orange
+        (Color(red: 0.36, green: 0.80, blue: 0.96), Color(red: 0.30, green: 0.36, blue: 0.94))    // cyan → indigo
+    ]
+
+    /// FNV-1a: stable across launches (`hashValue` isn't).
+    private var index: Int {
+        var hash: UInt64 = 0xcbf29ce484222325
+        for byte in projectID.utf8 { hash = (hash ^ UInt64(byte)) &* 0x100000001b3 }
+        return Int(hash % UInt64(Self.gradients.count))
+    }
+
+    var body: some View {
+        let (from, to) = Self.gradients[index]
+        RoundedRectangle(cornerRadius: side * 0.24, style: .continuous)
+            .fill(LinearGradient(colors: [from, to], startPoint: .topLeading, endPoint: .bottomTrailing))
+            .overlay(
+                Ellipse()
+                    .fill(Color.white.opacity(0.18))
+                    .frame(width: side * 1.3, height: side * 0.7)
+                    .rotationEffect(.degrees(-30))
+                    .offset(x: side * 0.25, y: side * 0.3)
+                    .blur(radius: side * 0.12)
+            )
+            .clipShape(RoundedRectangle(cornerRadius: side * 0.24, style: .continuous))
+            .frame(width: side, height: side)
+    }
+}
+
 /// Decoded thumbnails by item (a stack: its current version) and size, capped at 64 MB of decoded pixels.
 private actor FrameIOThumbnailCache {
     static let shared = FrameIOThumbnailCache()
@@ -2421,5 +2578,40 @@ private struct ToolHover: ViewModifier {
             )
             .onHover { isHovered = $0 }
             .animation(.easeInOut(duration: 0.12), value: isHovered)
+    }
+}
+
+/// Project list columns after the name (fixed widths, scaled with Button Size).
+private enum ProjectColumn: CaseIterable {
+    case updated, storage, created, status
+
+    var title: String {
+        switch self {
+        case .updated: return "Last Updated"
+        case .storage: return "Storage"
+        case .created: return "Creation Date"
+        case .status: return "Status"
+        }
+    }
+
+    var width: CGFloat {
+        switch self {
+        case .updated: return 90
+        case .storage: return 80
+        case .created: return 160
+        case .status: return 64
+        }
+    }
+
+    /// The columns plus the 10 pt row spacing before each.
+    @MainActor static var totalWidth: CGFloat { allCases.reduce(0) { $0 + StudioTheme.scale($1.width) + 10 } }
+
+    func value(for item: FrameIO.Item) -> String {
+        switch self {
+        case .updated: return item.updatedDate?.formatted(.relative(presentation: .numeric, unitsStyle: .narrow)) ?? "—"
+        case .storage: return item.storage.map { ByteCountFormatter.string(fromByteCount: $0, countStyle: .file) } ?? "—"
+        case .created: return item.createdDate?.formatted(date: .abbreviated, time: .shortened) ?? "—"
+        case .status: return item.status == nil ? "—" : (item.isInactive ? "Inactive" : "Active")
+        }
     }
 }

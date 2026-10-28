@@ -18,20 +18,9 @@ enum ImageSequencePlayback {
             return (url, size)
         }.value
         guard let (placeholderURL, renderSize) = prepared else { return nil }
-        let placeholder = AVURLAsset(url: placeholderURL)
-        let composition = AVMutableComposition()
         let frameDuration = CMTime(value: 1000, timescale: CMTimeScale((fps * 1000).rounded()))
         let duration = CMTimeMultiply(frameDuration, multiplier: Int32(seq.length))
-        guard let sourceTrack = try? await placeholder.loadTracks(withMediaType: .video).first,
-              let sourceDuration = try? await sourceTrack.load(.timeRange).duration,
-              let track = composition.addMutableTrack(withMediaType: .video, preferredTrackID: kCMPersistentTrackID_Invalid) else { return nil }
-        let sourceRange = CMTimeRange(start: .zero, duration: sourceDuration)
-        do {
-            try track.insertTimeRange(sourceRange, of: sourceTrack, at: .zero)
-        } catch {
-            return nil
-        }
-        track.scaleTimeRange(sourceRange, toDuration: duration)
+        guard let composition = await stretchedPlaceholder(placeholderURL, to: duration) else { return nil }
         
         let source = SequenceFrameSource(sequence: seq, fps: fps, renderSize: renderSize, exposure: exposure)
         let videoComposition = AVMutableVideoComposition()
@@ -46,6 +35,24 @@ enum ImageSequencePlayback {
         return item
     }
     
+    /// The 1-frame placeholder clip stretched to `duration`. Nonisolated: the placeholder's tracks (not Sendable) stay
+    /// here; only the new composition is handed back (`sending`).
+    nonisolated static func stretchedPlaceholder(_ url: URL, to duration: CMTime) async -> sending AVMutableComposition? {
+        let placeholder = AVURLAsset(url: url)
+        let composition = AVMutableComposition()
+        guard let sourceTrack = try? await placeholder.loadTracks(withMediaType: .video).first,
+              let sourceDuration = try? await sourceTrack.load(.timeRange).duration,
+              let track = composition.addMutableTrack(withMediaType: .video, preferredTrackID: kCMPersistentTrackID_Invalid) else { return nil }
+        let sourceRange = CMTimeRange(start: .zero, duration: sourceDuration)
+        do {
+            try track.insertTimeRange(sourceRange, of: sourceTrack, at: .zero)
+        } catch {
+            return nil
+        }
+        track.scaleTimeRange(sourceRange, toDuration: duration)
+        return composition
+    }
+
     nonisolated static func imageSize(_ url: URL) -> CGSize? {
         guard let source = CGImageSourceCreateWithURL(url as CFURL, nil),
               let props = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
