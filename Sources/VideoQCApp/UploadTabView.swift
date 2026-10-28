@@ -292,9 +292,21 @@ private struct UploadControls: View {
                 UploadProgressCard(isLightMode: isLightMode)
             }
 
+            if !queue.isRunning, let saved = queue.resumable {
+                resumeCard(saved)
+            }
+
             HStack(spacing: 8) {
                 if queue.isRunning {
+                    actionButton("Pause", primary: true, action: queue.pause)
+                        .explain("Stops sending. Nothing is lost: Resume continues from where it stopped, even after quitting QCpie.")
                     actionButton("Cancel", primary: false, action: queue.cancel)
+                        .explain("Stops the upload and removes its unfinished files from Frame.io.")
+                } else if queue.resumable != nil {
+                    actionButton("Resume", primary: true, action: queue.resume)
+                        .disabled(browser.signedIn != true)
+                    actionButton("Discard", primary: false, action: queue.cancel)
+                        .explain("Forgets this upload and removes its unfinished files from Frame.io.")
                 } else {
                     actionButton(queue.selection.isEmpty ? "Upload All (\(queue.jobs.count))" : "Upload Selected (\(queue.selection.count))",
                                  primary: true, action: start)
@@ -359,6 +371,30 @@ private struct UploadControls: View {
         .explain("Off: every file goes straight into the chosen Frame.io folder. On: the queue's subfolders are recreated inside it.")
     }
 
+    /// An upload that stopped before the end (paused, quit, crash or failed files) and where it was going.
+    private func resumeCard(_ saved: UploadResumeStore.SavedRun) -> some View {
+        HStack(spacing: 8) {
+            Image(systemName: "pause.circle.fill")
+                .font(.system(size: StudioTheme.scaleFont(14)))
+                .foregroundColor(palette.accentBlue)
+            VStack(alignment: .leading, spacing: 1) {
+                Text("\(saved.jobs.count) file\(saved.jobs.count == 1 ? "" : "s") left · \(UploadQueuePanel.bytes(queue.resumableBytes))")
+                    .font(.ui(size: 12, weight: .semibold))
+                    .foregroundColor(palette.textMain)
+                Text("To \(saved.destinationPath) · Resume picks up where it stopped")
+                    .font(.ui(size: 10))
+                    .foregroundColor(palette.textMuted)
+                    .lineLimit(1)
+                    .truncationMode(.head)
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 9)
+        .background(RoundedRectangle(cornerRadius: 8).fill(palette.bgCardSubtle))
+        .overlay(RoundedRectangle(cornerRadius: 8).stroke(palette.borderLine.opacity(0.7), lineWidth: 0.5))
+    }
+
     /// Names the queue's own subfolders, so the choice is concrete.
     private var structureDetail: String {
         guard queue.keepStructure else { return "Off: every file goes straight into this folder" }
@@ -418,10 +454,10 @@ private struct UploadQueueRow: View, Equatable {
         .padding(.trailing, 8)
         .frame(maxWidth: .infinity)
         .background(alignment: .leading) {
-            if job.status == .uploading {
+            if job.status == .uploading || job.status == .paused {
                 GeometryReader { geo in
                     Rectangle()
-                        .fill(palette.accentBlue.opacity(0.14))
+                        .fill(palette.accentBlue.opacity(job.status == .paused ? 0.07 : 0.14))
                         .frame(width: geo.size.width * CGFloat(fraction))
                 }
             }
@@ -460,7 +496,7 @@ private struct UploadQueueRow: View, Equatable {
                 }
             }
             Spacer(minLength: 4)
-            if job.status == .uploading { trailing }
+            if job.status == .uploading || job.status == .paused { trailing }
         }
         .frame(height: max(StudioTheme.scale(32), height + StudioTheme.scale(14)))
     }
@@ -489,6 +525,7 @@ private struct UploadQueueRow: View, Equatable {
         let size = UploadQueuePanel.bytes(job.size)
         switch job.status {
         case .uploading: return "\(UploadQueuePanel.bytes(job.sent)) of \(size)"
+        case .paused: return "Paused · \(UploadQueuePanel.bytes(job.sent)) of \(size)"
         case .done: return "Uploaded · \(size)"
         case .skipped: return "Already on Frame.io · \(size)"
         case .cancelled: return "Cancelled · \(size)"
@@ -512,6 +549,10 @@ private struct UploadQueueRow: View, Equatable {
             Text("\(Int(fraction * 100))%")
                 .font(.ui(size: 9, weight: .semibold))
                 .foregroundColor(tone(palette.accentBlue))
+        case .paused:
+            Text("Paused · \(Int(fraction * 100))%")
+                .font(.ui(size: 9, weight: .semibold))
+                .foregroundColor(tone(palette.textMuted))
         case .skipped:
             Text("Already There").font(.ui(size: 9)).foregroundColor(tone(palette.textMuted))
         case .failed:
@@ -528,6 +569,8 @@ private struct UploadQueueRow: View, Equatable {
             Image(systemName: QCUtilities.mediaKind(of: job.url)?.symbolName ?? "doc").foregroundColor(tone(palette.textMuted))
         case .uploading:
             Image(systemName: "arrow.up").foregroundColor(tone(palette.accentBlue))
+        case .paused:
+            Image(systemName: "pause.fill").foregroundColor(tone(palette.textMuted))
         case .done:
             Image(systemName: "checkmark").foregroundColor(tone(palette.positive))
         case .skipped:

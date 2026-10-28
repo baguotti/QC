@@ -2,16 +2,16 @@ import Foundation
 import UniformTypeIdentifiers
 import VideoQCLib
 
-/// Files dropped on the Upload tab and their upload to a Frame.io folder. Shared so uploads keep running when switching
-/// tabs; observed only by the Upload tab. Progress is published at 5 Hz from a lock-protected box, never per network
-/// callback. Network and file reads run off the main thread; each part is read from disk just before it is sent (at most
-/// 4 parts in memory). Files are not memory-mapped: a mapped file on a network volume that drops crashes the app.
+/// Files dropped on the Upload tab and their upload to a Frame.io folder (the sending is `UploadEngine`). Shared so
+/// uploads keep running when switching tabs; observed only by the Upload tab. Progress is published at 5 Hz from a
+/// lock-protected box, never per network callback. An upload can be paused, and one that was paused, interrupted (quit,
+/// crash) or partly failed is offered for resuming from the next unsent part (`resumable`).
 @MainActor
 final class UploadQueue: ObservableObject {
     static let shared = UploadQueue()
 
     enum Status: Equatable {
-        case queued, uploading, done, skipped, cancelled
+        case queued, uploading, paused, done, skipped, cancelled
         case failed(String)
     }
 
@@ -50,6 +50,12 @@ final class UploadQueue: ObservableObject {
             }.value
             log = loaded + log
         }
+        Task {
+            let saved = await Task.detached(priority: .utility) { UploadResumeStore.load(from: UploadResumeStore.defaultDirectory) }.value
+            guard !isRunning else { return }
+            if await store.restore(saved) { resumable = saved.run }
+            engine.drainDeletes()   // placeholders whose delete didn't get through last time
+        }
     }
 
     func clearLog() {
@@ -86,7 +92,21 @@ final class UploadQueue: ObservableObject {
         didSet { UserDefaults.standard.set(keepStructure, forKey: "uploadKeepStructure") }
     }
 
+    /// An upload that can continue: paused, interrupted by a quit or crash, or with files that failed.
+    @Published private(set) var resumable: UploadResumeStore.SavedRun?
+    var resumableBytes: Int64 { resumable?.jobs.reduce(0) { $0 + $1.sizes.reduce(0, +) } ?? 0 }
+
     private let progress = UploadProgress()
+    private let store = UploadResumeStore(directory: UploadResumeStore.defaultDirectory)
+    private lazy var engine = UploadEngine(api: FrameIO.shared, session: UploadEngine.makeSession(), store: store,
+                                           progress: progress, network: NetworkMonitor.shared)
+    private enum Stop { case pause, cancel }
+    private var stopping: Stop?
+    /// Called once the run has stopped and its progress is saved (quitting waits for this).
+    private var whenStopped: [() -> Void] = []
+    private var jobStarted: [UUID: Date] = [:]
+    /// Keeps the Mac awake while uploading (an asleep Mac drops every connection).
+    private var sleepActivity: NSObjectProtocol?
     private var runTask: Task<Void, Never>?
     private var ticker: Timer?
     private var lastTick: (date: Date, bytes: Int64)?
@@ -139,7 +159,8 @@ final class UploadQueue: ObservableObject {
                 return job
             }
             let kept = Set(next.map(\.id))
-            next += jobs.filter { $0.status == .uploading && !kept.contains($0.id) }
+            // Rows of the running or paused upload stay even when they leave the app's queue.
+            next += jobs.filter { !kept.contains($0.id) && ($0.status == .paused || (isRunning && runIDs.contains($0.id))) }
             jobs = next
             selection.formIntersection(next.map(\.url.path))
         }
@@ -156,11 +177,57 @@ final class UploadQueue: ObservableObject {
 
     // MARK: Running
 
-    /// Uploads `paths` (files dragged onto a Frame.io folder), else the selected files, else the whole queue, two at a
-    /// time. Files already on Frame.io (same name and size) are skipped, so uploading again only sends what's missing.
+    /// Uploads `paths` (files dragged onto a Frame.io folder), else the selected files, else the whole queue. Files
+    /// already on Frame.io (same name and size) are skipped, so uploading again only sends what's missing. A paused or
+    /// interrupted upload is discarded first, keeping the files this upload reuses.
     func start(to destination: Destination, paths: Set<String>? = nil) {
         guard !isRunning else { return }
         let targets = paths ?? (selection.isEmpty ? Set(jobs.map(\.url.path)) : selection)
+        let reused = resumable == nil ? nil : Set(jobs.filter { targets.contains($0.url.path) }.flatMap { $0.files.map(\.path) })
+        run(to: destination, targets: targets, keepStructure: keepStructure, discardingFirst: reused)
+    }
+
+    /// Continues the paused, interrupted or partly failed upload from the next unsent part of each file.
+    func resume() {
+        guard !isRunning, let saved = resumable else { return }
+        let known = Set(jobs.map { $0.url.standardizedFileURL })
+        for job in saved.jobs where !known.contains(URL(fileURLWithPath: job.path).standardizedFileURL) {
+            jobs.append(Job(url: URL(fileURLWithPath: job.path), files: job.files.map { URL(fileURLWithPath: $0) },
+                            fileSizes: job.sizes, folders: job.folders))
+        }
+        run(to: Destination(account: saved.account, folder: saved.folder, path: saved.destinationPath),
+            targets: Set(saved.jobs.map(\.path)), keepStructure: saved.keepStructure)
+    }
+
+    /// Stops sending; nothing is deleted on Frame.io, and Resume continues from the next unsent part.
+    func pause() {
+        guard isRunning, stopping == nil else { return }
+        stopping = .pause
+        runTask?.cancel()
+    }
+
+    /// Quitting while uploading: pauses and saves where the upload got to, then calls `done` (resume after relaunch).
+    func pauseForQuit(_ done: @escaping () -> Void) {
+        guard isRunning else { done(); return }
+        whenStopped.append(done)
+        pause()
+    }
+
+    /// Stops the upload (or drops the paused one) and deletes its unfinished files on Frame.io.
+    func cancel() {
+        if isRunning {
+            guard stopping == nil else { return }
+            stopping = .cancel
+            runTask?.cancel()
+        } else {
+            resumable = nil
+            for index in jobs.indices where jobs[index].status == .paused { jobs[index].status = .cancelled }
+            Task { await discardSaved(keeping: []) }
+        }
+    }
+
+    /// `discardingFirst`: drop the paused/interrupted upload before starting, keeping these files' placeholders.
+    private func run(to destination: Destination, targets: Set<String>, keepStructure keep: Bool, discardingFirst reused: Set<String>? = nil) {
         for index in jobs.indices where targets.contains(jobs[index].url.path) {
             jobs[index].status = .queued
             jobs[index].sent = 0
@@ -169,11 +236,13 @@ final class UploadQueue: ObservableObject {
         guard !work.isEmpty else { return }
         runIDs = Set(work.map(\.id))
         let run = UploadLogRun(id: UUID(), started: Date(), finished: nil, destination: destination.path,
-                               keepStructure: keepStructure, entries: [])
+                               keepStructure: keep, entries: [])
         currentRunID = run.id
         log.insert(run, at: 0)
-        let destinationPath = destination.path
         isRunning = true
+        stopping = nil
+        resumable = nil
+        jobStarted = [:]
         progress.reset()
         lastTick = nil
         bytesPerSecond = 0
@@ -182,37 +251,69 @@ final class UploadQueue: ObservableObject {
         runStarted = Date()
         runFinished = nil
         startTicker()
-        let keep = keepStructure
-        let folders = FolderResolver(account: destination.account, root: destination.folder)
-        let progress = progress
+        sleepActivity = ProcessInfo.processInfo.beginActivity(options: [.userInitiated, .idleSystemSleepDisabled],
+                                                              reason: "Uploading to Frame.io")
+        let saved = UploadResumeStore.SavedRun(
+            account: destination.account, folder: destination.folder, destinationPath: destination.path, keepStructure: keep,
+            jobs: work.map { .init(path: $0.url.path, files: $0.files.map(\.path), sizes: $0.fileSizes, folders: $0.folders) })
+        let items = work.map { UploadWork(jobID: $0.id, files: $0.files, sizes: $0.fileSizes, folders: keep ? $0.folders : []) }
+        let paths = Dictionary(uniqueKeysWithValues: work.map { ($0.id, $0.url.path) })
+        let engine = engine
+        let store = store
         runTask = Task {
-            await withTaskGroup(of: Void.self) { group in
-                var next = work.makeIterator()
-                func addNext() -> Bool {
-                    guard let job = next.next() else { return false }
-                    group.addTask { await self.upload(job, keepStructure: keep, folders: folders, destination: destinationPath, progress: progress) }
-                    return true
-                }
-                _ = addNext() && addNext()
-                for await _ in group where !Task.isCancelled { _ = addNext() }
-            }
-            finish()
+            if let reused { await self.discardSaved(keeping: reused) }
+            await store.setRun(saved)
+            await engine.run(items, account: destination.account, folder: destination.folder,
+                             onStart: { id in await self.jobStarted(id) },
+                             onFinish: { id, outcome in await self.jobFinished(id, outcome, path: paths[id], destination: destination.path, keep: keep) })
+            await finish()
         }
     }
 
-    func cancel() {
-        runTask?.cancel()
+    private func jobStarted(_ id: UUID) {
+        jobStarted[id] = Date()
+        set(id, .uploading)
     }
 
-    private func finish() {
+    private func jobFinished(_ id: UUID, _ outcome: UploadOutcome, path: String?, destination: String, keep: Bool) async {
+        guard let job = jobs.first(where: { $0.id == id }) else { return }
+        switch outcome {
+        case .uploaded, .skipped:
+            set(id, outcome == .uploaded ? .done : .skipped)
+            if let path { await store.removeJob(path) }
+        case .failed(let message):
+            set(id, .failed(message))
+        case .cancelled:
+            break   // settled in `finish` (paused or cancelled)
+        }
+        guard !(outcome == .cancelled && stopping == .pause), let started = jobStarted[id] else { return }
+        let entryOutcome: UploadLogEntry.Outcome = switch outcome {
+        case .uploaded: .uploaded
+        case .skipped: .skipped
+        case .failed: .failed
+        case .cancelled: .cancelled
+        }
+        var message: String?
+        if case .failed(let text) = outcome { message = text }
+        record(UploadLogEntry(id: UUID(), name: job.files.count > 1 ? "\(job.url.lastPathComponent) (\(job.files.count) frames)" : job.url.lastPathComponent,
+                              destination: ([destination] + (keep ? job.folders : [])).joined(separator: " › "), bytes: job.size,
+                              started: started, finished: Date(), outcome: entryOutcome, message: message))
+    }
+
+    private func finish() async {
+        let stop = stopping
+        let unfinished: Status = stop == .pause ? .paused : .cancelled
         for index in jobs.indices where runIDs.contains(jobs[index].id) && (jobs[index].status == .queued || jobs[index].status == .uploading) {
-            jobs[index].status = .cancelled
+            jobs[index].status = unfinished
         }
         tick()
         ticker?.invalidate()
         ticker = nil
+        if let sleepActivity { ProcessInfo.processInfo.endActivity(sleepActivity) }
+        sleepActivity = nil
         isRunning = false
         runTask = nil
+        stopping = nil
         bytesPerSecond = 0
         runFinished = Date()
         if let index = log.firstIndex(where: { $0.id == currentRunID }) {
@@ -221,132 +322,29 @@ final class UploadQueue: ObservableObject {
         }
         currentRunID = nil
         saveLog()
+        if stop == .cancel {
+            await discardSaved(keeping: [])
+        } else {
+            await store.flush()
+            resumable = await store.snapshot.run
+        }
+        let stopped = whenStopped
+        whenStopped = []
+        stopped.forEach { $0() }
         FrameIOBrowser.shared.reload()
+    }
+
+    /// Forgets the saved upload and deletes its unfinished files on Frame.io, except `keeping` (files about to be
+    /// uploaded again, whose placeholders are reused). Runs before the next upload touches the store.
+    private func discardSaved(keeping: Set<String>) async {
+        await store.discard(keeping: keeping)
+        await store.flush()
+        engine.drainDeletes()
     }
 
     private func set(_ id: UUID, _ status: Status) {
         guard let index = jobs.firstIndex(where: { $0.id == id }) else { return }
         jobs[index].status = status
-    }
-
-    nonisolated private func upload(_ job: Job, keepStructure: Bool, folders: FolderResolver, destination: String,
-                                    progress: UploadProgress) async {
-        guard !Task.isCancelled else { return }
-        await set(job.id, .uploading)
-        let started = Date()
-        let target = ([destination] + (keepStructure ? job.folders : [])).joined(separator: " › ")
-        func log(_ outcome: UploadLogEntry.Outcome, message: String? = nil) async {
-            let entry = UploadLogEntry(id: UUID(), name: job.files.count > 1 ? "\(job.url.lastPathComponent) (\(job.files.count) frames)" : job.url.lastPathComponent,
-                                       destination: target, bytes: job.size, started: started, finished: Date(),
-                                       outcome: outcome, message: message)
-            await record(entry)
-        }
-        var placeholder: String?
-        do {
-            let folder = try await folders.folder(for: keepStructure ? job.folders : [])
-            var uploadedAny = false
-            var offset: Int64 = 0
-            for (index, file) in job.files.enumerated() {
-                let size = job.fileSizes[index]
-                defer { offset += size }
-                guard size > 0 else { continue }
-                let name = file.lastPathComponent
-                if try await folders.contains(name: name, size: size, in: folder) {
-                    progress.set(job.id, part: -1, bytes: offset + size)
-                    continue
-                }
-                let upload = try await FrameIO.shared.createLocalUpload(account: folders.account, folder: folder, name: name, size: size)
-                placeholder = upload.id
-                try await Self.sendParts(of: file, size: size, upload: upload) { part, sent in
-                    progress.set(job.id, part: part, bytes: sent)
-                }
-                placeholder = nil
-                uploadedAny = true
-                progress.clearParts(job.id)
-                progress.set(job.id, part: -1, bytes: offset + size)
-            }
-            await set(job.id, uploadedAny ? .done : .skipped)
-            await log(uploadedAny ? .uploaded : .skipped)
-        } catch {
-            if let placeholder {
-                // Detached: this task may be cancelled, which would cancel the request too.
-                let account = folders.account
-                Task.detached { try? await FrameIO.shared.deleteFile(account: account, id: placeholder) }
-            }
-            let cancelled = Task.isCancelled || (error as? URLError)?.code == .cancelled || error is CancellationError
-            await set(job.id, cancelled ? .cancelled : .failed(error.localizedDescription))
-            await log(cancelled ? .cancelled : .failed, message: cancelled ? nil : error.localizedDescription)
-        }
-    }
-
-    /// PUTs each part (two at a time), read from the file as it goes, retrying a failed part up to 3 times.
-    nonisolated private static func sendParts(of file: URL, size: Int64, upload: FrameIO.LocalUpload,
-                                              report: @escaping @Sendable (_ part: Int, _ sent: Int64) -> Void) async throws {
-        guard FileManager.default.fileExists(atPath: file.path) else { throw UploadError.missing }
-        let current = (try? file.resourceValues(forKeys: [.fileSizeKey]))?.fileSize.map(Int64.init)
-        guard current == size else { throw UploadError.changed }
-        let contentType = upload.mediaType
-            ?? UTType(filenameExtension: file.pathExtension)?.preferredMIMEType
-            ?? "application/octet-stream"
-        var ranges: [(index: Int, url: URL, range: Range<Int64>)] = []
-        var offset: Int64 = 0
-        for (index, part) in upload.uploadURLs.enumerated() {
-            guard let url = URL(string: part.url) else { throw FrameIO.Failure.unreadable }
-            let end = min(offset + part.size, size)
-            ranges.append((index, url, offset..<end))
-            offset = end
-        }
-        guard offset == size else { throw UploadError.partsMismatch }
-
-        try await withThrowingTaskGroup(of: Void.self) { group in
-            var next = ranges.makeIterator()
-            func addNext() {
-                guard let part = next.next() else { return }
-                group.addTask {
-                    let body = try readPart(of: file, range: part.range)
-                    try await sendPart(body, to: part.url, contentType: contentType) { sent in
-                        report(part.index, sent)
-                    }
-                }
-            }
-            addNext(); addNext()
-            while try await group.next() != nil { addNext() }
-        }
-    }
-
-    nonisolated private static func readPart(of file: URL, range: Range<Int64>) throws -> Data {
-        let handle = try FileHandle(forReadingFrom: file)
-        defer { try? handle.close() }
-        try handle.seek(toOffset: UInt64(range.lowerBound))
-        let data = try handle.read(upToCount: Int(range.count)) ?? Data()
-        guard data.count == range.count else { throw UploadError.changed }
-        return data
-    }
-
-    nonisolated private static func sendPart(_ body: Data, to url: URL, contentType: String,
-                                             report: @escaping @Sendable (Int64) -> Void) async throws {
-        var request = URLRequest(url: url)
-        request.httpMethod = "PUT"
-        request.setValue("private", forHTTPHeaderField: "x-amz-acl")
-        request.setValue(contentType, forHTTPHeaderField: "Content-Type")
-        var attempt = 0
-        while true {
-            try Task.checkCancellation()
-            report(0)
-            do {
-                let (data, response) = try await URLSession.shared.upload(for: request, from: body, delegate: PartProgress(report))
-                let status = (response as? HTTPURLResponse)?.statusCode ?? 0
-                guard (200..<300).contains(status) else {
-                    throw UploadError.part(status, String(data: data.prefix(300), encoding: .utf8) ?? "")
-                }
-                report(Int64(body.count))
-                return
-            } catch {
-                attempt += 1
-                if attempt > 3 || Task.isCancelled || (error as? URLError)?.code == .cancelled { throw error }
-                try await Task.sleep(for: .seconds(Double(attempt * 2)))
-            }
-        }
     }
 
     // MARK: Progress
@@ -413,116 +411,4 @@ struct UploadLogEntry: Codable, Identifiable, Equatable, Sendable {
 
     var duration: TimeInterval { finished.timeIntervalSince(started) }
     var bytesPerSecond: Double { duration > 0 ? Double(bytes) / duration : 0 }
-}
-
-enum UploadError: LocalizedError {
-    case changed, missing, partsMismatch
-    case part(Int, String)
-
-    var errorDescription: String? {
-        switch self {
-        case .changed: return "The file changed while uploading."
-        case .missing: return "The file is no longer there (moved, renamed or the drive was disconnected)."
-        case .partsMismatch: return "Frame.io's upload parts don't match the file size."
-        case .part(let code, let message): return "Upload failed (\(code))\(message.isEmpty ? "" : ": \(message)")"
-        }
-    }
-}
-
-/// Bytes sent per job and part, written from URLSession callbacks and read by the 5 Hz ticker.
-final class UploadProgress: @unchecked Sendable {
-    private let lock = NSLock()
-    private var parts: [UUID: [Int: Int64]] = [:]
-    /// Bytes actually sent over the network (retries included, skipped files not): the speed is measured from this.
-    private var transferred: Int64 = 0
-
-    func set(_ job: UUID, part: Int, bytes: Int64) {
-        lock.withLock {
-            if part >= 0 { transferred += max(0, bytes - (parts[job]?[part] ?? 0)) }
-            parts[job, default: [:]][part] = bytes
-        }
-    }
-
-    var transferredBytes: Int64 { lock.withLock { transferred } }
-
-    func snapshot() -> [UUID: Int64] {
-        lock.withLock { parts.mapValues { $0.values.reduce(0, +) } }
-    }
-
-    /// Keeps only the job's completed-files total (part -1) once a file has finished.
-    func clearParts(_ job: UUID) {
-        lock.withLock { parts[job] = parts[job].map { $0.filter { $0.key == -1 } } }
-    }
-
-    func reset() {
-        lock.withLock { parts = [:]; transferred = 0 }
-    }
-}
-
-private final class PartProgress: NSObject, URLSessionTaskDelegate, @unchecked Sendable {
-    private let report: @Sendable (Int64) -> Void
-
-    init(_ report: @escaping @Sendable (Int64) -> Void) {
-        self.report = report
-    }
-
-    func urlSession(_ session: URLSession, task: URLSessionTask, didSendBodyData bytesSent: Int64,
-                    totalBytesSent: Int64, totalBytesExpectedToSend: Int64) {
-        report(totalBytesSent)
-    }
-}
-
-/// Finds or creates the destination subfolders, once each even when several files need the same new folder, and
-/// remembers each folder's contents for the already-uploaded check.
-actor FolderResolver {
-    let account: String
-    private let root: String
-    private var folders: [[String]: Task<String, Error>] = [:]
-    private var contents: [String: Task<[FrameIO.Item], Error>] = [:]
-
-    init(account: String, root: String) {
-        self.account = account
-        self.root = root
-    }
-
-    func folder(for path: [String]) async throws -> String {
-        guard let name = path.last else { return root }
-        if let existing = folders[path] { return try await existing.value }
-        let parentPath = Array(path.dropLast())
-        let task = Task {
-            let parent = try await self.folder(for: parentPath)
-            if let match = try await self.items(in: parent).first(where: { $0.isFolder && $0.title == name }) {
-                return match.id
-            }
-            return try await FrameIO.shared.createFolder(account: self.account, parent: parent, name: name).id
-        }
-        folders[path] = task
-        do {
-            return try await task.value
-        } catch {
-            folders[path] = nil   // a transient failure shouldn't fail every later file in this folder
-            throw error
-        }
-    }
-
-    /// A file with this name and size is already in the folder (a re-run after a partial upload).
-    func contains(name: String, size: Int64, in folder: String) async throws -> Bool {
-        try await items(in: folder).contains { item in
-            if item.isVersionStack { return item.headVersion?.name == name && item.headVersion?.fileSize == size }
-            return !item.isFolder && item.title == name && item.fileSize == size
-        }
-    }
-
-    private func items(in folder: String) async throws -> [FrameIO.Item] {
-        if let existing = contents[folder] { return try await existing.value }
-        let account = account
-        let task = Task { try await FrameIO.shared.children(account: account, folder: folder, thumbnails: false) }
-        contents[folder] = task
-        do {
-            return try await task.value
-        } catch {
-            contents[folder] = nil
-            throw error
-        }
-    }
 }

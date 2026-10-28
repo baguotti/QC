@@ -147,7 +147,19 @@ actor FrameIO {
         }
     }
 
+    /// Whether Frame.io has the whole file (`GET …/files/{id}/status`).
+    struct UploadStatus: Decodable, Sendable {
+        let uploadComplete: Bool?
+        let uploadFailed: Bool?
+
+        enum CodingKeys: String, CodingKey {
+            case uploadComplete = "upload_complete"
+            case uploadFailed = "upload_failed"
+        }
+    }
+
     private struct One: Decodable { let data: Item }
+    private struct Status: Decodable { let data: UploadStatus }
     private struct Created: Decodable { let data: LocalUpload }
     private struct Page: Decodable {
         let data: [Item]
@@ -367,6 +379,10 @@ actor FrameIO {
             let body = try JSONSerialization.data(withJSONObject: ["data": ["parent_id": stack]])
             _ = try await request("PATCH", "/v4/accounts/\(account)/files/\(file.id)/move", body: body)
         }
+    }
+
+    func uploadStatus(account: String, id: String) async throws -> UploadStatus {
+        try JSONDecoder().decode(Status.self, from: await request("GET", "/v4/accounts/\(account)/files/\(id)/status")).data
     }
 
     /// Removes a placeholder whose upload was cancelled or failed.

@@ -22,7 +22,7 @@ struct LineDetectorTests {
     @Test("Leaves clean frames clean", arguments: LineCase.negatives)
     func negative(_ c: LineCase) {
         let detections = detector.scanPixelBuffer(c.frame().makePixelBuffer(), config: c.config)
-        #expect(detections.allSatisfy(\.isOffColor), "\(c.name): got \(Self.describe(detections))")
+        #expect(detections.allSatisfy { $0.isOffColor }, "\(c.name): got \(Self.describe(detections))")
     }
 
     @Test("Lines of another colour are reported as off-colour, not as the target", arguments: LineCase.offColor)

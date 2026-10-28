@@ -31,10 +31,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         guard UploadQueue.shared.isRunning else { return .terminateNow }
         let alert = NSAlert()
         alert.messageText = "Uploads to Frame.io are still running."
-        alert.informativeText = "Quitting stops them. Files that didn't finish will need to be uploaded again."
+        alert.informativeText = "QCpie will pause them and save where they got to. Resume them from the Upload tab when you open QCpie again."
         alert.addButton(withTitle: "Keep Uploading")
-        alert.addButton(withTitle: "Quit")
-        return alert.runModal() == .alertSecondButtonReturn ? .terminateNow : .terminateCancel
+        alert.addButton(withTitle: "Pause and Quit")
+        guard alert.runModal() == .alertSecondButtonReturn else { return .terminateCancel }
+        UploadQueue.shared.pauseForQuit { sender.reply(toApplicationShouldTerminate: true) }
+        return .terminateLater
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
