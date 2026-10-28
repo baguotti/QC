@@ -61,6 +61,7 @@ enum MediaKindFilter {
 
 /// Icon toggles next to the filter field, shown only when the list mixes kinds. The last visible kind can't be turned off.
 struct MediaKindFilterChips: View {
+    @ObservedObject private var themeManager = ThemeManager.shared   // accent changes redraw
     @Binding var mask: Int
     let present: Int
     let isLightMode: Bool

@@ -69,7 +69,8 @@ final class StubStorage: URLProtocol, @unchecked Sendable {
         defer { stream.close() }
         var data = Data()
         var buffer = [UInt8](repeating: 0, count: 64 * 1024)
-        while stream.hasBytesAvailable {
+        // Part bodies are streamed while a pump fills them: read until the end, not just what's buffered so far.
+        while true {
             let count = stream.read(&buffer, maxLength: buffer.count)
             if count <= 0 { break }
             data.append(buffer, count: count)
@@ -220,7 +221,8 @@ struct UploadEngineTests {
         StubStorage.delay = 0.05
 
         let run = Task { await upload(makeEngine(api, store: store), file, size: data.count) }
-        while StubStorage.receivedPaths.count < 3 { try await Task.sleep(for: .milliseconds(10)) }
+        // Wait for the engine's own record of sent parts: the stub stores a body before the engine reads the reply.
+        while (await store.snapshot.files[file.path]?.done.count ?? 0) < 3 { try await Task.sleep(for: .milliseconds(10)) }
         run.cancel()
         #expect(await run.value == .cancelled)
         await store.flush()

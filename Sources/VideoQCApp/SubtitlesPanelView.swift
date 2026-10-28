@@ -148,6 +148,7 @@ final class SubtitleSpellingModel: ObservableObject {
 // MARK: - Subtitles Panel (Premiere-style Text panel)
 
 struct SubtitlesPanelView: View {
+    @ObservedObject private var themeManager = ThemeManager.shared   // accent changes redraw
     @ObservedObject var engine: PlayerEngine
     let isLightMode: Bool
     let onToast: (String) -> Void
@@ -660,6 +661,8 @@ struct SubtitlesPanelView: View {
 /// One subtitle line (not being edited). Equatable so playback only re-renders the rows whose
 /// active state flips, not the whole list.
 struct SubtitleCueRow: View, Equatable {
+    /// Redraws the row when its list redraws for a new accent (`ThemeManager.revision`).
+    var themeRevision = ThemeManager.shared.revision
     let number: Int
     let inTC: String
     let outTC: String
@@ -676,7 +679,8 @@ struct SubtitleCueRow: View, Equatable {
         lhs.number == rhs.number && lhs.inTC == rhs.inTC && lhs.outTC == rhs.outTC &&
         lhs.styled.plain == rhs.styled.plain && lhs.styled.italic == rhs.styled.italic && lhs.styled.bold == rhs.styled.bold &&
         lhs.searchQuery == rhs.searchQuery && lhs.matchCase == rhs.matchCase && lhs.isFocusedMatchRow == rhs.isFocusedMatchRow &&
-        lhs.spellingIssues == rhs.spellingIssues && lhs.isActive == rhs.isActive && lhs.isSelected == rhs.isSelected && lhs.isLightMode == rhs.isLightMode
+        lhs.spellingIssues == rhs.spellingIssues && lhs.isActive == rhs.isActive && lhs.isSelected == rhs.isSelected && lhs.isLightMode == rhs.isLightMode &&
+        lhs.themeRevision == rhs.themeRevision
     }
 
     private var palette: StudioPalette { StudioPalette(isLightMode) }
@@ -781,6 +785,7 @@ struct ClickCountCatcher: NSViewRepresentable {
 
 /// "CC" closed-captions mark (rounded box with the letters), used for subtitle controls.
 struct CCBadge: View {
+    @ObservedObject private var themeManager = ThemeManager.shared   // accent changes redraw
     /// nil = inherit the surrounding foreground colour (e.g. a button's active / inactive tint).
     var color: Color? = nil
     var size: CGFloat = 10

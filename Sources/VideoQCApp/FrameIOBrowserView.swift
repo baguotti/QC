@@ -92,6 +92,10 @@ final class FrameIOBrowser: ObservableObject {
 
     private var loadToken = 0
     private var anchor: String?
+    /// A pasted link's file or stack: selected once its folder has loaded.
+    private var pendingSelection: String?
+    /// The row the list scrolls to (a pasted link's file).
+    @Published private(set) var revealID: String?
 
     /// Pasteboard text identifying Frame.io items dragged inside the browser (moves).
     nonisolated static let dragPrefix = "qcpie-frameio\n"
@@ -203,6 +207,40 @@ final class FrameIOBrowser: ObservableObject {
         reload()
     }
 
+    // MARK: Pasted links
+
+    /// Goes to a Frame.io link (project, folder, file or stack; `f.io` short links too) and selects its file.
+    func openLink(_ text: String) {
+        guard signedIn == true else {
+            show(Toast(message: "Sign in to Frame.io to open links.", isError: true))
+            return
+        }
+        show(Toast(message: "Opening the Frame.io link…"))
+        let preferred = accountID
+        Task {
+            do {
+                let link = try FrameIOLink.parse(await FrameIOLink.expand(text))
+                let (crumbs, select) = try await FrameIOLink.resolve(link, preferredAccount: preferred)
+                pendingSelection = select
+                path = crumbs
+                reload()
+                toast = nil
+            } catch {
+                show(Toast(message: (error as? FrameIOLink.Failure)?.errorDescription ?? "Couldn't open the link: \(error.localizedDescription)",
+                           isError: true))
+            }
+        }
+    }
+
+    /// ⌘V in the Upload tab (no text field focused) and Open Link: a Frame.io link on the clipboard opens. False when
+    /// the clipboard holds something else, so the key isn't swallowed.
+    @discardableResult
+    func openLinkOnClipboard() -> Bool {
+        guard let text = NSPasteboard.general.string(forType: .string), FrameIOLink.looksLikeLink(text) else { return false }
+        openLink(text)
+        return true
+    }
+
     func goTo(depth: Int) {
         guard depth < path.count else { return }
         path.removeSubrange(depth...)
@@ -298,7 +336,16 @@ final class FrameIOBrowser: ObservableObject {
                 // A stack lists its versions newest first: keep that order (it is the version order).
                 items = crumbs.last?.level == .stack ? loaded : Self.sorted(loaded)
                 selection.formIntersection(items.map(\.id))
+                if let pending = pendingSelection, items.contains(where: { $0.id == pending }) {
+                    selection = [pending]
+                    anchor = pending
+                    revealID = pending
+                }
+                pendingSelection = nil
                 isLoading = false
+                if let account = crumbs.first?.id, crumbs.last?.level == .folder || crumbs.last?.level == .project {
+                    FrameIOCommentSync.shared.linkQueueClips(to: items, account: account)
+                }
                 if crumbs.last?.level == .stack, let stack = crumbs.last { versionCounts[stack.id] = loaded.count }
                 loadVersionCounts(items.filter(\.isVersionStack))
                 if projectID != sharesProject { loadShares() }
@@ -401,6 +448,24 @@ final class FrameIOBrowser: ObservableObject {
                 renamingID = folder.id
             } catch {
                 show(Toast(message: "Couldn't create the folder: \(error.localizedDescription)", isError: true))
+            }
+        }
+    }
+
+    /// Creates a project in the open workspace and opens it. In the Favourites view it's starred, so it shows there.
+    func newProject(named newName: String) {
+        let name = newName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard atProjectList, !name.isEmpty, let account = accountID, let workspace = path.last?.id else { return }
+        Task {
+            do {
+                let project = try await FrameIO.shared.createProject(account: account, workspace: workspace, name: name)
+                guard atProjectList, path.last?.id == workspace else { return }
+                items = Self.sorted(items + [project])
+                if favouriteProjectsOnly { addFavourite(project) }
+                open(project)
+                show(Toast(message: "Created project “\(project.title)”"))
+            } catch {
+                show(Toast(message: "Couldn't create the project: \(error.localizedDescription)", isError: true))
             }
         }
     }
@@ -678,6 +743,7 @@ final class FrameIOBrowser: ObservableObject {
 
 /// Right side of the Upload tab: Adobe sign-in, then the Frame.io browser.
 struct FrameIOBrowserView: View {
+    @ObservedObject private var themeManager = ThemeManager.shared   // accent changes redraw
     var isLightMode: Bool
     @ObservedObject private var browser = FrameIOBrowser.shared
     /// Row or breadcrumb under a drag.
@@ -689,6 +755,7 @@ struct FrameIOBrowserView: View {
     @State private var stackItems: MoveRequest?
     @State private var copyItems: MoveRequest?
     @State private var shareRequest: ShareRequest?
+    @State private var showNewProject = false
     @AppStorage("frameioThumbnails") private var showThumbnails = false
     @AppStorage("frameioThumbnailWidth") private var thumbnailWidth: Double = 64
 
@@ -730,6 +797,9 @@ struct FrameIOBrowserView: View {
         .onAppear { browser.start() }
         .sheet(item: $shareRequest, onDismiss: { browser.loadShares() }) { request in
             FrameIOShareSheet(request: request, isLightMode: isLightMode)
+        }
+        .sheet(isPresented: $showNewProject) {
+            FrameIONewProjectSheet(isLightMode: isLightMode) { name in browser.newProject(named: name) }
         }
         .sheet(item: $stackItems) { request in
             FrameIOStackSheet(files: request.items, isLightMode: isLightMode) { ordered in
@@ -792,6 +862,16 @@ struct FrameIOBrowserView: View {
             Spacer(minLength: 12)
             if inFolder {
                 toolButton("New Folder", systemImage: "folder.badge.plus", help: "Create a folder here", action: browser.newFolder)
+            }
+            if browser.atProjectList {
+                toolButton("New Project", systemImage: "plus.rectangle.on.folder", help: "Create a project in this workspace") {
+                    showNewProject = true
+                }
+            }
+            toolButton(nil, systemImage: "link", help: "Open the Frame.io link on the clipboard (or press ⌘V)") {
+                if !browser.openLinkOnClipboard() {
+                    browser.notify("Copy a Frame.io link first, then click here or press ⌘V.", isError: true)
+                }
             }
             toolButton(nil, systemImage: "arrow.clockwise", help: "Refresh", action: browser.refresh)
             toolDivider
@@ -890,9 +970,15 @@ struct FrameIOBrowserView: View {
             Image(systemName: "magnifyingglass")
                 .font(.system(size: StudioTheme.scaleFont(10)))
                 .foregroundColor(palette.textMuted)
-            TextField(browser.atProjectList ? "Filter projects" : "Filter by name", text: $browser.filter)
+            TextField(browser.atProjectList ? "Filter or paste a Frame.io link" : "Filter by name or paste a link", text: $browser.filter)
                 .textFieldStyle(.plain)
                 .font(.ui(size: 11))
+                .onChange(of: browser.filter) { _, text in
+                    // A Frame.io link pasted here goes to its place instead of filtering.
+                    guard FrameIOLink.looksLikeLink(text) else { return }
+                    browser.filter = ""
+                    browser.openLink(text)
+                }
             if !browser.filter.isEmpty {
                 Button(action: { browser.filter = "" }) {
                     Image(systemName: "xmark.circle.fill")
@@ -982,6 +1068,23 @@ struct FrameIOBrowserView: View {
         }
     }
 
+    /// Links the items' files to the queue clips with the same name and size and imports their comments as QC notes.
+    @ViewBuilder
+    private func importCommentsButton(_ targets: [FrameIO.Item]) -> some View {
+        if let account = browser.accountID, !targets.isEmpty {
+            Button {
+                browser.notify("Importing Frame.io comments…")
+                Task {
+                    let summary = await FrameIOCommentSync.shared.importComments(targets, account: account)
+                    browser.notify(summary)
+                }
+            } label: {
+                Label("Import Comments into QCpie", systemImage: "text.bubble")
+            }
+            .help("Adds this file's Frame.io comments to the QC notes of the queue clip with the same name and size")
+        }
+    }
+
     private var toolDivider: some View {
         Rectangle()
             .fill(palette.borderLine)
@@ -1059,6 +1162,7 @@ struct FrameIOBrowserView: View {
                     .frame(maxWidth: .infinity)
                     .contentShape(Rectangle())
             } else {
+                ScrollViewReader { scroller in
                 ScrollView {
                     // Pinned inside the scroll view so the column titles share the rows' width (scroll bar included).
                     LazyVStack(spacing: 0, pinnedViews: [.sectionHeaders]) {
@@ -1073,15 +1177,20 @@ struct FrameIOBrowserView: View {
                                 }
                             }
                         } header: {
-                            if browser.atProjectList { projectColumnHeader }
+                            if browser.atProjectList { projectColumnHeader } else if inFolder || browser.inStack { contentColumnHeader }
                         }
                     }
                     .padding(.bottom, 6)
-                    .padding(.top, browser.atProjectList ? 0 : 6)
+                    .padding(.top, browser.atProjectList || inFolder || browser.inStack ? 0 : 6)
                     Color.clear
                         .frame(height: 60)
                         .contentShape(Rectangle())
                         .onTapGesture { browser.selection = [] }
+                }
+                .onChange(of: browser.revealID) { _, id in
+                    guard let id else { return }
+                    DispatchQueue.main.async { withAnimation { scroller.scrollTo(id, anchor: .center) } }
+                }
                 }
             }
         }
@@ -1099,19 +1208,40 @@ struct FrameIOBrowserView: View {
                 Button(action: shareSelectionOrFolder) { Label("Create Share Link", systemImage: "square.and.arrow.up") }
                 Divider()
             }
+            if browser.atProjectList {
+                Button { showNewProject = true } label: { Label("New Project…", systemImage: "plus.rectangle.on.folder") }
+                Divider()
+            }
             Button(action: browser.refresh) { Label("Refresh", systemImage: "arrow.clockwise") }
         }
     }
 
     /// Column titles over the project list (Frame.io's project table, minus Workspace: it's in the breadcrumbs).
     private var projectColumnHeader: some View {
+        columnHeader("Project", inset: StudioTheme.scale(22) + 10,
+                     columns: ProjectColumn.allCases.map { ($0.title, $0.width) })
+    }
+
+    /// Column titles over a folder's contents (aligned with the names) or a stack's versions (over the V badges).
+    private var contentColumnHeader: some View {
+        columnHeader(browser.inStack ? "Version" : "Name",
+                     inset: browser.inStack ? 0 : (showThumbnails ? CGFloat(thumbnailWidth) : StudioTheme.scale(18)) + 10,
+                     columns: ContentColumn.allCases.map { ($0.title, $0.width) })
+    }
+
+    private func columnHeader(_ name: String, inset: CGFloat, columns: [(title: String, width: CGFloat)]) -> some View {
         VStack(spacing: 0) {
             HStack(spacing: 10) {
-                Text("Project")
-                    .padding(.leading, StudioTheme.scale(22) + 10)
-                Spacer()
-                ForEach(ProjectColumn.allCases, id: \.self) { column in
-                    Text(column.title).frame(width: StudioTheme.scale(column.width), alignment: .leading)
+                // One line each: squeezed by the fixed-width columns, a wrapping title made the header tall.
+                Text(name)
+                    .lineLimit(1)
+                    .padding(.leading, inset)
+                Spacer(minLength: 0)
+                ForEach(columns, id: \.title) { column in
+                    Text(column.title)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                        .frame(width: StudioTheme.scale(column.width), alignment: .leading)
                 }
                 Color.clear.frame(width: StudioTheme.scale(10))
             }
@@ -1259,17 +1389,16 @@ struct FrameIOBrowserView: View {
                     .help("\(count) versions: showing V\(count), the current one")
             }
             Spacer()
-            if let size = item.displaySize, !item.isFolder {
-                Text(ByteCountFormatter.string(fromByteCount: size, countStyle: .file))
-                    .font(.ui(size: 11))
-                    .foregroundColor(isSelected ? .white.opacity(0.85) : palette.textMuted)
-            }
+            contentColumns(item, isSelected: isSelected)
             if item.isFolder || item.isVersionStack {
                 Image(systemName: "chevron.right")
                     .font(.system(size: StudioTheme.scaleFont(10), weight: .semibold))
                     .foregroundColor(isSelected ? .white : palette.textMuted.opacity(0.6))
+                    .frame(width: StudioTheme.scale(10))
                     .contentShape(Rectangle().inset(by: -6))
                     .onTapGesture { browser.open(item) }
+            } else {
+                Color.clear.frame(width: StudioTheme.scale(10))
             }
         }
         .padding(.horizontal, 20)
@@ -1295,6 +1424,16 @@ struct FrameIOBrowserView: View {
             return accept(providers, into: item.id, titles: browser.destinationTitles + [item.title])
         }
         .contextMenu { menu(for: item) }
+    }
+
+    private func contentColumns(_ item: FrameIO.Item, isSelected: Bool) -> some View {
+        ForEach(ContentColumn.allCases, id: \.self) { column in
+            Text(column.value(for: item))
+                .font(.ui(size: 11))
+                .foregroundColor(isSelected ? .white.opacity(0.85) : palette.textMuted)
+                .lineLimit(1)
+                .frame(width: StudioTheme.scale(column.width), alignment: .leading)
+        }
     }
 
     private func versionBadge(_ text: String, isSelected: Bool) -> some View {
@@ -1333,11 +1472,8 @@ struct FrameIOBrowserView: View {
                     .foregroundColor(isSelected ? .white : palette.positive)
             }
             Spacer()
-            if let size = item.fileSize {
-                Text(ByteCountFormatter.string(fromByteCount: size, countStyle: .file))
-                    .font(.ui(size: 11))
-                    .foregroundColor(isSelected ? .white.opacity(0.85) : palette.textMuted)
-            }
+            contentColumns(item, isSelected: isSelected)
+            Color.clear.frame(width: StudioTheme.scale(10))
         }
         .padding(.horizontal, 20)
         .padding(.vertical, 7)
@@ -1352,6 +1488,7 @@ struct FrameIOBrowserView: View {
             Divider()
             openInNewTab(targets.count == 1 ? item : nil)
             downloadButton(targets)
+            importCommentsButton(targets)
             Divider()
             copyURLButton(targets)
             if targets.count == 1 {
@@ -1368,9 +1505,10 @@ struct FrameIOBrowserView: View {
     /// Frame.io files dropped on a stack become its newest versions; dropped on a file, they stack with it (the file is
     /// V1, the dropped ones come after). Queue files upload into the open folder.
     private func acceptIntoStack(_ providers: [NSItemProvider], stack: FrameIO.Item) -> Bool {
-        guard let folder = browser.currentFolderID,
-              let provider = providers.first(where: { $0.canLoadObject(ofClass: NSString.self) }) else { return false }
+        guard let folder = browser.currentFolderID else { return false }
         let titles = browser.destinationTitles
+        if Self.acceptFinderFiles(providers, into: folder, titles: titles) { return true }
+        guard let provider = providers.first(where: { $0.canLoadObject(ofClass: NSString.self) }) else { return false }
         _ = provider.loadObject(ofClass: NSString.self) { object, _ in
             guard let text = object as? String else { return }
             DispatchQueue.main.async {
@@ -1403,6 +1541,7 @@ struct FrameIOBrowserView: View {
         Divider()
         openInNewTab(single)
         downloadButton(targets)
+        importCommentsButton(targets)
         Divider()
         if let single, single.isVersionStack {
             Button { browser.open(single) } label: { Label("Version History", systemImage: "square.stack") }
@@ -1565,8 +1704,9 @@ struct FrameIOBrowserView: View {
 
     /// A drop on a folder: queue files start uploading there; Frame.io items dragged from this list move there.
     private func accept(_ providers: [NSItemProvider], into folder: String, titles: [String]) -> Bool {
-        guard browser.accountID != nil,
-              let provider = providers.first(where: { $0.canLoadObject(ofClass: NSString.self) }) else { return false }
+        guard browser.accountID != nil else { return false }
+        if Self.acceptFinderFiles(providers, into: folder, titles: titles) { return true }
+        guard let provider = providers.first(where: { $0.canLoadObject(ofClass: NSString.self) }) else { return false }
         _ = provider.loadObject(ofClass: NSString.self) { object, _ in
             guard let text = object as? String else { return }
             DispatchQueue.main.async {
@@ -1579,6 +1719,38 @@ struct FrameIOBrowserView: View {
                         FrameIOBrowser.shared.move(moving, to: folder, titled: titles.last ?? "Frame.io")
                     }
                 }
+            }
+        }
+        return true
+    }
+
+    /// Files and folders dragged from Finder: they join the app's queue, then upload to `folder` (`uploadFromFinder`).
+    /// Checked before the text drags, since Finder also offers file names as text.
+    private static func acceptFinderFiles(_ providers: [NSItemProvider], into folder: String, titles: [String]) -> Bool {
+        let files = providers.filter { $0.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier) }
+        guard !files.isEmpty else { return false }
+        final class Collector: @unchecked Sendable {
+            let lock = NSLock()
+            var urls: [URL] = []
+        }
+        let collector = Collector()
+        let group = DispatchGroup()
+        for provider in files {
+            group.enter()
+            _ = provider.loadObject(ofClass: URL.self) { url, _ in
+                if let url { collector.lock.withLock { collector.urls.append(url) } }
+                group.leave()
+            }
+        }
+        group.notify(queue: .main) {
+            MainActor.assumeIsolated {
+                let urls = collector.lock.withLock { collector.urls }
+                guard !urls.isEmpty, let account = FrameIOBrowser.shared.accountID else { return }
+                guard !UploadQueue.shared.isRunning else {
+                    FrameIOBrowser.shared.notify("An upload is already running: wait for it to finish or cancel it.", isError: true)
+                    return
+                }
+                UploadQueue.shared.uploadFromFinder(urls, to: .init(account: account, folder: folder, path: titles.joined(separator: " › ")))
             }
         }
         return true
@@ -1754,11 +1926,11 @@ private struct FrameIOMoveSheet: View {
 }
 
 private extension View {
-    /// Accepts drops (queue files or Frame.io items) only where `enabled`, so non-targets don't swallow them.
+    /// Accepts drops (Finder files, queue files or Frame.io items) only where `enabled`, so non-targets don't swallow them.
     @ViewBuilder
     func dropIf(_ enabled: Bool, isTargeted: Binding<Bool>, perform: @escaping ([NSItemProvider]) -> Bool) -> some View {
         if enabled {
-            onDrop(of: [.utf8PlainText], isTargeted: isTargeted, perform: perform)
+            onDrop(of: [.fileURL, .utf8PlainText], isTargeted: isTargeted, perform: perform)
         } else {
             self
         }
@@ -1766,6 +1938,53 @@ private extension View {
 }
 
 /// "Stack as Versions…": puts the files in version order (V1 oldest … last = current) before stacking.
+/// Frame.io's New Project dialog: a name, then Create. Return creates and Esc cancels (the shortcut router unfocuses the
+/// field for both and swallows the key, so they're read from the event that ended editing).
+private struct FrameIONewProjectSheet: View {
+    @ObservedObject private var themeManager = ThemeManager.shared   // accent changes redraw
+    let isLightMode: Bool
+    let onCreate: (String) -> Void
+    @Environment(\.dismiss) private var dismiss
+    @State private var name = ""
+    @FocusState private var focused: Bool
+
+    private var palette: StudioPalette { StudioPalette(isLightMode) }
+    private var trimmed: String { name.trimmingCharacters(in: .whitespacesAndNewlines) }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Text("New Project")
+                .font(.ui(size: 15, weight: .semibold))
+                .foregroundColor(palette.textMain)
+            TextField("Project name", text: $name)
+                .textFieldStyle(.roundedBorder)
+                .font(.ui(size: 12))
+                .focused($focused)
+                .onChange(of: focused) { _, isFocused in
+                    guard !isFocused, let event = NSApp.currentEvent, event.type == .keyDown else { return }
+                    if event.keyCode == 53 { dismiss() } else if event.keyCode == 36 || event.keyCode == 76 { create() }
+                }
+            HStack {
+                Spacer()
+                Button("Cancel") { dismiss() }
+                Button("Create", action: create)
+                    .keyboardShortcut(.defaultAction)
+                    .disabled(trimmed.isEmpty)
+            }
+        }
+        .padding(20)
+        .frame(width: 340)
+        .background(palette.bgPanel)
+        .onAppear { DispatchQueue.main.async { focused = true } }
+    }
+
+    private func create() {
+        guard !trimmed.isEmpty else { return }
+        onCreate(trimmed)
+        dismiss()
+    }
+}
+
 private struct FrameIOStackSheet: View {
     let isLightMode: Bool
     let onStack: ([FrameIO.Item]) -> Void
@@ -2427,6 +2646,8 @@ private struct FrameIOShareSheet: View {
 /// A Frame.io thumbnail for a list row (16:9 box; folders and files without one get an icon). Loaded only when the row
 /// is on screen, decoded off the main thread at the displayed size, and kept in a small memory cache.
 private struct FrameIOThumbnail: View {
+    /// Redraws the row when its list redraws for a new accent (`ThemeManager.revision`).
+    var themeRevision = ThemeManager.shared.revision
     let item: FrameIO.Item
     let width: Double
     let isLightMode: Bool
@@ -2627,20 +2848,62 @@ private enum ProjectColumn: CaseIterable {
     }
 }
 
+/// Folder and stack contents columns after the name, in the project table's order (fixed widths, scaled with Button Size).
+private enum ContentColumn: CaseIterable {
+    case updated, size, created, kind
+
+    var title: String {
+        switch self {
+        case .updated: return "Last Updated"
+        case .size: return "Size"
+        case .created: return "Creation Date"
+        case .kind: return "Type"
+        }
+    }
+
+    var width: CGFloat {
+        switch self {
+        case .updated: return 90
+        case .size: return 80
+        case .created: return 160
+        case .kind: return 64
+        }
+    }
+
+    func value(for item: FrameIO.Item) -> String {
+        switch self {
+        case .updated: return item.updatedDate?.formatted(.relative(presentation: .numeric, unitsStyle: .narrow)) ?? "—"
+        case .size: return item.isFolder ? "—" : item.displaySize.map { ByteCountFormatter.string(fromByteCount: $0, countStyle: .file) } ?? "—"
+        case .created: return item.createdDate?.formatted(date: .abbreviated, time: .shortened) ?? "—"
+        case .kind:
+            if item.isFolder { return "Folder" }
+            if item.isVersionStack { return "Stack" }
+            let ext = (item.title as NSString).pathExtension
+            return ext.isEmpty ? "File" : ext.uppercased()
+        }
+    }
+}
+
 /// The right drawer's tabs at the far right of the Frame.io header, like the Player's review sleeve: a tab opens the
 /// drawer on its page (or closes it when already showing), the chevron opens / closes it, and starting a download
 /// opens Downloads. The only part of the header that observes `DownloadQueue` (its 5 Hz progress mustn't redraw the
 /// browser's list).
 private struct DrawerTabs: View {
+    @ObservedObject private var themeManager = ThemeManager.shared   // accent changes redraw
     let isLightMode: Bool
     @AppStorage("uploadLogOpen") private var isOpen = false
     @AppStorage("uploadDrawerTab") private var tab = "log"
     @ObservedObject private var downloads = DownloadQueue.shared
+    @State private var isDropTarget = false
 
     private var palette: StudioPalette { StudioPalette(isLightMode) }
+
     var body: some View {
         HStack(spacing: 4) {
             tabButton("downloads", "Downloads", badge: downloads.isRunning ? "\(downloads.percent)%" : nil)
+                .background(RoundedRectangle(cornerRadius: StudioTheme.cornerRadius).fill(isDropTarget ? palette.accentBlue.opacity(0.25) : .clear))
+                // Dropping Frame.io rows here downloads them (and opens the drawer once a download starts).
+                .onDrop(of: [.utf8PlainText], isTargeted: $isDropTarget, perform: DownloadQueue.acceptDrop)
             tabButton("log", "Log", badge: nil)
             Button(action: { toggle { isOpen.toggle() } }) {
                 Image(systemName: isOpen ? "chevron.right" : "chevron.left")

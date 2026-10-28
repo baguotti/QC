@@ -5,6 +5,7 @@ import VideoQCLib
 /// "Assets" block of the left panels: a segmented Change | Add | Refresh control, then the loaded folder (or files)
 /// with a per-kind breakdown ("6 videos · 2 images · 1 audio").
 struct AssetSourcePanel: View {
+    @ObservedObject private var themeManager = ThemeManager.shared   // accent changes redraw
     let folderURL: URL?
     let files: [URL]
     let isBusy: Bool

@@ -22,6 +22,8 @@ struct DownloadItem: Sendable, Equatable {
 
 enum DownloadOutcome: Sendable, Equatable {
     case downloaded(URL)
+    /// Stopped by Pause: the partial file and its finished chunks are kept for Resume.
+    case paused
     case cancelled
     case failed(String)
 }
@@ -45,19 +47,22 @@ final class DownloadEngine: Sendable {
     let progress: UploadProgress
     let network: NetworkStatus
     let limits: Limits
+    let resume: DownloadResumeState
 
-    init(api: DownloadAPI, session: URLSession, progress: UploadProgress, network: NetworkStatus, limits: Limits = Limits()) {
+    init(api: DownloadAPI, session: URLSession, progress: UploadProgress, network: NetworkStatus, limits: Limits = Limits(),
+         resume: DownloadResumeState = DownloadResumeState()) {
         self.api = api
         self.session = session
         self.progress = progress
         self.network = network
         self.limits = limits
+        self.resume = resume
     }
 
     private var retry: NetworkRetry { NetworkRetry(network: network, maxBackoff: limits.maxBackoff, giveUpAfter: limits.giveUpAfter) }
 
     /// Downloads `items` under `destination`, reporting each as it starts and finishes. Cancelling stops at once and
-    /// removes the unfinished temporary files.
+    /// removes the unfinished temporary files, unless `resume` is pausing: then they're kept with their finished chunks.
     func run(_ items: [DownloadItem], account: String, destination: URL,
              onStart: @escaping @Sendable (UUID) async -> Void,
              onFinish: @escaping @Sendable (UUID, DownloadOutcome) async -> Void) async {
@@ -83,7 +88,15 @@ final class DownloadEngine: Sendable {
         do {
             let folder = item.folders.reduce(destination) { $0.appendingPathComponent(Self.safeName($1), isDirectory: true) }
             try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-            if let free = try? folder.resourceValues(forKeys: [.volumeAvailableCapacityForImportantUsageKey]).volumeAvailableCapacityForImportantUsage,
+            // A paused download carries on in its partial file, skipping the chunks already in it.
+            var saved = resume.saved(item.jobID)
+            if let file = saved?.partial,
+               (try? FileManager.default.attributesOfItem(atPath: file.path)[.size] as? NSNumber)?.int64Value != item.size {
+                try? FileManager.default.removeItem(at: file)
+                saved = nil
+            }
+            if saved == nil,
+               let free = try? folder.resourceValues(forKeys: [.volumeAvailableCapacityForImportantUsageKey]).volumeAvailableCapacityForImportantUsage,
                free < item.size {
                 throw DownloadError.noSpace
             }
@@ -92,12 +105,16 @@ final class DownloadEngine: Sendable {
                 return .failed("Frame.io doesn't offer this file for download (no download rights, or it isn't processed yet).")
             }
             // Named by the job, not the file: a long name plus a prefix and suffix could pass the 255-byte limit.
-            let partial = folder.appendingPathComponent(".\(item.jobID.uuidString).qcpie-download")
+            let partial = saved?.partial ?? folder.appendingPathComponent(".\(item.jobID.uuidString).qcpie-download")
             temp = partial
-            FileManager.default.createFile(atPath: partial.path, contents: nil)
-            let handle = try FileHandle(forWritingTo: partial)
-            try handle.truncate(atOffset: UInt64(item.size))
-            try handle.close()
+            if saved == nil {
+                FileManager.default.createFile(atPath: partial.path, contents: nil)
+                let handle = try FileHandle(forWritingTo: partial)
+                try handle.truncate(atOffset: UInt64(item.size))
+                try handle.close()
+            }
+            let done = saved?.done ?? []
+            resume.begin(item.jobID, partial: partial, done: done)
 
             // Size unknown (0): one request for the whole file. Otherwise 32 MB ranges.
             var ranges: [Range<Int64>?] = item.size == 0 ? [nil] : []
@@ -110,6 +127,10 @@ final class DownloadEngine: Sendable {
             let failure = FirstError()
             try await withThrowingTaskGroup(of: Void.self) { group in
                 for (index, range) in ranges.enumerated() {
+                    if done.contains(index) {
+                        progress.complete(item.jobID, key: "c\(index)", bytes: Int64(range?.count ?? 0))
+                        continue
+                    }
                     if let error = failure.value { throw error }
                     try Task.checkCancellation()
                     let cost = Int64(range?.count ?? 0)
@@ -119,6 +140,7 @@ final class DownloadEngine: Sendable {
                             try await self.fetch(range, item: item, account: account, link: link, into: partial, gate: gate) { received in
                                 self.progress.set(item.jobID, key: "c\(index)", bytes: received)
                             }
+                            self.resume.markDone(item.jobID, chunk: index)
                             await gate.release(cost: cost)
                         } catch {
                             await gate.release(cost: cost)
@@ -132,12 +154,15 @@ final class DownloadEngine: Sendable {
             let written = (try? FileManager.default.attributesOfItem(atPath: partial.path)[.size] as? NSNumber)?.int64Value
             guard item.size == 0 || written == item.size else { throw DownloadError.incomplete }
             let final = try Self.moveIntoPlace(partial, name: Self.safeName(item.name), in: folder)
+            resume.forget(item.jobID)
             temp = nil
             return .downloaded(final)
         } catch {
+            let cancelled = UploadEngine.isCancellation(error) || Task.isCancelled
+            if cancelled && resume.isPausing { return .paused }
             if let temp { try? FileManager.default.removeItem(at: temp) }
-            if UploadEngine.isCancellation(error) || Task.isCancelled { return .cancelled }
-            return .failed(UploadEngine.describe(error))
+            resume.forget(item.jobID)
+            return cancelled ? .cancelled : .failed(UploadEngine.describe(error))
         }
     }
 
@@ -288,6 +313,31 @@ enum DownloadError: LocalizedError {
     }
 }
 
+/// Partial files of paused downloads and the chunks already in them, so Resume fetches only the rest. Kept for this
+/// session only: quitting removes the partial files.
+final class DownloadResumeState: @unchecked Sendable {
+    private let lock = NSLock()
+    private var files: [UUID: (partial: URL, done: Set<Int>)] = [:]
+    private var pausing = false
+
+    /// Set before cancelling the run for Pause: stopped files keep their partial file instead of removing it.
+    var isPausing: Bool {
+        get { lock.withLock { pausing } }
+        set { lock.withLock { pausing = newValue } }
+    }
+
+    func saved(_ job: UUID) -> (partial: URL, done: Set<Int>)? { lock.withLock { files[job] } }
+    func begin(_ job: UUID, partial: URL, done: Set<Int>) { lock.withLock { files[job] = (partial, done) } }
+    func markDone(_ job: UUID, chunk: Int) { lock.withLock { _ = files[job]?.done.insert(chunk) } }
+    func forget(_ job: UUID) { lock.withLock { _ = files.removeValue(forKey: job) } }
+
+    /// Forgets these jobs and removes their partial files (paused downloads cancelled, or the app quitting).
+    func discard(_ jobs: [UUID]) {
+        let partials = lock.withLock { jobs.compactMap { files.removeValue(forKey: $0)?.partial } }
+        for file in partials { try? FileManager.default.removeItem(at: file) }
+    }
+}
+
 /// The file's current download link, shared by its chunks (replaced when it expires).
 final class LinkBox: @unchecked Sendable {
     private let lock = NSLock()
@@ -344,7 +394,7 @@ final class DownloadQueue: ObservableObject {
     static let addToQueue = Notification.Name("QCpieDownloadAddToQueue")
 
     enum Status: Equatable {
-        case queued, downloading, done, cancelled
+        case queued, downloading, paused, done, cancelled
         case failed(String)
     }
 
@@ -377,8 +427,12 @@ final class DownloadQueue: ObservableObject {
     @Published private(set) var lastError: String?
 
     private let progress = UploadProgress()
+    private let resumeState = DownloadResumeState()
     private lazy var engine = DownloadEngine(api: FrameIO.shared, session: UploadEngine.makeSession(), progress: progress,
-                                             network: NetworkMonitor.shared)
+                                             network: NetworkMonitor.shared, resume: resumeState)
+    /// The batch's entry in the transfer log, and when each of its files started.
+    private var logRunID: UUID?
+    private var jobStarted: [UUID: Date] = [:]
     private var runTask: Task<Void, Never>?
     private var ticker: Timer?
     private var lastTick: (date: Date, bytes: Int64)?
@@ -393,7 +447,9 @@ final class DownloadQueue: ObservableObject {
     var finishedCount: Int { jobs.filter { $0.status == .done }.count }
     var percent: Int { Int((Double(receivedBytes) / Double(max(totalBytes, 1)) * 100).rounded(.down)) }
     var failedCount: Int { jobs.filter { if case .failed = $0.status { return true }; return false }.count }
-    var hasFinished: Bool { jobs.contains { $0.status != .queued && $0.status != .downloading } }
+    var hasFinished: Bool { jobs.contains { $0.status != .queued && $0.status != .downloading && $0.status != .paused } }
+    /// Paused, waiting for Resume (or Cancel).
+    var isPaused: Bool { !isRunning && jobs.contains { $0.status == .paused } }
 
     private init() {}
 
@@ -401,7 +457,11 @@ final class DownloadQueue: ObservableObject {
 
     /// Asks where to save (and whether to add the files to the queue), then downloads `items` there.
     func download(_ items: [FrameIO.Item], account: String) {
-        guard !items.isEmpty, let choice = Self.chooseDestination(for: items) else { return }
+        guard !items.isEmpty else { return }
+        Self.chooseDestination(for: items) { choice in self.start(items, account: account, choice: choice) }
+    }
+
+    private func start(_ items: [FrameIO.Item], account: String, choice: (folder: URL, addToQueue: Bool)) {
         startCount += 1
         isPreparing = true
         lastError = nil
@@ -420,6 +480,25 @@ final class DownloadQueue: ObservableObject {
         }
     }
 
+    /// Frame.io rows dragged from the browser and dropped on the Downloads drawer or its tab: the same as Download….
+    /// Other text (queue files dragged for upload) is ignored.
+    nonisolated static func acceptDrop(_ providers: [NSItemProvider]) -> Bool {
+        guard let provider = providers.first(where: { $0.canLoadObject(ofClass: NSString.self) }) else { return false }
+        _ = provider.loadObject(ofClass: NSString.self) { object, _ in
+            guard let text = object as? String, text.hasPrefix(FrameIOBrowser.dragPrefix) else { return }
+            let ids = Set(text.dropFirst(FrameIOBrowser.dragPrefix.count).split(separator: "\n").map(String.init))
+            DispatchQueue.main.async {
+                MainActor.assumeIsolated {
+                    let browser = FrameIOBrowser.shared
+                    let items = browser.items.filter { ids.contains($0.id) }
+                    guard let account = browser.accountID, !items.isEmpty else { return }
+                    DownloadQueue.shared.download(items, account: account)
+                }
+            }
+        }
+        return true
+    }
+
     /// Downloads the failed files again.
     func retryFailed() {
         for index in jobs.indices {
@@ -431,21 +510,52 @@ final class DownloadQueue: ObservableObject {
         pump()
     }
 
-    func cancel() {
+    /// Stops the running files, keeping what they downloaded so far: Resume fetches only the missing chunks.
+    func pause() {
+        guard isRunning, !resumeState.isPausing else { return }
+        resumeState.isPausing = true
         runTask?.cancel()
     }
 
-    /// Quitting while downloading: stops, removes the partial files, then calls `done`.
+    func resume() {
+        guard !isRunning else { return }
+        for index in jobs.indices where jobs[index].status == .paused { jobs[index].status = .queued }
+        pump()
+    }
+
+    /// Stops everything and removes the partial files, paused ones included.
+    func cancel() {
+        discardPaused()
+        runTask?.cancel()
+    }
+
+    private func discardPaused() {
+        let paused = jobs.filter { $0.status == .paused }.map(\.id)
+        resumeState.discard(paused)
+        for index in jobs.indices where jobs[index].status == .paused { jobs[index].status = .cancelled }
+    }
+
+    /// Quitting while downloading or paused: stops, removes the partial files (downloads don't resume across launches),
+    /// then calls `done`.
     func stopForQuit(_ done: @escaping () -> Void) {
+        discardPaused()
         guard isRunning else { done(); return }
+        resumeState.isPausing = false
         whenStopped.append(done)
-        cancel()
+        runTask?.cancel()
     }
 
     /// Removes finished, failed and cancelled rows.
     func clearFinished() {
-        jobs.removeAll { $0.status != .queued && $0.status != .downloading }
+        jobs.removeAll { $0.status != .queued && $0.status != .downloading && $0.status != .paused }
         if jobs.isEmpty { runStarted = nil; runFinished = nil; speedHistory = [] }
+    }
+
+    /// The folder a file not downloaded yet goes to (created if needed, so Finder can show it).
+    func revealDestination(_ job: Job) {
+        let folder = job.folders.reduce(job.destination) { $0.appendingPathComponent(DownloadEngine.safeName($1), isDirectory: true) }
+        let shown = FileManager.default.fileExists(atPath: folder.path) ? folder : job.destination
+        NSWorkspace.shared.activateFileViewerSelecting([shown])
     }
 
     func revealInFinder(_ job: Job) {
@@ -467,6 +577,7 @@ final class DownloadQueue: ObservableObject {
         }
         runFinished = nil
         startTicker()
+        logRunID = TransferLog.shared.begin(.download, destination: (first.destination.path as NSString).abbreviatingWithTildeInPath)
         if sleepActivity == nil {
             sleepActivity = ProcessInfo.processInfo.beginActivity(options: [.userInitiated, .idleSystemSleepDisabled],
                                                                   reason: "Downloading from Frame.io")
@@ -476,34 +587,62 @@ final class DownloadQueue: ObservableObject {
         let engine = engine
         runTask = Task {
             await engine.run(items, account: first.account, destination: first.destination,
-                             onStart: { id in await self.set(id, .downloading) },
+                             onStart: { id in await self.started(id) },
                              onFinish: { id, outcome in await self.finished(id, outcome, addToQueue: addToQueue[id] ?? false) })
             let cancelled = Task.isCancelled
             finishRun(cancelled: cancelled)
         }
     }
 
+    private func started(_ id: UUID) {
+        jobStarted[id] = Date()
+        set(id, .downloading)
+    }
+
     private func finished(_ id: UUID, _ outcome: DownloadOutcome, addToQueue: Bool) {
         guard let index = jobs.firstIndex(where: { $0.id == id }) else { return }
+        let entryOutcome: UploadLogEntry.Outcome?
+        var message: String?
         switch outcome {
         case .downloaded(let url):
             jobs[index].status = .done
             jobs[index].localURL = url
             if addToQueue { queueForPlayer(url) }
+            let account = jobs[index].account, fileID = jobs[index].fileID
+            Task { await FrameIOLinks.shared.link(url, account: account, fileID: fileID) }   // for its comments
+            entryOutcome = .uploaded
+        case .paused:
+            jobs[index].status = .paused
+            entryOutcome = nil
         case .cancelled:
             jobs[index].status = .cancelled
-        case .failed(let message):
-            jobs[index].status = .failed(message)
+            entryOutcome = .cancelled
+        case .failed(let text):
+            jobs[index].status = .failed(text)
+            entryOutcome = .failed
+            message = text
         }
+        let job = jobs[index]
+        guard let entryOutcome, let logRunID, let started = jobStarted.removeValue(forKey: id) else { return }
+        let place = ([(job.destination.path as NSString).abbreviatingWithTildeInPath] + job.folders).joined(separator: " › ")
+        TransferLog.shared.record(UploadLogEntry(id: UUID(), name: job.name, destination: place, bytes: job.size, started: started,
+                                                 finished: Date(), outcome: entryOutcome, message: message,
+                                                 localPath: job.localURL?.path), in: logRunID)
     }
 
     private func finishRun(cancelled: Bool) {
+        let pausing = resumeState.isPausing
+        resumeState.isPausing = false
+        let stoppedStatus: Status = pausing ? .paused : .cancelled
         for index in jobs.indices where jobs[index].status == .downloading || (cancelled && jobs[index].status == .queued) {
-            jobs[index].status = .cancelled
+            jobs[index].status = stoppedStatus
         }
         tick()
         isRunning = false
         runTask = nil
+        if let logRunID { TransferLog.shared.end(logRunID) }
+        logRunID = nil
+        jobStarted = [:]
         if !cancelled && jobs.contains(where: { $0.status == .queued }) {
             pump()   // the next batch (another destination or account)
             return
@@ -543,7 +682,9 @@ final class DownloadQueue: ObservableObject {
     private static let addToQueueKey = "frameioDownloadAddToQueue"
 
     /// The folder to save into and whether to add the files to the queue: one Open panel with a checkbox, both remembered.
-    private static func chooseDestination(for items: [FrameIO.Item]) -> (folder: URL, addToQueue: Bool)? {
+    /// Shown as a sheet, not `runModal`: a modal loop started from a drop blocked the drag from finishing, and its image
+    /// stayed on screen until the panel closed.
+    private static func chooseDestination(for items: [FrameIO.Item], then chosen: @escaping ((folder: URL, addToQueue: Bool)) -> Void) {
         let panel = NSOpenPanel()
         panel.canChooseFiles = false
         panel.canChooseDirectories = true
@@ -564,11 +705,18 @@ final class DownloadQueue: ObservableObject {
         accessory.addSubview(checkbox)
         panel.accessoryView = accessory
         panel.isAccessoryViewDisclosed = true
-        guard panel.runModal() == .OK, let folder = panel.url else { return nil }
-        let addToQueue = checkbox.state == .on
-        UserDefaults.standard.set(folder, forKey: folderKey)
-        UserDefaults.standard.set(addToQueue, forKey: addToQueueKey)
-        return (folder, addToQueue)
+        let finish: (NSApplication.ModalResponse) -> Void = { response in
+            guard response == .OK, let folder = panel.url else { return }
+            let addToQueue = checkbox.state == .on
+            UserDefaults.standard.set(folder, forKey: folderKey)
+            UserDefaults.standard.set(addToQueue, forKey: addToQueueKey)
+            chosen((folder, addToQueue))
+        }
+        if let window = NSApp.mainWindow ?? NSApp.keyWindow {
+            panel.beginSheetModal(for: window, completionHandler: finish)
+        } else {
+            panel.begin(completionHandler: finish)
+        }
     }
 
     // MARK: Progress

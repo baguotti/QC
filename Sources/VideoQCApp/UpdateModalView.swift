@@ -4,6 +4,7 @@ import AppKit
 /// Checking, downloading and installing QCpie updates (GitHub releases): one rounded card in the style of the Upload tab
 /// and macOS's own update prompts — the app icon, a title and one line of detail, then the actions at the bottom right.
 struct UpdateModalView: View {
+    @ObservedObject private var themeManager = ThemeManager.shared   // accent changes redraw
     @ObservedObject var updateManager: UpdateManager
     @Binding var isPresented: Bool
     @AppStorage("isLightMode") private var isLightMode: Bool = false

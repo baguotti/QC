@@ -272,6 +272,15 @@ struct ContentView: View {
             .onReceive(NotificationCenter.default.publisher(for: DownloadQueue.addToQueue)) { notification in
                 if let urls = notification.object as? [URL], !urls.isEmpty { loadAssets(urls, append: true) }
             }
+            .onReceive(NotificationCenter.default.publisher(for: FrameIOCommentSync.didFetch)) { notification in
+                if let change = notification.object as? FrameIOCommentSync.Change { applyFrameIOComments(change) }
+            }
+            .onReceive(NotificationCenter.default.publisher(for: UploadQueue.addFromFinder)) { notification in
+                guard let urls = notification.object as? [URL], !urls.isEmpty else { return }
+                loadAssets(urls, append: true) { changed in
+                    UploadQueue.shared.finderFilesQueued(version: queueVersion, changed: changed)
+                }
+            }
             .onReceive(fileOpenManager.$pendingURLs) { urls in
                 guard !urls.isEmpty else { return }
                 let isInitial = fileOpenManager.isInitialLaunchBatch
@@ -924,7 +933,8 @@ struct ContentView: View {
 
     /// Adds files or folders to the queue (`append`), or replaces it. Used by the Select / Add panels and by Frame.io
     /// downloads that should join the queue.
-    func loadAssets(_ urls: [URL], append: Bool) {
+    /// `onLoaded` gets whether the queue changed (nothing new: the files were already queued) once it's updated.
+    func loadAssets(_ urls: [URL], append: Bool, onLoaded: ((Bool) -> Void)? = nil) {
         assetLoadQueue.enqueue({ ContentView.scanAssetInputs(urls) }) { inputs in
             var collectedVideos: [URL] = []
             var detectedFolder: URL? = nil
@@ -952,11 +962,12 @@ struct ContentView: View {
                     }
                 }
                 
-                guard !newlyAdded.isEmpty else { return }
+                guard !newlyAdded.isEmpty else { onLoaded?(false); return }
                 
                 self.videoFiles = mergedVideos
                 self.folderURL = determineFolderURL(for: mergedVideos, detectedFolder: self.folderURL ?? detectedFolder)
                 self.updatePlayerTreeNodes()
+                onLoaded?(true)
 
                 // Inspect only if already on Specs tab, otherwise defer until tab is selected
                 if self.selectedTab == .specs {
@@ -977,11 +988,12 @@ struct ContentView: View {
                     }
                 }
                 
-                guard !uniqueVideos.isEmpty else { return }
+                guard !uniqueVideos.isEmpty else { onLoaded?(false); return }
                 
                 self.folderURL = determineFolderURL(for: uniqueVideos, detectedFolder: detectedFolder)
                 self.videoFiles = uniqueVideos
                 self.updatePlayerTreeNodes()
+                onLoaded?(true)
                 self.playerCollapsedFolderIDs = []
                 self.specsState.deliverablesCollapsedFolderIDs = []
                 self.scannerState.scanResults = []
@@ -1546,6 +1558,8 @@ struct ContentView: View {
             onToggleWaveforms: { self.playerEngine.drawsWaveforms.toggle() },
             onSelectAllUploads: { UploadQueue.shared.selectAll() },
             onUndoFrameIO: { FrameIOBrowser.shared.performUndo() },
+            onPasteFrameIOLink: { FrameIOBrowser.shared.openLinkOnClipboard() },
+            onPasteFrameIOLinkInPlayer: { FrameIOCommentSync.shared.linkActiveFromClipboard { self.showToast($0) } },
             onTogglePlayPause: { self.playerEngine.togglePlayPause() },
             onStepFrame: { forward in self.playerEngine.stepFrame(forward: forward) },
             onStepFrames: { count, forward in self.playerEngine.stepFrames(count: count, forward: forward) },
@@ -2005,6 +2019,7 @@ struct ContentView: View {
             playerEngine.activeNotes = []
             playerEngine.activeNotesURL = nil
             Task { await NotesSync.shared.setActive(nil) }
+            FrameIOCommentSync.shared.setActive(nil)
             return
         }
         Task { @MainActor in
@@ -2035,6 +2050,7 @@ struct ContentView: View {
                 self.playerEngine.activeNotes = notes
                 self.playerEngine.activeNotesURL = url
                 await NotesSync.shared.setActive(url)
+                FrameIOCommentSync.shared.setActive(url)
             }
         }
     }
@@ -2314,6 +2330,34 @@ struct ContentView: View {
         showNotesDrawer && playerDrawerTab == .notes
     }
 
+    /// Frame.io comments on the clip shown: new ones become notes, imported ones update (`FrameIOCommentImport.merge`),
+    /// saved and synced like any edit. New notes get the unseen badge while the Notes tab is hidden.
+    func applyFrameIOComments(_ change: FrameIOCommentSync.Change) {
+        guard let url = notesTargetURL, isSameURL(url, change.url) else { return }
+        let fps = isSameURL(url, playerEngine.slotB.url) ? playerEngine.slotB.fps : playerEngine.activeFps
+        let incoming = FrameIOCommentImport.notes(from: change.comments, fps: fps)
+        let result = FrameIOCommentImport.merge(local: playerEngine.activeNotes, incoming: incoming,
+                                                previouslyImported: change.previouslyImported)
+        FrameIOCommentSync.shared.didApply(change)
+        guard result.added + result.updated > 0 else {
+            if change.userInitiated { showToast("No new Frame.io comments") }
+            return
+        }
+        let shownIDs = Set(playerEngine.activeNotes.map(\.id))
+        if !notesTabIsVisible {
+            unseenSyncedNoteIDs.formUnion(Set(result.notes.map(\.id)).subtracting(shownIDs))
+        }
+        withAnimation(.spring(response: 0.32, dampingFraction: 0.78)) {
+            playerEngine.activeNotes = result.notes
+            playerEngine.activeNotesURL = url
+        }
+        saveNotes(result.notes, for: url)
+        var parts: [String] = []
+        if result.added > 0 { parts.append("\(result.added) new") }
+        if result.updated > 0 { parts.append("\(result.updated) updated") }
+        showToast("Frame.io comments: \(parts.joined(separator: ", "))")
+    }
+
     /// Shows notes another Mac changed, keeping edits made here while that sync was in flight.
     func applySyncedNotes(_ change: NotesSync.Change) {
         guard let url = notesTargetURL, isSameURL(url, change.url) else { return }
@@ -2333,6 +2377,7 @@ struct ContentView: View {
 
 // MARK: - Isolated Studio Status Bar View
 struct StudioStatusBarView: View {
+    @ObservedObject private var themeManager = ThemeManager.shared   // accent changes redraw
     @ObservedObject private var hoverCoordinator = HoverExplanationCoordinator.shared
     let textMuted: Color
     let textMain: Color

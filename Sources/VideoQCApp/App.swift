@@ -29,7 +29,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         let uploading = UploadQueue.shared.isRunning
-        let downloading = DownloadQueue.shared.isRunning
+        // Paused downloads count: their partial files are removed on quit (downloads don't resume across launches).
+        let downloading = DownloadQueue.shared.isRunning || DownloadQueue.shared.isPaused
         guard uploading || downloading else { return .terminateNow }
         let alert = NSAlert()
         switch (uploading, downloading) {

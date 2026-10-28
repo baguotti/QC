@@ -6,11 +6,14 @@ import AppKit
 /// panel: the video viewport sets its own cursor on every mouse move and would override a handle overlapping it.
 /// Double-click restores the default width.
 struct PanelResizeHandle: View {
+    @ObservedObject private var themeManager = ThemeManager.shared   // accent changes redraw
     @Binding var width: Double
     let range: ClosedRange<Double>
     let defaultWidth: Double
     let isLightMode: Bool
     let help: String
+    /// The panel edge the handle sits on: `.leading` for a panel on the right (dragging left widens it).
+    var edge: HorizontalEdge = .trailing
 
     @State private var isHovering = false
     @State private var isDragging = false
@@ -20,7 +23,7 @@ struct PanelResizeHandle: View {
     private var palette: StudioPalette { StudioPalette(isLightMode) }
 
     var body: some View {
-        ZStack(alignment: .trailing) {
+        ZStack(alignment: edge == .trailing ? .trailing : .leading) {
             ResizeCursorArea()
             Rectangle()
                 .fill(isDragging ? palette.accentBlue : (isHovering ? Self.hoverLine(isLightMode) : Color.clear))
@@ -42,7 +45,8 @@ struct PanelResizeHandle: View {
                         startWidth = width
                         NSCursor.resizeLeftRight.push()   // keep the cursor while the pointer outruns the handle
                     }
-                    let clamped = min(range.upperBound, max(range.lowerBound, startWidth + Double(value.translation.width)))
+                    let delta = Double(value.translation.width) * (edge == .trailing ? 1 : -1)
+                    let clamped = min(range.upperBound, max(range.lowerBound, startWidth + delta))
                     if abs(width - clamped) > 0.5 { width = clamped }
                 }
                 .onEnded { _ in

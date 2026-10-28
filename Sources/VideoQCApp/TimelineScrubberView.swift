@@ -221,6 +221,7 @@ struct TimelineWaveform: View, Equatable {
 // MARK: - Main Modern Minimal Timeline Scrubber View
 
 public struct TimelineScrubberView: View {
+    @ObservedObject private var themeManager = ThemeManager.shared   // accent changes redraw
     @ObservedObject var engine: PlayerEngine
     var isLightMode: Bool
     

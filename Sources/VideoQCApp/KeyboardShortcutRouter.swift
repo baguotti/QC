@@ -249,6 +249,10 @@ struct KeyboardShortcutActions {
     var onToggleWaveforms: () -> Void
     var onSelectAllUploads: () -> Void
     var onUndoFrameIO: () -> Void
+    /// ⌘V in the Upload tab: opens a Frame.io link on the clipboard; false (not handled) for anything else.
+    var onPasteFrameIOLink: () -> Bool
+    /// ⌘V in the Player: links the open clip to a Frame.io link on the clipboard (imports its comments).
+    var onPasteFrameIOLinkInPlayer: () -> Bool
     var onTogglePlayPause: () -> Void
     
     // Player - Navigation
@@ -299,6 +303,8 @@ struct KeyboardShortcutActions {
         onToggleWaveforms: @escaping () -> Void = {},
         onSelectAllUploads: @escaping () -> Void = {},
         onUndoFrameIO: @escaping () -> Void = {},
+        onPasteFrameIOLink: @escaping () -> Bool = { false },
+        onPasteFrameIOLinkInPlayer: @escaping () -> Bool = { false },
         onTogglePlayPause: @escaping () -> Void = {},
         onStepFrame: @escaping (Bool) -> Void = { _ in },
         onStepFrames: @escaping (Int, Bool) -> Void = { _, _ in },
@@ -344,6 +350,8 @@ struct KeyboardShortcutActions {
         self.onToggleWaveforms = onToggleWaveforms
         self.onSelectAllUploads = onSelectAllUploads
         self.onUndoFrameIO = onUndoFrameIO
+        self.onPasteFrameIOLink = onPasteFrameIOLink
+        self.onPasteFrameIOLinkInPlayer = onPasteFrameIOLinkInPlayer
         self.onTogglePlayPause = onTogglePlayPause
         self.onStepFrame = onStepFrame
         self.onStepFrames = onStepFrames
@@ -526,6 +534,20 @@ extension KeyboardShortcutRouter {
             ) {
                 actions.onUndoFrameIO()
                 return true
+            },
+            Rule(
+                id: "frameioLinkClip",
+                trigger: ShortcutTrigger(characters: ["v"], modifiers: [.command]),
+                scope: .playerOnly
+            ) {
+                actions.onPasteFrameIOLinkInPlayer()
+            },
+            Rule(
+                id: "frameioPasteLink",
+                trigger: ShortcutTrigger(characters: ["v"], modifiers: [.command]),
+                scope: .uploadOnly
+            ) {
+                actions.onPasteFrameIOLink()
             },
             Rule(
                 id: "autoplayToggle",

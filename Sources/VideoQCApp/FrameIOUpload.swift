@@ -36,47 +36,16 @@ final class UploadQueue: ObservableObject {
         let path: String
     }
 
-    /// Upload history, newest run first. Kept in `Application Support/QCpie/FrameIO/upload-log.json` (last 100 runs).
-    @Published private(set) var log: [UploadLogRun] = []
+    /// This run's entry in the transfer log.
     private var currentRunID: UUID?
 
     private init() {
-        Task {
-            let loaded = await Task.detached(priority: .utility) { () -> [UploadLogRun] in
-                guard let data = try? Data(contentsOf: UploadLogRun.file) else { return [] }
-                let decoder = JSONDecoder()
-                decoder.dateDecodingStrategy = .iso8601
-                return (try? decoder.decode([UploadLogRun].self, from: data)) ?? []
-            }.value
-            log = loaded + log
-        }
         Task {
             let saved = await Task.detached(priority: .utility) { UploadResumeStore.load(from: UploadResumeStore.defaultDirectory) }.value
             guard !isRunning else { return }
             if await store.restore(saved) { resumable = saved.run }
             engine.drainDeletes()   // placeholders whose delete didn't get through last time
         }
-    }
-
-    func clearLog() {
-        log = []
-        saveLog()
-    }
-
-    private func saveLog() {
-        let runs = Array(log.prefix(100))
-        Task.detached(priority: .utility) {
-            let encoder = JSONEncoder()
-            encoder.dateEncodingStrategy = .iso8601
-            guard let data = try? encoder.encode(runs) else { return }
-            try? FileManager.default.createDirectory(at: UploadLogRun.file.deletingLastPathComponent(), withIntermediateDirectories: true)
-            try? data.write(to: UploadLogRun.file, options: .atomic)
-        }
-    }
-
-    private func record(_ entry: UploadLogEntry) {
-        guard let index = log.firstIndex(where: { $0.id == currentRunID }) else { return }
-        log[index].entries.append(entry)
     }
 
     @Published private(set) var jobs: [Job] = []
@@ -99,7 +68,8 @@ final class UploadQueue: ObservableObject {
     private let progress = UploadProgress()
     private let store = UploadResumeStore(directory: UploadResumeStore.defaultDirectory)
     private lazy var engine = UploadEngine(api: FrameIO.shared, session: UploadEngine.makeSession(), store: store,
-                                           progress: progress, network: NetworkMonitor.shared)
+                                           progress: progress, network: NetworkMonitor.shared,
+                                           onUploaded: { file, account, id in await FrameIOLinks.shared.link(file, account: account, fileID: id) })
     private enum Stop { case pause, cancel }
     private var stopping: Stop?
     /// Called once the run has stopped and its progress is saved (quitting waits for this).
@@ -132,6 +102,46 @@ final class UploadQueue: ObservableObject {
     /// Pasteboard text identifying queue files dragged onto a Frame.io folder.
     nonisolated static let dragPrefix = "qcpie-upload\n"
 
+    /// Posted with `[URL]`: Finder files dropped on a Frame.io folder, for `ContentView` to add to the queue. It answers
+    /// with `finderFilesQueued(version:)` once they're in.
+    static let addFromFinder = Notification.Name("QCpieUploadAddFromFinder")
+
+    /// Finder files dropped on a Frame.io folder: added to the queue first, uploaded there once the queue holds them.
+    private var finderDrop: (paths: [String], destination: Destination, readyAt: Int?)?
+
+    /// Adds Finder files and folders to the app's queue, then uploads just them to `destination` (Keep subfolders
+    /// applies as for any upload).
+    func uploadFromFinder(_ urls: [URL], to destination: Destination) {
+        guard !isRunning else { return }
+        finderDrop = (urls.map { $0.standardizedFileURL.path }, destination, nil)
+        NotificationCenter.default.post(name: Self.addFromFinder, object: urls)
+    }
+
+    /// The queue now holds the dropped files (as of queue `version`; unchanged when they were already queued).
+    func finderFilesQueued(version: Int, changed: Bool) {
+        guard finderDrop != nil else { return }
+        finderDrop?.readyAt = version
+        if !changed { startFinderDrop(syncedVersion: version) }
+    }
+
+    /// Starts the dropped files' upload once a sync has seen the queue version that holds them.
+    private func startFinderDrop(syncedVersion: Int) {
+        guard let drop = finderDrop, let ready = drop.readyAt, syncedVersion >= ready else { return }
+        finderDrop = nil
+        let matches = jobs.filter { job in
+            job.files.contains { file in
+                let path = file.standardizedFileURL.path
+                return drop.paths.contains { path == $0 || path.hasPrefix($0 + "/") }
+            }
+        }
+        guard !matches.isEmpty else {
+            FrameIOBrowser.shared.notify("Nothing to upload: the queue only takes video, audio and image files.", isError: true)
+            return
+        }
+        guard !isRunning else { return }
+        start(to: drop.destination, paths: Set(matches.map(\.url.path)))
+    }
+
     /// What dragging these rows carries: the whole selection when the row is part of it (Finder), else just the row.
     func dragPaths(for paths: [String]) -> [String] {
         guard !paths.isEmpty else { return [] }
@@ -145,7 +155,7 @@ final class UploadQueue: ObservableObject {
 
     /// Mirrors the app's queue (shared by Play, Inspect and Scan): new rows are added, removed rows dropped, and rows
     /// already uploaded keep their status. File sizes are read off the main thread.
-    func sync(with rows: [(url: URL, folders: [String])]) {
+    func sync(with rows: [(url: URL, folders: [String])], version: Int = 0) {
         syncToken += 1
         let token = syncToken
         Task {
@@ -163,6 +173,7 @@ final class UploadQueue: ObservableObject {
             next += jobs.filter { !kept.contains($0.id) && ($0.status == .paused || (isRunning && runIDs.contains($0.id))) }
             jobs = next
             selection.formIntersection(next.map(\.url.path))
+            startFinderDrop(syncedVersion: version)
         }
     }
 
@@ -235,10 +246,7 @@ final class UploadQueue: ObservableObject {
         let work = jobs.filter { $0.status == .queued && targets.contains($0.url.path) }
         guard !work.isEmpty else { return }
         runIDs = Set(work.map(\.id))
-        let run = UploadLogRun(id: UUID(), started: Date(), finished: nil, destination: destination.path,
-                               keepStructure: keep, entries: [])
-        currentRunID = run.id
-        log.insert(run, at: 0)
+        currentRunID = TransferLog.shared.begin(.upload, destination: destination.path, keepStructure: keep)
         isRunning = true
         stopping = nil
         resumable = nil
@@ -295,9 +303,11 @@ final class UploadQueue: ObservableObject {
         }
         var message: String?
         if case .failed(let text) = outcome { message = text }
-        record(UploadLogEntry(id: UUID(), name: job.files.count > 1 ? "\(job.url.lastPathComponent) (\(job.files.count) frames)" : job.url.lastPathComponent,
+        guard let currentRunID else { return }
+        TransferLog.shared.record(UploadLogEntry(id: UUID(), name: job.files.count > 1 ? "\(job.url.lastPathComponent) (\(job.files.count) frames)" : job.url.lastPathComponent,
                               destination: ([destination] + (keep ? job.folders : [])).joined(separator: " › "), bytes: job.size,
-                              started: started, finished: Date(), outcome: entryOutcome, message: message))
+                              started: started, finished: Date(), outcome: entryOutcome, message: message),
+                                  in: currentRunID)
     }
 
     private func finish() async {
@@ -316,12 +326,8 @@ final class UploadQueue: ObservableObject {
         stopping = nil
         bytesPerSecond = 0
         runFinished = Date()
-        if let index = log.firstIndex(where: { $0.id == currentRunID }) {
-            log[index].finished = Date()
-            if log[index].entries.isEmpty { log.remove(at: index) }
-        }
+        if let currentRunID { TransferLog.shared.end(currentRunID) }
         currentRunID = nil
-        saveLog()
         if stop == .cancel {
             await discardSaved(keeping: [])
         } else {
@@ -379,23 +385,119 @@ final class UploadQueue: ObservableObject {
     }
 }
 
+/// Uploads and downloads, newest run first: the Upload tab's Log. Kept in
+/// `Application Support/QCpie/FrameIO/upload-log.json` (last 100 runs), saved off the main thread when a run ends.
+/// Observed only by the Log drawer (not the queues, so it doesn't redraw at their 5 Hz progress).
+@MainActor
+final class TransferLog: ObservableObject {
+    static let shared = TransferLog()
+
+    @Published private(set) var runs: [UploadLogRun] = []
+    /// Saving waits for the saved history to load: saving earlier would overwrite it with this session's runs only.
+    private var didLoad = false
+    private var saveAfterLoad = false
+
+    private init() {
+        Task {
+            let loaded = await Task.detached(priority: .utility) { () -> [UploadLogRun] in
+                guard let data = try? Data(contentsOf: UploadLogRun.file) else { return [] }
+                let decoder = JSONDecoder()
+                decoder.dateDecodingStrategy = .iso8601
+                return (try? decoder.decode([UploadLogRun].self, from: data)) ?? []
+            }.value
+            let known = Set(runs.map(\.id))
+            runs += loaded.filter { !known.contains($0.id) }
+            didLoad = true
+            if saveAfterLoad { save() }
+        }
+    }
+
+    var isRecording: Bool { runs.contains { $0.finished == nil } }
+
+    func begin(_ kind: UploadLogRun.Kind, destination: String, keepStructure: Bool = false) -> UUID {
+        let run = UploadLogRun(id: UUID(), kind: kind, started: Date(), finished: nil, destination: destination,
+                               keepStructure: keepStructure, entries: [])
+        runs.insert(run, at: 0)
+        return run.id
+    }
+
+    func record(_ entry: UploadLogEntry, in run: UUID) {
+        guard let index = runs.firstIndex(where: { $0.id == run }) else { return }
+        runs[index].entries.append(entry)
+    }
+
+    /// Ends a run (dropped when nothing was recorded in it) and saves the log.
+    func end(_ run: UUID) {
+        if let index = runs.firstIndex(where: { $0.id == run }) {
+            runs[index].finished = Date()
+            if runs[index].entries.isEmpty { runs.remove(at: index) }
+        }
+        save()
+    }
+
+    func clear() {
+        runs.removeAll { $0.finished != nil }
+        save()
+    }
+
+    private func save() {
+        guard didLoad else { saveAfterLoad = true; return }
+        let saved = Array(runs.filter { $0.finished != nil }.prefix(100))
+        Task.detached(priority: .utility) {
+            let encoder = JSONEncoder()
+            encoder.dateEncodingStrategy = .iso8601
+            guard let data = try? encoder.encode(saved) else { return }
+            try? FileManager.default.createDirectory(at: UploadLogRun.file.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try? data.write(to: UploadLogRun.file, options: .atomic)
+        }
+    }
+}
+
 struct UploadLogRun: Codable, Identifiable, Equatable, Sendable {
+    enum Kind: String, Codable, Sendable { case upload, download }
+
     let id: UUID
+    let kind: Kind
     let started: Date
     var finished: Date?
+    /// Uploads: the Frame.io folder path; downloads: the local folder.
     let destination: String
     let keepStructure: Bool
     var entries: [UploadLogEntry]
+
+    init(id: UUID, kind: Kind, started: Date, finished: Date?, destination: String, keepStructure: Bool, entries: [UploadLogEntry]) {
+        self.id = id
+        self.kind = kind
+        self.started = started
+        self.finished = finished
+        self.destination = destination
+        self.keepStructure = keepStructure
+        self.entries = entries
+    }
+
+    /// Runs saved before downloads were logged have no kind: they're uploads.
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(UUID.self, forKey: .id)
+        kind = try container.decodeIfPresent(Kind.self, forKey: .kind) ?? .upload
+        started = try container.decode(Date.self, forKey: .started)
+        finished = try container.decodeIfPresent(Date.self, forKey: .finished)
+        destination = try container.decode(String.self, forKey: .destination)
+        keepStructure = try container.decode(Bool.self, forKey: .keepStructure)
+        entries = try container.decode([UploadLogEntry].self, forKey: .entries)
+    }
 
     nonisolated static var file: URL {
         FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("QCpie/FrameIO/upload-log.json")
     }
 
-    var uploadedBytes: Int64 { entries.filter { $0.outcome == .uploaded }.reduce(0) { $0 + $1.bytes } }
+    /// Bytes uploaded or downloaded (files already on Frame.io excluded).
+    var transferredBytes: Int64 { entries.filter { $0.outcome == .uploaded }.reduce(0) { $0 + $1.bytes } }
 }
 
 struct UploadLogEntry: Codable, Identifiable, Equatable, Sendable {
+    /// `uploaded` also stands for downloaded in a download run.
     enum Outcome: String, Codable, Sendable {
         case uploaded, skipped, failed, cancelled
     }
@@ -408,6 +510,8 @@ struct UploadLogEntry: Codable, Identifiable, Equatable, Sendable {
     let finished: Date
     let outcome: Outcome
     let message: String?
+    /// Downloads: where the file landed (its name may have gained a number).
+    var localPath: String? = nil
 
     var duration: TimeInterval { finished.timeIntervalSince(started) }
     var bytesPerSecond: Double { duration > 0 ? Double(bytes) / duration : 0 }

@@ -8,6 +8,7 @@ import VideoQCLib
 // MARK: - Exposure Scrubber Control (After Effects Style)
 
 struct ExposureScrubberView: View {
+    @ObservedObject private var themeManager = ThemeManager.shared   // accent changes redraw
     @ObservedObject var engine: PlayerEngine
     var isLightMode: Bool = false
     
@@ -117,6 +118,7 @@ struct ExposureScrubberView: View {
 // MARK: - Subtle Studio Volume Slider
 
 struct StudioVolumeSlider: View {
+    @ObservedObject private var themeManager = ThemeManager.shared   // accent changes redraw
     @Binding var volume: Float
     @Binding var isMuted: Bool
     var accentColor: Color
@@ -1653,6 +1655,7 @@ struct PlayerComparisonBar: View {
 // MARK: - Timecode & Zoom Interactive Menu Views with Subtle Hover
 
 struct PlayerTimecodeMenuView: View {
+    @ObservedObject private var themeManager = ThemeManager.shared   // accent changes redraw
     @ObservedObject var playerEngine: PlayerEngine
     var accentBlue: Color
     @State private var isHovered: Bool = false
@@ -1689,6 +1692,7 @@ struct PlayerTimecodeMenuView: View {
 
 /// Timecode menu readout; the live value is drawn outside SwiftUI's update cycle (see `PlaybackClockText`).
 private struct PlayerTimecodeReadout: View {
+    @ObservedObject private var themeManager = ThemeManager.shared   // accent changes redraw
     let clock: PlaybackClock
     let displayTimeAsFrames: Bool
     let totalFrames: Int
@@ -1736,6 +1740,7 @@ private struct PlayerTimecodeReadout: View {
 }
 
 struct PlayerZoomMenuView: View {
+    @ObservedObject private var themeManager = ThemeManager.shared   // accent changes redraw
     @ObservedObject var playerEngine: PlayerEngine
     var bgSubtle: Color
     var borderLine: Color

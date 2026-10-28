@@ -17,6 +17,7 @@ public enum PlayerDrawerTab: String, CaseIterable, Identifiable, Sendable {
 // MARK: - Notes & Media Info Drawer Panel View
 
 struct NotesDrawerPanelView: View {
+    @ObservedObject private var themeManager = ThemeManager.shared   // accent changes redraw
     @Binding var isPresented: Bool
     @Binding var selectedDrawerTab: PlayerDrawerTab
     var notes: [QCFileNote]
@@ -296,6 +297,7 @@ struct NotesDrawerPanelView: View {
             Rectangle().fill(palette.borderLine).frame(height: 1)
             
             NotesSyncProjectBar(isLightMode: isLightMode, onAssign: onAssignSyncProject)
+            FrameIOCommentsBar(isLightMode: isLightMode)
             
             // Notes List or Empty State
             if notes.isEmpty {
@@ -1439,6 +1441,94 @@ private struct NotesSyncProjectBar: View {
                 
                 Rectangle().fill(palette.borderLine).frame(height: 1)
             }
+        }
+    }
+}
+
+/// Shown when the clip is linked to a Frame.io file: its comments are imported as notes (checked when the clip opens
+/// and every minute). Observes only `FrameIOCommentSync`.
+private struct FrameIOCommentsBar: View {
+    @ObservedObject private var sync = FrameIOCommentSync.shared
+    @ObservedObject private var themeManager = ThemeManager.shared   // accent changes redraw
+    var isLightMode: Bool
+    @State private var linkMessage: String?
+
+    private var palette: StudioPalette { StudioPalette(isLightMode) }
+
+    private var detail: String {
+        if let error = sync.lastError { return "Couldn't check: \(error)" }
+        if sync.isChecking { return "Checking for comments…" }
+        if let checked = sync.lastChecked { return "Comments imported · checked \(checked.formatted(date: .omitted, time: .shortened))" }
+        return "Comments are imported as notes"
+    }
+
+    var body: some View {
+        if !sync.activeLinked {
+            if sync.signedIn {
+                unlinked.onChange(of: sync.activeVersion) { _, _ in linkMessage = nil }
+            }
+        } else {
+            VStack(spacing: 0) {
+                HStack(spacing: 6) {
+                    Image(systemName: "text.bubble")
+                        .font(.system(size: StudioTheme.scaleFont(9), weight: .bold))
+                        .foregroundColor(QCNoteTheme.color(for: FrameIOCommentImport.colorTag))
+                    Text("Frame.io")
+                        .font(.ui(size: 8, weight: .semibold))
+                        .foregroundColor(palette.textMuted)
+                    Text(detail)
+                        .font(.ui(size: 9))
+                        .foregroundColor(sync.lastError == nil ? palette.textMain : palette.negative)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                    Spacer(minLength: 4)
+                    Button("Check Now", action: sync.checkActive)
+                        .font(.ui(size: 9, weight: .semibold))
+                        .buttonStyle(.borderless)
+                        .disabled(sync.isChecking)
+                        .help("Import new Frame.io comments on this clip now")
+                }
+                .padding(.horizontal, 10)
+                .frame(height: 24)
+                .background(palette.bgPanel)
+                .help("This clip is linked to its Frame.io file: comments come in as purple notes marked (Frame.io), checked when the clip opens and every minute.")
+
+                Rectangle().fill(palette.borderLine).frame(height: 1)
+            }
+        }
+    }
+
+    /// Not linked yet: copy the file's Frame.io link and link it here (or press ⌘V in the Player).
+    private var unlinked: some View {
+        VStack(spacing: 0) {
+            HStack(spacing: 6) {
+                Image(systemName: "text.bubble")
+                    .font(.system(size: StudioTheme.scaleFont(9), weight: .bold))
+                    .foregroundColor(palette.textMuted)
+                Text("Frame.io")
+                    .font(.ui(size: 8, weight: .semibold))
+                    .foregroundColor(palette.textMuted)
+                Text(linkMessage ?? "Not linked")
+                    .font(.ui(size: 9))
+                    .foregroundColor(palette.textMuted)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                Spacer(minLength: 4)
+                Button("Link from Clipboard") {
+                    if !sync.linkActiveFromClipboard({ linkMessage = $0 }) {
+                        linkMessage = "Copy the file's Frame.io link first"
+                    }
+                }
+                .font(.ui(size: 9, weight: .semibold))
+                .buttonStyle(.borderless)
+                .help("Copy this file's link in Frame.io (Copy Asset URL / Share → link), then click here or press ⌘V in the Player to import its comments")
+            }
+            .padding(.horizontal, 10)
+            .frame(height: 24)
+            .background(palette.bgPanel)
+            .help("Comments are imported automatically when QCpie finds this file on Frame.io (same name and size) in a folder you browsed or a favourite project. Otherwise link it from its Frame.io link.")
+
+            Rectangle().fill(palette.borderLine).frame(height: 1)
         }
     }
 }

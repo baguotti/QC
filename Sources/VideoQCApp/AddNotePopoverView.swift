@@ -5,6 +5,7 @@ import VideoQCLib
 
 @MainActor
 struct AddNotePopoverView: View {
+    @ObservedObject private var themeManager = ThemeManager.shared   // accent changes redraw
     @Binding var isPresented: Bool
     var timecode: String
     var frameIndex: Int

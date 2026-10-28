@@ -51,7 +51,9 @@ final class UploadEngine: Sendable {
         var minStreams = 2
         /// Files in progress at once (image sequences: each frame is a file, and creating one is an API call).
         var maxFiles = 6
-        /// Part bodies held in memory at once (Frame.io parts are tens of MB; 86 MB for a 3 GB file).
+        /// Memory for part buffers. Parts are streamed from disk through a `PartBodyStream.bufferSize` buffer each, so
+        /// this no longer limits the stream count (whole parts held in memory did: a 13 GB file's large parts allowed
+        /// one at a time, read and sent in turn — the bursty speed).
         var memoryBudget: Int64 = 512 << 20
         /// How long a part or Frame.io call keeps retrying while the Mac is online before its file fails (time offline
         /// doesn't count): long enough to ride out a hotel login page or a VPN reconnecting.
@@ -70,15 +72,18 @@ final class UploadEngine: Sendable {
     let progress: UploadProgress
     let network: NetworkStatus
     let limits: Limits
+    /// A single-file clip finished uploading: its local file, account and Frame.io file id (links it for comments).
+    let onUploaded: (@Sendable (URL, String, String) async -> Void)?
 
     init(api: UploadAPI, session: URLSession, store: UploadResumeStore, progress: UploadProgress, network: NetworkStatus,
-         limits: Limits = Limits()) {
+         limits: Limits = Limits(), onUploaded: (@Sendable (URL, String, String) async -> Void)? = nil) {
         self.api = api
         self.session = session
         self.store = store
         self.progress = progress
         self.network = network
         self.limits = limits
+        self.onUploaded = onUploaded
     }
 
     /// The session for part uploads: more connections per host than the system's 6 (all parts go to the same storage
@@ -161,6 +166,7 @@ final class UploadEngine: Sendable {
                     try await verify(record)
                     await store.removeFile(file.path)
                     progress.complete(work.jobID, key: fileKey, bytes: size)
+                    if work.files.count == 1 { await onUploaded?(file, record.account, record.placeholderID) }
                     return .uploaded
                 } catch UploadError.linksExpired where !recreated {
                     // Frame.io's links can't be refreshed: start this file over with a new upload, once.
@@ -262,7 +268,7 @@ final class UploadEngine: Sendable {
             for part in ranges where !record.done.contains(part.index) {
                 if let error = failure.value { throw error }
                 try Task.checkCancellation()
-                let cost = Int64(part.range.count)
+                let cost = PartBodyStream.bufferSize
                 guard await gate.acquire(cost: cost) else { throw CancellationError() }
                 group.addTask {
                     let partKey = "\(fileKey)-\(part.index)"
@@ -291,9 +297,8 @@ final class UploadEngine: Sendable {
         do {
             try await withRetries(classify: Self.classify, onTransient: { await gate.noteTransientError() }) {
                 report(0)
-                let body = try await Self.readOffPool(range, of: file)
-                try await self.put(body, to: url, contentType: contentType, report: report)
-                report(Int64(body.count))
+                try await self.put(range, of: file, to: url, contentType: contentType, report: report)
+                report(Int64(range.count))
             }
         } catch RetryExpired.expired {
             throw UploadError.linksExpired
@@ -307,26 +312,32 @@ final class UploadEngine: Sendable {
             .run(classify: classify, onTransient: onTransient, body)
     }
 
-    private func put(_ body: Data, to url: URL, contentType: String, report: @escaping @Sendable (Int64) -> Void) async throws {
+    /// PUTs one part, streamed from disk while it's sent (`PartBodyStream`): reading and sending overlap, and memory is
+    /// one small buffer per part whatever Frame.io's part size. `Content-Length` is set so the body isn't sent chunked
+    /// (pre-signed S3 PUTs need the length).
+    private func put(_ range: Range<Int64>, of file: URL, to url: URL, contentType: String,
+                     report: @escaping @Sendable (Int64) -> Void) async throws {
         var request = URLRequest(url: url)
         request.httpMethod = "PUT"
         request.setValue("private", forHTTPHeaderField: "x-amz-acl")
         request.setValue(contentType, forHTTPHeaderField: "Content-Type")
-        let (data, response) = try await session.upload(for: request, from: body, delegate: PartProgress(report))
+        request.setValue(String(range.count), forHTTPHeaderField: "Content-Length")
+        let body = try PartBodyStream(file: file, range: range, report: report)
+        request.httpBodyStream = body.input
+        defer { body.stop() }
+        let data: Data
+        let response: URLResponse
+        do {
+            (data, response) = try await session.data(for: request, delegate: body)
+        } catch {
+            throw body.readError ?? error   // a file that vanished or changed beats the network error it caused
+        }
+        if let readError = body.readError { throw readError }
         let http = response as? HTTPURLResponse
         let status = http?.statusCode ?? 0
         guard (200..<300).contains(status) else {
             throw PartFailure(status: status, body: String(data: data.prefix(600), encoding: .utf8) ?? "",
                               retryAfter: http?.value(forHTTPHeaderField: "Retry-After").flatMap(Double.init))
-        }
-    }
-
-    /// Part reads block (a network drive can be slow): they run on their own queue, not the shared task threads.
-    private static let readQueue = DispatchQueue(label: "QCpie.UploadReads", qos: .utility, attributes: .concurrent)
-
-    nonisolated static func readOffPool(_ range: Range<Int64>, of file: URL) async throws -> Data {
-        try await withCheckedThrowingContinuation { continuation in
-            readQueue.async { continuation.resume(with: Result { try read(range, of: file) }) }
         }
     }
 
@@ -700,16 +711,75 @@ final class UploadProgress: @unchecked Sendable {
     }
 }
 
-private final class PartProgress: NSObject, URLSessionTaskDelegate, @unchecked Sendable {
-    private let report: @Sendable (Int64) -> Void
+/// One part's body, streamed from the file while it's sent: a pump on its own thread reads 1 MB at a time into a bound
+/// stream pair whose input end is the request body. Reading and sending overlap, and memory stays at the stream buffer.
+/// Read failures (the file moved, shrank, or its drive went away) end the body early and are reported as `readError`.
+/// Also the task delegate: a body URLSession asks for again (a redirect) isn't replayed; the part fails and is retried.
+final class PartBodyStream: NSObject, URLSessionTaskDelegate, @unchecked Sendable {
+    static let bufferSize: Int64 = 4 << 20
+    private static let chunk = 1 << 20
+    private static let pumpQueue = DispatchQueue(label: "QCpie.UploadReads", qos: .utility, attributes: .concurrent)
 
-    init(_ report: @escaping @Sendable (Int64) -> Void) {
-        self.report = report
+    let input: InputStream
+    private let output: OutputStream
+    private let lock = NSLock()
+    private var stopped = false
+    private var error: Error?
+
+    var readError: Error? { lock.withLock { error } }
+
+    init(file: URL, range: Range<Int64>, report: @escaping @Sendable (Int64) -> Void) throws {
+        guard FileManager.default.fileExists(atPath: file.path) else { throw UploadError.missing }
+        let handle = try FileHandle(forReadingFrom: file)
+        var input: InputStream?
+        var output: OutputStream?
+        Stream.getBoundStreams(withBufferSize: Int(Self.bufferSize), inputStream: &input, outputStream: &output)
+        guard let input, let output else { throw UploadError.missing }
+        self.input = input
+        self.output = output
+        super.init()
+        Self.pumpQueue.async { self.pump(handle, range: range, report: report) }
     }
 
-    func urlSession(_ session: URLSession, task: URLSessionTask, didSendBodyData bytesSent: Int64,
-                    totalBytesSent: Int64, totalBytesExpectedToSend: Int64) {
-        report(totalBytesSent)
+    func stop() { lock.withLock { stopped = true } }
+
+    private var isStopped: Bool { lock.withLock { stopped } }
+
+    private func pump(_ handle: FileHandle, range: Range<Int64>, report: @Sendable (Int64) -> Void) {
+        output.open()
+        defer {
+            output.close()
+            try? handle.close()
+        }
+        do {
+            try handle.seek(toOffset: UInt64(range.lowerBound))
+            var sent: Int64 = 0
+            while sent < Int64(range.count) && !isStopped {
+                let count = Int(min(Int64(Self.chunk), Int64(range.count) - sent))
+                guard let data = try handle.read(upToCount: count), data.count == count else { throw UploadError.changed }
+                var offset = 0
+                while offset < data.count {
+                    if isStopped || output.streamStatus == .error || output.streamStatus == .closed { return }
+                    guard output.hasSpaceAvailable else {
+                        usleep(300)
+                        continue
+                    }
+                    let written = data.withUnsafeBytes { buffer in
+                        output.write(buffer.bindMemory(to: UInt8.self).baseAddress! + offset, maxLength: data.count - offset)
+                    }
+                    if written <= 0 { return }
+                    offset += written
+                    sent += Int64(written)
+                    report(sent)
+                }
+            }
+        } catch {
+            lock.withLock { self.error = error }
+        }
+    }
+
+    func urlSession(_ session: URLSession, task: URLSessionTask, needNewBodyStream completionHandler: @escaping (InputStream?) -> Void) {
+        completionHandler(nil)
     }
 }
 

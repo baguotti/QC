@@ -32,6 +32,7 @@ struct UploadTabView: View {
     var onDrop: ([NSItemProvider]) -> Bool
     @AppStorage("uploadPanelWidth") private var panelWidth: Double = 380
     @AppStorage("uploadLogOpen") private var isDrawerOpen = false   // the Downloads & Log drawer (key kept from when it was Log only)
+    @AppStorage("uploadDrawerWidth") private var drawerWidth: Double = 360
 
     private var palette: StudioPalette { StudioPalette(isLightMode) }
 
@@ -57,21 +58,28 @@ struct UploadTabView: View {
 
                 FrameIOBrowserView(isLightMode: isLightMode)
                 if isDrawerOpen {
+                    let maxDrawer = max(300, min(800, Double(geo.size.width) - min(max(panelWidth, 300), maxWidth) - 360))
                     UploadSideDrawer(isLightMode: isLightMode)
-                        .frame(width: 360)
+                        .frame(width: min(max(drawerWidth, 300), maxDrawer))
                         .overlay(Rectangle().fill(palette.borderLine).frame(width: 1), alignment: .leading)
+                        .overlay(alignment: .leading) {
+                            PanelResizeHandle(width: $drawerWidth, range: 300...maxDrawer, defaultWidth: 360, isLightMode: isLightMode,
+                                              help: "Drag to resize the Downloads & Log drawer. Double-click to reset (360 pt).",
+                                              edge: .leading)
+                        }
                         .transition(.move(edge: .trailing).combined(with: .opacity))
                 }
             }
         }
         .task(id: queueVersion) {
-            UploadQueue.shared.sync(with: UploadQueuePanel.rows(in: nodes))
+            UploadQueue.shared.sync(with: UploadQueuePanel.rows(in: nodes), version: queueVersion)
         }
     }
 }
 
 /// The queue as upload rows (folder headers and files, styled like the Play queue) plus the upload controls.
 struct UploadQueuePanel: View {
+    @ObservedObject private var themeManager = ThemeManager.shared   // accent changes redraw
     var isLightMode: Bool
     var nodes: [FileSystemTreeNode]
     @Binding var collapsedFolderIDs: Set<String>
@@ -273,6 +281,7 @@ struct UploadQueuePanel: View {
 /// Destination, Keep subfolders, progress and the Upload button. Its own view: it observes the Frame.io browser (for the
 /// destination), so typing in the Frame.io filter or selecting there doesn't redraw the queue list.
 private struct UploadControls: View {
+    @ObservedObject private var themeManager = ThemeManager.shared   // accent changes redraw
     var isLightMode: Bool
     /// The queue's top-level subfolders (named in "Keep subfolders").
     var subfolders: [String]
@@ -432,6 +441,8 @@ private struct UploadControls: View {
 
 /// A queue file row (list or thumbnail, like the Play queue): name and size, or upload progress / result.
 private struct UploadQueueRow: View, Equatable {
+    /// Redraws the row when its list redraws for a new accent (`ThemeManager.revision`).
+    var themeRevision = ThemeManager.shared.revision
     let job: UploadQueue.Job
     let depth: Int
     let isSelected: Bool
@@ -585,6 +596,7 @@ private struct UploadQueueRow: View, Equatable {
 
 /// Upload status above the button: progress, sizes, time left and a live speed graph. Redrawn at the 5 Hz tick.
 private struct UploadProgressCard: View {
+    @ObservedObject private var themeManager = ThemeManager.shared   // accent changes redraw
     var isLightMode: Bool
     @ObservedObject private var queue = UploadQueue.shared
 
@@ -614,6 +626,7 @@ private struct UploadProgressCard: View {
 
 /// Progress of an upload or download run: percentage, bar, sizes, time left, and the live speed with its graph.
 struct TransferProgressCard: View {
+    @ObservedObject private var themeManager = ThemeManager.shared   // accent changes redraw
     var isLightMode: Bool
     var title: String
     var done: Int64
@@ -622,6 +635,7 @@ struct TransferProgressCard: View {
     var transferred: Int64
     var isRunning: Bool
     var failed: Bool
+    var isPaused = false
     var bytesPerSecond: Double
     var history: [Double]
     var started: Date?
@@ -698,6 +712,7 @@ struct TransferProgressCard: View {
     }
 
     private var timeText: String {
+        if isPaused { return "paused" }
         guard isRunning else { return "took \(UploadLogFormat.duration(elapsed))" }
         let remaining = Double(total - done)
         guard elapsed > 3, bytesPerSecond > 0 else { return "\(UploadLogFormat.duration(elapsed)) elapsed" }
@@ -743,11 +758,21 @@ private struct UploadSideDrawer: View {
         VStack(spacing: 0) {
             DrawerTabBar(isLightMode: isLightMode, tab: $tab)
             Rectangle().fill(palette.borderLine).frame(height: 1)
-            if tab == "downloads" {
-                DownloadsDrawer(isLightMode: isLightMode)
-            } else {
-                UploadLogDrawer(isLightMode: isLightMode)
+            // Pages slide in from their tab's side, like the review sleeve's Media Info | Notes.
+            ZStack(alignment: .top) {
+                if tab == "downloads" {
+                    DownloadsDrawer(isLightMode: isLightMode)
+                        .transition(.move(edge: .leading).combined(with: .opacity))
+                }
+                if tab != "downloads" {
+                    UploadLogDrawer(isLightMode: isLightMode)
+                        .transition(.move(edge: .trailing).combined(with: .opacity))
+                }
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .clipped()
+            // `tab` is @AppStorage: its writes don't carry the tab button's `withAnimation`, so animate on the value.
+            .animation(.spring(response: 0.32, dampingFraction: 0.84), value: tab)
         }
     }
 }
@@ -755,6 +780,7 @@ private struct UploadSideDrawer: View {
 /// The drawer's Downloads | Log switcher (the review sleeve's pill). Observes downloads for its percentage on its own,
 /// so the Log page doesn't redraw at the download's 5 Hz.
 private struct DrawerTabBar: View {
+    @ObservedObject private var themeManager = ThemeManager.shared   // accent changes redraw
     var isLightMode: Bool
     @Binding var tab: String
     @ObservedObject private var downloads = DownloadQueue.shared
@@ -804,8 +830,10 @@ private struct DrawerTabBar: View {
 
 /// Frame.io downloads (right-click → Download…): the progress card with its speed graph, then each file.
 private struct DownloadsDrawer: View {
+    @ObservedObject private var themeManager = ThemeManager.shared   // accent changes redraw
     var isLightMode: Bool
     @ObservedObject private var queue = DownloadQueue.shared
+    @State private var isTargeted = false
 
     private var palette: StudioPalette { StudioPalette(isLightMode) }
 
@@ -814,8 +842,15 @@ private struct DownloadsDrawer: View {
             HStack(spacing: 10) {
                 Text(queue.isPreparing ? "Listing files…" : "Downloads").font(.ui(size: 12, weight: .semibold))
                 Spacer()
-                if queue.isRunning {
+                if queue.isRunning || queue.isPaused {
+                    if queue.isRunning {
+                        Button("Pause", action: queue.pause).font(.ui(size: 12)).buttonStyle(.borderless)
+                            .help("Pause: what's downloaded so far is kept until you resume")
+                    } else {
+                        Button("Resume", action: queue.resume).font(.ui(size: 12)).buttonStyle(.borderless)
+                    }
                     Button("Cancel", action: queue.cancel).font(.ui(size: 12)).buttonStyle(.borderless)
+                        .help("Stop and remove the unfinished files")
                 } else {
                     if queue.failedCount > 0 {
                         Button("Retry Failed", action: queue.retryFailed).font(.ui(size: 12)).buttonStyle(.borderless)
@@ -845,7 +880,7 @@ private struct DownloadsDrawer: View {
                     Image(systemName: "arrow.down.circle")
                         .font(.system(size: StudioTheme.scaleFont(20), weight: .light))
                         .foregroundColor(palette.textMuted)
-                    Text(queue.isPreparing ? "Listing the folder's files…" : "Right-click a Frame.io file or folder → Download…")
+                    Text(queue.isPreparing ? "Listing the folder's files…" : "Drag Frame.io files or folders here, or right-click → Download…")
                         .font(.ui(size: 11))
                         .foregroundColor(palette.textMuted)
                         .multilineTextAlignment(.center)
@@ -858,7 +893,7 @@ private struct DownloadsDrawer: View {
                     VStack(alignment: .leading, spacing: 10) {
                         TransferProgressCard(isLightMode: isLightMode, title: title, done: queue.receivedBytes, total: queue.totalBytes,
                                              transferred: queue.transferredBytes, isRunning: queue.isRunning,
-                                             failed: queue.failedCount > 0, bytesPerSecond: queue.bytesPerSecond,
+                                             failed: queue.failedCount > 0, isPaused: queue.isPaused, bytesPerSecond: queue.bytesPerSecond,
                                              history: queue.speedHistory, started: queue.runStarted, finished: queue.runFinished)
                         LazyVStack(spacing: 0) {
                             ForEach(queue.jobs) { job in
@@ -871,11 +906,14 @@ private struct DownloadsDrawer: View {
             }
         }
         .background(palette.bgMain)
+        .overlay(RoundedRectangle(cornerRadius: 4).stroke(isTargeted ? palette.accentBlue : .clear, lineWidth: 2).padding(2))
+        .onDrop(of: [.utf8PlainText], isTargeted: $isTargeted, perform: DownloadQueue.acceptDrop)
     }
 
     private var title: String {
         let count = queue.jobs.count
         if queue.isRunning { return "Downloading \(min(queue.finishedCount + 1, count)) of \(count)" }
+        if queue.isPaused { return "Paused · \(queue.finishedCount) of \(count) done" }
         if queue.failedCount > 0 { return "\(queue.failedCount) of \(count) failed" }
         if queue.finishedCount < count { return "Stopped" }
         return count == 1 ? "Download complete" : "All \(count) downloaded"
@@ -883,6 +921,8 @@ private struct DownloadsDrawer: View {
 }
 
 private struct DownloadRow: View, Equatable {
+    /// Redraws the row when its list redraws for a new accent (`ThemeManager.revision`).
+    var themeRevision = ThemeManager.shared.revision
     let job: DownloadQueue.Job
     let isLightMode: Bool
 
@@ -932,6 +972,19 @@ private struct DownloadRow: View, Equatable {
             }
         }
         .help(failure ?? job.localURL?.path ?? job.name)
+        .contextMenu {
+            if let url = job.localURL {
+                Button { NSWorkspace.shared.activateFileViewerSelecting([url]) } label: { Label("Reveal in Finder", systemImage: "folder") }
+                Button { NSWorkspace.shared.open(url) } label: { Label("Open", systemImage: "arrow.up.forward.app") }
+                Divider()
+                Button {
+                    NSPasteboard.general.clearContents()
+                    NSPasteboard.general.setString(url.path, forType: .string)
+                } label: { Label("Copy Path", systemImage: "doc.on.doc") }
+            } else {
+                Button { DownloadQueue.shared.revealDestination(job) } label: { Label("Reveal Destination Folder", systemImage: "folder") }
+            }
+        }
     }
 
     private var failure: String? {
@@ -945,6 +998,7 @@ private struct DownloadRow: View, Equatable {
         switch job.status {
         case .queued: return "\(size) · to \(place)"
         case .downloading: return "\(UploadLogFormat.bytes(job.received)) of \(size)"
+        case .paused: return "Paused · \(UploadLogFormat.bytes(job.received)) of \(size)"
         case .done: return "Downloaded · \(size) · \(place)"
         case .cancelled: return "Cancelled · \(size)"
         case .failed(let message): return message
@@ -956,6 +1010,7 @@ private struct DownloadRow: View, Equatable {
         switch job.status {
         case .queued: Image(systemName: "arrow.down").foregroundColor(palette.textMuted)
         case .downloading: Image(systemName: "arrow.down").foregroundColor(palette.accentBlue)
+        case .paused: Image(systemName: "pause.fill").foregroundColor(palette.textMuted)
         case .done: Image(systemName: "checkmark").foregroundColor(palette.positive)
         case .cancelled: Image(systemName: "minus").foregroundColor(palette.textMuted)
         case .failed: Image(systemName: "exclamationmark.triangle.fill").foregroundColor(palette.negative)
@@ -964,42 +1019,62 @@ private struct DownloadRow: View, Equatable {
 }
 
 private struct UploadLogDrawer: View {
+    @ObservedObject private var themeManager = ThemeManager.shared   // accent changes redraw
     var isLightMode: Bool
-    @ObservedObject private var queue = UploadQueue.shared
+    @ObservedObject private var log = TransferLog.shared
+    @AppStorage("transferLogFilter") private var filter = "all"
+
+    private var runs: [UploadLogRun] {
+        switch filter {
+        case "upload": return log.runs.filter { $0.kind == .upload }
+        case "download": return log.runs.filter { $0.kind == .download }
+        default: return log.runs
+        }
+    }
 
     private var palette: StudioPalette { StudioPalette(isLightMode) }
 
     var body: some View {
         VStack(spacing: 0) {
             HStack(spacing: 10) {
-                Text("Upload Log").font(.ui(size: 12, weight: .semibold))
+                Picker("", selection: $filter) {
+                    Text("All").tag("all")
+                    Image(systemName: "arrow.up").help("Uploads").tag("upload")
+                    Image(systemName: "arrow.down").help("Downloads").tag("download")
+                }
+                .labelsHidden()
+                .pickerStyle(.segmented)
+                .controlSize(.small)
+                .fixedSize()
+                .help("Show all transfers, uploads only or downloads only")
                 Spacer()
-                Button("Copy") { Self.copy(queue.log) }
+                Button("Copy") { Self.copy(log.runs) }
                     .font(.ui(size: 12))
                     .buttonStyle(.borderless)
-                    .disabled(queue.log.isEmpty)
+                    .disabled(log.runs.isEmpty)
                     .help("Copy the whole log as text")
-                Button("Clear", action: queue.clearLog)
+                Button("Clear", action: log.clear)
                     .font(.ui(size: 12))
                     .buttonStyle(.borderless)
-                    .disabled(queue.log.isEmpty || queue.isRunning)
+                    .disabled(log.runs.isEmpty || log.isRecording)
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 10)
             .background(palette.bgPanel)
             Rectangle().fill(palette.borderLine).frame(height: 1)
 
-            if queue.log.isEmpty {
+            if runs.isEmpty {
                 VStack {
                     Spacer()
-                    Text("Uploads will be listed here.").font(.ui(size: 11)).foregroundColor(palette.textMuted)
+                    Text(filter == "upload" ? "No uploads yet." : filter == "download" ? "No downloads yet." : "Uploads and downloads will be listed here.")
+                        .font(.ui(size: 11)).foregroundColor(palette.textMuted)
                     Spacer()
                 }
                 .frame(maxWidth: .infinity)
             } else {
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 16) {
-                        ForEach(queue.log) { run in
+                        ForEach(runs) { run in
                             UploadLogRunView(run: run, isLightMode: isLightMode).equatable()
                         }
                     }
@@ -1019,16 +1094,32 @@ private struct UploadLogDrawer: View {
 }
 
 private struct UploadLogRunView: View, Equatable {
+    /// Redraws the row when its list redraws for a new accent (`ThemeManager.revision`).
+    var themeRevision = ThemeManager.shared.revision
     let run: UploadLogRun
     let isLightMode: Bool
 
     private var palette: StudioPalette { StudioPalette(isLightMode) }
     private var failed: Int { run.entries.filter { $0.outcome == .failed }.count }
+    private var isDownload: Bool { run.kind == .download }
+    /// Uploads in the play accent, downloads in slot B's: told apart at a glance.
+    private var kindColor: Color { isDownload ? palette.accentSlotB : palette.accentBlue }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 6) {
+                HStack(spacing: 3) {
+                    Image(systemName: isDownload ? "arrow.down" : "arrow.up")
+                        .font(.system(size: StudioTheme.scaleFont(8), weight: .heavy))
+                    Text(isDownload ? "DOWNLOAD" : "UPLOAD")
+                        .font(.ui(size: 10, weight: .bold))
+                }
+                .foregroundColor(.white)
+                .padding(.horizontal, 6)
+                .padding(.vertical, 2)
+                .background(Capsule().fill(kindColor))
                 Circle().fill(statusColor).frame(width: 7, height: 7)
+                    .padding(.leading, 2)
                 Text(UploadLogFormat.status(run))
                     .font(.ui(size: 11, weight: .semibold))
                     .foregroundColor(statusColor)
@@ -1040,13 +1131,14 @@ private struct UploadLogRunView: View, Equatable {
                     Image(systemName: "doc.on.doc").font(.system(size: StudioTheme.scaleFont(10)))
                 }
                 .buttonStyle(.borderless)
-                .help("Copy this upload as text")
+                .help(isDownload ? "Copy this download as text" : "Copy this upload as text")
             }
 
             HStack(alignment: .top, spacing: 6) {
-                Image(systemName: "folder.fill")
+                Image(systemName: isDownload ? "internaldrive" : "icloud.and.arrow.up")
                     .font(.system(size: StudioTheme.scaleFont(11)))
-                    .foregroundColor(palette.accentBlue)
+                    .foregroundColor(kindColor)
+                    .help(isDownload ? "Downloaded from Frame.io to this folder on this Mac" : "Uploaded to this Frame.io folder")
                 Text(run.destination)
                     .font(.ui(size: 12, weight: .semibold))
                     .foregroundColor(palette.textMain)
@@ -1055,7 +1147,7 @@ private struct UploadLogRunView: View, Equatable {
 
             HStack(alignment: .top, spacing: 0) {
                 stat("Files", UploadLogFormat.files(run))
-                stat("Size", UploadLogFormat.bytes(run.uploadedBytes))
+                stat("Size", UploadLogFormat.bytes(run.transferredBytes))
                 stat("Time", run.finished.map { UploadLogFormat.duration($0.timeIntervalSince(run.started)) } ?? "—")
                 stat("Avg Speed", UploadLogFormat.averageSpeed(run) ?? "—")
             }
@@ -1065,11 +1157,36 @@ private struct UploadLogRunView: View, Equatable {
             VStack(alignment: .leading, spacing: 9) {
                 ForEach(run.entries) { entry in
                     entryRow(entry)
+                        .contentShape(Rectangle())
+                        .contextMenu { entryMenu(entry) }
                 }
             }
         }
         .padding(12)
+        .padding(.leading, 3)
         .studioBox(background: palette.bgCardSubtle, border: palette.borderLine)
+        .overlay(alignment: .leading) {
+            UnevenRoundedRectangle(topLeadingRadius: StudioTheme.cornerRadius, bottomLeadingRadius: StudioTheme.cornerRadius)
+                .fill(kindColor)
+                .frame(width: 3)
+        }
+    }
+
+    @ViewBuilder
+    private func entryMenu(_ entry: UploadLogEntry) -> some View {
+        if let path = entry.localPath {
+            let url = URL(fileURLWithPath: path)
+            Button {
+                let exists = FileManager.default.fileExists(atPath: path)
+                NSWorkspace.shared.activateFileViewerSelecting([exists ? url : url.deletingLastPathComponent()])
+            } label: { Label("Reveal in Finder", systemImage: "folder") }
+            Button { NSWorkspace.shared.open(url) } label: { Label("Open", systemImage: "arrow.up.forward.app") }
+            Divider()
+        }
+        Button {
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.setString(entry.localPath ?? entry.name, forType: .string)
+        } label: { Label(entry.localPath == nil ? "Copy Name" : "Copy Path", systemImage: "doc.on.doc") }
     }
 
     private func stat(_ label: String, _ value: String) -> some View {
@@ -1180,9 +1297,9 @@ enum UploadLogFormat {
     }
 
     static func averageSpeed(_ run: UploadLogRun) -> String? {
-        guard let finished = run.finished, run.uploadedBytes > 0 else { return nil }
+        guard let finished = run.finished, run.transferredBytes > 0 else { return nil }
         let seconds = finished.timeIntervalSince(run.started)
-        return seconds > 0 ? speed(Double(run.uploadedBytes) / seconds) : nil
+        return seconds > 0 ? speed(Double(run.transferredBytes) / seconds) : nil
     }
 
     /// The subfolder under the run's destination the file went to, if any.
@@ -1208,8 +1325,9 @@ enum UploadLogFormat {
     }
 
     static func text(_ run: UploadLogRun) -> String {
-        var header = ["Frame.io upload, \(dateTime(run.started)): \(status(run))", "To: \(run.destination)"]
-        var totals = ["Files: \(files(run))", "Size: \(bytes(run.uploadedBytes))"]
+        var header = ["Frame.io \(run.kind == .download ? "download" : "upload"), \(dateTime(run.started)): \(status(run))",
+                      "To: \(run.destination)"]
+        var totals = ["Files: \(files(run))", "Size: \(bytes(run.transferredBytes))"]
         if let finished = run.finished { totals.append("Time: \(duration(finished.timeIntervalSince(run.started)))") }
         if let average = averageSpeed(run) { totals.append("Avg speed: \(average)") }
         header.append(totals.joined(separator: " · "))

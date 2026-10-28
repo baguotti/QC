@@ -7,6 +7,7 @@ import VideoQCLib
 // MARK: - Dedicated Studio Fullscreen Player View
 
 struct FullscreenPlayerView: View {
+    @ObservedObject private var themeManager = ThemeManager.shared   // accent changes redraw
     @ObservedObject var engine: PlayerEngine
     var scanResults: [VideoQCResult]
     var videoFiles: [URL] = []
@@ -307,6 +308,7 @@ struct FullscreenPlayerView: View {
 // MARK: - Live Timecode Readout (value drawn outside SwiftUI's update cycle, see PlaybackClockText)
 
 private struct FullscreenTimecodeReadout: View {
+    @ObservedObject private var themeManager = ThemeManager.shared   // accent changes redraw
     let clock: PlaybackClock
     let displayTimeAsFrames: Bool
     let totalFrames: Int
@@ -374,6 +376,7 @@ private struct FullscreenTimecodeReadout: View {
 // MARK: - Pure Video Fullscreen View (Zero UI)
 
 struct CleanVideoFullscreenView: View {
+    @ObservedObject private var themeManager = ThemeManager.shared   // accent changes redraw
     @ObservedObject var engine: PlayerEngine
     var isLightMode: Bool = false
     var onExit: () -> Void

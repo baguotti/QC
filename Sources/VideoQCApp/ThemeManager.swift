@@ -356,9 +356,14 @@ public final class ThemeManager: ObservableObject {
     
     @Published public var currentTheme: StudioThemeConfig {
         didSet {
+            revision &+= 1
             saveCurrentTheme()
         }
     }
+
+    /// Changes with every accent change. Rows store it (`themeRevision`) so a list that redraws for a new theme redraws
+    /// them too: their other inputs haven't changed, and the palette's colours are read from here, invisible to SwiftUI.
+    public private(set) var revision = 0
     
     @Published public var userPresets: [StudioThemeConfig] = [] {
         didSet {

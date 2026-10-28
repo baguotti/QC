@@ -1,0 +1,34 @@
+{
+  "fps" : 25,
+  "lastModified" : "2026-10-28T17:13:43Z",
+  "mediaFileName" : "Hero Video 4 - SS27_CAMPAIGN_TEST.mp4",
+  "notes" : [
+    {
+      "author" : "Wild Island Films (Frame.io)",
+      "colorTag" : "purple",
+      "createdAt" : "2026-10-28T17:07:57Z",
+      "frameIndex" : 260,
+      "id" : "B5858B09-E1CB-54EF-B059-097516F1424D",
+      "isResolved" : true,
+      "replies" : [
+
+      ],
+      "text" : "add a note here!",
+      "timecode" : "00:00:10:10"
+    },
+    {
+      "author" : "Wild Island Films (Frame.io)",
+      "colorTag" : "purple",
+      "createdAt" : "2026-10-28T17:08:09Z",
+      "frameIndex" : 449,
+      "id" : "9D9EE279-1F4A-5F8C-AAD0-D9458B74E910",
+      "isResolved" : true,
+      "replies" : [
+
+      ],
+      "text" : "Second note test",
+      "timecode" : "00:00:17:24"
+    }
+  ],
+  "version" : 1
+}

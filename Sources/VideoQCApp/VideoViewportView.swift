@@ -95,6 +95,7 @@ public final class PlayerContainerNSView: NSView {
     private let subtitleLayer = CATextLayer()
     private let subtitleLayerB = CATextLayer()
     private var subtitleSubscription: AnyCancellable?
+    private var themeSubscription: AnyCancellable?
     private var shownSubtitleIndex: Int? = nil
     private var shownSubtitleFrame: CGRect = .null
     private var shownSubtitleIndexB: Int? = nil
@@ -419,6 +420,7 @@ public final class PlayerContainerNSView: NSView {
         playerLayerB.player = engine.slotB.player
         attachPresentationHooks(to: engine)
         bindSubtitles(to: engine)
+        bindTheme()
         setupDisplayLink()
     }
     
@@ -437,6 +439,7 @@ public final class PlayerContainerNSView: NSView {
             previousEngine?.detachViewport(self)
             attachPresentationHooks(to: engine)
             bindSubtitles(to: engine)
+        bindTheme()
         }
         
         if playerLayerA.player != engine.slotA.player {
@@ -509,6 +512,15 @@ public final class PlayerContainerNSView: NSView {
     
     // MARK: - Subtitles
     
+    /// The A/B resolution labels are layers in the slots' accent colours: recolour them when the accent changes.
+    private func bindTheme() {
+        guard themeSubscription == nil else { return }
+        // @Published emits before the value is stored: apply on the next main-queue turn.
+        themeSubscription = ThemeManager.shared.$currentTheme.dropFirst().receive(on: DispatchQueue.main).sink { [weak self] _ in
+            MainActor.assumeIsolated { self?.updateResolutionLabels() }
+        }
+    }
+
     private func bindSubtitles(to engine: PlayerEngine) {
         // @Published emits before the value is stored: use the emitted frame, not clock.currentFrame.
         subtitleSubscription = engine.clock.$currentFrame.sink { [weak self] frame in

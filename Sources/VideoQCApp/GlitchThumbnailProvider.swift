@@ -125,6 +125,8 @@ public actor GlitchThumbnailProvider {
 // MARK: - Glitch Thumbnail View with Edge Highlighting
 
 public struct GlitchThumbnailView: View {
+    /// Redraws the row when its list redraws for a new accent (`ThemeManager.revision`).
+    var themeRevision = ThemeManager.shared.revision
     public let fileURL: URL
     public let frameIndex: Int
     public let fps: Double
@@ -347,6 +349,8 @@ public struct GlitchThumbnailView: View {
 // MARK: - General Asset Video Thumbnail View
 
 public struct AssetThumbnailView: View {
+    /// Redraws the row when its list redraws for a new accent (`ThemeManager.revision`).
+    var themeRevision = ThemeManager.shared.revision
     public let fileURL: URL
     public var width: CGFloat = 50
     public var height: CGFloat = 29

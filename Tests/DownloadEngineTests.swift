@@ -97,12 +97,12 @@ struct DownloadEngineTests {
         return url
     }
 
-    private func engine(_ api: DownloadAPI) -> DownloadEngine {
+    private func engine(_ api: DownloadAPI, resume: DownloadResumeState = DownloadResumeState()) -> DownloadEngine {
         var limits = DownloadEngine.Limits()
         limits.chunkSize = Self.chunk
         limits.maxBackoff = 0.01
         return DownloadEngine(api: api, session: UploadEngine.makeSession(protocolClasses: [StubCDN.self]), progress: UploadProgress(),
-                              network: OnlineNetwork(), limits: limits)
+                              network: OnlineNetwork(), limits: limits, resume: resume)
     }
 
     private func download(_ engine: DownloadEngine, _ items: [DownloadItem], to destination: URL) async -> [UUID: DownloadOutcome] {
@@ -163,6 +163,55 @@ struct DownloadEngineTests {
         try await Task.sleep(for: .milliseconds(120))
         task.cancel()
         #expect(await task.value[item.jobID] == .cancelled)
+        #expect(try FileManager.default.contentsOfDirectory(atPath: destination.path).isEmpty)
+    }
+
+    @Test("Pause keeps the partial file; resume fetches only the missing chunks and the file arrives intact")
+    func pauseResume() async throws {
+        StubCDN.reset()
+        let chunks = 20
+        let body = data(Int(Self.chunk) * chunks)
+        StubCDN.serve("/file1", body)
+        StubCDN.delay = 0.05
+        let destination = try folder()
+        let resume = DownloadResumeState()
+        let engine = engine(FakeDownloads(), resume: resume)
+        let item = DownloadItem(jobID: UUID(), fileID: "file1", name: "clip.mov", size: Int64(body.count), folders: [])
+        let task = Task { await download(engine, [item], to: destination) }
+        try await Task.sleep(for: .milliseconds(150))
+        resume.isPausing = true
+        task.cancel()
+        #expect(await task.value[item.jobID] == .paused)
+        resume.isPausing = false
+        let saved = try #require(resume.saved(item.jobID))
+        #expect(!saved.done.isEmpty && saved.done.count < chunks)
+        #expect(FileManager.default.fileExists(atPath: saved.partial.path))
+
+        StubCDN.delay = 0
+        let before = StubCDN.requestCount
+        #expect(await download(engine, [item], to: destination)[item.jobID] == .downloaded(destination.appendingPathComponent("clip.mov")))
+        #expect(try Data(contentsOf: destination.appendingPathComponent("clip.mov")) == body)
+        #expect(StubCDN.requestCount - before == chunks - saved.done.count)
+        #expect(try FileManager.default.contentsOfDirectory(atPath: destination.path) == ["clip.mov"])
+        #expect(resume.saved(item.jobID) == nil)
+    }
+
+    @Test("Discarding a paused download removes its partial file")
+    func discardPaused() async throws {
+        StubCDN.reset()
+        StubCDN.serve("/file1", data(Int(Self.chunk) * 20))
+        StubCDN.delay = 0.05
+        let destination = try folder()
+        let resume = DownloadResumeState()
+        let item = DownloadItem(jobID: UUID(), fileID: "file1", name: "clip.mov", size: Int64(Self.chunk) * 20, folders: [])
+        let engine = engine(FakeDownloads(), resume: resume)
+        let task = Task { await download(engine, [item], to: destination) }
+        try await Task.sleep(for: .milliseconds(150))
+        resume.isPausing = true
+        task.cancel()
+        #expect(await task.value[item.jobID] == .paused)
+        resume.isPausing = false
+        resume.discard([item.jobID])
         #expect(try FileManager.default.contentsOfDirectory(atPath: destination.path).isEmpty)
     }
 

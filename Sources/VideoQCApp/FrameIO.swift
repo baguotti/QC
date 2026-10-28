@@ -45,6 +45,10 @@ actor FrameIO {
         let storage: Int64?
         let createdAt: String?
         let updatedAt: String?
+        /// Where it lives (opening a pasted link walks these up to the project).
+        var parentID: String? = nil
+        var projectID: String? = nil
+        var workspaceID: String? = nil
 
         struct Head: Decodable, Hashable, Sendable {
             let id: String
@@ -87,6 +91,9 @@ actor FrameIO {
             case image, status, storage
             case createdAt = "created_at"
             case updatedAt = "updated_at"
+            case parentID = "parent_id"
+            case projectID = "project_id"
+            case workspaceID = "workspace_id"
         }
 
         var title: String { name ?? displayName ?? email ?? "Untitled" }
@@ -117,7 +124,8 @@ actor FrameIO {
         func renamed(_ newName: String) -> Item {
             Item(id: id, name: newName, displayName: displayName, email: email, type: type, fileSize: fileSize,
                  rootFolderID: rootFolderID, viewURL: viewURL, headVersion: headVersion, mediaLinks: mediaLinks, image: image,
-                 status: status, storage: storage, createdAt: createdAt, updatedAt: updatedAt)
+                 status: status, storage: storage, createdAt: createdAt, updatedAt: updatedAt,
+                 parentID: parentID, projectID: projectID, workspaceID: workspaceID)
         }
     }
 
@@ -241,6 +249,17 @@ actor FrameIO {
     func createFolder(account: String, parent: String, name: String) async throws -> Item {
         let body = try JSONSerialization.data(withJSONObject: ["data": ["name": name]])
         return try JSONDecoder().decode(One.self, from: await request("POST", "/v4/accounts/\(account)/folders/\(parent)/folders", body: body)).data
+    }
+
+    /// One project, folder, file or version stack by id (`kind`: "projects", "folders", "files", "version_stacks").
+    func item(account: String, kind: String, id: String) async throws -> Item {
+        try JSONDecoder().decode(One.self, from: await request("GET", "/v4/accounts/\(account)/\(kind)/\(id)")).data
+    }
+
+    /// Creates a project in a workspace (Frame.io sets up its root folder).
+    func createProject(account: String, workspace: String, name: String) async throws -> Item {
+        let body = try JSONSerialization.data(withJSONObject: ["data": ["name": name]])
+        return try JSONDecoder().decode(One.self, from: await request("POST", "/v4/accounts/\(account)/workspaces/\(workspace)/projects", body: body)).data
     }
 
     func createLocalUpload(account: String, folder: String, name: String, size: Int64) async throws -> LocalUpload {
@@ -401,6 +420,108 @@ actor FrameIO {
     /// Removes a placeholder whose upload was cancelled or failed.
     func deleteFile(account: String, id: String) async throws {
         _ = try await request("DELETE", "/v4/accounts/\(account)/files/\(id)")
+    }
+
+    /// Every comment on a file, with replies and authors, and the timecode Frame.io shows for each (`timecode`, a
+    /// second listing with `timestamp_as_timecode`: see `Comment`). 100 per page; comments allow 100 calls/min.
+    func comments(account: String, file: String) async throws -> [Comment] {
+        func all(_ query: String) async throws -> [Comment] {
+            var comments: [Comment] = []
+            var next: String? = "/v4/accounts/\(account)/files/\(file)/comments"
+            while let current = next {
+                let url = current.contains(query) ? current : current + (current.contains("?") ? "&" : "?") + query
+                let page = try JSONDecoder().decode(CommentPage.self, from: await request("GET", url))
+                comments += page.data
+                next = page.links?.next
+            }
+            return comments
+        }
+        var comments = try await all("include=replies,owner&page_size=100")
+        let timecodes = Dictionary((try await all("timestamp_as_timecode=true&page_size=100")).compactMap { comment in
+            comment.timestampText.map { (comment.id, $0) }
+        }, uniquingKeysWith: { a, _ in a })
+        for index in comments.indices { comments[index].timecode = timecodes[comments[index].id] }
+        return comments
+    }
+
+    private struct CommentPage: Decodable {
+        let data: [Comment]
+        let links: Links?
+        struct Links: Decodable { let next: String? }
+    }
+
+    /// A comment on a file (`GET …/files/{id}/comments`). Frame.io keeps the time the player was paused at, which falls
+    /// between frames: `timestamp` is that time *rounded* to a frame, while the timecode Frame.io shows (and returns
+    /// with `timestamp_as_timecode`) is it rounded *down*, so the two differ by one whenever the pause was in a frame's
+    /// second half (measured on real comments, 25 fps: 261 ↔ 00:00:10:11 = frame 261, 450 ↔ 00:00:17:24 = frame 449).
+    /// Notes use the timecode, so they land where Frame.io's player shows the comment. Replies have the same shape
+    /// without `owner`/`replies`.
+    struct Comment: Decodable, Sendable, Equatable {
+        let id: String
+        let text: String
+        let annotation: String?
+        let timestamp: Int?
+        /// `timestamp` when it came as text (the `timestamp_as_timecode` listing).
+        let timestampText: String?
+        /// The timecode Frame.io shows for the comment (from the second listing), e.g. "00:00:10:11".
+        var timecode: String?
+        let duration: Int?
+        let completedAt: String?
+        let createdAt: String?
+        let textEditedAt: String?
+        let owner: Owner?
+        let replies: [Comment]?
+
+        struct Owner: Decodable, Sendable, Equatable {
+            let name: String?
+            let email: String?
+        }
+
+        enum CodingKeys: String, CodingKey {
+            case id, text, annotation, timestamp, duration, owner, replies
+            case completedAt = "completed_at"
+            case createdAt = "created_at"
+            case textEditedAt = "text_edited_at"
+        }
+
+        init(id: String, text: String, annotation: String? = nil, timestamp: Int?, timecode: String? = nil, duration: Int? = nil,
+             completedAt: String? = nil, createdAt: String? = nil, textEditedAt: String? = nil, owner: Owner? = nil,
+             replies: [Comment]? = nil) {
+            self.id = id
+            self.text = text
+            self.annotation = annotation
+            self.timestamp = timestamp
+            self.timestampText = nil
+            self.timecode = timecode
+            self.duration = duration
+            self.completedAt = completedAt
+            self.createdAt = createdAt
+            self.textEditedAt = textEditedAt
+            self.owner = owner
+            self.replies = replies
+        }
+
+        /// `timestamp` comes as a number, or a string (timecode or digits): only a frame number is used.
+        init(from decoder: Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            id = try c.decode(String.self, forKey: .id)
+            text = try c.decodeIfPresent(String.self, forKey: .text) ?? ""
+            annotation = try? c.decodeIfPresent(String.self, forKey: .annotation)
+            if let number = try? c.decodeIfPresent(Int.self, forKey: .timestamp) {
+                timestamp = number
+                timestampText = nil
+            } else {
+                timestampText = (try? c.decodeIfPresent(String.self, forKey: .timestamp)) ?? nil
+                timestamp = timestampText.flatMap(Int.init)
+            }
+            timecode = nil
+            duration = try? c.decodeIfPresent(Int.self, forKey: .duration)
+            completedAt = try? c.decodeIfPresent(String.self, forKey: .completedAt)
+            createdAt = try? c.decodeIfPresent(String.self, forKey: .createdAt)
+            textEditedAt = try? c.decodeIfPresent(String.self, forKey: .textEditedAt)
+            owner = try? c.decodeIfPresent(Owner.self, forKey: .owner)
+            replies = try? c.decodeIfPresent([Comment].self, forKey: .replies)
+        }
     }
 
     /// Every page of a list endpoint (`links.next` is a relative path carrying the cursor).
