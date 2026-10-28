@@ -758,12 +758,17 @@ final class PartBodyStream: NSObject, URLSessionTaskDelegate, @unchecked Sendabl
                 let count = Int(min(Int64(Self.chunk), Int64(range.count) - sent))
                 guard let data = try handle.read(upToCount: count), data.count == count else { throw UploadError.changed }
                 var offset = 0
+                var wait: UInt32 = 200
                 while offset < data.count {
                     if isStopped || output.streamStatus == .error || output.streamStatus == .closed { return }
                     guard output.hasSpaceAvailable else {
-                        usleep(300)
+                        // Full buffer: the network is the bottleneck. Back off to 5 ms (up to 16 pumps polling every
+                        // 0.3 ms cost ~50,000 wake-ups a second on a slow line).
+                        usleep(wait)
+                        wait = min(wait * 2, 5_000)
                         continue
                     }
+                    wait = 200
                     let written = data.withUnsafeBytes { buffer in
                         output.write(buffer.bindMemory(to: UInt8.self).baseAddress! + offset, maxLength: data.count - offset)
                     }

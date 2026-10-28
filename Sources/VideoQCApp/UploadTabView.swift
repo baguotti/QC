@@ -314,12 +314,16 @@ private struct UploadControls: View {
                 } else if queue.resumable != nil {
                     actionButton("Resume", primary: true, action: queue.resume)
                         .disabled(browser.signedIn != true)
+                        .explain("Continues the paused or interrupted upload from the next unsent part of each file.")
                     actionButton("Discard", primary: false, action: queue.cancel)
                         .explain("Forgets this upload and removes its unfinished files from Frame.io.")
                 } else {
                     actionButton(queue.selection.isEmpty ? "Upload All (\(queue.jobs.count))" : "Upload Selected (\(queue.selection.count))",
                                  primary: true, action: start)
                         .disabled(browser.destination == nil || queue.jobs.isEmpty)
+                        .explain(queue.selection.isEmpty
+                                 ? "Uploads every file in the queue to the open Frame.io folder. Files already there (same name and size) are skipped."
+                                 : "Uploads the selected files to the open Frame.io folder. Files already there (same name and size) are skipped.")
                 }
             }
         }
@@ -387,7 +391,8 @@ private struct UploadControls: View {
                 .font(.system(size: StudioTheme.scaleFont(14)))
                 .foregroundColor(palette.accentBlue)
             VStack(alignment: .leading, spacing: 1) {
-                Text("\(saved.jobs.count) file\(saved.jobs.count == 1 ? "" : "s") left · \(UploadQueuePanel.bytes(queue.resumableBytes))")
+                let files = saved.jobs.reduce(0) { $0 + $1.files.count }   // an image sequence is many files
+                Text("\(files) file\(files == 1 ? "" : "s") left · \(UploadQueuePanel.bytes(queue.resumableBytes))")
                     .font(.ui(size: 12, weight: .semibold))
                     .foregroundColor(palette.textMain)
                 Text("To \(saved.destinationPath) · Resume picks up where it stopped")
@@ -475,7 +480,7 @@ private struct UploadQueueRow: View, Equatable {
         }
         .background(RoundedRectangle(cornerRadius: StudioTheme.cornerRadius).fill(isSelected ? palette.accentBlue : .clear))
         .contentShape(Rectangle())
-        .help(failure ?? job.url.path)
+        .tip(failure ?? job.url.path)
     }
 
     private var listRow: some View {
@@ -607,10 +612,15 @@ private struct UploadProgressCard: View {
         }.count
     }
 
+    /// Stopped by Pause (or a quit): rows of this run wait for Resume.
+    private var isPaused: Bool {
+        !queue.isRunning && queue.jobs.contains { queue.runIDs.contains($0.id) && $0.status == .paused }
+    }
+
     var body: some View {
         TransferProgressCard(isLightMode: isLightMode, title: title, done: queue.sentBytes, total: queue.totalBytes,
                              transferred: queue.transferredBytes, isRunning: queue.isRunning, failed: failedCount > 0,
-                             bytesPerSecond: queue.bytesPerSecond, history: queue.speedHistory,
+                             isPaused: isPaused, bytesPerSecond: queue.bytesPerSecond, history: queue.speedHistory,
                              started: queue.runStarted, finished: queue.runFinished)
     }
 
@@ -618,6 +628,7 @@ private struct UploadProgressCard: View {
         if queue.isRunning {
             return "Uploading \(min(queue.runFinishedCount + 1, queue.runCount)) of \(queue.runCount)"
         }
+        if isPaused { return "Paused · \(queue.runFinishedCount) of \(queue.runCount) done" }
         if failedCount > 0 { return "\(failedCount) of \(queue.runCount) failed" }
         if queue.runFinishedCount < queue.runCount { return "Cancelled" }
         return queue.runCount == 1 ? "Upload complete" : "All \(queue.runCount) uploaded"
@@ -746,11 +757,11 @@ private struct SpeedGraph: View {
     }
 }
 
-/// Right-hand drawer: what was uploaded where, when, how long it took and how fast. Selectable and copyable as text.
 /// The Upload tab's right drawer: Downloads and the upload Log, switched like the Player's review sleeve.
 private struct UploadSideDrawer: View {
     var isLightMode: Bool
     @AppStorage("uploadDrawerTab") private var tab = "log"
+    @State private var isDropTarget = false
 
     private var palette: StudioPalette { StudioPalette(isLightMode) }
 
@@ -771,6 +782,9 @@ private struct UploadSideDrawer: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .clipped()
+            .overlay(RoundedRectangle(cornerRadius: 4).stroke(isDropTarget ? palette.accentBlue : .clear, lineWidth: 2).padding(2))
+            // Frame.io rows dropped on either page download (the Downloads page opens when they start).
+            .onDrop(of: [.utf8PlainText], isTargeted: $isDropTarget, perform: DownloadQueue.acceptDrop)
             // `tab` is @AppStorage: its writes don't carry the tab button's `withAnimation`, so animate on the value.
             .animation(.spring(response: 0.32, dampingFraction: 0.84), value: tab)
         }
@@ -833,7 +847,6 @@ private struct DownloadsDrawer: View {
     @ObservedObject private var themeManager = ThemeManager.shared   // accent changes redraw
     var isLightMode: Bool
     @ObservedObject private var queue = DownloadQueue.shared
-    @State private var isTargeted = false
 
     private var palette: StudioPalette { StudioPalette(isLightMode) }
 
@@ -845,19 +858,22 @@ private struct DownloadsDrawer: View {
                 if queue.isRunning || queue.isPaused {
                     if queue.isRunning {
                         Button("Pause", action: queue.pause).font(.ui(size: 12)).buttonStyle(.borderless)
-                            .help("Pause: what's downloaded so far is kept until you resume")
+                            .tip("Pause: what's downloaded so far is kept until you resume (quitting QCpie removes unfinished downloads)")
                     } else {
                         Button("Resume", action: queue.resume).font(.ui(size: 12)).buttonStyle(.borderless)
+                            .tip("Continue the paused downloads: only the missing parts are fetched")
                     }
                     Button("Cancel", action: queue.cancel).font(.ui(size: 12)).buttonStyle(.borderless)
-                        .help("Stop and remove the unfinished files")
+                        .tip("Stop and remove the unfinished files")
                 } else {
                     if queue.failedCount > 0 {
                         Button("Retry Failed", action: queue.retryFailed).font(.ui(size: 12)).buttonStyle(.borderless)
+                            .tip("Download the files that failed again")
                     }
                     Button("Clear", action: queue.clearFinished)
                         .font(.ui(size: 12))
                         .buttonStyle(.borderless)
+                        .tip("Remove finished, failed and cancelled downloads from the list (the files stay on disk)")
                         .disabled(!queue.hasFinished)
                 }
             }
@@ -897,7 +913,7 @@ private struct DownloadsDrawer: View {
                                              history: queue.speedHistory, started: queue.runStarted, finished: queue.runFinished)
                         LazyVStack(spacing: 0) {
                             ForEach(queue.jobs) { job in
-                                DownloadRow(job: job, isLightMode: isLightMode)
+                                DownloadRow(job: job, isLightMode: isLightMode).equatable()
                             }
                         }
                     }
@@ -906,8 +922,6 @@ private struct DownloadsDrawer: View {
             }
         }
         .background(palette.bgMain)
-        .overlay(RoundedRectangle(cornerRadius: 4).stroke(isTargeted ? palette.accentBlue : .clear, lineWidth: 2).padding(2))
-        .onDrop(of: [.utf8PlainText], isTargeted: $isTargeted, perform: DownloadQueue.acceptDrop)
     }
 
     private var title: String {
@@ -954,7 +968,7 @@ private struct DownloadRow: View, Equatable {
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(TransportIconButtonStyle())
-                .help("Show in Finder")
+                .tip("Show in Finder")
             } else if job.status == .downloading {
                 Text("\(Int(fraction * 100))%")
                     .font(.ui(size: 10, weight: .semibold))
@@ -971,7 +985,7 @@ private struct DownloadRow: View, Equatable {
                 }
             }
         }
-        .help(failure ?? job.localURL?.path ?? job.name)
+        .tip(failure ?? job.localURL?.path ?? job.name)
         .contextMenu {
             if let url = job.localURL {
                 Button { NSWorkspace.shared.activateFileViewerSelecting([url]) } label: { Label("Reveal in Finder", systemImage: "folder") }
@@ -1039,23 +1053,24 @@ private struct UploadLogDrawer: View {
             HStack(spacing: 10) {
                 Picker("", selection: $filter) {
                     Text("All").tag("all")
-                    Image(systemName: "arrow.up").help("Uploads").tag("upload")
-                    Image(systemName: "arrow.down").help("Downloads").tag("download")
+                    Image(systemName: "arrow.up").tip("Uploads").tag("upload")
+                    Image(systemName: "arrow.down").tip("Downloads").tag("download")
                 }
                 .labelsHidden()
                 .pickerStyle(.segmented)
                 .controlSize(.small)
                 .fixedSize()
-                .help("Show all transfers, uploads only or downloads only")
+                .tip("Show all transfers, uploads only or downloads only")
                 Spacer()
-                Button("Copy") { Self.copy(log.runs) }
+                Button("Copy") { Self.copy(runs) }
                     .font(.ui(size: 12))
                     .buttonStyle(.borderless)
-                    .disabled(log.runs.isEmpty)
-                    .help("Copy the whole log as text")
+                    .disabled(runs.isEmpty)
+                    .tip(filter == "all" ? "Copy the whole log as text" : "Copy the \(filter)s shown as text")
                 Button("Clear", action: log.clear)
                     .font(.ui(size: 12))
                     .buttonStyle(.borderless)
+                    .tip("Delete the log's history (finished uploads and downloads)")
                     .disabled(log.runs.isEmpty || log.isRecording)
             }
             .padding(.horizontal, 16)
@@ -1113,11 +1128,9 @@ private struct UploadLogRunView: View, Equatable {
                         .font(.system(size: StudioTheme.scaleFont(8), weight: .heavy))
                     Text(isDownload ? "DOWNLOAD" : "UPLOAD")
                         .font(.ui(size: 10, weight: .bold))
+                        .underline(true, color: kindColor)
                 }
-                .foregroundColor(.white)
-                .padding(.horizontal, 6)
-                .padding(.vertical, 2)
-                .background(Capsule().fill(kindColor))
+                .foregroundColor(kindColor)
                 Circle().fill(statusColor).frame(width: 7, height: 7)
                     .padding(.leading, 2)
                 Text(UploadLogFormat.status(run))
@@ -1131,14 +1144,14 @@ private struct UploadLogRunView: View, Equatable {
                     Image(systemName: "doc.on.doc").font(.system(size: StudioTheme.scaleFont(10)))
                 }
                 .buttonStyle(.borderless)
-                .help(isDownload ? "Copy this download as text" : "Copy this upload as text")
+                .tip(isDownload ? "Copy this download as text" : "Copy this upload as text")
             }
 
             HStack(alignment: .top, spacing: 6) {
                 Image(systemName: isDownload ? "internaldrive" : "icloud.and.arrow.up")
                     .font(.system(size: StudioTheme.scaleFont(11)))
                     .foregroundColor(kindColor)
-                    .help(isDownload ? "Downloaded from Frame.io to this folder on this Mac" : "Uploaded to this Frame.io folder")
+                    .tip(isDownload ? "Downloaded from Frame.io to this folder on this Mac" : "Uploaded to this Frame.io folder")
                 Text(run.destination)
                     .font(.ui(size: 12, weight: .semibold))
                     .foregroundColor(palette.textMain)

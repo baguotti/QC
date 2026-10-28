@@ -160,7 +160,7 @@ struct FrameIOStatusBadge: View {
         }
         .buttonStyle(.plain)
         .onHover { isHovered = $0 }
-        .help(help)
+        .tip(help)
         .onAppear { status.startWatching() }
         .onDisappear { status.stopWatching() }
     }

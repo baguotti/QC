@@ -9,12 +9,14 @@ struct FrameIOLinkTests {
         #expect(try FrameIOLink.parse("https://next.frame.io/project/P1") == FrameIOLink(project: "P1"))
         #expect(try FrameIOLink.parse("https://next.frame.io/project/P1/F1?view=grid") == FrameIOLink(project: "P1", folder: "F1"))
         #expect(try FrameIOLink.parse("  https://next.frame.io/project/P1/view/A1?a=b#c\n") == FrameIOLink(project: "P1", asset: "A1"))
+        // The current app is served on app.frame.io too, with the same paths (only other app.frame.io paths are old).
+        #expect(try FrameIOLink.parse("https://app.frame.io/project/P1/F1") == FrameIOLink(project: "P1", folder: "F1"))
     }
 
     @Test("Share, old Frame.io and non-Frame.io links are refused with a reason")
     func refused() {
         #expect(throws: FrameIOLink.Failure.shareLink) { try FrameIOLink.parse("https://next.frame.io/share/S1/view/A1") }
-        #expect(throws: FrameIOLink.Failure.legacyLink) { try FrameIOLink.parse("https://app.frame.io/project/P1") }
+        #expect(throws: FrameIOLink.Failure.legacyLink) { try FrameIOLink.parse("https://app.frame.io/player/A1") }
         #expect(throws: FrameIOLink.Failure.notALink) { try FrameIOLink.parse("https://example.com/project/P1") }
         #expect(throws: FrameIOLink.Failure.notALink) { try FrameIOLink.parse("/Volumes/Server/clip.mov") }
     }

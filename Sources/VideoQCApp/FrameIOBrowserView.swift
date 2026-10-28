@@ -97,6 +97,8 @@ final class FrameIOBrowser: ObservableObject {
     /// The row the list scrolls to (a pasted link's file).
     @Published private(set) var revealID: String?
 
+    func didReveal() { revealID = nil }
+
     /// Pasteboard text identifying Frame.io items dragged inside the browser (moves).
     nonisolated static let dragPrefix = "qcpie-frameio\n"
 
@@ -165,6 +167,7 @@ final class FrameIOBrowser: ObservableObject {
             do {
                 try await FrameIOSignIn.run()
                 signedIn = true
+                FrameIOCommentSync.shared.signInChanged(true)
                 await loadUser()
                 path = []
                 reload()
@@ -179,6 +182,7 @@ final class FrameIOBrowser: ObservableObject {
     func signOut() {
         Task { await FrameIO.shared.signOut() }
         signedIn = false
+        FrameIOCommentSync.shared.signInChanged(false)
         userName = ""
         path = []
         items = []
@@ -458,7 +462,11 @@ final class FrameIOBrowser: ObservableObject {
         guard atProjectList, !name.isEmpty, let account = accountID, let workspace = path.last?.id else { return }
         Task {
             do {
-                let project = try await FrameIO.shared.createProject(account: account, workspace: workspace, name: name)
+                var project = try await FrameIO.shared.createProject(account: account, workspace: workspace, name: name)
+                // Opening it needs its root folder; ask again if the create response left it out.
+                if project.rootFolderID == nil {
+                    project = (try? await FrameIO.shared.item(account: account, kind: "projects", id: project.id)) ?? project
+                }
                 guard atProjectList, path.last?.id == workspace else { return }
                 items = Self.sorted(items + [project])
                 if favouriteProjectsOnly { addFavourite(project) }
@@ -885,6 +893,7 @@ struct FrameIOBrowserView: View {
             .menuIndicator(.hidden)
             .fixedSize()
             .modifier(ToolHover(fill: palette.bgSubtle))
+            .tip("The Frame.io account you're signed in with (click to sign out)")
             toolDivider
             DrawerTabs(isLightMode: isLightMode)
         }
@@ -921,7 +930,7 @@ struct FrameIOBrowserView: View {
                 .menuIndicator(.hidden)
                 .fixedSize()
                 .modifier(ToolHover(fill: palette.bgSubtle))
-                .help("Show active, inactive or all projects")
+                .tip("Show active, inactive or all projects")
                 Picker("", selection: $browser.favouriteProjectsOnly) {
                     Text("Favourites").tag(true)
                     Text("All Projects").tag(false)
@@ -930,7 +939,7 @@ struct FrameIOBrowserView: View {
                 .pickerStyle(.segmented)
                 .controlSize(.small)
                 .fixedSize()
-                .help("Show your favourite projects or every project in this workspace")
+                .tip("Show your favourite projects or every project in this workspace")
             }
             if inFolder || browser.inStack {
                 toolButton(nil, systemImage: showThumbnails ? "square.grid.2x2" : "list.bullet",
@@ -939,7 +948,7 @@ struct FrameIOBrowserView: View {
                     Slider(value: $thumbnailWidth, in: 48...256)
                         .controlSize(.mini)
                         .frame(width: 70)
-                        .help("Thumbnail size")
+                        .tip("Thumbnail size")
                 }
             }
             if let undo = browser.lastUndo {
@@ -986,7 +995,7 @@ struct FrameIOBrowserView: View {
                         .foregroundColor(palette.textMuted)
                 }
                 .buttonStyle(.plain)
-                .help("Clear the filter")
+                .tip("Clear the filter")
             }
         }
         .padding(.horizontal, 8)
@@ -1020,7 +1029,7 @@ struct FrameIOBrowserView: View {
         .menuIndicator(.hidden)
         .fixedSize()
         .modifier(ToolHover(fill: palette.bgSubtle))
-        .help("Go to a favourite project, folder or stack")
+        .tip("Go to a favourite project, folder or stack")
     }
 
     // MARK: Toolbar controls
@@ -1055,7 +1064,7 @@ struct FrameIOBrowserView: View {
         }
         .buttonStyle(.plain)
         .modifier(ToolHover(fill: palette.bgSubtle, isOn: isOn))
-        .help(help)
+        .tip(help)
     }
 
     /// Right-click → Download…: files, folders (with their contents) and stacks (their current version).
@@ -1081,7 +1090,7 @@ struct FrameIOBrowserView: View {
             } label: {
                 Label("Import Comments into QCpie", systemImage: "text.bubble")
             }
-            .help("Adds this file's Frame.io comments to the QC notes of the queue clip with the same name and size")
+            .tip("Adds the Frame.io comments of these files (a folder: every file in it) to the QC notes of the queue clips with the same name and size")
         }
     }
 
@@ -1189,7 +1198,10 @@ struct FrameIOBrowserView: View {
                 }
                 .onChange(of: browser.revealID) { _, id in
                     guard let id else { return }
-                    DispatchQueue.main.async { withAnimation { scroller.scrollTo(id, anchor: .center) } }
+                    DispatchQueue.main.async {
+                        withAnimation { scroller.scrollTo(id, anchor: .center) }
+                        browser.didReveal()   // so pasting the same link again scrolls again
+                    }
                 }
                 }
             }
@@ -1331,7 +1343,7 @@ struct FrameIOBrowserView: View {
                 }
                 .buttonStyle(.plain)
                 .modifier(ToolHover(fill: palette.bgSubtle))
-                .help(isFavourite ? "Remove from Favourites" : "Add to Favourites")
+                .tip(isFavourite ? "Remove from Favourites" : "Add to Favourites")
                 .padding(.trailing, 20 + StudioTheme.scale(10) + 10 + ProjectColumn.totalWidth)   // left of the columns
             }
         }
@@ -1386,7 +1398,7 @@ struct FrameIOBrowserView: View {
             }
             if item.isVersionStack, let count = browser.versionCounts[item.id] {
                 versionBadge("V\(count)", isSelected: isSelected)
-                    .help("\(count) versions: showing V\(count), the current one")
+                    .tip("\(count) versions: showing V\(count), the current one")
             }
             Spacer()
             contentColumns(item, isSelected: isSelected)
@@ -1918,6 +1930,7 @@ private struct FrameIOMoveSheet: View {
                 folders = children.filter(\.isFolder)
                     .sorted { $0.title.localizedStandardCompare($1.title) == .orderedAscending }
             } catch {
+                guard current?.listedFolder == folder else { return }
                 self.error = error.localizedDescription
             }
             isLoading = false
@@ -1937,9 +1950,8 @@ private extension View {
     }
 }
 
-/// "Stack as Versions…": puts the files in version order (V1 oldest … last = current) before stacking.
-/// Frame.io's New Project dialog: a name, then Create. Return creates and Esc cancels (the shortcut router unfocuses the
-/// field for both and swallows the key, so they're read from the event that ended editing).
+/// Frame.io's New Project dialog: a name, then Create (Return) or Cancel (Esc). The shortcut router leaves sheets'
+/// keys alone, so Return and Esc reach these buttons.
 private struct FrameIONewProjectSheet: View {
     @ObservedObject private var themeManager = ThemeManager.shared   // accent changes redraw
     let isLightMode: Bool
@@ -1960,13 +1972,10 @@ private struct FrameIONewProjectSheet: View {
                 .textFieldStyle(.roundedBorder)
                 .font(.ui(size: 12))
                 .focused($focused)
-                .onChange(of: focused) { _, isFocused in
-                    guard !isFocused, let event = NSApp.currentEvent, event.type == .keyDown else { return }
-                    if event.keyCode == 53 { dismiss() } else if event.keyCode == 36 || event.keyCode == 76 { create() }
-                }
             HStack {
                 Spacer()
                 Button("Cancel") { dismiss() }
+                    .keyboardShortcut(.cancelAction)
                 Button("Create", action: create)
                     .keyboardShortcut(.defaultAction)
                     .disabled(trimmed.isEmpty)
@@ -1985,6 +1994,7 @@ private struct FrameIONewProjectSheet: View {
     }
 }
 
+/// "Stack as Versions…": puts the files in version order (V1 oldest … last = current) before stacking.
 private struct FrameIOStackSheet: View {
     let isLightMode: Bool
     let onStack: ([FrameIO.Item]) -> Void
@@ -2216,7 +2226,7 @@ private struct FrameIOShareSheet: View {
                             .foregroundColor(copied ? palette.positive : palette.textMuted)
                     }
                     .buttonStyle(.borderless)
-                    .help("Copy link")
+                    .tip("Copy link")
                     .padding(.trailing, 8)
                     Rectangle().fill(palette.borderLine).frame(width: 1)
                     Menu {
@@ -2374,12 +2384,12 @@ private struct FrameIOShareSheet: View {
                                     Image(systemName: "arrow.triangle.2.circlepath").font(.system(size: StudioTheme.scaleFont(11)))
                                 }
                                 .buttonStyle(.borderless)
-                                .help("Suggest a new strong passphrase")
+                                .tip("Suggest a new strong passphrase")
                                 Button(action: { Self.copy(passphraseText) }) {
                                     Image(systemName: "doc.on.doc").font(.system(size: StudioTheme.scaleFont(11)))
                                 }
                                 .buttonStyle(.borderless)
-                                .help("Copy passphrase")
+                                .tip("Copy passphrase")
                             }
                             .padding(.horizontal, 12)
                             .padding(.bottom, 10)
@@ -2895,6 +2905,7 @@ private struct DrawerTabs: View {
     @AppStorage("uploadDrawerTab") private var tab = "log"
     @ObservedObject private var downloads = DownloadQueue.shared
     @State private var isDropTarget = false
+    @State private var isLogDropTarget = false
 
     private var palette: StudioPalette { StudioPalette(isLightMode) }
 
@@ -2905,6 +2916,8 @@ private struct DrawerTabs: View {
                 // Dropping Frame.io rows here downloads them (and opens the drawer once a download starts).
                 .onDrop(of: [.utf8PlainText], isTargeted: $isDropTarget, perform: DownloadQueue.acceptDrop)
             tabButton("log", "Log", badge: nil)
+                .background(RoundedRectangle(cornerRadius: StudioTheme.cornerRadius).fill(isLogDropTarget ? palette.accentBlue.opacity(0.25) : .clear))
+                .onDrop(of: [.utf8PlainText], isTargeted: $isLogDropTarget, perform: DownloadQueue.acceptDrop)
             Button(action: { toggle { isOpen.toggle() } }) {
                 Image(systemName: isOpen ? "chevron.right" : "chevron.left")
                     .font(.system(size: StudioTheme.scaleFont(11), weight: .bold))
@@ -2914,7 +2927,7 @@ private struct DrawerTabs: View {
             }
             .buttonStyle(.plain)
             .modifier(ToolHover(fill: palette.bgSubtle))
-            .help(isOpen ? "Close the drawer" : "Open Downloads & Log")
+            .tip(isOpen ? "Close the drawer" : "Open Downloads & Log")
         }
         .onChange(of: downloads.startCount) {
             toggle { tab = "downloads"; isOpen = true }
@@ -2945,6 +2958,6 @@ private struct DrawerTabs: View {
         }
         .buttonStyle(.plain)
         .modifier(ToolHover(fill: palette.bgSubtle, isOn: showing))
-        .help(showing ? "Close \(title)" : "Show \(title)")
+        .tip(showing ? "Close \(title)" : "Show \(title)")
     }
 }

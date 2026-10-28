@@ -74,7 +74,7 @@ struct UserGuideView: View {
             GuideShortcut(["⇧F"], "Review full screen"),
             GuideShortcut(["Esc"], "Exit full screen / close a window"),
             GuideShortcut(["⌘⇧←", "⌘⇧→"], "Show / hide the left and right panels"),
-            GuideShortcut(["⇧1", "⇧2", "⇧3"], "Play · Inspect · Scan"),
+            GuideShortcut(["⇧1", "⇧2", "⇧3", "⇧4"], "Play · Inspect · Scan · Upload"),
             GuideShortcut(["⌘+", "⌘−"], "Button size"),
             GuideShortcut(["T"], "Light / dark mode"),
             GuideShortcut(["⇧T"], "Next accent theme"),
@@ -102,7 +102,7 @@ struct UserGuideView: View {
             GuideTopic(title: "Legal Range Zebra", body: "The striped button in the transport bar stripes the paused frame where brightness or colour is outside broadcast-legal levels: red above the limits, blue below. It shows the file's own levels (EV doesn't change it) and hides during playback. Right-click it to choose the standard: EBU R103 (UK and Europe: luma −1 to 103%, RGB −5 to 105%) or Strict (0 to 100%)."),
             GuideTopic(title: "Screenshot", body: "The camera button saves the frame on screen (including A / B compare views) at full resolution. Right-click it to choose JPG or PNG quality."),
             GuideTopic(title: "Full Screen (F / ⇧F)", body: "F shows the video full screen with no interface. ⇧F opens review full screen with timeline and transport controls. Esc exits."),
-            GuideTopic(title: "Panels and Workspaces", body: "⌘⇧← / ⌘⇧→ show or hide the side panels. ⇧1, ⇧2 and ⇧3 switch to Play, Inspect and Scan. T toggles light and dark mode, ⇧T cycles the accent theme."),
+            GuideTopic(title: "Panels and Workspaces", body: "⌘⇧← / ⌘⇧→ show or hide the side panels. ⇧1, ⇧2, ⇧3 and ⇧4 switch to Play, Inspect, Scan and Upload. T toggles light and dark mode, ⇧T cycles the accent theme."),
         ]),
         GuideChapter(title: "Inspect", icon: "doc.text", topics: [
             GuideTopic(title: "Specs Table", body: "Reads every file's metadata without decoding: timecode length, end frame, aspect ratio and size, frame rate, file size, creation date, video codec and audio spec. Click a column header to sort; drag a divider to resize."),

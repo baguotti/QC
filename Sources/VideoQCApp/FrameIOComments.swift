@@ -34,15 +34,25 @@ actor FrameIOLinks {
         var seen: [String: Seen]?
     }
 
-    private var state = State()
+    private var loadedState: State?
     private let file: URL?
+    private var saveScheduled = false
 
-    /// `directory: nil` keeps everything in memory (tests).
+    /// `directory: nil` keeps everything in memory (tests). Nothing is read here: `shared` is first touched on the main
+    /// thread (a clip opening in the Player), and the name/size index can hold tens of thousands of entries.
     init(directory: URL?) {
         file = directory?.appendingPathComponent("frameio-links.json")
-        if let file, let data = try? Data(contentsOf: file), let saved = try? JSONDecoder().decode(State.self, from: data) {
-            state = saved
+    }
+
+    /// The saved links, read from disk on first use (on this actor, off the main thread).
+    private var state: State {
+        get {
+            if let loadedState { return loadedState }
+            let loaded = file.flatMap { try? Data(contentsOf: $0) }.flatMap { try? JSONDecoder().decode(State.self, from: $0) } ?? State()
+            loadedState = loaded
+            return loaded
         }
+        set { loadedState = newValue }
     }
 
     func link(_ url: URL, account: String, fileID: String) {
@@ -94,7 +104,19 @@ actor FrameIOLinks {
         save()
     }
 
+    /// Writes the links a second after the last change: listings and the favourites crawl (one folder every 0.5 s)
+    /// change the index in bursts, and it's rewritten whole.
     private func save() {
+        guard file != nil, !saveScheduled else { return }
+        saveScheduled = true
+        Task {
+            try? await Task.sleep(for: .seconds(1))
+            self.writeNow()
+        }
+    }
+
+    private func writeNow() {
+        saveScheduled = false
         guard let file, let data = try? JSONEncoder().encode(state) else { return }
         try? FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
         try? data.write(to: file, options: .atomic)
@@ -273,6 +295,14 @@ final class FrameIOCommentSync: ObservableObject {
         }
     }
 
+    /// Signed in or out in the Upload tab: the Notes bar shows or hides its Link button at once (and a newly signed-in
+    /// session checks the open clip).
+    func signInChanged(_ isSignedIn: Bool) {
+        signedIn = isSignedIn
+        if isSignedIn, let url = activeURL { Task { await check(url, userInitiated: false) } }
+        if !isSignedIn { activeLinked = false; lastChecked = nil; lastError = nil }
+    }
+
     /// Link from Clipboard (Notes tab) and ⌘V in the Player: links the open clip to the Frame.io link on the clipboard.
     /// False when the clipboard holds no Frame.io link (the key isn't swallowed).
     @discardableResult
@@ -294,6 +324,11 @@ final class FrameIOCommentSync: ObservableObject {
     }
 
     private func check(_ url: URL, userInitiated: Bool) async {
+        // Signed out: nothing to ask (the 60 s poll keeps running for when the user signs in again).
+        guard await FrameIO.shared.isSignedIn else {
+            if isActive(url) { activeLinked = false }
+            return
+        }
         if await FrameIOLinks.shared.link(for: url) == nil, let seen = await FrameIOLinks.shared.indexed(url) {
             // Same name and size as a Frame.io file seen in the browser or the favourites crawl: link it.
             await FrameIOLinks.shared.link(url, account: seen.account, fileID: seen.fileID)

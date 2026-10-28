@@ -1,7 +1,7 @@
 import Foundation
 
 /// A Frame.io web link pasted into the Upload tab (⌘V, the filter field or Open Link), resolved to a place in the
-/// browser. Links look like (from the API's `view_url`s):
+/// browser. Links look like (from the API's `view_url`s; the host is next.frame.io or app.frame.io):
 /// - project: `https://next.frame.io/project/{project}`
 /// - folder: `https://next.frame.io/project/{project}/{folder}`
 /// - file or version stack: `https://next.frame.io/project/{project}/view/{id}`
@@ -19,7 +19,7 @@ struct FrameIOLink: Equatable, Sendable {
             switch self {
             case .notALink: return "That isn't a Frame.io link."
             case .shareLink: return "That's a share (review) link: it can't be opened as a place in your account. Ask for the project link instead."
-            case .legacyLink: return "That's a link from the old Frame.io (app.frame.io), which QCpie can't open."
+            case .legacyLink: return "That's a link from the old Frame.io (before version 4), which QCpie can't open."
             case .notFound: return "Couldn't find that in your Frame.io accounts (no access, or it was deleted)."
             }
         }
@@ -37,8 +37,11 @@ struct FrameIOLink: Equatable, Sendable {
               host == "frame.io" || host.hasSuffix(".frame.io") else { throw Failure.notALink }
         let parts = url.pathComponents.filter { $0 != "/" }
         if parts.first == "share" || parts.first == "reviews" || parts.first == "presentations" { throw Failure.shareLink }
-        if host == "app.frame.io" { throw Failure.legacyLink }
-        guard let index = parts.firstIndex(of: "project"), parts.count > index + 1 else { throw Failure.notALink }
+        // Frame.io now serves the current app on app.frame.io too (same `/project/…` paths as next.frame.io), so the
+        // host doesn't tell old from new: only a path without `/project/{id}` on app.frame.io is an old link.
+        guard let index = parts.firstIndex(of: "project"), parts.count > index + 1 else {
+            throw host == "app.frame.io" ? Failure.legacyLink : Failure.notALink
+        }
         var link = FrameIOLink(project: parts[index + 1])
         let rest = Array(parts.dropFirst(index + 2))
         if rest.first == "view", rest.count > 1 {

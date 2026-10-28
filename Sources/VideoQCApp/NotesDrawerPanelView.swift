@@ -1521,12 +1521,12 @@ private struct FrameIOCommentsBar: View {
                 }
                 .font(.ui(size: 9, weight: .semibold))
                 .buttonStyle(.borderless)
-                .help("Copy this file's link in Frame.io (Copy Asset URL / Share → link), then click here or press ⌘V in the Player to import its comments")
+                .help("In Frame.io, right-click the file → Copy Asset URL, then click here or press ⌘V in the Player to import its comments (share links don't work for this)")
             }
             .padding(.horizontal, 10)
             .frame(height: 24)
             .background(palette.bgPanel)
-            .help("Comments are imported automatically when QCpie finds this file on Frame.io (same name and size) in a folder you browsed or a favourite project. Otherwise link it from its Frame.io link.")
+            .help("Comments are imported automatically when QCpie finds this file on Frame.io (same name and size) in a folder you browsed or a favourite project or folder. Otherwise link it with its Frame.io asset URL.")
 
             Rectangle().fill(palette.borderLine).frame(height: 1)
         }

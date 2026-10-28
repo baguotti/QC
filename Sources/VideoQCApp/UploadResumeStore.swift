@@ -60,12 +60,13 @@ actor UploadResumeStore {
             guard let items = URLComponents(string: url)?.queryItems,
                   let signed = items.first(where: { $0.name == "X-Amz-Date" })?.value,
                   let seconds = items.first(where: { $0.name == "X-Amz-Expires" })?.value.flatMap(Double.init) else { return nil }
-            let formatter = DateFormatter()
-            formatter.locale = Locale(identifier: "en_US_POSIX")
-            formatter.timeZone = TimeZone(identifier: "UTC")
-            formatter.dateFormat = "yyyyMMdd'T'HHmmss'Z'"
-            return formatter.date(from: signed)?.addingTimeInterval(seconds)
+            return try? Date(signed, strategy: amzDate).addingTimeInterval(seconds)
         }
+
+        /// `X-Amz-Date`: "20261028T101500Z" (a reusable, Sendable parse strategy rather than a formatter per part).
+        private static let amzDate = Date.ParseStrategy(
+            format: "\(year: .padded(4))\(month: .twoDigits)\(day: .twoDigits)T\(hour: .twoDigits(clock: .twentyFourHour, hourCycle: .zeroBased))\(minute: .twoDigits)\(second: .twoDigits)Z",
+            locale: Locale(identifier: "en_US_POSIX"), timeZone: TimeZone(identifier: "UTC")!)
     }
 
     /// A queue row still to upload.

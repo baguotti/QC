@@ -287,6 +287,11 @@ extension View {
     func explain(_ text: String) -> some View {
         self.modifier(StudioExplanationModifier(explanation: text))
     }
+
+    /// Hover text in both places: the macOS tooltip and the status bar at the bottom left (`explain`).
+    func tip(_ text: String) -> some View {
+        self.help(text).explain(text)
+    }
     
     /// A panel's header band under the tab strip: flat, with a bottom divider only (a boxed header doubles the strip's line).
     func panelHeaderBar(background: Color, divider: Color) -> some View {

@@ -260,6 +260,23 @@ final class DownloadEngine: Sendable {
         throw CocoaError(.fileWriteFileExists)
     }
 
+    /// Removes partial downloads left behind by a crash or force quit (a normal quit removes its own): hidden
+    /// `.qcpie-download` files under `folder`, a few levels deep, untouched for 6 hours and not in use. They can be
+    /// gigabytes each and are invisible in Finder.
+    nonisolated static func sweepStalePartials(in folder: URL, keeping inUse: Set<String>) {
+        guard let walker = FileManager.default.enumerator(at: folder, includingPropertiesForKeys: [.contentModificationDateKey],
+                                                          options: [.skipsPackageDescendants]) else { return }
+        let cutoff = Date().addingTimeInterval(-6 * 3600)
+        for case let file as URL in walker {
+            if walker.level > 4 { walker.skipDescendants(); continue }
+            guard file.pathExtension == "qcpie-download", file.lastPathComponent.hasPrefix("."),
+                  !inUse.contains(file.standardizedFileURL.path),
+                  let modified = try? file.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate,
+                  modified < cutoff else { continue }
+            try? FileManager.default.removeItem(at: file)
+        }
+    }
+
     /// Frame.io names can hold "/" and ":", which would make subfolders (or fail) on disk.
     nonisolated static func safeName(_ name: String) -> String {
         let cleaned = name.replacingOccurrences(of: "/", with: "-").replacingOccurrences(of: ":", with: "-")
@@ -330,6 +347,7 @@ final class DownloadResumeState: @unchecked Sendable {
     func begin(_ job: UUID, partial: URL, done: Set<Int>) { lock.withLock { files[job] = (partial, done) } }
     func markDone(_ job: UUID, chunk: Int) { lock.withLock { _ = files[job]?.done.insert(chunk) } }
     func forget(_ job: UUID) { lock.withLock { _ = files.removeValue(forKey: job) } }
+    var partialPaths: Set<String> { lock.withLock { Set(files.values.map(\.partial.standardizedFileURL.path)) } }
 
     /// Forgets these jobs and removes their partial files (paused downloads cancelled, or the app quitting).
     func discard(_ jobs: [UUID]) {
@@ -582,6 +600,8 @@ final class DownloadQueue: ObservableObject {
             sleepActivity = ProcessInfo.processInfo.beginActivity(options: [.userInitiated, .idleSystemSleepDisabled],
                                                                   reason: "Downloading from Frame.io")
         }
+        let destination = first.destination, inUse = resumeState.partialPaths
+        Task.detached(priority: .background) { DownloadEngine.sweepStalePartials(in: destination, keeping: inUse) }
         let items = batch.map { DownloadItem(jobID: $0.id, fileID: $0.fileID, name: $0.name, size: $0.size, folders: $0.folders) }
         let addToQueue = Dictionary(uniqueKeysWithValues: batch.map { ($0.id, $0.addToQueue) })
         let engine = engine

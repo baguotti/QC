@@ -778,7 +778,8 @@ struct ContentView: View {
             tab == .player ? "Play: high-performance delivery playback with J-K-L shuttle, timeline scrubbing, and zoom." :
             (tab == .specs ? "Inspect: reads container resolution, timecode, audio, and codecs." :
              (tab == .lineFinder ? "Scan: finds edge lines, split-screen seams, frame-rate stutters, flash frames and Media Offline." :
-              "INGEST: Intake checklist, automatic metadata aggregation, and DIT cross-referencing."))
+              (tab == .upload ? "Upload: send the queue to Frame.io, browse and organise projects, share links, downloads and comments." :
+               "INGEST: Intake checklist, automatic metadata aggregation, and DIT cross-referencing.")))
         )
     }
     
@@ -1512,6 +1513,11 @@ struct ContentView: View {
             onSelectLineFinderTab: {
                 withAnimation(.spring(response: 0.22, dampingFraction: 0.85)) {
                     self.selectedTab = .lineFinder
+                }
+            },
+            onSelectUploadTab: {
+                withAnimation(.spring(response: 0.22, dampingFraction: 0.85)) {
+                    self.selectedTab = .upload
                 }
             },
             onToggleLightMode: {

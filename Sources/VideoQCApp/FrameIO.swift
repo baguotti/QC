@@ -524,7 +524,6 @@ actor FrameIO {
         }
     }
 
-    /// Every page of a list endpoint (`links.next` is a relative path carrying the cursor).
     /// Every page of a list endpoint. `links.next` carries only the cursor, so `query` is re-added to each page.
     private func list(_ path: String, query: String? = nil) async throws -> [Item] {
         func withQuery(_ url: String) -> String {
@@ -545,7 +544,8 @@ actor FrameIO {
 
     private func request(_ method: String, _ path: String, body: Data? = nil, attempt: Int = 0) async throws -> Data {
         guard let url = URL(string: path.hasPrefix("http") ? path : Self.api + path) else { throw Failure.unreadable }
-        var req = URLRequest(url: url)
+        // Never from the shared URL cache: a listing must reflect renames and moves made a moment ago.
+        var req = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData)
         req.httpMethod = method
         req.setValue("Bearer \(try await accessToken())", forHTTPHeaderField: "Authorization")
         if let body {

@@ -123,6 +123,9 @@ final class KeyboardShortcutRouter {
     ) -> NSEvent? {
         // AppKit modal sessions (NSAlert) own the keyboard
         if NSApp?.modalWindow != nil { return event }
+        // SwiftUI sheets (Move to, Share, New Project…) own the keyboard too: Esc and Return reach their buttons, and
+        // ⌘Z / ⌘A / ⌘V don't act on the window behind them.
+        if NSApp?.keyWindow?.sheetParent != nil { return event }
 
         // 1. Text Field Responder Check (ESC or Return unfocuses)
         if let app = NSApp,
@@ -228,7 +231,7 @@ struct KeyboardShortcutActions {
     var onSelectPlayerTab: () -> Void
     var onSelectSpecsTab: () -> Void
     var onSelectLineFinderTab: () -> Void
-    var onSelectIngestTab: () -> Void
+    var onSelectUploadTab: () -> Void
     
     // Theme
     var onToggleLightMode: () -> Void
@@ -288,7 +291,7 @@ struct KeyboardShortcutActions {
         onSelectPlayerTab: @escaping () -> Void = {},
         onSelectSpecsTab: @escaping () -> Void = {},
         onSelectLineFinderTab: @escaping () -> Void = {},
-        onSelectIngestTab: @escaping () -> Void = {},
+        onSelectUploadTab: @escaping () -> Void = {},
         onToggleLightMode: @escaping () -> Void = {},
         onCycleAccentTheme: @escaping () -> Void = {},
         onToggleFinderTag: @escaping (FinderTagColor) -> Bool = { _ in false },
@@ -335,7 +338,7 @@ struct KeyboardShortcutActions {
         self.onSelectPlayerTab = onSelectPlayerTab
         self.onSelectSpecsTab = onSelectSpecsTab
         self.onSelectLineFinderTab = onSelectLineFinderTab
-        self.onSelectIngestTab = onSelectIngestTab
+        self.onSelectUploadTab = onSelectUploadTab
         self.onToggleLightMode = onToggleLightMode
         self.onCycleAccentTheme = onCycleAccentTheme
         self.onToggleFinderTag = onToggleFinderTag
@@ -444,11 +447,11 @@ extension KeyboardShortcutRouter {
                 return true
             },
             Rule(
-                id: "tabIngest",
+                id: "tabUpload",
                 trigger: ShortcutTrigger(keyCodes: [21], characters: ["4", "$"], modifiers: [.shift]),
                 scope: .global
             ) {
-                actions.onSelectIngestTab()
+                actions.onSelectUploadTab()
                 return true
             },
             
