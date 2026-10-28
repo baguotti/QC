@@ -2,7 +2,7 @@
 cd "$(dirname "$0")/.."
 
 echo "==> Building QCpie (debug)..."
-swift build --sdk /Library/Developer/CommandLineTools/SDKs/MacOSX26.5.sdk
+swift build --sdk "$(xcrun --show-sdk-path)"
 
 if [ $? -eq 0 ]; then
     echo "==> Build succeeded. Launching QCpie..."
@@ -18,6 +18,6 @@ if [ $? -eq 0 ]; then
     fi
 else
     echo "==> Build failed."
-    read -k 1 -s -p "Press any key to close..."
+    read -k 1 -s "?Press any key to close..."
 fi
 

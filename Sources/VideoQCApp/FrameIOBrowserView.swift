@@ -64,6 +64,10 @@ final class FrameIOBrowser: ObservableObject {
     /// Filters the open listing by name (cleared when navigating).
     @Published var filter = ""
     @Published private(set) var favourites: [Favourite] = FrameIOBrowser.loadFavourites()
+    /// The project list shows favourite projects only (default: a company workspace can hold dozens of projects).
+    @Published var favouriteProjectsOnly = UserDefaults.standard.object(forKey: FrameIOBrowser.favouriteProjectsOnlyKey) as? Bool ?? true {
+        didSet { UserDefaults.standard.set(favouriteProjectsOnly, forKey: Self.favouriteProjectsOnlyKey) }
+    }
     /// The open project's share links (newest first), for "Add to Share Link".
     @Published private(set) var projectShares: [FrameIO.Share] = []
     private var sharesProject: String?
@@ -88,10 +92,16 @@ final class FrameIOBrowser: ObservableObject {
 
     var inStack: Bool { path.last?.level == .stack }
 
-    /// The listing after the name filter.
+    /// A workspace is open: the listing is its projects.
+    var atProjectList: Bool { path.last?.level == .workspace }
+
+    var showsFavouriteProjectsOnly: Bool { atProjectList && favouriteProjectsOnly }
+
+    /// The listing after the favourites switch (project list) and the name filter.
     var visibleItems: [FrameIO.Item] {
+        let listed = showsFavouriteProjectsOnly ? items.filter(isFavourite) : items
         let query = filter.trimmingCharacters(in: .whitespaces)
-        return query.isEmpty ? items : items.filter { $0.title.localizedCaseInsensitiveContains(query) }
+        return query.isEmpty ? listed : listed.filter { $0.title.localizedCaseInsensitiveContains(query) }
     }
 
     /// The open project's id (shares are created per project).
@@ -172,6 +182,7 @@ final class FrameIOBrowser: ObservableObject {
     // MARK: Favourites
 
     private static let favouritesKey = "frameioFavourites"
+    private static let favouriteProjectsOnlyKey = "frameioFavouriteProjectsOnly"
 
     private static func loadFavourites() -> [Favourite] {
         guard let data = UserDefaults.standard.data(forKey: favouritesKey) else { return [] }
@@ -194,7 +205,7 @@ final class FrameIOBrowser: ObservableObject {
     /// Adds a project (from the project list), or a folder or stack of the open folder (right-click → Add to Favourites).
     func addFavourite(_ item: FrameIO.Item) {
         let crumb: Crumb
-        if path.last?.level == .workspace {
+        if atProjectList {
             crumb = Crumb(level: .project, id: item.id, title: item.title, folderID: item.rootFolderID)
         } else if item.isVersionStack {
             crumb = Crumb(level: .stack, id: item.id, title: item.title, folderID: nil)
@@ -209,6 +220,15 @@ final class FrameIOBrowser: ObservableObject {
     }
 
     func isFavourite(_ item: FrameIO.Item) -> Bool { favourites.contains { $0.path.last?.id == item.id } }
+
+    /// The star on a project row or a folder/stack's right-click menu.
+    func toggleFavourite(_ item: FrameIO.Item) {
+        if let favourite = favourites.first(where: { $0.path.last?.id == item.id }) {
+            removeFavourite(favourite)
+        } else {
+            addFavourite(item)
+        }
+    }
 
     func removeFavourite(_ favourite: Favourite) {
         favourites.removeAll { $0 == favourite }
@@ -734,77 +754,63 @@ struct FrameIOBrowserView: View {
 
     // MARK: Header
 
+    /// Where you are, and the actions that don't depend on it: refresh, the upload log, the account.
     private var header: some View {
-        HStack(spacing: 10) {
+        HStack(spacing: 4) {
             breadcrumbs
             Spacer(minLength: 12)
             if inFolder {
-                Button(action: browser.newFolder) {
-                    Label("New Folder", systemImage: "folder.badge.plus").font(.ui(size: 12))
-                }
-                .buttonStyle(.borderless)
+                toolButton("New Folder", systemImage: "folder.badge.plus", help: "Create a folder here", action: browser.newFolder)
             }
-            Button(action: browser.refresh) {
-                Image(systemName: "arrow.clockwise").font(.system(size: StudioTheme.scaleFont(11)))
+            toolButton(nil, systemImage: "arrow.clockwise", help: "Refresh", action: browser.refresh)
+            toolButton("Log", systemImage: "list.bullet.rectangle", help: showLog ? "Hide the upload log" : "Show the upload log",
+                       isOn: showLog) {
+                withAnimation(.easeInOut(duration: 0.15)) { showLog.toggle() }
             }
-            .buttonStyle(.borderless)
-            .help("Refresh")
-            Button(action: { withAnimation(.easeInOut(duration: 0.15)) { showLog.toggle() } }) {
-                Label("Log", systemImage: "list.bullet.rectangle").font(.ui(size: 12))
-                    .foregroundColor(showLog ? palette.accentBlue : palette.textMain)
-            }
-            .buttonStyle(.borderless)
-            .help("Show the upload log")
+            toolDivider
             Menu {
                 Button("Sign Out", action: browser.signOut)
             } label: {
-                Text(browser.userName.isEmpty ? "Frame.io" : browser.userName).font(.ui(size: 12))
+                toolLabel(browser.userName.isEmpty ? "Frame.io" : browser.userName, systemImage: "person.crop.circle", menu: true)
             }
             .menuStyle(.borderlessButton)
+            .menuIndicator(.hidden)
             .fixedSize()
+            .modifier(ToolHover(fill: palette.bgSubtle))
         }
-        .padding(.horizontal, 20)
-        .padding(.vertical, 10)
+        .padding(.horizontal, 14)
+        .padding(.vertical, 8)
         .background(palette.bgPanel)
     }
 
-    /// Filter field, favourite star for the open place, and the Favourites menu.
+    /// Filter, then what applies to the open place: Favourites / All (project list), view, undo, share, its star,
+    /// and the Favourites menu.
     private var toolbar: some View {
-        HStack(spacing: 10) {
-            HStack(spacing: 6) {
-                Image(systemName: "magnifyingglass")
-                    .font(.system(size: StudioTheme.scaleFont(10)))
-                    .foregroundColor(palette.textMuted)
-                TextField("Filter by name", text: $browser.filter)
-                    .textFieldStyle(.plain)
-                    .font(.ui(size: 11))
-                if !browser.filter.isEmpty {
-                    Button(action: { browser.filter = "" }) {
-                        Image(systemName: "xmark.circle.fill")
-                            .font(.system(size: StudioTheme.scaleFont(10)))
-                            .foregroundColor(palette.textMuted)
-                    }
-                    .buttonStyle(.plain)
-                }
-            }
-            .padding(.horizontal, 8)
-            .padding(.vertical, 5)
-            .frame(maxWidth: 280)
-            .studioBox(background: palette.bgSubtle, border: palette.borderLine)
+        let canFavourite = browser.path.last.map { [.project, .folder, .stack].contains($0.level) } == true
+        let canShare = browser.projectID != nil && (browser.currentFolderID != nil || browser.inStack)
+        return HStack(spacing: 4) {
+            filterField
             if !browser.filter.isEmpty {
-                Text("\(browser.visibleItems.count) of \(browser.items.count)")
+                Text("\(browser.visibleItems.count) of \(browser.showsFavouriteProjectsOnly ? browser.items.filter(browser.isFavourite).count : browser.items.count)")
                     .font(.ui(size: 10))
                     .foregroundColor(palette.textMuted)
+                    .padding(.leading, 6)
             }
-            Spacer()
-            HStack(spacing: 6) {
-                Button(action: { showThumbnails.toggle() }) {
-                    Image(systemName: showThumbnails ? "photo.on.rectangle" : "list.bullet")
-                        .font(.system(size: StudioTheme.scaleFont(11)))
-                        .foregroundColor(showThumbnails ? palette.accentBlue : palette.textMuted)
+            Spacer(minLength: 12)
+            if browser.atProjectList {
+                Picker("", selection: $browser.favouriteProjectsOnly) {
+                    Text("Favourites").tag(true)
+                    Text("All Projects").tag(false)
                 }
-                .buttonStyle(.borderless)
-                .help(showThumbnails ? "Show as list" : "Show thumbnails")
+                .labelsHidden()
+                .pickerStyle(.segmented)
+                .controlSize(.small)
+                .fixedSize()
+                .help("Show your favourite projects or every project in this workspace")
+            }
+            if inFolder || browser.inStack {
+                toolButton(nil, systemImage: showThumbnails ? "square.grid.2x2" : "list.bullet",
+                           help: showThumbnails ? "Show as list" : "Show thumbnails", isOn: showThumbnails) { showThumbnails.toggle() }
                 if showThumbnails {
                     Slider(value: $thumbnailWidth, in: 48...256)
                         .controlSize(.mini)
@@ -813,58 +819,125 @@ struct FrameIOBrowserView: View {
                 }
             }
             if let undo = browser.lastUndo {
-                Button(action: browser.performUndo) {
-                    Label("Undo", systemImage: "arrow.uturn.backward").font(.ui(size: 12))
-                }
-                .buttonStyle(.borderless)
-                .help("Undo: \(undo.message) (⌘Z)")
+                toolButton("Undo", systemImage: "arrow.uturn.backward", help: "Undo: \(undo.message) (⌘Z)", action: browser.performUndo)
             }
-            if browser.projectID != nil, browser.currentFolderID != nil || browser.inStack {
-                Button(action: shareSelectionOrFolder) {
-                    Label("Share", systemImage: "square.and.arrow.up").font(.ui(size: 12))
-                }
-                .buttonStyle(.borderless)
-                .help(browser.selection.isEmpty ? "Create a share link for this folder" : "Create a share link for the selected items")
+            if canShare {
+                toolButton("Share", systemImage: "square.and.arrow.up",
+                           help: browser.selection.isEmpty ? "Create a share link for this folder" : "Create a share link for the selected items",
+                           action: shareSelectionOrFolder)
             }
-            if browser.path.last.map({ [.project, .folder, .stack].contains($0.level) }) == true {
-                Button(action: browser.toggleCurrentFavourite) {
-                    Image(systemName: browser.isCurrentFavourite ? "star.fill" : "star")
-                        .font(.system(size: StudioTheme.scaleFont(12)))
-                        .foregroundColor(browser.isCurrentFavourite ? .yellow : palette.textMuted)
-                }
-                .buttonStyle(.borderless)
-                .help(browser.isCurrentFavourite ? "Remove from Favourites" : "Add this place to Favourites")
+            if canFavourite || browser.atProjectList || inFolder || browser.inStack || canShare {
+                toolDivider
             }
-            Menu {
-                if browser.favourites.isEmpty {
-                    Text("Star a project or folder to add it here")
-                } else {
-                    ForEach(browser.favourites) { favourite in
-                        Button(favourite.location.isEmpty ? favourite.title : "\(favourite.title)  —  \(favourite.location)") {
-                            browser.open(favourite)
-                        }
-                    }
-                    Divider()
-                    Menu("Remove") {
-                        ForEach(browser.favourites) { favourite in
-                            Button(favourite.title) { browser.removeFavourite(favourite) }
-                        }
-                    }
-                }
-            } label: {
-                Label("Favourites", systemImage: "star.square.on.square").font(.ui(size: 12))
+            if canFavourite {
+                toolButton(nil, systemImage: browser.isCurrentFavourite ? "star.fill" : "star",
+                           help: browser.isCurrentFavourite ? "Remove from Favourites" : "Add this place to Favourites",
+                           tint: browser.isCurrentFavourite ? palette.accentBlue : nil, action: browser.toggleCurrentFavourite)
             }
-            .menuStyle(.borderlessButton)
-            .fixedSize()
+            favouritesMenu
         }
-        .padding(.horizontal, 20)
-        .padding(.vertical, 7)
+        .padding(.horizontal, 14)
+        .padding(.vertical, 6)
         .background(palette.bgPanel)
+    }
+
+    private var filterField: some View {
+        HStack(spacing: 6) {
+            Image(systemName: "magnifyingglass")
+                .font(.system(size: StudioTheme.scaleFont(10)))
+                .foregroundColor(palette.textMuted)
+            TextField(browser.atProjectList ? "Filter projects" : "Filter by name", text: $browser.filter)
+                .textFieldStyle(.plain)
+                .font(.ui(size: 11))
+            if !browser.filter.isEmpty {
+                Button(action: { browser.filter = "" }) {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.system(size: StudioTheme.scaleFont(10)))
+                        .foregroundColor(palette.textMuted)
+                }
+                .buttonStyle(.plain)
+                .help("Clear the filter")
+            }
+        }
+        .padding(.horizontal, 8)
+        .frame(height: StudioTheme.scale(24))
+        .frame(maxWidth: 260)
+        .studioBox(background: palette.bgSubtle, border: palette.borderLine)
+    }
+
+    /// Saved places: open one, or remove it.
+    private var favouritesMenu: some View {
+        Menu {
+            if browser.favourites.isEmpty {
+                Text("Star a project or folder to add it here")
+            } else {
+                ForEach(browser.favourites) { favourite in
+                    Button(favourite.location.isEmpty ? favourite.title : "\(favourite.title)  —  \(favourite.location)") {
+                        browser.open(favourite)
+                    }
+                }
+                Divider()
+                Menu("Remove") {
+                    ForEach(browser.favourites) { favourite in
+                        Button(favourite.title) { browser.removeFavourite(favourite) }
+                    }
+                }
+            }
+        } label: {
+            toolLabel("Favourites", systemImage: "star.square.on.square", menu: true)
+        }
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .fixedSize()
+        .modifier(ToolHover(fill: palette.bgSubtle))
+        .help("Go to a favourite project, folder or stack")
+    }
+
+    // MARK: Toolbar controls
+
+    /// Icon (and optional title) of a toolbar control; menus get a small chevron.
+    private func toolLabel(_ title: String?, systemImage: String, tint: Color? = nil, menu: Bool = false) -> some View {
+        HStack(spacing: 5) {
+            Image(systemName: systemImage)
+                .font(.system(size: StudioTheme.scaleFont(11), weight: .medium))
+                .foregroundColor(tint ?? palette.textMain)
+            if let title {
+                Text(title)
+                    .font(.ui(size: 12))
+                    .foregroundColor(palette.textMain)
+            }
+            if menu {
+                Image(systemName: "chevron.down")
+                    .font(.system(size: StudioTheme.scaleFont(8), weight: .semibold))
+                    .foregroundColor(palette.textMuted)
+            }
+        }
+        .padding(.horizontal, 7)
+        .frame(height: StudioTheme.scale(24))
+        .contentShape(Rectangle())
+    }
+
+    /// A toolbar button: rounded hover background, and a filled one while `isOn` (Log open, thumbnails shown).
+    private func toolButton(_ title: String?, systemImage: String, help: String, isOn: Bool = false, tint: Color? = nil,
+                            action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            toolLabel(title, systemImage: systemImage, tint: tint ?? (isOn ? palette.accentBlue : nil))
+        }
+        .buttonStyle(.plain)
+        .modifier(ToolHover(fill: palette.bgSubtle, isOn: isOn))
+        .help(help)
+    }
+
+    private var toolDivider: some View {
+        Rectangle()
+            .fill(palette.borderLine)
+            .frame(width: 1, height: StudioTheme.scale(16))
+            .padding(.horizontal, 4)
     }
 
     /// Breadcrumbs; the project and parent folders accept drops (move up, or upload there).
     private var breadcrumbs: some View {
-        HStack(spacing: 4) {
+        HStack(spacing: 2) {
             crumbButton("Frame.io", depth: 0, crumb: nil, isLast: browser.path.isEmpty)
             ForEach(Array(browser.path.enumerated()), id: \.offset) { index, crumb in
                 Image(systemName: "chevron.right")
@@ -885,11 +958,13 @@ struct FrameIOBrowserView: View {
                 .font(.ui(size: 12, weight: isLast ? .semibold : .regular))
                 .foregroundColor(dropTarget == key ? .white : (isLast ? palette.textMain : palette.textMuted))
                 .truncationMode(.middle)
-                .padding(.horizontal, 4)
-                .padding(.vertical, 2)
-                .background(RoundedRectangle(cornerRadius: 4).fill(dropTarget == key ? palette.accentBlue : .clear))
+                .padding(.horizontal, 6)
+                .frame(height: StudioTheme.scale(24))
+                .background(RoundedRectangle(cornerRadius: StudioTheme.cornerRadius).fill(dropTarget == key ? palette.accentBlue : .clear))
+                .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .modifier(ToolHover(fill: palette.bgSubtle, isEnabled: !isLast && dropTarget != key))
         .disabled(isLast)
         .dropIf(folder != nil, isTargeted: targetBinding(key)) { providers in
             guard let folder else { return false }
@@ -914,6 +989,8 @@ struct FrameIOBrowserView: View {
                     Spacer()
                 }
                 .frame(maxWidth: 520)
+            } else if visibleItems.isEmpty && browser.showsFavouriteProjectsOnly && browser.filter.isEmpty {
+                noFavouriteProjects
             } else if visibleItems.isEmpty {
                 VStack { Spacer(); Text(browser.items.isEmpty ? "Empty" : "No matches").font(.ui(size: 12)).foregroundColor(palette.textMuted); Spacer() }
                     .frame(maxWidth: .infinity)
@@ -957,9 +1034,33 @@ struct FrameIOBrowserView: View {
         }
     }
 
+    /// The Favourites view of a project list with no favourite projects yet.
+    private var noFavouriteProjects: some View {
+        VStack(spacing: 10) {
+            Spacer()
+            Image(systemName: "star")
+                .font(.system(size: StudioTheme.scaleFont(22), weight: .light))
+                .foregroundColor(palette.textMuted)
+            Text("No favourite projects yet")
+                .font(.ui(size: 13, weight: .semibold))
+                .foregroundColor(palette.textMain)
+            Text("Star the projects you work on to see just those here.")
+                .font(.ui(size: 11))
+                .foregroundColor(palette.textMuted)
+            Button(action: { browser.favouriteProjectsOnly = false }) {
+                toolLabel("Show All Projects", systemImage: "square.grid.2x2")
+            }
+            .buttonStyle(.plain)
+            .modifier(ToolHover(fill: palette.bgSubtle))
+            Spacer()
+        }
+        .frame(maxWidth: .infinity)
+    }
+
     /// Accounts, workspaces and projects: click to open. Projects accept uploads into their top level.
     private func navigationRow(_ item: FrameIO.Item, striped: Bool) -> some View {
-        let isProject = browser.path.last?.level == .workspace
+        let isProject = browser.atProjectList
+        let isFavourite = isProject && browser.isFavourite(item)
         let key = item.id
         return Button(action: { browser.open(item) }) {
             HStack(spacing: 10) {
@@ -972,15 +1073,14 @@ struct FrameIOBrowserView: View {
                     .foregroundColor(palette.textMain)
                     .lineLimit(1)
                     .truncationMode(.middle)
-                if isProject && browser.isFavourite(item) {
-                    Image(systemName: "star.fill")
-                        .font(.system(size: StudioTheme.scaleFont(9)))
-                        .foregroundColor(.yellow)
-                }
                 Spacer()
+                if isProject {
+                    Color.clear.frame(width: StudioTheme.scale(24))   // room for the star overlay
+                }
                 Image(systemName: "chevron.right")
                     .font(.system(size: StudioTheme.scaleFont(10), weight: .semibold))
                     .foregroundColor(palette.textMuted.opacity(0.6))
+                    .frame(width: StudioTheme.scale(10))
             }
             .padding(.horizontal, 20)
             .padding(.vertical, 6)
@@ -989,6 +1089,21 @@ struct FrameIOBrowserView: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .overlay(alignment: .trailing) {
+            if isProject {
+                Button(action: { browser.toggleFavourite(item) }) {
+                    Image(systemName: isFavourite ? "star.fill" : "star")
+                        .font(.system(size: StudioTheme.scaleFont(11), weight: .medium))
+                        .foregroundColor(isFavourite ? palette.accentBlue : palette.textMuted.opacity(0.45))
+                        .frame(width: StudioTheme.scale(24), height: StudioTheme.scale(22))
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .modifier(ToolHover(fill: palette.bgSubtle))
+                .help(isFavourite ? "Remove from Favourites" : "Add to Favourites")
+                .padding(.trailing, 20 + StudioTheme.scale(10) + 10)   // left of the chevron
+            }
+        }
         .contextMenu {
             if isProject {
                 Button { browser.open(item) } label: { Label("Open", systemImage: "film.stack") }
@@ -1005,15 +1120,7 @@ struct FrameIOBrowserView: View {
                     Button { copy(link) } label: { Label("Copy Project URL", systemImage: "link") }
                 }
                 Divider()
-                if browser.isFavourite(item) {
-                    Button("Remove from Favourites") {
-                        if let favourite = browser.favourites.first(where: { $0.path.last?.id == item.id }) {
-                            browser.removeFavourite(favourite)
-                        }
-                    }
-                } else {
-                    Button("Add to Favourites") { browser.addFavourite(item) }
-                }
+                Button(isFavourite ? "Remove from Favourites" : "Add to Favourites") { browser.toggleFavourite(item) }
             }
         }
         .dropIf(isProject && item.rootFolderID != nil, isTargeted: targetBinding(key)) { providers in
@@ -2296,5 +2403,23 @@ private struct HoverBackground: ViewModifier {
         content
             .background(isActive && isHovered ? hover : base)
             .onHover { isHovered = $0 }
+    }
+}
+
+/// Toolbar controls and breadcrumbs: a rounded background on hover (and while `isOn`), like Finder's toolbar.
+private struct ToolHover: ViewModifier {
+    let fill: Color
+    var isOn = false
+    var isEnabled = true
+    @State private var isHovered = false
+
+    func body(content: Content) -> some View {
+        content
+            .background(
+                RoundedRectangle(cornerRadius: StudioTheme.cornerRadius)
+                    .fill(isOn || (isEnabled && isHovered) ? fill : .clear)
+            )
+            .onHover { isHovered = $0 }
+            .animation(.easeInOut(duration: 0.12), value: isHovered)
     }
 }
