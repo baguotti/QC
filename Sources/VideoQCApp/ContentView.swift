@@ -288,6 +288,13 @@ struct ContentView: View {
                 fileOpenManager.pendingURLs = []
             }
             .onAppear {
+                #if DEBUG
+                if ResizeBench.output != nil {
+                    selectedTab = ResizeBench.tab
+                    if let folder = ResizeBench.folder { loadAssets([folder], append: false) }
+                    Task { await ResizeBench.run() }
+                }
+                #endif
                 updatePlayerTreeNodes()
                 setupKeyboardMonitor()
                 loadFinderTagsForQueue()

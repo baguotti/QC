@@ -32,6 +32,19 @@ final class FrameIOBrowser: ObservableObject {
     struct Favourite: Codable, Identifiable, Hashable {
         var id: String { path.map(\.id).joined(separator: "/") }
         let path: [Crumb]
+        /// The favourites page (tab) it's on, 0…4. Favourites saved before pages existed are on the first.
+        var page = 0
+
+        init(path: [Crumb], page: Int = 0) {
+            self.path = path
+            self.page = page
+        }
+
+        init(from decoder: Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            path = try c.decode([Crumb].self, forKey: .path)
+            page = try c.decodeIfPresent(Int.self, forKey: .page) ?? 0
+        }
 
         var title: String { path.last?.title ?? "Frame.io" }
         /// Where it lives: "Project › Parent" (empty for a project).
@@ -64,6 +77,13 @@ final class FrameIOBrowser: ObservableObject {
     /// Filters the open listing by name (cleared when navigating).
     @Published var filter = ""
     @Published private(set) var favourites: [Favourite] = FrameIOBrowser.loadFavourites()
+    /// Favourites pages (tabs), 1…5, named by the user ("MISSONI", "AD Germany"…).
+    @Published private(set) var favouritePages: [String] = UserDefaults.standard.stringArray(forKey: FrameIOBrowser.favouritePagesKey) ?? ["Page 1"]
+    /// The page shown (and the one new stars go to).
+    @Published var favouritePage = UserDefaults.standard.integer(forKey: FrameIOBrowser.favouritePageKey) {
+        didSet { UserDefaults.standard.set(favouritePage, forKey: Self.favouritePageKey) }
+    }
+    static let maxFavouritePages = 5
     enum ProjectStatusFilter: String, CaseIterable, Identifiable {
         case active, inactive, all
         var id: String { rawValue }
@@ -254,6 +274,8 @@ final class FrameIOBrowser: ObservableObject {
     // MARK: Favourites
 
     private static let favouritesKey = "frameioFavourites"
+    private static let favouritePagesKey = "frameioFavouritePages"
+    private static let favouritePageKey = "frameioFavouritePage"
     private static let favouriteProjectsOnlyKey = "frameioFavouriteProjectsOnly"
     private static let projectStatusKey = "frameioProjectStatus"
 
@@ -262,16 +284,79 @@ final class FrameIOBrowser: ObservableObject {
         return (try? JSONDecoder().decode([Favourite].self, from: data)) ?? []
     }
 
+    /// Drag to reorder: puts `id` where `target` is (the bar and the list show favourites in this order).
+    func moveFavourite(_ id: String, onto target: String) {
+        guard id != target, let from = favourites.firstIndex(where: { $0.id == id }),
+              let to = favourites.firstIndex(where: { $0.id == target }) else { return }
+        favourites.move(fromOffsets: IndexSet(integer: from), toOffset: to > from ? to + 1 : to)
+        saveFavourites()
+    }
+
     private func saveFavourites() {
         UserDefaults.standard.set(try? JSONEncoder().encode(favourites), forKey: Self.favouritesKey)
     }
 
+    // MARK: Favourites pages
+
+    /// The page shown, clamped to the pages that exist.
+    var currentFavouritePage: Int { min(max(favouritePage, 0), favouritePages.count - 1) }
+
+    /// The favourites on the shown page, in their order.
+    var pageFavourites: [Favourite] { favourites.filter { $0.page == currentFavouritePage } }
+
+    func favouriteCount(onPage page: Int) -> Int { favourites.filter { $0.page == page }.count }
+
+    func addFavouritePage() {
+        guard favouritePages.count < Self.maxFavouritePages else { return }
+        favouritePages.append("Page \(favouritePages.count + 1)")
+        saveFavouritePages()
+        favouritePage = favouritePages.count - 1
+    }
+
+    func renameFavouritePage(_ page: Int, to name: String) {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard favouritePages.indices.contains(page), !trimmed.isEmpty else { return }
+        favouritePages[page] = trimmed
+        saveFavouritePages()
+    }
+
+    /// Deletes a page; its favourites move to the page before it (the first page's to the next), so none are lost.
+    func deleteFavouritePage(_ page: Int) {
+        guard favouritePages.count > 1, favouritePages.indices.contains(page) else { return }
+        let destination = page == 0 ? 0 : page - 1
+        for index in favourites.indices {
+            if favourites[index].page == page { favourites[index].page = destination } else if favourites[index].page > page { favourites[index].page -= 1 }
+        }
+        favouritePages.remove(at: page)
+        saveFavouritePages()
+        saveFavourites()
+        if favouritePage >= favouritePages.count || favouritePage > page { favouritePage = max(0, favouritePage - 1) }
+    }
+
+    /// Right-click → Move to Page, or a chip dropped on a tab.
+    func moveFavourite(_ id: String, toPage page: Int) {
+        guard favouritePages.indices.contains(page), let index = favourites.firstIndex(where: { $0.id == id }),
+              favourites[index].page != page else { return }
+        var moved = favourites.remove(at: index)
+        moved.page = page
+        favourites.append(moved)
+        saveFavourites()
+    }
+
+    private func saveFavouritePages() {
+        UserDefaults.standard.set(favouritePages, forKey: Self.favouritePagesKey)
+    }
+
     var isCurrentFavourite: Bool { favourites.contains { $0.path == path } }
 
-    /// Stars or unstars the open project, folder or stack.
+    /// Stars or unstars the open project, folder or stack (stars go to the page shown).
     func toggleCurrentFavourite() {
         guard path.last.map({ [.project, .folder, .stack].contains($0.level) }) == true else { return }
-        if isCurrentFavourite { favourites.removeAll { $0.path == path } } else { favourites.append(Favourite(path: path)) }
+        if isCurrentFavourite {
+            favourites.removeAll { $0.path == path }
+        } else {
+            favourites.append(Favourite(path: path, page: currentFavouritePage))
+        }
         saveFavourites()
     }
 
@@ -285,11 +370,12 @@ final class FrameIOBrowser: ObservableObject {
         } else {
             crumb = Crumb(level: .folder, id: item.id, title: item.title, folderID: item.rootFolderID)
         }
-        let favourite = Favourite(path: path + [crumb])
-        guard !favourites.contains(favourite) else { return }
+        let favourite = Favourite(path: path + [crumb], page: currentFavouritePage)
+        guard !favourites.contains(where: { $0.path == favourite.path }) else { return }
         favourites.append(favourite)
         saveFavourites()
-        show(Toast(message: "Added “\(item.title)” to Favourites"))
+        show(Toast(message: favouritePages.count > 1 ? "Added “\(item.title)” to “\(favouritePages[currentFavouritePage])”"
+                                                     : "Added “\(item.title)” to Favourites"))
     }
 
     func isFavourite(_ item: FrameIO.Item) -> Bool { favourites.contains { $0.path.last?.id == item.id } }
@@ -764,6 +850,14 @@ struct FrameIOBrowserView: View {
     @State private var copyItems: MoveRequest?
     @State private var shareRequest: ShareRequest?
     @State private var showNewProject = false
+    /// The breadcrumbs' "…" (folded start of a long path) is open.
+    @State private var hiddenCrumbsOpen = false
+    /// How favourites show: "bar" (chips under the breadcrumbs) or "list" (a vertical list from the Favourites button).
+    /// Clicking Favourites switches; right-click picks one. (An old "hidden" setting reads as the bar.)
+    @AppStorage("frameioFavouritesLayout") private var favouritesLayout = "bar"
+    @State private var showFavouritesList = false
+    /// The favourite being dragged to reorder (drops elsewhere ignore it).
+    @State private var draggingFavourite: String?
     @AppStorage("frameioThumbnails") private var showThumbnails = false
     @AppStorage("frameioThumbnailWidth") private var thumbnailWidth: Double = 64
 
@@ -792,11 +886,15 @@ struct FrameIOBrowserView: View {
             case false?:
                 signInPrompt
             case true?:
-                header
+                if !benchHides("header") { header }
                 Rectangle().fill(palette.borderLine).frame(height: 1)
-                toolbar
+                if !isListLayout && !benchHides("favbar") {
+                    favouritesBar
+                    Rectangle().fill(palette.borderLine).frame(height: 1)
+                }
+                if !benchHides("toolbar") { toolbar }
                 Rectangle().fill(palette.borderLine).frame(height: 1)
-                folderList
+                if benchHides("list") { Spacer() } else { folderList }
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -866,7 +964,7 @@ struct FrameIOBrowserView: View {
     /// drawer's tabs (Downloads, Log) at the far right.
     private var header: some View {
         HStack(spacing: 4) {
-            breadcrumbs
+            if !benchHides("crumbs") { breadcrumbs }
             Spacer(minLength: 12)
             if inFolder {
                 toolButton("New Folder", systemImage: "folder.badge.plus", help: "Create a folder here", action: browser.newFolder)
@@ -876,14 +974,10 @@ struct FrameIOBrowserView: View {
                     showNewProject = true
                 }
             }
-            toolButton(nil, systemImage: "link", help: "Open the Frame.io link on the clipboard (or press ⌘V)") {
-                if !browser.openLinkOnClipboard() {
-                    browser.notify("Copy a Frame.io link first, then click here or press ⌘V.", isError: true)
-                }
-            }
             toolButton(nil, systemImage: "arrow.clockwise", help: "Refresh", action: browser.refresh)
             toolDivider
-            FrameIOStatusBadge(isLightMode: isLightMode)
+            if !benchHides("badge") { FrameIOStatusBadge(isLightMode: isLightMode) }
+            if !benchHides("account") {
             Menu {
                 Button("Sign Out", action: browser.signOut)
             } label: {
@@ -894,8 +988,9 @@ struct FrameIOBrowserView: View {
             .fixedSize()
             .modifier(ToolHover(fill: palette.bgSubtle))
             .tip("The Frame.io account you're signed in with (click to sign out)")
+            }
             toolDivider
-            DrawerTabs(isLightMode: isLightMode)
+            if !benchHides("drawertabs") { DrawerTabs(isLightMode: isLightMode) }
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 8)
@@ -967,7 +1062,7 @@ struct FrameIOBrowserView: View {
                            help: browser.isCurrentFavourite ? "Remove from Favourites" : "Add this place to Favourites",
                            tint: browser.isCurrentFavourite ? palette.accentBlue : nil, action: browser.toggleCurrentFavourite)
             }
-            favouritesMenu
+            favouritesButton
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 6)
@@ -1005,31 +1100,180 @@ struct FrameIOBrowserView: View {
     }
 
     /// Saved places: open one, or remove it.
-    private var favouritesMenu: some View {
-        Menu {
-            if browser.favourites.isEmpty {
-                Text("Star a project or folder to add it here")
+    /// Favourite projects, folders and stacks as chips under the breadcrumbs: click to go there (the one you're in is
+    /// highlighted), × or right-click to remove. Scrolls sideways when there are many.
+    private var favouritesBar: some View {
+        HStack(spacing: 10) {
+            favouritePageTabs
+            Rectangle().fill(palette.borderLine).frame(width: 1, height: StudioTheme.scale(20))
+            if browser.pageFavourites.isEmpty {
+                Text(browser.favourites.isEmpty ? "Star a project, folder or stack (☆ in the toolbar or right-click) to pin it here."
+                     : "Nothing on this page yet: star a place while it's open, or drag a favourite onto this tab.")
+                    .font(.ui(size: 11))
+                    .foregroundColor(palette.textMuted)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    .frame(height: StudioTheme.scale(30))
+                Spacer(minLength: 0)
             } else {
-                ForEach(browser.favourites) { favourite in
-                    Button(favourite.location.isEmpty ? favourite.title : "\(favourite.title)  —  \(favourite.location)") {
-                        browser.open(favourite)
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 6) {
+                        ForEach(browser.pageFavourites) { favourite in
+                            favouriteChip(favourite)
+                        }
                     }
-                }
-                Divider()
-                Menu("Remove") {
-                    ForEach(browser.favourites) { favourite in
-                        Button(favourite.title) { browser.removeFavourite(favourite) }
-                    }
+                    .padding(.vertical, 6)
                 }
             }
-        } label: {
-            toolLabel("Favourites", systemImage: "star.square.on.square", menu: true)
         }
-        .menuStyle(.borderlessButton)
-        .menuIndicator(.hidden)
+        .padding(.horizontal, 14)
+        // Fixed: a chip row's height, empty or not, so switching pages doesn't move the list below.
+        .frame(height: StudioTheme.scale(34) + 12)
+        .background(palette.bgPanel)
+    }
+
+    /// A chip that opens its place, and drags to reorder (in the bar or the list).
+    private func favouriteChip(_ favourite: FrameIOBrowser.Favourite, fullWidth: Bool = false) -> some View {
+        FavouriteChip(favourite: favourite, isCurrent: favourite.path == browser.path, isLightMode: isLightMode, fullWidth: fullWidth,
+                      isDragging: draggingFavourite == favourite.id, pages: browser.favouritePages,
+                      onMoveToPage: { browser.moveFavourite(favourite.id, toPage: $0) },
+                      onOpen: {
+                          showFavouritesList = false
+                          browser.open(favourite)
+                      },
+                      onRemove: { browser.removeFavourite(favourite) })
+            .onDrag {
+                draggingFavourite = favourite.id
+                return NSItemProvider(object: ("qcpie-favourite\n" + favourite.id) as NSString)
+            }
+            .onDrop(of: [.utf8PlainText], delegate: FavouriteDropDelegate(target: favourite.id, dragging: $draggingFavourite,
+                                                                          move: { browser.moveFavourite($0, onto: $1) }))
+            // A drag dropped outside the chips (cancelled) never reaches a delegate: clear it once the mouse is up.
+            .onHover { _ in if draggingFavourite != nil && NSEvent.pressedMouseButtons == 0 { draggingFavourite = nil } }
+    }
+
+    private static let favouritesLayouts: [(id: String, title: String, icon: String)] = [
+        ("bar", "Bar", "rectangle.split.3x1"), ("list", "List", "list.bullet.rectangle")
+    ]
+
+    private var isListLayout: Bool { favouritesLayout == "list" }
+
+    /// Switches the layout: Bar → List (opens it); in List, a click while closed opens it and while open goes back to Bar.
+    private var favouritesButton: some View {
+        let help = isListLayout
+            ? (showFavouritesList ? "Click to show favourites as a bar instead (right-click for layouts)"
+                                  : "Show favourites (click again while open for the bar; right-click for layouts)")
+            : "Click to show favourites as a list instead (right-click for layouts)"
+        return Button {
+            if !isListLayout {
+                favouritesLayout = "list"
+                showFavouritesList = true
+            } else if !showFavouritesList {
+                showFavouritesList = true
+            } else {
+                showFavouritesList = false
+                favouritesLayout = "bar"
+            }
+        } label: {
+            HStack(spacing: 5) {
+                Image(systemName: "star.square.on.square")
+                    .font(.system(size: StudioTheme.scaleFont(11), weight: .medium))
+                    .foregroundColor(palette.accentBlue)
+                Text("Favourites")
+                    .font(.ui(size: 12))
+                    .foregroundColor(palette.textMain)
+                if !browser.favourites.isEmpty {
+                    Text("\(browser.favouritePages.count > 1 ? browser.pageFavourites.count : browser.favourites.count)")
+                        .font(.ui(size: 10, weight: .semibold))
+                        .monospacedDigit()
+                        .foregroundColor(palette.textMuted)
+                        .padding(.horizontal, 5)
+                        .background(Capsule().fill(palette.bgSubtle))
+                }
+            }
+            .padding(.horizontal, 7)
+            .frame(height: StudioTheme.scale(24))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .modifier(ToolHover(fill: palette.bgSubtle, isOn: isListLayout && showFavouritesList))
+        .help(help)
+        .contextMenu {
+            ForEach(Self.favouritesLayouts, id: \.id) { layout in
+                Button {
+                    favouritesLayout = layout.id
+                    showFavouritesList = layout.id == "list"
+                } label: {
+                    Label(layout.title, systemImage: (isListLayout ? "list" : "bar") == layout.id ? "checkmark" : layout.icon)
+                }
+            }
+        }
+        .popover(isPresented: $showFavouritesList, arrowEdge: .bottom) { favouritesList }
+    }
+
+    /// The List layout: the same chips, stacked, in a popover from the Favourites button.
+    private var favouritesList: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            ScrollView(.horizontal, showsIndicators: false) { favouritePageTabs }
+            if browser.pageFavourites.count > 1 {
+                Text("Drag to reorder, or onto a tab to move")
+                    .font(.ui(size: 10))
+                    .foregroundColor(palette.textMuted)
+            }
+            if browser.pageFavourites.isEmpty {
+                Text(browser.favourites.isEmpty ? "Star a project, folder or stack (☆ in the toolbar or right-click) to add it here."
+                     : "Nothing on this page yet: star a place while it's open, or drag a favourite onto this tab.")
+                    .font(.ui(size: 11))
+                    .foregroundColor(palette.textMuted)
+                    .fixedSize(horizontal: false, vertical: true)
+            } else {
+                ScrollView {
+                    VStack(spacing: 5) {
+                        ForEach(browser.pageFavourites) { favourite in
+                            favouriteChip(favourite, fullWidth: true)
+                        }
+                    }
+                }
+                .frame(maxHeight: 420)
+                .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .padding(12)
+        .frame(width: 320)
+        .background(palette.bgPanel)
+    }
+
+    /// The favourites pages as tabs (up to 5): click to show one, double-click or right-click to rename, right-click
+    /// to delete, + to add; a chip dropped on a tab moves there.
+    private var favouritePageTabs: some View {
+        HStack(spacing: 3) {
+            Image(systemName: "star.fill")
+                .font(.system(size: StudioTheme.scaleFont(10), weight: .semibold))
+                .foregroundColor(palette.accentBlue)
+                .padding(.trailing, 3)
+            ForEach(Array(browser.favouritePages.enumerated()), id: \.offset) { index, name in
+                FavouritePageTab(name: name, count: browser.favouriteCount(onPage: index),
+                                 isSelected: index == browser.currentFavouritePage, canDelete: browser.favouritePages.count > 1,
+                                 isLightMode: isLightMode, dragging: $draggingFavourite,
+                                 onSelect: { browser.favouritePage = index },
+                                 onRename: { browser.renameFavouritePage(index, to: $0) },
+                                 onDelete: { browser.deleteFavouritePage(index) },
+                                 onDropFavourite: { browser.moveFavourite($0, toPage: index) })
+            }
+            if browser.favouritePages.count < FrameIOBrowser.maxFavouritePages {
+                Button(action: browser.addFavouritePage) {
+                    Image(systemName: "plus")
+                        .font(.system(size: StudioTheme.scaleFont(9), weight: .bold))
+                        .foregroundColor(palette.textMuted)
+                        .frame(width: StudioTheme.scale(22), height: StudioTheme.scale(22))
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .modifier(ToolHover(fill: palette.bgSubtle))
+                .help("Add a favourites page (up to \(FrameIOBrowser.maxFavouritePages)), e.g. one per project")
+            }
+        }
         .fixedSize()
-        .modifier(ToolHover(fill: palette.bgSubtle))
-        .tip("Go to a favourite project, folder or stack")
     }
 
     // MARK: Toolbar controls
@@ -1102,20 +1346,118 @@ struct FrameIOBrowserView: View {
     }
 
     /// Breadcrumbs; the project and parent folders accept drops (move up, or upload there).
-    private var breadcrumbs: some View {
-        HStack(spacing: 2) {
-            crumbButton("Frame.io", depth: 0, crumb: nil, isLast: browser.path.isEmpty)
-            ForEach(Array(browser.path.enumerated()), id: \.offset) { index, crumb in
-                Image(systemName: "chevron.right")
-                    .font(.system(size: StudioTheme.scaleFont(9), weight: .semibold))
-                    .foregroundColor(palette.textMuted.opacity(0.6))
-                crumbButton(crumb.title, depth: index + 1, crumb: crumb, isLast: index == browser.path.count - 1)
-            }
-        }
-        .lineLimit(1)
+    /// One crumb: its title and how deep it is (0 = "Frame.io").
+    private struct CrumbEntry {
+        let title: String
+        let depth: Int
+        let crumb: Crumb?
     }
 
-    private func crumbButton(_ title: String, depth: Int, crumb: Crumb?, isLast: Bool) -> some View {
+    /// "Frame.io" and the path, without the account when the workspace has the same name ("Wild Island Films ›
+    /// Wild Island Films").
+    private var crumbEntries: [CrumbEntry] {
+        var entries = [CrumbEntry(title: "Frame.io", depth: 0, crumb: nil)]
+        for (index, crumb) in browser.path.enumerated() {
+            if crumb.level == .account, index + 1 < browser.path.count, browser.path[index + 1].title == crumb.title { continue }
+            entries.append(CrumbEntry(title: crumb.title, depth: index + 1, crumb: crumb))
+        }
+        return entries
+    }
+
+    /// Whole names, Finder-style: when the path doesn't fit, its start folds into a "…" button and the deepest folders
+    /// stay readable; only the last crumb on its own is ever shortened. Hover shows the full path.
+    /// How many fit is worked out from the titles' text widths (`CrumbFitter`), and only that one row is built: a
+    /// `ViewThatFits` over six rows re-laid them all out on every resize frame (measured: 80–90 ms a frame in a
+    /// 1900 pt window, 10 ms without breadcrumbs).
+    private var breadcrumbs: some View {
+        let entries = crumbEntries
+        return CrumbFitter(titles: entries.map(\.title)) { keep, shorten in
+            crumbRow(entries, keep: keep, shortenLast: shorten)
+        }
+        .lineLimit(1)
+        .help(entries.map(\.title).joined(separator: " › "))
+    }
+
+    private func crumbRow(_ entries: [CrumbEntry], keep: Int, shortenLast: Bool = false) -> some View {
+        let hidden = Array(entries.dropLast(min(keep, entries.count)))
+        let shown = Array(entries.suffix(min(keep, entries.count)))
+        return HStack(spacing: 2) {
+            if !hidden.isEmpty {
+                // A plain button + popover, not a Menu: ViewThatFits measures every variant on each resize, and a Menu
+                // (an AppKit pop-up button) made that slow.
+                Button { hiddenCrumbsOpen = true } label: {
+                    Image(systemName: "ellipsis")
+                        .font(.system(size: StudioTheme.scaleFont(11), weight: .semibold))
+                        .foregroundColor(palette.textMuted)
+                        .padding(.horizontal, 6)
+                        .frame(height: StudioTheme.scale(24))
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .modifier(ToolHover(fill: palette.bgSubtle))
+                .help(hidden.map(\.title).joined(separator: " › "))
+                .popover(isPresented: $hiddenCrumbsOpen, arrowEdge: .bottom) { hiddenCrumbsList(hidden) }
+                crumbChevron
+            }
+            ForEach(Array(shown.enumerated()), id: \.element.depth) { index, entry in
+                if index > 0 { crumbChevron }
+                let isLast = index == shown.count - 1
+                crumbButton(entry.title, depth: entry.depth, crumb: entry.crumb, isLast: isLast, shortens: shortenLast && isLast)
+            }
+        }
+    }
+
+    /// The folded start of the path: click a level to go there.
+    private func hiddenCrumbsList(_ hidden: [CrumbEntry]) -> some View {
+        VStack(alignment: .leading, spacing: 1) {
+            ForEach(Array(hidden.enumerated()), id: \.element.depth) { index, entry in
+                Button {
+                    hiddenCrumbsOpen = false
+                    browser.goTo(depth: entry.depth)
+                } label: {
+                    HStack(spacing: 7) {
+                        Image(systemName: crumbIcon(entry.crumb))
+                            .font(.system(size: StudioTheme.scaleFont(11)))
+                            .foregroundColor(palette.accentBlue)
+                            .frame(width: StudioTheme.scale(16))
+                        Text(entry.title)
+                            .font(.ui(size: 12))
+                            .foregroundColor(palette.textMain)
+                            .lineLimit(1)
+                        Spacer(minLength: 0)
+                    }
+                    .padding(.leading, CGFloat(index) * 10 + 8)
+                    .padding(.trailing, 8)
+                    .frame(height: StudioTheme.scale(26))
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .modifier(ToolHover(fill: palette.bgSubtle))
+            }
+        }
+        .padding(6)
+        .frame(minWidth: 220, maxWidth: 420, alignment: .leading)
+        .background(palette.bgPanel)
+    }
+
+    private var crumbChevron: some View {
+        Image(systemName: "chevron.right")
+            .font(.system(size: StudioTheme.scaleFont(9), weight: .semibold))
+            .foregroundColor(palette.textMuted.opacity(0.6))
+    }
+
+    private func crumbIcon(_ crumb: Crumb?) -> String {
+        switch crumb?.level {
+        case nil: return "house"
+        case .account?: return "person.crop.circle"
+        case .workspace?: return "square.grid.2x2"
+        case .project?: return "film.stack"
+        case .stack?: return "square.stack.3d.up"
+        case .folder?: return "folder"
+        }
+    }
+
+    private func crumbButton(_ title: String, depth: Int, crumb: Crumb?, isLast: Bool, shortens: Bool = false) -> some View {
         let folder = isLast ? nil : crumb?.listedFolder
         let key = "crumb-\(depth)"
         let titles = Array(browser.path.prefix(depth).filter { $0.level == .project || $0.level == .folder }.map(\.title))
@@ -1124,6 +1466,7 @@ struct FrameIOBrowserView: View {
                 .font(.ui(size: 12, weight: isLast ? .semibold : .regular))
                 .foregroundColor(dropTarget == key ? .white : (isLast ? palette.textMain : palette.textMuted))
                 .truncationMode(.middle)
+                .fixedSize(horizontal: !shortens, vertical: false)
                 .padding(.horizontal, 6)
                 .frame(height: StudioTheme.scale(24))
                 .background(RoundedRectangle(cornerRadius: StudioTheme.cornerRadius).fill(dropTarget == key ? palette.accentBlue : .clear))
@@ -2791,6 +3134,292 @@ private actor FrameIOThumbnailCache {
 }
 
 /// Row hover highlight kept inside the row, so moving the pointer redraws one row instead of the whole list.
+/// One favourites page tab: its name and count; double-click to rename (Return or clicking away saves, Esc cancels:
+/// the shortcut router unfocuses the field for both). A dragged favourite chip dropped here moves to this page.
+private struct FavouritePageTab: View {
+    let name: String
+    let count: Int
+    let isSelected: Bool
+    let canDelete: Bool
+    let isLightMode: Bool
+    @Binding var dragging: String?
+    let onSelect: () -> Void
+    let onRename: (String) -> Void
+    let onDelete: () -> Void
+    let onDropFavourite: (String) -> Void
+
+    @State private var isRenaming = false
+    @State private var draft = ""
+    @State private var isHovered = false
+    @State private var isDropTarget = false
+    @FocusState private var focused: Bool
+
+    private var palette: StudioPalette { StudioPalette(isLightMode) }
+
+    var body: some View {
+        HStack(spacing: 4) {
+            if isRenaming {
+                TextField("", text: $draft)
+                    .textFieldStyle(.plain)
+                    .font(.ui(size: 11, weight: .semibold))
+                    .frame(width: max(60, CGFloat(draft.count) * 7))
+                    .focused($focused)
+                    .onAppear { draft = name; DispatchQueue.main.async { focused = true } }
+                    .onChange(of: focused) { _, isFocused in
+                        guard !isFocused else { return }
+                        let cancelled = NSApp.currentEvent?.type == .keyDown && NSApp.currentEvent?.keyCode == 53
+                        if !cancelled { onRename(draft) }
+                        isRenaming = false
+                    }
+            } else {
+                Text(name)
+                    .font(.ui(size: 11, weight: isSelected ? .semibold : .medium))
+                    .foregroundColor(isSelected || isHovered ? palette.textMain : palette.textMuted)
+                    .lineLimit(1)
+            }
+            if count > 0 && !isRenaming {
+                Text("\(count)")
+                    .font(.ui(size: 10, weight: .semibold))
+                    .monospacedDigit()
+                    .foregroundColor(isSelected ? palette.accentBlue : palette.textMuted)
+            }
+        }
+        .padding(.horizontal, 6)
+        .frame(height: StudioTheme.scale(24))
+        // No box: the page shown is underlined in the accent colour (a drop target or hover gets a faint line).
+        .overlay(alignment: .bottom) {
+            Capsule()
+                .fill(isSelected || isDropTarget ? palette.accentBlue : palette.textMuted.opacity(isHovered ? 0.35 : 0))
+                .frame(height: isSelected || isDropTarget ? 2 : 1)
+                .padding(.horizontal, 4)
+        }
+        .contentShape(Rectangle())
+        .onTapGesture(count: 2) { startRename() }
+        .onTapGesture(perform: onSelect)
+        .onHover { isHovered = $0 }
+        .contextMenu {
+            Button("Rename…", action: startRename)
+            if canDelete {
+                Button(role: .destructive, action: onDelete) {
+                    Text(count > 0 ? "Delete Page (its \(count) favourite\(count == 1 ? "" : "s") move to the page before)" : "Delete Page")
+                }
+            }
+        }
+        .onDrop(of: [.utf8PlainText], delegate: FavouritePageDropDelegate(dragging: $dragging, isTargeted: $isDropTarget, onDrop: onDropFavourite))
+        .help("\(name): click to show, double-click to rename, drop a favourite here to move it")
+    }
+
+    private func startRename() {
+        draft = name
+        isRenaming = true
+    }
+}
+
+/// A favourite chip dropped on a page tab.
+private struct FavouritePageDropDelegate: DropDelegate {
+    @Binding var dragging: String?
+    @Binding var isTargeted: Bool
+    let onDrop: (String) -> Void
+
+    func validateDrop(info: DropInfo) -> Bool { dragging != nil }
+    func dropEntered(info: DropInfo) { isTargeted = true }
+    func dropExited(info: DropInfo) { isTargeted = false }
+    func dropUpdated(info: DropInfo) -> DropProposal? { DropProposal(operation: .move) }
+
+    func performDrop(info: DropInfo) -> Bool {
+        isTargeted = false
+        guard let dragging else { return false }
+        withAnimation(.spring(response: 0.25, dampingFraction: 0.85)) { onDrop(dragging) }
+        self.dragging = nil
+        return true
+    }
+}
+
+/// Reorders favourites live as a dragged chip passes over the others (only favourite drags: `dragging` is set by them).
+private struct FavouriteDropDelegate: DropDelegate {
+    let target: String
+    @Binding var dragging: String?
+    let move: (String, String) -> Void
+
+    func validateDrop(info: DropInfo) -> Bool { dragging != nil }
+
+    func dropEntered(info: DropInfo) {
+        guard let dragging, dragging != target else { return }
+        withAnimation(.spring(response: 0.25, dampingFraction: 0.85)) { move(dragging, target) }
+    }
+
+    func dropUpdated(info: DropInfo) -> DropProposal? { DropProposal(operation: .move) }
+
+    func performDrop(info: DropInfo) -> Bool {
+        dragging = nil
+        return true
+    }
+}
+
+/// Picks how many trailing crumbs fit the width it's given and builds just that row. Owns the width, so a resize
+/// redraws the breadcrumbs only, not the browser. Widths come from the titles' text (same font as the crumbs) plus each
+/// crumb's padding and chevron.
+private struct CrumbFitter<Row: View>: View {
+    let titles: [String]
+    @ViewBuilder let row: (_ keep: Int, _ shortenLast: Bool) -> Row
+    /// How many crumbs fit (and whether the last must shorten): changes only when that answer does, so a resize
+    /// doesn't rebuild the row every frame.
+    @State private var fitted: Fit?
+    @State private var width: CGFloat = 0
+
+    struct Fit: Equatable {
+        let keep: Int
+        let shorten: Bool
+    }
+
+    var body: some View {
+        let fit = fitted ?? Fit(keep: titles.count, shorten: false)
+        row(min(fit.keep, titles.count), fit.shorten)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { new in
+                width = new
+                refit()
+            }
+            .onChange(of: titles) { _, _ in refit() }
+    }
+
+    private func refit() {
+        let next = Self.fit(titles, in: width)
+        if next != fitted { fitted = next }
+    }
+
+    @MainActor private static func textWidth(_ title: String, size: CGFloat, bold: Bool) -> CGFloat {
+        CrumbTextWidths.width(title, size: size, bold: bold)
+    }
+
+    @MainActor private static func fit(_ titles: [String], in available: CGFloat) -> Fit {
+        guard available > 0, !titles.isEmpty else { return Fit(keep: titles.count, shorten: false) }
+        let size = (TypeScale.snap(12) * TypeScale.factor).rounded()
+        let chevron = StudioTheme.scaleFont(9) + 8   // the chevron and the row spacing around it
+        let ellipsis = StudioTheme.scaleFont(11) + 12 + chevron
+        let widths = titles.indices.map { textWidth(titles[$0], size: size, bold: $0 == titles.count - 1) + 12 }
+        for keep in stride(from: titles.count, through: 1, by: -1) {
+            let shown = widths.suffix(keep).reduce(0, +) + CGFloat(keep - 1) * chevron
+            if shown + (keep < titles.count ? ellipsis : 0) <= available { return Fit(keep: keep, shorten: false) }
+        }
+        return Fit(keep: 1, shorten: true)
+    }
+}
+
+/// Crumb title widths by font size, weight and title (the same titles are measured on every resize frame).
+@MainActor
+private enum CrumbTextWidths {
+    private static var cache: [String: CGFloat] = [:]
+
+    static func width(_ title: String, size: CGFloat, bold: Bool) -> CGFloat {
+        let key = "\(size)|\(bold)|\(title)"
+        if let cached = cache[key] { return cached }
+        let font = bold ? NSFont.systemFont(ofSize: size, weight: .semibold) : NSFont.systemFont(ofSize: size)
+        let width = ceil((title as NSString).size(withAttributes: [.font: font]).width)
+        if cache.count > 2_000 { cache = [:] }
+        cache[key] = width
+        return width
+    }
+}
+
+/// One favourite in the Favourites bar: icon, name and where it lives; × on hover.
+private struct FavouriteChip: View {
+    let favourite: FrameIOBrowser.Favourite
+    let isCurrent: Bool
+    let isLightMode: Bool
+    /// The List layout: chips fill the list's width.
+    var fullWidth = false
+    /// Being dragged to reorder: dimmed in place.
+    var isDragging = false
+    /// The favourites pages, for Move to Page.
+    var pages: [String] = []
+    var onMoveToPage: (Int) -> Void = { _ in }
+    let onOpen: () -> Void
+    let onRemove: () -> Void
+    @State private var isHovered = false
+
+    private var palette: StudioPalette { StudioPalette(isLightMode) }
+    private var level: FrameIOBrowser.Level { favourite.path.last?.level ?? .folder }
+
+    var body: some View {
+        HStack(spacing: 7) {
+            icon
+            VStack(alignment: .leading, spacing: 0) {
+                Text(favourite.title)
+                    .font(.ui(size: 11, weight: .semibold))
+                    .foregroundColor(palette.textMain)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                if !favourite.location.isEmpty {
+                    Text(favourite.location)
+                        .font(.ui(size: 10))
+                        .foregroundColor(palette.textMuted)
+                        .lineLimit(1)
+                        .truncationMode(.head)
+                }
+            }
+            if fullWidth { Spacer(minLength: 4) }
+            Button(action: onRemove) {
+                Image(systemName: "xmark")
+                    .font(.system(size: StudioTheme.scaleFont(8), weight: .bold))
+                    .foregroundColor(palette.textMuted)
+                    .frame(width: 16, height: 16)
+                    .background(Circle().fill(palette.bgSubtle))
+                    .contentShape(Circle())
+            }
+            .buttonStyle(.plain)
+            .opacity(isHovered ? 1 : 0)
+            .allowsHitTesting(isHovered)
+            .help("Remove from Favourites")
+        }
+        .padding(.leading, 7)
+        .padding(.trailing, 5)
+        .frame(height: StudioTheme.scale(34))
+        .frame(maxWidth: fullWidth ? .infinity : 240, alignment: .leading)
+        .opacity(isDragging ? 0.45 : 1)
+        .background(RoundedRectangle(cornerRadius: 8, style: .continuous)
+            .fill(isCurrent ? palette.accentBlue.opacity(0.18) : (isHovered ? palette.bgSubtle : palette.bgCardSubtle)))
+        .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous)
+            .stroke(isCurrent ? palette.accentBlue.opacity(0.7) : palette.borderLine, lineWidth: 1))
+        .contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .onTapGesture(perform: onOpen)
+        .onHover { isHovered = $0 }
+        .animation(.easeInOut(duration: 0.12), value: isHovered)
+        .contextMenu {
+            Button(action: onOpen) { Label("Open", systemImage: "arrow.right.circle") }
+            if pages.count > 1 {
+                Menu {
+                    ForEach(Array(pages.enumerated()), id: \.offset) { index, name in
+                        Button(name) { onMoveToPage(index) }
+                            .disabled(index == favourite.page)
+                    }
+                } label: { Label("Move to Page", systemImage: "rectangle.stack") }
+            }
+            Divider()
+            Button(action: onRemove) { Label("Remove from Favourites", systemImage: "star.slash") }
+        }
+        .help(([favourite.location, favourite.title].filter { !$0.isEmpty }).joined(separator: " › "))
+    }
+
+    @ViewBuilder
+    private var icon: some View {
+        switch level {
+        case .project:
+            ProjectGradientIcon(projectID: favourite.path.last?.id ?? "", side: StudioTheme.scale(20))
+        case .stack:
+            Image(systemName: "square.stack.3d.up.fill")
+                .font(.system(size: StudioTheme.scaleFont(13)))
+                .foregroundColor(palette.accentBlue)
+                .frame(width: StudioTheme.scale(20))
+        default:
+            Image(systemName: "folder.fill")
+                .font(.system(size: StudioTheme.scaleFont(13)))
+                .foregroundColor(palette.accentBlue)
+                .frame(width: StudioTheme.scale(20))
+        }
+    }
+}
+
 private struct HoverBackground: ViewModifier {
     let base: Color
     let hover: Color

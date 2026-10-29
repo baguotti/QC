@@ -37,44 +37,88 @@ struct UploadTabView: View {
     private var palette: StudioPalette { StudioPalette(isLightMode) }
 
     var body: some View {
-        GeometryReader { geo in
-            let maxWidth = max(300, min(900, Double(geo.size.width) - 420))
-            HStack(spacing: 0) {
-                VStack(alignment: .leading, spacing: 18) {
-                    assets
-                    UploadQueuePanel(isLightMode: isLightMode, nodes: nodes, collapsedFolderIDs: $collapsedFolderIDs,
-                                     onClearQueue: onClearQueue, onPlay: onPlay)
+        // A layout, not a GeometryReader: the reader re-ran this whole body (and rebuilt the browser) on every resize
+        // frame just to clamp the widths; `UploadColumns` clamps them while placing, so resizing only moves things.
+        UploadColumns(panelWidth: panelWidth, drawerWidth: drawerWidth, hasDrawer: isDrawerOpen && !benchHides("drawer")) {
+            VStack(alignment: .leading, spacing: 18) {
+                if !benchHides("assets") { assets }
+                // Rebuilt only when the queue, its folders, light mode or the theme change (it redraws itself for
+                // uploads and selection): dragging a divider re-ran it per mouse move, flattening the whole tree.
+                if !benchHides("queue") {
+                    EquatableRow(key: QueuePanelKey(queueVersion: queueVersion, collapsed: collapsedFolderIDs, isLightMode: isLightMode,
+                                                    theme: ThemeManager.shared.revision)) {
+                        UploadQueuePanel(isLightMode: isLightMode, nodes: nodes, collapsedFolderIDs: $collapsedFolderIDs,
+                                         onClearQueue: onClearQueue, onPlay: onPlay)
+                    }
+                    .equatable()
                 }
-                .padding(22)
-                .frame(width: min(max(panelWidth, 300), maxWidth))
-                .frame(maxHeight: .infinity)
-                .background(palette.bgPanel)
-                .overlay(Rectangle().fill(palette.borderLine).frame(width: 1), alignment: .trailing)
-                .overlay(alignment: .trailing) {
-                    PanelResizeHandle(width: $panelWidth, range: 300...maxWidth, defaultWidth: 380, isLightMode: isLightMode,
-                                      help: "Drag to resize the Assets & Queue panel. Double-click to reset (380 pt).")
-                }
-                .onDrop(of: [UTType.fileURL.identifier], isTargeted: nil, perform: onDrop)
+            }
+            .padding(22)
+            .frame(maxHeight: .infinity)
+            .background(palette.bgPanel)
+            .overlay(Rectangle().fill(palette.borderLine).frame(width: 1), alignment: .trailing)
+            .overlay(alignment: .trailing) {
+                // The range is the widest the panel can be; `UploadColumns` narrows it to what the window allows.
+                PanelResizeHandle(width: $panelWidth, range: UploadColumns.panelRange, defaultWidth: 380, isLightMode: isLightMode,
+                                  help: "Drag to resize the Assets & Queue panel. Double-click to reset (380 pt).")
+            }
+            .onDrop(of: [UTType.fileURL.identifier], isTargeted: nil, perform: onDrop)
 
-                FrameIOBrowserView(isLightMode: isLightMode)
-                if isDrawerOpen {
-                    let maxDrawer = max(300, min(800, Double(geo.size.width) - min(max(panelWidth, 300), maxWidth) - 360))
-                    UploadSideDrawer(isLightMode: isLightMode)
-                        .frame(width: min(max(drawerWidth, 300), maxDrawer))
-                        .overlay(Rectangle().fill(palette.borderLine).frame(width: 1), alignment: .leading)
-                        .overlay(alignment: .leading) {
-                            PanelResizeHandle(width: $drawerWidth, range: 300...maxDrawer, defaultWidth: 360, isLightMode: isLightMode,
-                                              help: "Drag to resize the Downloads & Log drawer. Double-click to reset (360 pt).",
-                                              edge: .leading)
-                        }
-                        .transition(.move(edge: .trailing).combined(with: .opacity))
-                }
+            if benchHides("browser") { Color.clear } else { FrameIOBrowserView(isLightMode: isLightMode) }
+            if isDrawerOpen && !benchHides("drawer") {
+                UploadSideDrawer(isLightMode: isLightMode)
+                    .overlay(Rectangle().fill(palette.borderLine).frame(width: 1), alignment: .leading)
+                    .overlay(alignment: .leading) {
+                        PanelResizeHandle(width: $drawerWidth, range: UploadColumns.drawerRange, defaultWidth: 360, isLightMode: isLightMode,
+                                          help: "Drag to resize the Downloads & Log drawer. Double-click to reset (360 pt).",
+                                          edge: .leading)
+                    }
+                    .transition(.move(edge: .trailing).combined(with: .opacity))
             }
         }
         .task(id: queueVersion) {
             UploadQueue.shared.sync(with: UploadQueuePanel.rows(in: nodes), version: queueVersion)
         }
     }
+}
+
+/// The Upload tab's columns: queue panel | Frame.io browser | drawer. Widths are clamped to the window here, while
+/// placing (queue 300…900 and leaving the browser 420; drawer 300…800 and leaving the browser 360), so a resize never
+/// re-runs the tab's body.
+struct UploadColumns: Layout {
+    static let panelRange: ClosedRange<Double> = 300...900
+    static let drawerRange: ClosedRange<Double> = 300...800
+
+    var panelWidth: Double
+    var drawerWidth: Double
+    var hasDrawer: Bool
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        proposal.replacingUnspecifiedDimensions()
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        guard !subviews.isEmpty else { return }
+        let total = bounds.width
+        let left = min(max(panelWidth, 300), max(300, min(900, total - 420)))
+        let drawer = hasDrawer && subviews.count > 2 ? min(max(drawerWidth, 300), max(300, min(800, total - left - 360))) : 0
+        let middle = max(0, total - left - drawer)
+        let widths = [left, middle, drawer]
+        var x = bounds.minX
+        for (index, subview) in subviews.enumerated() {
+            let width = index < widths.count ? widths[index] : 0
+            subview.place(at: CGPoint(x: x, y: bounds.minY), proposal: ProposedViewSize(width: width, height: bounds.height))
+            x += width
+        }
+    }
+}
+
+/// What the Upload queue panel is drawn from (its closures don't change what it shows).
+private struct QueuePanelKey: Equatable {
+    let queueVersion: Int
+    let collapsed: Set<String>
+    let isLightMode: Bool
+    let theme: Int
 }
 
 /// The queue as upload rows (folder headers and files, styled like the Play queue) plus the upload controls.
