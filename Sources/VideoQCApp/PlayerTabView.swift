@@ -219,7 +219,8 @@ extension ContentView {
     @ViewBuilder
     var playerTabView: some View {
         GeometryReader { mainGeo in
-            let availableWidth = mainGeo.size.width - (showNotesDrawer ? 340.0 : 0.0)
+            let drawerWidth = NotesDrawerPanelView.width(tab: playerDrawerTab, hasSubtitles: !playerEngine.subtitleCues.isEmpty)
+            let availableWidth = mainGeo.size.width - (showNotesDrawer ? drawerWidth : 0.0)
             let maxQueueWidth = max(240.0, min(800.0, availableWidth - 400.0))
             let effectiveQueueWidth = max(240.0, min(maxQueueWidth, playerQueueWidth > 0 ? playerQueueWidth : 360.0))
             

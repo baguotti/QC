@@ -119,6 +119,13 @@ final class FrameIOBrowser: ObservableObject {
 
     func didReveal() { revealID = nil }
 
+    /// Selects one row and scrolls to it (the preview's ← →).
+    func reveal(_ id: String) {
+        selection = [id]
+        anchor = id
+        revealID = id
+    }
+
     /// Pasteboard text identifying Frame.io items dragged inside the browser (moves).
     nonisolated static let dragPrefix = "qcpie-frameio\n"
 
@@ -943,6 +950,7 @@ struct FrameIOBrowserView: View {
     @State private var isListTargeted = false
     @State private var renameText = ""
     @FocusState private var renameFocused: Bool
+    @State private var metadataRequest: FrameIOMetadataSheet.Request?
     @State private var moveItems: MoveRequest?
     @State private var stackItems: MoveRequest?
     @State private var copyItems: MoveRequest?
@@ -996,6 +1004,7 @@ struct FrameIOBrowserView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(palette.bgMain)
+        .overlay { FrameIOPreviewOverlay(isLightMode: isLightMode) }
         .overlay(alignment: .bottom) { toastView }
         .onAppear { browser.start() }
         .sheet(item: $shareRequest, onDismiss: { browser.loadShares() }) { request in
@@ -1003,6 +1012,9 @@ struct FrameIOBrowserView: View {
         }
         .sheet(isPresented: $showNewProject) {
             FrameIONewProjectSheet(isLightMode: isLightMode) { name in browser.newProject(named: name) }
+        }
+        .sheet(item: $metadataRequest) { request in
+            FrameIOMetadataSheet(request: request, isLightMode: isLightMode)
         }
         .sheet(item: $stackItems) { request in
             FrameIOStackSheet(files: request.items, isLightMode: isLightMode) { ordered in
@@ -1418,6 +1430,19 @@ struct FrameIOBrowserView: View {
         }
     }
 
+    /// Right-click → Edit Metadata…: Status, Assignee, Rating and custom fields on every selected file at once.
+    @ViewBuilder
+    private func metadataButton(_ targets: [FrameIO.Item]) -> some View {
+        if let account = browser.accountID, let project = browser.projectID, !targets.isEmpty {
+            Button {
+                metadataRequest = .init(items: targets, account: account, project: project)
+            } label: {
+                Label("Edit Metadata…", systemImage: "tag")
+            }
+            .tip("Set Status, Assignee, Rating and other fields on these files (a folder: every file in it)")
+        }
+    }
+
     /// Links the items' files to the queue clips with the same name and size and imports their comments as QC notes.
     @ViewBuilder
     private func importCommentsButton(_ targets: [FrameIO.Item]) -> some View {
@@ -1432,6 +1457,36 @@ struct FrameIOBrowserView: View {
                 Label("Import Comments into QCpie", systemImage: "text.bubble")
             }
             .tip("Adds the Frame.io comments of these files (a folder: every file in it) to the QC notes of the queue clips with the same name and size")
+            Button {
+                sendNotes(targets, account: account)
+            } label: {
+                Label("Send QC Notes to Frame.io", systemImage: "arrow.up.message")
+            }
+            .tip("Adds the QC notes of the queue clips with the same name and size to these files (a folder: every file in it) as comments")
+        }
+    }
+
+    /// Right-click → Send QC Notes to Frame.io: finds what would go, asks, then sends.
+    private func sendNotes(_ targets: [FrameIO.Item], account: String) {
+        browser.notify("Finding QC notes to send…")
+        Task {
+            let plan: FrameIOCommentSync.SendPlan
+            do {
+                plan = try await FrameIOCommentSync.shared.planSend(targets, account: account)
+            } catch {
+                browser.notify("Couldn't list the files: \(UploadEngine.describe(error))")
+                return
+            }
+            guard plan.noteCount > 0 else {
+                browser.notify(plan.clips.isEmpty && plan.unmatched > 0
+                    ? "No queue clip matches these files (same name and size)" : "No QC notes to send: they're all on Frame.io")
+                return
+            }
+            let target = targets.count == 1 ? "“\(targets[0].title)”" : "these \(targets.count) items"
+            FrameIOCommentPush.confirm(notes: plan.noteCount, clips: plan.clips.count, onto: target) {
+                browser.notify("Sending QC notes…")
+                Task { browser.notify(await FrameIOCommentSync.shared.send(plan)) }
+            }
         }
     }
 
@@ -1862,7 +1917,8 @@ struct FrameIOBrowserView: View {
         .contentShape(Rectangle())
         .onTapGesture {
             if (NSApp.currentEvent?.clickCount ?? 1) >= 2 {
-                if item.isFolder || item.isVersionStack { browser.open(item) }
+                // Folders and stacks open; a file previews (like Space).
+                if item.isFolder || item.isVersionStack { browser.open(item) } else { FrameIOPreview.shared.preview(item) }
             } else {
                 browser.click(item.id)
             }
@@ -1932,7 +1988,10 @@ struct FrameIOBrowserView: View {
         .modifier(HoverBackground(base: isSelected ? palette.accentBlue : (index.isMultiple(of: 2) ? palette.bgCardSubtle : Color.clear),
                                   hover: palette.bgSubtle, isActive: !isSelected))
         .contentShape(Rectangle())
-        .onTapGesture { browser.click(item.id) }
+        .onTapGesture {
+            // Double-click previews the version (like Space).
+            if (NSApp.currentEvent?.clickCount ?? 1) >= 2 { FrameIOPreview.shared.preview(item) } else { browser.click(item.id) }
+        }
         .contextMenu {
             let targets = browser.targets(for: item)
             undoMenuItem
@@ -1941,6 +2000,7 @@ struct FrameIOBrowserView: View {
             openInNewTab(targets.count == 1 ? item : nil)
             downloadButton(targets)
             importCommentsButton(targets)
+            metadataButton(targets)
             Divider()
             copyURLButton(targets)
             if targets.count == 1 {
@@ -1995,6 +2055,7 @@ struct FrameIOBrowserView: View {
         openInNewTab(single)
         downloadButton(targets)
         importCommentsButton(targets)
+        metadataButton(targets)
         Divider()
         if let single, single.isVersionStack {
             Button { browser.open(single) } label: { Label("Version History", systemImage: "square.stack") }

@@ -419,12 +419,21 @@ public struct QCNoteTheme {
         }
     }
     
-    /// User-selectable note colors. Red is intentionally excluded as it is reserved exclusively for automated Line QC findings.
+    /// Reserved colours, never offered when writing a note: red marks Line Check findings, purple marks notes that came
+    /// from Frame.io comments (so a purple note always means "the client said this").
+    public static let lineCheckTag = "red"
+    public static let frameIOTag = "purple"
+
+    /// The colours a note written in QCpie can have.
     public static let availableColors: [(id: String, name: String, color: Color)] = [
         ("cyan", "Cyan", color(for: "cyan")),
         ("yellow", "Yellow", color(for: "yellow")),
-        ("green", "Green", color(for: "green")),
-        ("purple", "Purple", color(for: "purple"))
+        ("green", "Green", color(for: "green"))
     ]
+
+    /// A colour for a note written in QCpie: a reserved one becomes cyan.
+    public static func userTag(_ tag: String) -> String {
+        availableColors.contains { $0.id == tag.lowercased() } ? tag.lowercased() : "cyan"
+    }
 }
 

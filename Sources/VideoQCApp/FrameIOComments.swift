@@ -32,6 +32,11 @@ actor FrameIOLinks {
         var imported: [String: Set<String>] = [:]
         /// "name|size" → the Frame.io file: every file seen in the browser or the favourites crawl. Nil in older files.
         var seen: [String: Seen]?
+        /// Frame.io file id → [QC note id: the comment it was sent as] (Send to Frame.io). Nil in older files.
+        var sent: [String: [String: String]]?
+        /// Version stack id → the file ids that have been its current version (latest last, ≤ 20), from the favourites
+        /// crawl: a head seen before (a version removed from the top) isn't a new version.
+        var heads: [String: [String]]?
     }
 
     private var loadedState: State?
@@ -77,6 +82,7 @@ actor FrameIOLinks {
         state.links = links
         state.seen = seen
         state.imported[fileID] = nil
+        state.sent?[fileID] = nil
         save()
     }
 
@@ -107,6 +113,39 @@ actor FrameIOLinks {
     private static func indexKey(_ name: String, _ size: Int64) -> String { "\(name)|\(size)" }
 
     func imported(_ fileID: String) -> Set<String> { state.imported[fileID] ?? [] }
+
+    /// Records the stacks' current versions and returns those with a new one since the last look: a version never
+    /// seen as their head before, and not a file linked here (uploaded or downloaded by QCpie, so not news). A stack seen
+    /// for the first time is only recorded.
+    func updateHeads(_ items: [FrameIO.Item]) -> [(stack: FrameIO.Item, head: FrameIO.Item.Head)] {
+        var heads = state.heads ?? [:]
+        var changed: [(stack: FrameIO.Item, head: FrameIO.Item.Head)] = []
+        let linked = Set(state.links.values.map(\.fileID))
+        for item in items where item.isVersionStack {
+            guard let head = item.headVersion, heads[item.id]?.last != head.id else { continue }
+            if let known = heads[item.id], !known.contains(head.id), !linked.contains(head.id) { changed.append((item, head)) }
+            heads[item.id] = Array(((heads[item.id] ?? []).filter { $0 != head.id } + [head.id]).suffix(20))
+        }
+        if heads != (state.heads ?? [:]) {
+            state.heads = heads.count > 50_000 ? [:] : heads
+            save()
+        }
+        return changed
+    }
+
+    /// Comment id → the QC note it was sent from, for the notes of this file sent to Frame.io.
+    func sent(_ fileID: String) -> [String: UUID] {
+        Dictionary((state.sent?[fileID] ?? [:]).compactMap { note, comment in UUID(uuidString: note).map { (comment, $0) } },
+                   uniquingKeysWith: { a, _ in a })
+    }
+
+    /// Written at once (not a second later like the rest): losing it to a quit would send the note again.
+    func markSent(note: UUID, comment: String, fileID: String) {
+        var sent = state.sent ?? [:]
+        sent[fileID, default: [:]][note.uuidString] = comment
+        state.sent = sent
+        writeNow()
+    }
 
     func markImported(_ commentIDs: [String], fileID: String) {
         let before = state.imported[fileID] ?? []
@@ -147,7 +186,7 @@ actor FrameIOLinks {
 enum FrameIOCommentImport {
     /// Without a timecode, Frame.io's `timestamp` (counted from 1, rounded) is used: notes count from 0.
     static let frameBase = 1
-    static let colorTag = "purple"
+    static let colorTag = QCNoteTheme.frameIOTag
 
     /// A note's id from its comment's: the same on every Mac, so importing again (or a collaborator importing too)
     /// updates the note instead of duplicating it.
@@ -161,10 +200,16 @@ enum FrameIOCommentImport {
     }
 
     /// Comments with a frame (not document page comments), as notes: author marked "(Frame.io)", purple, resolved when
-    /// completed, replies as the note's replies; a drawing or range is mentioned in the text.
-    static func notes(from comments: [FrameIO.Comment], fps: Double) -> [QCFileNote] {
+    /// completed, replies as the note's replies; a drawing or range is mentioned in the text. A comment sent from a QC
+    /// note (`sent`: comment id → note id) comes back as an echo of that note instead: its id, no text and the oldest
+    /// date (so `merge` never takes its text or tag), resolved when completed, and Frame.io's replies.
+    static func notes(from comments: [FrameIO.Comment], fps: Double, sent: [String: UUID] = [:]) -> [QCFileNote] {
         let start = startFrames(comments, fps: fps)
         return comments.compactMap { comment in
+            if let note = sent[comment.id] {
+                return QCFileNote(id: note, frameIndex: 0, timecode: "", author: "", text: "", colorTag: "",
+                                  createdAt: .distantPast, isResolved: comment.completedAt != nil, replies: replies(of: comment))
+            }
             guard let frame = frame(of: comment, fps: fps, start: start) else { return nil }
             var text = comment.text.trimmingCharacters(in: .whitespacesAndNewlines)
             if let duration = comment.duration, duration > 0 {
@@ -172,26 +217,30 @@ enum FrameIOCommentImport {
                 text += "\n(Range to \(TimecodeFormatter.format(frameIndex: end, fps: fps)), \(duration + 1) frames)"
             }
             if comment.annotation != nil { text += "\n✎ Has a drawing on Frame.io" }
-            let replies = (comment.replies ?? []).map { reply in
-                QCNoteReply(id: noteID(reply.id), author: author(reply.owner), text: reply.text,
-                            createdAt: date(reply.createdAt) ?? .distantPast)
-            }
             return QCFileNote(id: noteID(comment.id), frameIndex: frame, timecode: TimecodeFormatter.format(frameIndex: frame, fps: fps),
                               author: author(comment.owner), text: text, colorTag: colorTag,
                               createdAt: date(comment.createdAt) ?? .distantPast, isResolved: comment.completedAt != nil,
-                              editedAt: date(comment.textEditedAt), replies: replies)
+                              editedAt: date(comment.textEditedAt), replies: replies(of: comment))
+        }
+    }
+
+    private static func replies(of comment: FrameIO.Comment) -> [QCNoteReply] {
+        (comment.replies ?? []).map { reply in
+            QCNoteReply(id: noteID(reply.id), author: author(reply.owner), text: reply.text, createdAt: date(reply.createdAt) ?? .distantPast)
         }
     }
 
     /// Adds new comments and updates imported notes (`QCNotesManager.merge`: newer text wins, resolved stays resolved,
     /// new replies added); an imported note's frame follows Frame.io. Comments imported before whose note is gone here
-    /// were deleted here: they stay deleted.
-    static func merge(local: [QCFileNote], incoming: [QCFileNote], previouslyImported: Set<UUID>)
+    /// were deleted here: they stay deleted. Echoes of sent notes (`sent`) only update the note they came from (its
+    /// replies and resolved): one deleted here isn't brought back, and its frame stays the note's.
+    static func merge(local: [QCFileNote], incoming: [QCFileNote], previouslyImported: Set<UUID>, sent: Set<UUID> = [])
         -> (notes: [QCFileNote], added: Int, updated: Int) {
         let present = Set(local.map(\.id))
-        let wanted = incoming.filter { present.contains($0.id) || !previouslyImported.contains($0.id) }
+        let wanted = incoming.filter { present.contains($0.id) || (!previouslyImported.contains($0.id) && !sent.contains($0.id)) }
         var result = QCNotesManager.merge(existing: local, incoming: wanted)
-        let positions = Dictionary(wanted.map { ($0.id, ($0.frameIndex, $0.timecode)) }, uniquingKeysWith: { a, _ in a })
+        let positions = Dictionary(wanted.filter { !sent.contains($0.id) }.map { ($0.id, ($0.frameIndex, $0.timecode)) },
+                                   uniquingKeysWith: { a, _ in a })
         var moved = 0
         for index in result.notes.indices {
             guard present.contains(result.notes[index].id), let (frame, timecode) = positions[result.notes[index].id],
@@ -205,9 +254,12 @@ enum FrameIOCommentImport {
     }
 
     /// Where Frame.io's player shows the comment: its timecode as frames from the clip's start, else `timestamp − 1`.
+    /// Without either: frame 0 (comments on a still image, or a video comment not tied to a time), except PDF page
+    /// comments, which have no place in a clip.
     static func frame(of comment: FrameIO.Comment, fps: Double, start: Int) -> Int? {
         if let timecode = comment.timecode, let frames = frames(timecode, fps: fps) { return max(0, frames - start) }
-        return comment.timestamp.map { max(0, $0 - frameBase) }
+        if let timestamp = comment.timestamp { return max(0, timestamp - frameBase) }
+        return comment.page == nil ? 0 : nil
     }
 
     /// The file's embedded start timecode in frames (Frame.io's timecodes include it; QC notes count from 0). Each
@@ -268,7 +320,11 @@ final class FrameIOCommentSync: ObservableObject {
         let comments: [FrameIO.Comment]
         /// Notes of comments imported before (a missing one was deleted here).
         let previouslyImported: Set<UUID>
+        /// Comments sent from QC notes: comment id → note id (they update that note).
+        let sent: [String: UUID]
         let userInitiated: Bool
+        /// A minute check after the first one: new comments in it are news (notifications).
+        var routine = false
     }
 
     /// The shown clip's link and last check, for the Notes drawer.
@@ -280,6 +336,13 @@ final class FrameIOCommentSync: ObservableObject {
     @Published private(set) var signedIn = false
     /// Changes with the clip shown (clears the Notes bar's last message).
     @Published private(set) var activeVersion = 0
+    /// The shown clip's notes that came from Frame.io and that were sent to it: the rest can be sent.
+    @Published private(set) var activeImported: Set<UUID> = []
+    @Published private(set) var activeSent: Set<UUID> = []
+    @Published private(set) var isSending = false
+    private var activeLink: FrameIOLinks.Link?
+    /// The shown clip has been checked once (its existing comments imported).
+    private var checkedActive = false
 
     private var activeURL: URL?
     private var poll: Task<Void, Never>?
@@ -294,6 +357,10 @@ final class FrameIOCommentSync: ObservableObject {
         activeVersion &+= 1
         Task { signedIn = await FrameIO.shared.isSignedIn }
         activeLinked = false
+        activeLink = nil
+        checkedActive = false
+        activeImported = []
+        activeSent = []
         lastChecked = nil
         lastError = nil
         poll?.cancel()
@@ -312,7 +379,7 @@ final class FrameIOCommentSync: ObservableObject {
     func signInChanged(_ isSignedIn: Bool) {
         signedIn = isSignedIn
         if isSignedIn, let url = activeURL { Task { await check(url, userInitiated: false) } }
-        if !isSignedIn { activeLinked = false; lastChecked = nil; lastError = nil }
+        if !isSignedIn { activeLinked = false; activeLink = nil; lastChecked = nil; lastError = nil }
     }
 
     /// Link from Clipboard (Notes tab) and ⌘V in the Player: links the open clip to the Frame.io link on the clipboard.
@@ -349,8 +416,15 @@ final class FrameIOCommentSync: ObservableObject {
             if isActive(url) { activeLinked = false }
             return
         }
+        // What was imported from and sent to this file: known before asking Frame.io, so Send works even when the
+        // check fails (offline, rate limited).
+        let previous = Set(await FrameIOLinks.shared.imported(link.fileID).map(FrameIOCommentImport.noteID))
+        let sent = await FrameIOLinks.shared.sent(link.fileID)
         guard isActive(url) else { return }
         activeLinked = true
+        activeLink = link
+        activeImported = previous
+        activeSent = Set(sent.values)
         isChecking = true
         defer { isChecking = false }
         do {
@@ -358,15 +432,25 @@ final class FrameIOCommentSync: ObservableObject {
             guard isActive(url) else { return }
             lastChecked = Date()
             lastError = nil
-            let previous = await FrameIOLinks.shared.imported(link.fileID)
+            // While notes are being sent, comments they just created may not be recorded as sent yet: they'd be
+            // imported as new notes (duplicates of the sent ones). The next check applies them.
+            guard !isSending else { return }
+            // Read again after the fetch: a send that finished meanwhile recorded its comments.
+            let sentNow = await FrameIOLinks.shared.sent(link.fileID)
+            guard isActive(url), !isSending else { return }
+            activeSent = Set(sentNow.values)
+            // The first check after the clip opens imports what's already there: only later ones are news.
+            let routine = checkedActive
+            checkedActive = true
             NotificationCenter.default.post(name: Self.didFetch, object: Change(
-                url: url, fileID: link.fileID, comments: comments,
-                previouslyImported: Set(previous.map(FrameIOCommentImport.noteID)), userInitiated: userInitiated))
+                url: url, fileID: link.fileID, comments: comments, previouslyImported: previous, sent: sentNow,
+                userInitiated: userInitiated, routine: routine && !userInitiated))
         } catch FrameIO.Failure.http(404, _) {
             // The Frame.io file was deleted: stop asking for it (and showing an error) every minute.
             await FrameIOLinks.shared.forget(fileID: link.fileID)
             guard isActive(url) else { return }
             activeLinked = false
+            activeLink = nil
             lastError = nil
         } catch {
             guard isActive(url) else { return }
@@ -435,6 +519,90 @@ final class FrameIOCommentSync: ObservableObject {
         return FrameIOLink.Failure.notFound.errorDescription ?? ""
     }
 
+    // MARK: Sending notes
+
+    /// The Notes drawer's Send to Frame.io: the shown clip's notes written in QCpie and not sent yet, as comments on its
+    /// Frame.io file. Returns what to tell the user.
+    func sendActive(_ notes: [QCFileNote]) async -> String {
+        guard !isSending else { return "Already sending notes" }
+        guard let url = activeURL, let link = activeLink else { return "Link this clip to its Frame.io file first." }
+        let sentSoFar = Set(await FrameIOLinks.shared.sent(link.fileID).values).union(activeSent)
+        guard !isSending, isActive(url) else { return "Already sending notes" }
+        let pending = FrameIOCommentPush.pending(notes, imported: activeImported, sent: sentSoFar)
+        guard !pending.isEmpty else { return "Every note is already on Frame.io" }
+        isSending = true
+        defer { isSending = false }
+        let outcome = await send(pending, account: link.account, fileID: link.fileID, clip: url)
+        if isActive(url) { activeSent.formUnion(outcome.sent.map(\.note)) }
+        return FrameIOCommentPush.summary(sent: outcome.sent.count, clips: 1, failures: outcome.failures)
+    }
+
+    /// What right-click → Send QC Notes to Frame.io would send: the items' files (folders: every file; stacks: the
+    /// current version) matched to queue clips by name and size, with each clip's unsent notes.
+    struct SendPlan: Sendable {
+        let account: String
+        let clips: [(url: URL, fileID: String, notes: [QCFileNote])]
+        let unmatched: Int
+        var noteCount: Int { clips.reduce(0) { $0 + $1.notes.count } }
+    }
+
+    func planSend(_ items: [FrameIO.Item], account: String) async throws -> SendPlan {
+        let files = try await DownloadEngine.expand(items, account: account, api: FrameIO.shared,
+                                                    retry: NetworkRetry(network: NetworkMonitor.shared))
+        let clips = queueClipsByNameAndSize()
+        var planned: [(url: URL, fileID: String, notes: [QCFileNote])] = []
+        var unmatched = 0
+        for file in files {
+            guard let urls = clips["\(file.name)|\(file.size)"], !urls.isEmpty else { unmatched += 1; continue }
+            let imported = Set(await FrameIOLinks.shared.imported(file.fileID).map(FrameIOCommentImport.noteID))
+            let sent = Set(await FrameIOLinks.shared.sent(file.fileID).values)
+            for url in urls {
+                let notes = FrameIOCommentPush.pending(await QCNotesManager.shared.loadNotes(for: url), imported: imported, sent: sent)
+                if !notes.isEmpty { planned.append((url, file.fileID, notes)) }
+            }
+        }
+        return SendPlan(account: account, clips: planned, unmatched: unmatched)
+    }
+
+    func send(_ plan: SendPlan) async -> String {
+        guard !isSending else { return "Already sending notes" }
+        isSending = true
+        defer { isSending = false }
+        var sent = 0
+        var failures: [String] = []
+        for clip in plan.clips {
+            // Checked again now: notes may have been sent since the plan was made (the Notes bar, another plan).
+            let already = Set(await FrameIOLinks.shared.sent(clip.fileID).values)
+            let notes = clip.notes.filter { !already.contains($0.id) }
+            guard !notes.isEmpty else { continue }
+            await FrameIOLinks.shared.link(clip.url, account: plan.account, fileID: clip.fileID)
+            let outcome = await send(notes, account: plan.account, fileID: clip.fileID, clip: clip.url)
+            sent += outcome.sent.count
+            failures += outcome.failures
+            if isActive(clip.url), activeLink?.fileID == clip.fileID { activeSent.formUnion(outcome.sent.map(\.note)) }
+            if failures.contains(FrameIOCommentPush.signedOutMessage) { break }
+        }
+        return FrameIOCommentPush.summary(sent: sent, clips: plan.clips.count, failures: failures)
+    }
+
+    /// Sends notes as comments and records each one as it lands, so a note is never sent twice (even if the rest fail).
+    /// A still image's comments carry no frame (Frame.io refuses a timestamp on images).
+    private func send(_ notes: [QCFileNote], account: String, fileID: String, clip: URL) async -> FrameIOCommentPush.Outcome {
+        await FrameIOCommentPush.run(notes, account: account, file: fileID, signedInName: FrameIOBrowser.shared.userName,
+                                     timed: QCUtilities.mediaKind(of: clip) != .image, api: FrameIO.shared) { note, comment in
+            await FrameIOLinks.shared.markSent(note: note, comment: comment, fileID: fileID)
+        }
+    }
+
+    /// Single-file queue clips (an image sequence is many Frame.io files) by "name|size".
+    private func queueClipsByNameAndSize() -> [String: [URL]] {
+        var clips: [String: [URL]] = [:]
+        for job in UploadQueue.shared.jobs where job.files.count == 1 {
+            clips["\(job.url.lastPathComponent)|\(job.fileSizes.first ?? 0)", default: []].append(job.url)
+        }
+        return clips
+    }
+
     // MARK: Favourites crawl
 
     private var indexer: Task<Void, Never>?
@@ -460,14 +628,19 @@ final class FrameIOCommentSync: ObservableObject {
             return (account, folder)
         }
         var visited = Set<String>()
+        var newVersions: [(stack: String, file: String)] = []
         while !queue.isEmpty, visited.count < 400, !Task.isCancelled {
             let (account, folder) = queue.removeFirst()
             guard visited.insert(folder).inserted else { continue }
             guard let items = try? await FrameIO.shared.children(account: account, folder: folder, thumbnails: false) else { continue }
             await FrameIOLinks.shared.remember(items, account: account)
+            for (stack, head) in await FrameIOLinks.shared.updateHeads(items) where !Notifier.shared.ownUploads.contains(head.id) {
+                newVersions.append((stack.title, head.name ?? stack.title))
+            }
             queue += items.filter(\.isFolder).map { (account, $0.id) }
             try? await Task.sleep(for: .milliseconds(500))
         }
+        if let message = NotificationText.versions(newVersions) { Notifier.shared.post(.versions, message) }
         if let active = activeURL, !activeLinked { await check(active, userInitiated: false) }
     }
 
@@ -476,6 +649,8 @@ final class FrameIOCommentSync: ObservableObject {
     /// Right-click → Import Comments into QCpie: links each Frame.io file (folders: their files; stacks: the current
     /// version) to the queue clip with the same name and size, then imports its comments. Returns a summary.
     func importComments(_ items: [FrameIO.Item], account: String) async -> String {
+        // Comments being created by a send aren't recorded as sent yet: importing now would duplicate them.
+        guard !isSending else { return "Wait for the notes being sent to Frame.io, then import again" }
         let files: [(fileID: String, name: String, size: Int64, folders: [String])]
         do {
             files = try await DownloadEngine.expand(items, account: account, api: FrameIO.shared,
@@ -483,11 +658,7 @@ final class FrameIOCommentSync: ObservableObject {
         } catch {
             return "Couldn't list the files: \(UploadEngine.describe(error))"
         }
-        // Single-file queue clips (an image sequence is many Frame.io files), by name and size.
-        var clips: [String: [URL]] = [:]
-        for job in UploadQueue.shared.jobs where job.files.count == 1 {
-            clips["\(job.url.lastPathComponent)|\(job.fileSizes.first ?? 0)", default: []].append(job.url)
-        }
+        let clips = queueClipsByNameAndSize()
         var matched = 0, unmatched = 0, imported = 0, failed = 0
         for file in files {
             guard let urls = clips["\(file.name)|\(file.size)"], !urls.isEmpty else { unmatched += 1; continue }
@@ -512,15 +683,16 @@ final class FrameIOCommentSync: ObservableObject {
     /// Returns how many notes were added.
     private func importOnDisk(_ comments: [FrameIO.Comment], fileID: String, into url: URL) async -> Int {
         let previous = Set(await FrameIOLinks.shared.imported(fileID).map(FrameIOCommentImport.noteID))
+        let sent = await FrameIOLinks.shared.sent(fileID)
         if isActive(url) {
             NotificationCenter.default.post(name: Self.didFetch, object: Change(
-                url: url, fileID: fileID, comments: comments, previouslyImported: previous, userInitiated: true))
-            return comments.filter { !previous.contains(FrameIOCommentImport.noteID($0.id)) && $0.timestamp != nil }.count
+                url: url, fileID: fileID, comments: comments, previouslyImported: previous, sent: sent, userInitiated: true))
+            return comments.filter { sent[$0.id] == nil && !previous.contains(FrameIOCommentImport.noteID($0.id)) && $0.page == nil }.count
         }
         let fps = await Self.frameRate(of: url)
         let local = await QCNotesManager.shared.loadNotes(for: url)
-        let incoming = FrameIOCommentImport.notes(from: comments, fps: fps)
-        let result = FrameIOCommentImport.merge(local: local, incoming: incoming, previouslyImported: previous)
+        let incoming = FrameIOCommentImport.notes(from: comments, fps: fps, sent: sent)
+        let result = FrameIOCommentImport.merge(local: local, incoming: incoming, previouslyImported: previous, sent: Set(sent.values))
         if result.added + result.updated > 0 {
             await QCNotesManager.shared.saveNotes(result.notes, for: url, fps: fps)
             await NotesSync.shared.push(url)

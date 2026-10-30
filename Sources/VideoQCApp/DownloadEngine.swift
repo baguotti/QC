@@ -452,6 +452,9 @@ final class DownloadQueue: ObservableObject {
                                              network: NetworkMonitor.shared, resume: resumeState)
     /// The batch's entry in the transfer log, and when each of its files started.
     private var logRunID: UUID?
+    /// Files finished since the queue was last idle (runs chain per destination), for one notification at the end.
+    private var batchTally = (downloaded: 0, failed: 0)
+    private var firstDestination: URL?
     private var jobStarted: [UUID: Date] = [:]
     private var runTask: Task<Void, Never>?
     private var ticker: Timer?
@@ -628,6 +631,8 @@ final class DownloadQueue: ObservableObject {
         switch outcome {
         case .downloaded(let url):
             jobs[index].status = .done
+            batchTally.downloaded += 1
+            if firstDestination == nil { firstDestination = jobs[index].destination }
             jobs[index].localURL = url
             if addToQueue { queueForPlayer(url) }
             let account = jobs[index].account, fileID = jobs[index].fileID
@@ -641,6 +646,7 @@ final class DownloadQueue: ObservableObject {
             entryOutcome = .cancelled
         case .failed(let text):
             jobs[index].status = .failed(text)
+            batchTally.failed += 1
             entryOutcome = .failed
             message = text
         }
@@ -675,6 +681,13 @@ final class DownloadQueue: ObservableObject {
         runFinished = Date()
         if let sleepActivity { ProcessInfo.processInfo.endActivity(sleepActivity) }
         sleepActivity = nil
+        if !cancelled && !pausing && batchTally.downloaded + batchTally.failed > 0 {
+            let place = firstDestination.map { ($0.path as NSString).abbreviatingWithTildeInPath } ?? ""
+            Notifier.shared.post(.downloads, NotificationText.download(downloaded: batchTally.downloaded,
+                                                                       failed: batchTally.failed, destination: place))
+        }
+        batchTally = (0, 0)
+        firstDestination = nil
         let stopped = whenStopped
         whenStopped = []
         stopped.forEach { $0() }

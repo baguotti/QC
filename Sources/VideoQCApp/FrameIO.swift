@@ -48,6 +48,8 @@ actor FrameIO {
         /// Where it lives (opening a pasted link walks these up to the project).
         var parentID: String? = nil
         var projectID: String? = nil
+        /// Files: "video/mp4", "image/png", "audio/x-wav"… (the preview picks how to show it).
+        var mediaType: String? = nil
         var workspaceID: String? = nil
 
         struct Head: Decodable, Hashable, Sendable {
@@ -68,15 +70,31 @@ actor FrameIO {
             let thumbnailHighQuality: Link?
             /// The original file (`include=media_links.original`): a pre-signed, time-limited download link.
             let original: Original?
+            /// Proxies Frame.io transcodes (`include=media_links.efficient` / `.video_h264_180`): MP4s served with range
+            /// requests, so they stream. `efficient` is the sharper one (it may come as `download_url` only); 180p is tiny.
+            /// For an image they're images instead: `high_quality` full size, `efficient` small. Audio gets none.
+            let efficient: Rendition?
+            let highQuality: Rendition?
+            let videoH264180: Rendition?
             struct Link: Decodable, Hashable, Sendable { let url: String? }
+            struct Rendition: Decodable, Hashable, Sendable {
+                let url: String?
+                let downloadURL: String?
+                var stream: URL? { (url ?? downloadURL).flatMap(URL.init(string:)) }
+                enum CodingKeys: String, CodingKey { case url; case downloadURL = "download_url" }
+            }
             struct Original: Decodable, Hashable, Sendable {
                 let downloadURL: String?
-                enum CodingKeys: String, CodingKey { case downloadURL = "download_url" }
+                /// Shown in a browser as is (images; nil for audio).
+                let inlineURL: String?
+                enum CodingKeys: String, CodingKey { case downloadURL = "download_url"; case inlineURL = "inline_url" }
             }
 
             enum CodingKeys: String, CodingKey {
-                case thumbnail, original
+                case thumbnail, original, efficient
+                case highQuality = "high_quality"
                 case thumbnailHighQuality = "thumbnail_high_quality"
+                case videoH264180 = "video_h264_180"
             }
         }
 
@@ -88,6 +106,7 @@ actor FrameIO {
             case viewURL = "view_url"
             case headVersion = "head_version"
             case mediaLinks = "media_links"
+            case mediaType = "media_type"
             case image, status, storage
             case createdAt = "created_at"
             case updatedAt = "updated_at"
@@ -428,6 +447,88 @@ actor FrameIO {
         _ = try await request("DELETE", "/v4/accounts/\(account)/\(kind)/\(id)")
     }
 
+    // MARK: Metadata
+
+    /// The account's editable metadata fields (Status, Assignee, Rating, Notes, Keywords and custom fields). Fields
+    /// Frame.io fills in itself (codec, duration…) are `mutable: false` and left out. 100 calls/min.
+    func metadataFields(account: String) async throws -> [MetadataField] {
+        struct FieldPage: Decodable {
+            let data: [MetadataField]
+            let links: Links?
+            struct Links: Decodable { let next: String? }
+        }
+        var fields: [MetadataField] = []
+        var next: String? = "/v4/accounts/\(account)/metadata/field_definitions?page_size=100"
+        while let current = next {
+            let page = try JSONDecoder().decode(FieldPage.self, from: await request("GET", current))
+            fields += page.data
+            next = page.links?.next
+        }
+        return fields.filter(\.mutable)
+    }
+
+    /// The people on a project (Assignee's choices).
+    func projectUsers(account: String, project: String) async throws -> [MetadataUser] {
+        struct UserPage: Decodable {
+            struct Entry: Decodable { let user: MetadataUser }
+            let data: [Entry]
+            let links: Links?
+            struct Links: Decodable { let next: String? }
+        }
+        var users: [MetadataUser] = []
+        var next: String? = "/v4/accounts/\(account)/projects/\(project)/users?page_size=100"
+        while let current = next {
+            let page = try JSONDecoder().decode(UserPage.self, from: await request("GET", current))
+            users += page.data.map(\.user)
+            next = page.links?.next
+        }
+        return users
+    }
+
+    /// A file's editable values, by field id (unset fields included: `show_null`).
+    func metadataValues(account: String, file: String) async throws -> [String: MetadataValue] {
+        struct Values: Decodable {
+            struct Body: Decodable { let metadata: [MetadataValue.Entry] }
+            let data: Body
+        }
+        let values = try JSONDecoder().decode(Values.self, from: await request("GET", "/v4/accounts/\(account)/files/\(file)/metadata?show_null=true"))
+        return Dictionary(values.data.metadata.filter { $0.mutable ?? false }.map { ($0.fieldDefinitionID, $0.value) },
+                          uniquingKeysWith: { a, _ in a })
+    }
+
+    /// Sets the same values on many files (`PATCH …/projects/{id}/metadata/values`, 204). 10 calls/min: callers send up
+    /// to 100 files per call. Measured: selects take option ids, users `{id, type}`, rating an integer, text a string;
+    /// clearing is `[]` (selects, users), `""` (text) or `0` (rating): `null` is refused (422).
+    /// `body`: `FrameIOMetadata.body(files:values:)`.
+    func updateMetadata(account: String, project: String, body: Data) async throws {
+        _ = try await request("PATCH", "/v4/accounts/\(account)/projects/\(project)/metadata/values", body: body)
+    }
+
+    /// What the preview (Space in the browser) shows of a file: its media type and links (proxies, full-size image,
+    /// the original for audio, which gets no proxy). Links are signed and expire, so they're fetched each time a
+    /// preview opens (one call).
+    func previewFile(account: String, file: String) async throws -> Item {
+        let include = ["efficient", "high_quality", "video_h264_180", "thumbnail_high_quality", "original"]
+            .map { "media_links.\($0)" }.joined(separator: ",")
+        return try JSONDecoder().decode(One.self, from: await request("GET", "/v4/accounts/\(account)/files/\(file)?include=\(include)")).data
+    }
+
+    /// Adds a comment on a file at a frame and returns its id. `timestamp` counts frames from the clip's first frame (a
+    /// note's `frameIndex`): Frame.io shows it at the file's start timecode + timestamp (measured, 25 fps starting at
+    /// 01:00:00:00: 0 → 01:00:00:00, 51 → 01:00:02:01; a timecode without the start is refused with 422). `completed`
+    /// shows it resolved. Comments allow 100 calls/min (a 429 waits and retries: nothing was created).
+    /// Images refuse a timestamp (422 "filetype does not accept a timestamp", measured on a PNG): pass nil for them.
+    func createComment(account: String, file: String, text: String, timestamp: Int?, completed: Bool) async throws -> String {
+        var data: [String: Any] = ["text": text, "completed": completed]
+        if let timestamp { data["timestamp"] = timestamp }
+        let body = try JSONSerialization.data(withJSONObject: ["data": data])
+        struct Created: Decodable {
+            struct Comment: Decodable { let id: String }
+            let data: Comment
+        }
+        return try JSONDecoder().decode(Created.self, from: await request("POST", "/v4/accounts/\(account)/files/\(file)/comments", body: body)).data.id
+    }
+
     /// Every comment on a file, with replies and authors, and the timecode Frame.io shows for each (`timecode`, a
     /// second listing with `timestamp_as_timecode`: see `Comment`). 100 per page; comments allow 100 calls/min.
     func comments(account: String, file: String) async throws -> [Comment] {
@@ -472,6 +573,8 @@ actor FrameIO {
         /// The timecode Frame.io shows for the comment (from the second listing), e.g. "00:00:10:11".
         var timecode: String?
         let duration: Int?
+        /// PDF comments: the page (they have no frame). Images have neither a page nor a timestamp.
+        let page: Int?
         let completedAt: String?
         let createdAt: String?
         let textEditedAt: String?
@@ -484,15 +587,16 @@ actor FrameIO {
         }
 
         enum CodingKeys: String, CodingKey {
-            case id, text, annotation, timestamp, duration, owner, replies
+            case id, text, annotation, timestamp, duration, owner, replies, page
             case completedAt = "completed_at"
             case createdAt = "created_at"
             case textEditedAt = "text_edited_at"
         }
 
         init(id: String, text: String, annotation: String? = nil, timestamp: Int?, timecode: String? = nil, duration: Int? = nil,
-             completedAt: String? = nil, createdAt: String? = nil, textEditedAt: String? = nil, owner: Owner? = nil,
-             replies: [Comment]? = nil) {
+             page: Int? = nil, completedAt: String? = nil, createdAt: String? = nil, textEditedAt: String? = nil,
+             owner: Owner? = nil, replies: [Comment]? = nil) {
+            self.page = page
             self.id = id
             self.text = text
             self.annotation = annotation
@@ -522,6 +626,7 @@ actor FrameIO {
             }
             timecode = nil
             duration = try? c.decodeIfPresent(Int.self, forKey: .duration)
+            page = try? c.decodeIfPresent(Int.self, forKey: .page)
             completedAt = try? c.decodeIfPresent(String.self, forKey: .completedAt)
             createdAt = try? c.decodeIfPresent(String.self, forKey: .createdAt)
             textEditedAt = try? c.decodeIfPresent(String.self, forKey: .textEditedAt)

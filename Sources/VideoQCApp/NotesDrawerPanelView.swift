@@ -74,6 +74,11 @@ struct NotesDrawerPanelView: View {
         mediaAsset?.fileURL ?? mediaURL
     }
     
+    /// The drawer's width: wider for the subtitle list. The Play tab sizes its other columns from this too.
+    static func width(tab: PlayerDrawerTab, hasSubtitles: Bool) -> CGFloat {
+        tab == .subtitles && hasSubtitles ? 420 : 340
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             // Frame.io Style Segmented Tab Header Bar
@@ -106,7 +111,7 @@ struct NotesDrawerPanelView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .clipped()
         }
-        .frame(width: selectedDrawerTab == .subtitles && hasSubtitles ? 420 : 340)
+        .frame(width: Self.width(tab: selectedDrawerTab, hasSubtitles: hasSubtitles))
         .onChange(of: hasSubtitles) { _, has in
             if !has && selectedDrawerTab == .subtitles { selectedDrawerTab = .notes }
         }
@@ -270,7 +275,7 @@ struct NotesDrawerPanelView: View {
             Rectangle().fill(palette.borderLine).frame(height: 1)
             
             NotesSyncProjectBar(isLightMode: isLightMode, onAssign: onAssignSyncProject)
-            FrameIOCommentsBar(isLightMode: isLightMode)
+            FrameIOCommentsBar(isLightMode: isLightMode, notes: notes)
             
             // Notes List or Empty State
             if notes.isEmpty {
@@ -430,7 +435,7 @@ struct NotesDrawerPanelView: View {
                 
                 Spacer()
                 
-                // Color dots (cyan, yellow, green, purple) - red strictly excluded
+                // Colour dots: the user colours (red is Line Check's, purple Frame.io's)
                 HStack(spacing: 5) {
                     ForEach(QCNoteTheme.availableColors, id: \.id) { item in
                         Button(action: { inlineSelectedColor = item.id }) {
@@ -510,8 +515,8 @@ struct NotesDrawerPanelView: View {
         let finalAuthor = authorName.isEmpty ? "Reviewer" : authorName
         storedReviewerName = finalAuthor
         
-        // Red is strictly reserved for automated Line QC findings
-        let safeColorTag = inlineSelectedColor.lowercased() == "red" ? "cyan" : inlineSelectedColor
+        // Red (Line Check) and purple (Frame.io) are reserved.
+        let safeColorTag = QCNoteTheme.userTag(inlineSelectedColor)
         
         let newNote = QCFileNote(
             frameIndex: clock.currentFrame,
@@ -657,8 +662,8 @@ struct NotesDrawerPanelView: View {
     
     // MARK: - Colour Filter
     
-    /// Filterable colours: red (Line Check glitches) plus the user note colours.
-    private static let filterColors = ["red"] + QCNoteTheme.availableColors.map(\.id)
+    /// Filterable colours: red (Line Check glitches), the user note colours, and purple (from Frame.io).
+    private static let filterColors = [QCNoteTheme.lineCheckTag] + QCNoteTheme.availableColors.map(\.id) + [QCNoteTheme.frameIOTag]
     
     /// IDs of the notes the colour filter shows, or nil when no filter is on.
     private var filteredNoteIDs: Set<UUID>? {
@@ -726,7 +731,8 @@ struct NotesDrawerPanelView: View {
                 }
                 .onExitCommand { editingNoteID = nil }
             HStack(spacing: 6) {
-                ForEach(QCNoteTheme.availableColors, id: \.id) { option in
+                // A Frame.io note stays purple: its colour says where it came from.
+                ForEach(Self.isFromFrameIO(note) ? [] : QCNoteTheme.availableColors, id: \.id) { option in
                     Button(action: { editColorTag = option.id }) {
                         Circle()
                             .fill(option.color)
@@ -751,12 +757,18 @@ struct NotesDrawerPanelView: View {
         }
     }
     
+    /// A note imported from a Frame.io comment (`FrameIOCommentImport`): purple, author marked "(Frame.io)".
+    private static func isFromFrameIO(_ note: QCFileNote) -> Bool {
+        note.colorTag == QCNoteTheme.frameIOTag && note.author.hasSuffix("(Frame.io)")
+    }
+
     private func commitEdit(note: QCFileNote) {
         let clean = editText.trimmingCharacters(in: .whitespacesAndNewlines)
         editingNoteID = nil
         guard !clean.isEmpty, clean != note.text || editColorTag != note.colorTag else { return }
         var updated = note
-        updated.colorTag = editColorTag
+        // Only Frame.io's notes are purple (an older note made purple here takes a user colour when edited).
+        updated.colorTag = Self.isFromFrameIO(note) ? note.colorTag : QCNoteTheme.userTag(editColorTag)
         updated.text = clean
         // Also stamped for colour-only edits: .qcnotes imports keep the most recently edited version.
         updated.editedAt = Date()
@@ -1004,11 +1016,18 @@ private struct FrameIOCommentsBar: View {
     @ObservedObject private var sync = FrameIOCommentSync.shared
     @ObservedObject private var themeManager = ThemeManager.shared   // accent changes redraw
     var isLightMode: Bool
+    /// The clip's notes: those written here and not sent yet can go to Frame.io.
+    var notes: [QCFileNote]
     @State private var linkMessage: String?
+    @State private var sendMessage: String?
 
     private var palette: StudioPalette { StudioPalette(isLightMode) }
 
+    private var unsent: Int { FrameIOCommentPush.pending(notes, imported: sync.activeImported, sent: sync.activeSent).count }
+
     private var detail: String {
+        if sync.isSending { return "Sending notes to Frame.io…" }
+        if let sendMessage { return sendMessage }
         if let error = sync.lastError { return "Couldn't check: \(error)" }
         if sync.isChecking { return "Checking for comments…" }
         if let checked = sync.lastChecked { return "Comments imported · checked \(checked.formatted(date: .omitted, time: .shortened))" }
@@ -1035,6 +1054,18 @@ private struct FrameIOCommentsBar: View {
                         .lineLimit(1)
                         .truncationMode(.tail)
                     Spacer(minLength: 4)
+                    if unsent > 0 {
+                        Button("Send \(unsent)") {
+                            let count = unsent
+                            FrameIOCommentPush.confirm(notes: count, clips: 1, onto: "this clip's Frame.io file") {
+                                Task { sendMessage = await sync.sendActive(notes) }
+                            }
+                        }
+                        .font(.ui(size: 10, weight: .semibold))
+                        .buttonStyle(.borderless)
+                        .disabled(sync.isSending)
+                        .help("Send the \(unsent) note\(unsent == 1 ? "" : "s") written here to Frame.io as comments at their frames")
+                    }
                     Button("Check Now", action: sync.checkActive)
                         .font(.ui(size: 10, weight: .semibold))
                         .buttonStyle(.borderless)
@@ -1044,7 +1075,8 @@ private struct FrameIOCommentsBar: View {
                 .padding(.horizontal, 10)
                 .frame(height: 24)
                 .background(palette.bgPanel)
-                .help("This clip is linked to its Frame.io file: comments come in as purple notes marked (Frame.io), checked when the clip opens and every minute.")
+                .help("This clip is linked to its Frame.io file: comments come in as purple notes marked (Frame.io), checked when the clip opens and every minute. Send puts your notes on Frame.io as comments.")
+                .onChange(of: sync.activeVersion) { _, _ in sendMessage = nil }
 
                 Rectangle().fill(palette.borderLine).frame(height: 1)
             }

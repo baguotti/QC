@@ -64,9 +64,10 @@ struct FrameIOCommentsTests {
         #expect(result.updated == 1)
     }
 
-    @Test("Frame 1 is the first frame; comments without a frame (document pages) are skipped")
+    @Test("Frame 1 is the first frame; document page comments are skipped")
     func edges() {
-        let notes = FrameIOCommentImport.notes(from: [comment("a", frame: 1), comment("b", frame: nil)], fps: 25)
+        let page = FrameIO.Comment(id: "b", text: "x", timestamp: nil, page: 3)
+        let notes = FrameIOCommentImport.notes(from: [comment("a", frame: 1), page], fps: 25)
         #expect(notes.map(\.frameIndex) == [0])
     }
 

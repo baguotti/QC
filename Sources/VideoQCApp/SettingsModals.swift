@@ -318,13 +318,18 @@ struct UserSettingsModalView: View {
     @AppStorage(LoudnessTarget.customIntegratedKey) private var loudnessCustomLUFS: Double = -23
     @AppStorage(LoudnessTarget.customToleranceKey) private var loudnessCustomTolerance: Double = 1
     @AppStorage(LoudnessTarget.customTruePeakKey) private var loudnessCustomTruePeak: Double = -1
+    @AppStorage(Notifier.enabledKey) private var notificationsOn: Bool = true
+    @AppStorage(Notifier.whileActiveKey) private var notifyWhileActive: Bool = false
+    @ObservedObject private var notifier = Notifier.shared
     
     private var palette: StudioPalette { StudioPalette(isLightMode) }
     
     private enum Pane: String, CaseIterable {
         case general = "General", playback = "Playback", queue = "Queue & Specs", lineCheck = "Line Check", loudness = "Loudness"
+        case notifications = "Notifications"
         var icon: String {
             switch self {
+            case .notifications: return "bell"
             case .loudness: return "waveform"
             case .general: return "person.crop.circle"
             case .playback: return "play.rectangle"
@@ -356,6 +361,7 @@ struct UserSettingsModalView: View {
                 case .queue: queuePane
                 case .lineCheck: lineCheckPane
                 case .loudness: loudnessPane
+                case .notifications: notificationsPane
                 }
             }
             .padding(.horizontal, 24)
@@ -504,6 +510,58 @@ struct UserSettingsModalView: View {
         Rectangle().fill(palette.borderLine).frame(height: 1).padding(.vertical, 4)
     }
     
+    private var notificationsPane: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            check("Show notifications", $notificationsOn,
+                  help: "macOS notifications from QCpie. Turn off for none at all, or choose which below.")
+                .onChange(of: notificationsOn) { _, on in
+                    if on { Task { await notifier.requestAuthorization() } }
+                }
+            VStack(alignment: .leading, spacing: 8) {
+                ForEach(NotificationKind.allCases, id: \.self) { kind in
+                    NotificationKindToggle(kind: kind, isLightMode: isLightMode)
+                }
+            }
+            .padding(.leading, 20)
+            .disabled(!notificationsOn)
+            .opacity(notificationsOn ? 1 : 0.45)
+            divider
+            check("Also while QCpie is in front", $notifyWhileActive,
+                  help: "Off: notifications only show while you're in another app (QCpie shows its own progress when it's in front).")
+                .disabled(!notificationsOn)
+            if notifier.authorization == .denied {
+                HStack(spacing: 10) {
+                    Text("macOS is blocking QCpie's notifications.")
+                        .font(.ui(size: 11))
+                        .foregroundColor(palette.negative)
+                    Button("Open System Settings") {
+                        if let url = URL(string: "x-apple.systempreferences:com.apple.Notifications-Settings.extension") {
+                            NSWorkspace.shared.open(url)
+                        }
+                    }
+                    .font(.ui(size: 11))
+                }
+            } else {
+                Text("Quiet by design: no sound, grouped by kind in Notification Center. Click one to go to its tab.")
+                    .font(.ui(size: 11))
+                    .foregroundColor(palette.textMuted)
+            }
+            HStack(spacing: 10) {
+                Button("Show Example") { notifier.sendExample() }
+                    .font(.ui(size: 11))
+                    .disabled(!notificationsOn)
+                    .explain("Posts a sample notification now, even with QCpie in front.")
+                if let problem = notifier.problem {
+                    Text(problem)
+                        .font(.ui(size: 11))
+                        .foregroundColor(palette.negative)
+                        .lineLimit(2)
+                }
+            }
+        }
+        .onAppear { notifier.refreshAuthorization() }
+    }
+
     /// Premiere-style labelled control: right-aligned label, control beside it.
     private func field<Control: View>(_ label: String, launch: Bool = false, help: String, @ViewBuilder control: () -> Control) -> some View {
         HStack(alignment: .center, spacing: 10) {
@@ -546,5 +604,28 @@ struct UserSettingsModalView: View {
         .labelsHidden()
         .pickerStyle(.segmented)
         .fixedSize()
+    }
+}
+
+/// One kind's switch in Settings → Notifications (its own view: `@AppStorage` needs a fixed key per view).
+private struct NotificationKindToggle: View {
+    let kind: NotificationKind
+    let isLightMode: Bool
+    @AppStorage private var isOn: Bool
+
+    init(kind: NotificationKind, isLightMode: Bool) {
+        self.kind = kind
+        self.isLightMode = isLightMode
+        _isOn = AppStorage(wrappedValue: true, Notifier.key(kind))
+    }
+
+    var body: some View {
+        Toggle(isOn: $isOn) {
+            Text(kind.label)
+                .font(.ui(size: 12))
+                .foregroundColor(StudioPalette(isLightMode).textMain)
+        }
+        .toggleStyle(.checkbox)
+        .explain(kind.help)
     }
 }

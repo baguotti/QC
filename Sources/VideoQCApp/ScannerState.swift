@@ -163,6 +163,11 @@ public final class ScannerState: ObservableObject {
                 self.isScanning = false
                 self.isCancelling = false
                 self.scannerActor = nil
+                // A Full Check notifies once, after its Frame Check.
+                if !self.wasScanCancelled && !self.isFullCheck {
+                    Notifier.shared.post(.scans, NotificationText.scan(check: "Line Check", flagged: results.filter(\.isFlagged).count,
+                                                                      total: results.count))
+                }
                 onComplete(results, config)
             }
         }
@@ -172,6 +177,11 @@ public final class ScannerState: ObservableObject {
     public func startFrameCheck(videoFiles: [URL]) {
         let videos = videoFiles.filter { QCUtilities.mediaKind(of: $0) == .video }
         guard !videos.isEmpty, !isFrameChecking, !isScanning else {
+            // A Full Check with no video: its Line Check held back the notification for this step.
+            if isFullCheck && videos.isEmpty && !scanResults.isEmpty {
+                Notifier.shared.post(.scans, NotificationText.scan(check: "Full Check", flagged: scanResults.filter(\.isFlagged).count,
+                                                                  total: scanResults.count))
+            }
             isFullCheck = false
             return
         }
@@ -190,6 +200,14 @@ public final class ScannerState: ObservableObject {
                 DispatchQueue.main.async { self.frameCheckProgress = progress }
             }
             await MainActor.run {
+                if !self.wasFrameCheckCancelled {
+                    // Full Check: a clip counts once if either check flagged it.
+                    let flagged = Set(results.filter(\.isFlagged).map(\.fileURL))
+                        .union(self.isFullCheck ? self.scanResults.filter(\.isFlagged).map(\.fileURL) : [])
+                    let total = Set(results.map(\.fileURL)).union(self.isFullCheck ? self.scanResults.map(\.fileURL) : []).count
+                    Notifier.shared.post(.scans, NotificationText.scan(check: self.isFullCheck ? "Full Check" : "Frame Check",
+                                                                      flagged: flagged.count, total: total))
+                }
                 self.frameCheckResults = results
                 self.isFrameChecking = false
                 self.isFullCheck = false

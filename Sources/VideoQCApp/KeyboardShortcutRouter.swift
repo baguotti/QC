@@ -260,6 +260,10 @@ struct KeyboardShortcutActions {
     var onSelectAllUploads: () -> Void
     var onUndoFrameIO: () -> Void
     var onDeleteFrameIO: () -> Void
+    /// Space in the Upload tab: open or close the Frame.io preview (false: nothing to preview, the key goes on).
+    var onPreviewFrameIO: () -> Bool
+    /// Arrow keys while the preview is open: previous (−1) or next (+1) item (false when it's closed).
+    var onStepPreview: (Int) -> Bool
     /// ⌘V in the Upload tab: opens a Frame.io link on the clipboard; false (not handled) for anything else.
     var onPasteFrameIOLink: () -> Bool
     /// ⌘V in the Player: links the open clip to a Frame.io link on the clipboard (imports its comments).
@@ -315,6 +319,8 @@ struct KeyboardShortcutActions {
         onSelectAllUploads: @escaping () -> Void = {},
         onUndoFrameIO: @escaping () -> Void = {},
         onDeleteFrameIO: @escaping () -> Void = {},
+        onPreviewFrameIO: @escaping () -> Bool = { false },
+        onStepPreview: @escaping (Int) -> Bool = { _ in false },
         onPasteFrameIOLink: @escaping () -> Bool = { false },
         onPasteFrameIOLinkInPlayer: @escaping () -> Bool = { false },
         onTogglePlayPause: @escaping () -> Void = {},
@@ -363,6 +369,8 @@ struct KeyboardShortcutActions {
         self.onSelectAllUploads = onSelectAllUploads
         self.onUndoFrameIO = onUndoFrameIO
         self.onDeleteFrameIO = onDeleteFrameIO
+        self.onPreviewFrameIO = onPreviewFrameIO
+        self.onStepPreview = onStepPreview
         self.onPasteFrameIOLink = onPasteFrameIOLink
         self.onPasteFrameIOLinkInPlayer = onPasteFrameIOLinkInPlayer
         self.onTogglePlayPause = onTogglePlayPause
@@ -547,6 +555,27 @@ extension KeyboardShortcutRouter {
             ) {
                 actions.onDeleteFrameIO()
                 return true
+            },
+            Rule(
+                id: "frameioPreview",
+                trigger: ShortcutTrigger(keyCodes: [49], characters: [" "], modifiers: []),
+                scope: .uploadOnly
+            ) {
+                actions.onPreviewFrameIO()
+            },
+            Rule(
+                id: "frameioPreviewPrevious",
+                trigger: ShortcutTrigger(keyCodes: [123, 126], modifiers: []),
+                scope: .uploadOnly
+            ) {
+                actions.onStepPreview(-1)
+            },
+            Rule(
+                id: "frameioPreviewNext",
+                trigger: ShortcutTrigger(keyCodes: [124, 125], modifiers: []),
+                scope: .uploadOnly
+            ) {
+                actions.onStepPreview(1)
             },
             Rule(
                 id: "frameioUndo",

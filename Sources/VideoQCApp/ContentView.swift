@@ -241,6 +241,7 @@ struct ContentView: View {
                 updatePlayerTreeNodes()
             }
             .onChange(of: selectedTab) { _, newTab in
+                if newTab != .upload { FrameIOPreview.shared.close() }
                 if newTab == .specs && specsState.deliverableAssets.isEmpty && !videoFiles.isEmpty {
                     specsState.inspectDeliverablesBatch(urls: videoFiles)
                 }
@@ -272,6 +273,10 @@ struct ContentView: View {
             }
             .onReceive(NotificationCenter.default.publisher(for: DownloadQueue.addToQueue)) { notification in
                 if let urls = notification.object as? [URL], !urls.isEmpty { loadAssets(urls, append: true) }
+            }
+            .onReceive(NotificationCenter.default.publisher(for: Notifier.openTab)) { notification in
+                guard let tab = notification.object as? AppTab else { return }
+                withAnimation(Motion.snap) { selectedTab = tab }
             }
             .onReceive(NotificationCenter.default.publisher(for: FrameIOCommentSync.didFetch)) { notification in
                 if let change = notification.object as? FrameIOCommentSync.Change { applyFrameIOComments(change) }
@@ -1473,6 +1478,11 @@ struct ContentView: View {
             withAnimation(Motion.fade) { updateManager.showModal = false }
             return true
         }
+        // Below the modals: one opened over the preview closes first.
+        if FrameIOPreview.shared.isOpen {
+            FrameIOPreview.shared.close()
+            return true
+        }
         if fullscreenMode != .none {
             exitFullscreen()
             return true
@@ -1573,6 +1583,8 @@ struct ContentView: View {
             onSelectAllUploads: { UploadQueue.shared.selectAll() },
             onUndoFrameIO: { FrameIOBrowser.shared.performUndo() },
             onDeleteFrameIO: { FrameIOBrowser.shared.deleteSelection() },
+            onPreviewFrameIO: { FrameIOPreview.shared.toggle() },
+            onStepPreview: { FrameIOPreview.shared.step($0) },
             onPasteFrameIOLink: { FrameIOBrowser.shared.openLinkOnClipboard() },
             onPasteFrameIOLinkInPlayer: { FrameIOCommentSync.shared.linkActiveFromClipboard { self.showToast($0) } },
             onTogglePlayPause: { self.playerEngine.togglePlayPause() },
@@ -2358,15 +2370,16 @@ struct ContentView: View {
     func applyFrameIOComments(_ change: FrameIOCommentSync.Change) {
         guard let url = notesTargetURL, isSameURL(url, change.url) else { return }
         let fps = isSameURL(url, playerEngine.slotB.url) ? playerEngine.slotB.fps : playerEngine.activeFps
-        let incoming = FrameIOCommentImport.notes(from: change.comments, fps: fps)
+        let incoming = FrameIOCommentImport.notes(from: change.comments, fps: fps, sent: change.sent)
         let result = FrameIOCommentImport.merge(local: playerEngine.activeNotes, incoming: incoming,
-                                                previouslyImported: change.previouslyImported)
+                                                previouslyImported: change.previouslyImported, sent: Set(change.sent.values))
         FrameIOCommentSync.shared.didApply(change)
         guard result.added + result.updated > 0 else {
             if change.userInitiated { showToast("No new Frame.io comments") }
             return
         }
         let shownIDs = Set(playerEngine.activeNotes.map(\.id))
+        if change.routine { notifyFrameIOComments(before: playerEngine.activeNotes, after: result.notes, url: url, fps: fps) }
         if !notesTabIsVisible {
             unseenSyncedNoteIDs.formUnion(Set(result.notes.map(\.id)).subtracting(shownIDs))
         }
@@ -2379,6 +2392,35 @@ struct ContentView: View {
         if result.added > 0 { parts.append("\(result.added) new") }
         if result.updated > 0 { parts.append("\(result.updated) updated") }
         showToast("Frame.io comments: \(parts.joined(separator: ", "))")
+    }
+
+    /// The minute check brought new Frame.io comments or replies to the open clip: a notification (when QCpie isn't in
+    /// front), with a still at the first one's frame.
+    private func notifyFrameIOComments(before: [QCFileNote], after: [QCFileNote], url: URL, fps: Double) {
+        guard Notifier.shared.wouldShow(.comments) else { return }
+        let old = Dictionary(before.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
+        func author(_ name: String) -> String { name.replacingOccurrences(of: " (Frame.io)", with: "") }
+        var comments: [NotificationText.Remark] = [], replies: [NotificationText.Remark] = []
+        var frame: Int?
+        for note in after {
+            guard let previous = old[note.id] else {
+                comments.append(.init(author: author(note.author), text: note.text))
+                frame = frame ?? note.frameIndex
+                continue
+            }
+            let known = Set(previous.replies.map(\.id))
+            for reply in note.replies where !known.contains(reply.id) {
+                replies.append(.init(author: author(reply.author), text: reply.text))
+                frame = frame ?? note.frameIndex
+            }
+        }
+        let me = FrameIOBrowser.shared.userName
+        guard let message = NotificationText.comments(clip: url.lastPathComponent, comments: comments, replies: replies,
+                                                      me: me.isEmpty ? nil : me) else { return }
+        Task {
+            let still = await Notifier.still(of: url, frame: frame ?? 0, fps: fps)
+            Notifier.shared.post(.comments, message, image: still)
+        }
     }
 
     /// Shows notes another Mac changed, keeping edits made here while that sync was in flight.

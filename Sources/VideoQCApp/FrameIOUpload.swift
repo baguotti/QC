@@ -1,4 +1,4 @@
-import Foundation
+import AppKit
 import UniformTypeIdentifiers
 import VideoQCLib
 
@@ -38,6 +38,8 @@ final class UploadQueue: ObservableObject {
 
     /// This run's entry in the transfer log.
     private var currentRunID: UUID?
+    /// Where the current run uploads to ("Project › Folder"), for its notification.
+    private var runDestination = ""
 
     private init() {
         Task {
@@ -50,6 +52,8 @@ final class UploadQueue: ObservableObject {
 
     @Published private(set) var jobs: [Job] = []
     @Published private(set) var isRunning = false
+    /// The pre-upload checks are running (`UploadPreflight`): the Upload button waits.
+    @Published private(set) var isChecking = false
     @Published private(set) var bytesPerSecond: Double = 0
     /// Smoothed speed every 0.2 s over the last 30 s of the run (the speed graph).
     @Published private(set) var speedHistory: [Double] = []
@@ -69,7 +73,10 @@ final class UploadQueue: ObservableObject {
     private let store = UploadResumeStore(directory: UploadResumeStore.defaultDirectory)
     private lazy var engine = UploadEngine(api: FrameIO.shared, session: UploadEngine.makeSession(), store: store,
                                            progress: progress, network: NetworkMonitor.shared,
-                                           onUploaded: { file, account, id in await FrameIOLinks.shared.link(file, account: account, fileID: id) })
+                                           onUploaded: { file, account, id in
+                                               await FrameIOLinks.shared.link(file, account: account, fileID: id)
+                                               await Notifier.shared.noteOwnUpload(id)
+                                           })
     private enum Stop { case pause, cancel }
     private var stopping: Stop?
     /// Called once the run has stopped and its progress is saved (quitting waits for this).
@@ -191,11 +198,78 @@ final class UploadQueue: ObservableObject {
     /// Uploads `paths` (files dragged onto a Frame.io folder), else the selected files, else the whole queue. Files
     /// already on Frame.io (same name and size) are skipped, so uploading again only sends what's missing. A paused or
     /// interrupted upload is discarded first, keeping the files this upload reuses.
+    /// First checks the files (`UploadPreflight`: names already in the folder, files still being written, odd files)
+    /// and asks about any it flags.
     func start(to destination: Destination, paths: Set<String>? = nil) {
         guard !isRunning else { return }
+        guard !isChecking else {
+            FrameIOBrowser.shared.notify("Still checking the last files: drop these again in a moment", isError: true)
+            return
+        }
         let targets = paths ?? (selection.isEmpty ? Set(jobs.map(\.url.path)) : selection)
+        // Read once: the checks and the upload must agree on where files go.
+        let keep = keepStructure
+        let rows = jobs.filter { targets.contains($0.url.path) }.map {
+            UploadPreflight.Row(path: $0.url.path, name: $0.url.lastPathComponent, files: $0.files, sizes: $0.fileSizes,
+                                topLevel: !keep || $0.folders.isEmpty)
+        }
+        isChecking = true
+        Task {
+            async let writing = UploadPreflight.stillWriting(rows)
+            var report = UploadPreflight.Report()
+            if let items = try? await FrameIO.shared.children(account: destination.account, folder: destination.folder, thumbnails: false) {
+                report.duplicates = UploadPreflight.duplicates(rows, existing: UploadPreflight.existing(items))
+            }
+            report.odd = UploadPreflight.odd(rows)
+            report.writing = await writing
+            isChecking = false
+            guard !isRunning else { return }
+            guard !report.isEmpty else { return begin(to: destination, targets: targets, keepStructure: keep) }
+            let names = Dictionary(rows.map { ($0.path, $0.name) }, uniquingKeysWith: { a, _ in a })
+            confirm(report, names: names, folder: destination.path.split(separator: "›").last.map { "“\($0.trimmingCharacters(in: .whitespaces))”" } ?? "the folder") { choice in
+                switch choice {
+                case .skip:
+                    let rest = targets.subtracting(report.flagged)
+                    if rest.isEmpty { FrameIOBrowser.shared.notify("Nothing left to upload") } else { self.begin(to: destination, targets: rest, keepStructure: keep) }
+                case .all:
+                    self.begin(to: destination, targets: targets, keepStructure: keep)
+                case .cancel:
+                    break
+                }
+            }
+        }
+    }
+
+    private enum PreflightChoice { case skip, all, cancel }
+
+    /// A sheet on the window: Skip These (Return: the safe choice) uploads the rest, Upload All sends everything.
+    private func confirm(_ report: UploadPreflight.Report, names: [String: String], folder: String,
+                         then decide: @escaping (PreflightChoice) -> Void) {
+        let text = UploadPreflight.summary(report, names: names, folder: folder)
+        let alert = NSAlert()
+        alert.messageText = text.title
+        alert.informativeText = text.detail
+        alert.addButton(withTitle: "Skip These")
+        alert.addButton(withTitle: "Upload All")
+        alert.addButton(withTitle: "Cancel")
+        let finish: (NSApplication.ModalResponse) -> Void = { response in
+            switch response {
+            case .alertFirstButtonReturn: decide(.skip)
+            case .alertSecondButtonReturn: decide(.all)
+            default: decide(.cancel)
+            }
+        }
+        if let window = NSApp.keyWindow ?? NSApp.mainWindow {
+            alert.beginSheetModal(for: window, completionHandler: finish)
+        } else {
+            finish(alert.runModal())
+        }
+    }
+
+    private func begin(to destination: Destination, targets: Set<String>, keepStructure keep: Bool) {
+        guard !isRunning else { return }
         let reused = resumable == nil ? nil : Set(jobs.filter { targets.contains($0.url.path) }.flatMap { $0.files.map(\.path) })
-        run(to: destination, targets: targets, keepStructure: keepStructure, discardingFirst: reused)
+        run(to: destination, targets: targets, keepStructure: keep, discardingFirst: reused)
     }
 
     /// Continues the paused, interrupted or partly failed upload from the next unsent part of each file.
@@ -246,6 +320,7 @@ final class UploadQueue: ObservableObject {
         let work = jobs.filter { $0.status == .queued && targets.contains($0.url.path) }
         guard !work.isEmpty else { return }
         runIDs = Set(work.map(\.id))
+        runDestination = destination.path
         currentRunID = TransferLog.shared.begin(.upload, destination: destination.path, keepStructure: keep)
         isRunning = true
         stopping = nil
@@ -328,6 +403,14 @@ final class UploadQueue: ObservableObject {
         runFinished = Date()
         if let currentRunID { TransferLog.shared.end(currentRunID) }
         currentRunID = nil
+        if stop == nil {
+            // Not paused or cancelled by the user: every file that didn't go (failed, or stopped by the network or a
+            // sign-out) counts as failed.
+            let finished = runJobs
+            let uploaded = finished.filter { $0.status == .done }.count, skipped = finished.filter { $0.status == .skipped }.count
+            Notifier.shared.post(.uploads, NotificationText.upload(uploaded: uploaded, skipped: skipped,
+                                                                   failed: finished.count - uploaded - skipped, destination: runDestination))
+        }
         if stop == .cancel {
             await discardSaved(keeping: [])
         } else {

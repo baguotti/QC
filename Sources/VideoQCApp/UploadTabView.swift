@@ -414,12 +414,13 @@ private struct UploadControls: View {
                     actionButton("Discard", primary: false, action: queue.cancel)
                         .explain("Forgets this upload and removes its unfinished files from Frame.io.")
                 } else {
-                    actionButton(queue.selection.isEmpty ? "Upload All (\(queue.jobs.count))" : "Upload Selected (\(queue.selection.count))",
+                    actionButton(queue.isChecking ? "Checking files…"
+                                    : queue.selection.isEmpty ? "Upload All (\(queue.jobs.count))" : "Upload Selected (\(queue.selection.count))",
                                  primary: true, action: start)
-                        .disabled(browser.destination == nil || queue.jobs.isEmpty)
+                        .disabled(browser.destination == nil || queue.jobs.isEmpty || queue.isChecking)
                         .explain(queue.selection.isEmpty
-                                 ? "Uploads every file in the queue to the open Frame.io folder. Files already there (same name and size) are skipped."
-                                 : "Uploads the selected files to the open Frame.io folder. Files already there (same name and size) are skipped.")
+                                 ? "Uploads every file in the queue to the open Frame.io folder. Files already there (same name and size) are skipped. It checks first for names already used there, files still being written and files that aren't media."
+                                 : "Uploads the selected files to the open Frame.io folder. Files already there (same name and size) are skipped. It checks first for names already used there, files still being written and files that aren't media.")
                 }
             }
         }

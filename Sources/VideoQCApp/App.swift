@@ -82,7 +82,8 @@ struct QCpieApp: App {
             "queueDisplayMode": "inline",
             "specsDisplayMode": "inline",
             "uploadQueueOpen": true   // the Upload tab's Assets & Queue panel (⌘⇧← reads it as a plain bool)
-        ])
+        ].merging(Notifier.registeredDefaults) { a, _ in a })
+        Notifier.shared.start()
     }
     
     var body: some Scene {
