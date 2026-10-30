@@ -76,7 +76,7 @@ struct AddNotePopoverView: View {
                     // Author / Reviewer Name Row
                     VStack(alignment: .leading, spacing: 5) {
                         Text("Reviewer Name")
-                            .font(.ui(size: 9, weight: .semibold))
+                            .font(.ui(size: 10, weight: .semibold))
                             .foregroundColor(palette.textMuted)
                         
                         HStack {
@@ -100,7 +100,7 @@ struct AddNotePopoverView: View {
                     // Color Tag Row
                     VStack(alignment: .leading, spacing: 5) {
                         Text("Category / Color")
-                            .font(.ui(size: 9, weight: .semibold))
+                            .font(.ui(size: 10, weight: .semibold))
                             .foregroundColor(palette.textMuted)
                         
                         HStack(spacing: 8) {
@@ -111,7 +111,7 @@ struct AddNotePopoverView: View {
                                             .fill(item.color)
                                             .frame(width: 8, height: 8)
                                         Text(item.name)
-                                            .font(.ui(size: 9, weight: .semibold))
+                                            .font(.ui(size: 10, weight: .semibold))
                                     }
                                     .padding(.horizontal, 8)
                                     .padding(.vertical, 5)
@@ -129,7 +129,7 @@ struct AddNotePopoverView: View {
                     // Note Text
                     VStack(alignment: .leading, spacing: 5) {
                         Text("Feedback / QC Comment")
-                            .font(.ui(size: 9, weight: .semibold))
+                            .font(.ui(size: 10, weight: .semibold))
                             .foregroundColor(palette.textMuted)
                         
                         TextField("Type your review note here...", text: $noteText, prompt: Text("Type your review note here...").foregroundColor(isLightMode ? Color(white: 0.35) : Color(white: 0.65)), axis: .vertical)
@@ -142,7 +142,7 @@ struct AddNotePopoverView: View {
                             .frame(minHeight: 70)
                             .background(palette.bgSubtle)
                             .cornerRadius(4)
-                            .overlay(RoundedRectangle(cornerRadius: 4).stroke(palette.borderLine, lineWidth: 1))
+                            .overlay(RoundedRectangle(cornerRadius: Radius.control).stroke(palette.borderLine, lineWidth: 1))
                             .onSubmit {
                                 saveNote()
                             }
@@ -163,7 +163,7 @@ struct AddNotePopoverView: View {
                     
                     Button(action: { dismiss() }) {
                         Text("Cancel (Esc)")
-                            .font(.ui(size: 10, weight: .semibold))
+                            .font(.ui(size: 11, weight: .semibold))
                             .padding(.horizontal, 10)
                             .padding(.vertical, 6)
                             .foregroundColor(palette.textMuted)
@@ -176,7 +176,7 @@ struct AddNotePopoverView: View {
                             Image(systemName: "checkmark")
                                 .font(.system(size: StudioTheme.scaleFont(9), weight: .bold))
                             Text("Save Note (⏎)")
-                                .font(.ui(size: 10, weight: .semibold))
+                                .font(.ui(size: 11, weight: .semibold))
                         }
                         .padding(.horizontal, 12)
                         .padding(.vertical, 6)
@@ -233,7 +233,7 @@ struct AddNotePopoverView: View {
     }
     
     private func dismiss() {
-        withAnimation(.easeInOut(duration: 0.15)) {
+        withAnimation(Motion.fade) {
             isPresented = false
         }
     }

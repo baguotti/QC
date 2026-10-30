@@ -13,6 +13,8 @@
 > 3. `playerLayerA` and `playerLayerB` (`AVPlayerLayer`) are kept hidden and are revealed **strictly during active timeline drag scrubbing** (`isScrubbing == true`) to allow zero-copy GPU hardware seeking.
 > 4. **PERFORMANCE & SMOOTH PLAYBACK/SCRUBBING ARE ABSOLUTELY PARAMOUNT**: Liquid 60–120 FPS playback, instant scrubbing, and zero-stutter timeline interaction are core product invariants. If any newly introduced feature, UI component, publisher, disk I/O, or architectural change is suspected of degrading playback or scrub performance, **YOU MUST STOP AND FLAG IT TO THE USER IMMEDIATELY** before proceeding.
 
+> **UI / DESIGN:** before adding or changing any UI, read [DESIGN.md](DESIGN.md) (tokens, components, patterns) and run `python3 scripts/design_lint.py`. When two existing styles conflict, ask the user which is the standard.
+
 ---
 
 ## 1. The CoreMedia Motion-Downsampling Bug & Permanent Architecture
@@ -244,6 +246,7 @@
 
 - All UI text uses `Font.ui(size:weight:)`, which snaps to six sizes (`TypeScale`: 10 caption, 11 small, 12 body, 13 emphasis, 15 title, 22 large title) and multiplies by the Button Size factor (Small 1.0, Medium 1.2, Large 1.25). Never pass `StudioTheme.scaleFont` into `.ui` (double scaling); `.system(size:)` fonts (icons, monospaced) go through `StudioTheme.scaleFont`.
 - Bars that can run out of width degrade instead of clipping: the timecode bar's Notes/Tags/Missed Line drop to icons (`ViewThatFits`), the queue tools wrap under "Queue (n)", Inspect stats sit on their own row. Check all three Button Sizes when changing a toolbar.
+- **Design rules** (motion, radii, colours, sleeves, headers, components): see [DESIGN.md](DESIGN.md), enforced by `scripts/design_lint.py`.
 
 ## 8g2. Accent Colours (`ThemeManager`)
 
@@ -292,6 +295,8 @@
 - **Partial downloads** (`.<job>.qcpie-download`, hidden, beside the destination): a normal quit removes them; leftovers from a crash or force quit are swept when a download batch starts (`DownloadEngine.sweepStalePartials`: ≤ 4 levels under the destination, untouched for 6 h, not in use).
 
 ## 9. Pre-Commit Checklist for Future Amends
+
+For any UI change: `python3 scripts/design_lint.py` passes (it also runs in `scripts/BuildApp.sh`); after removing old debt, run it with `--update`.
 
 Before committing any changes affecting `VideoViewportView.swift`, `PlayerEngine.swift`, `PlayerTransportDeckView.swift`, or `KeyboardShortcutRouter.swift`:
 - [ ] Ensure `stillFrameLayerA` and `stillFrameLayerB` are present in `VideoViewportView`.

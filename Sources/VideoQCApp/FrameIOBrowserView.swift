@@ -985,7 +985,6 @@ struct FrameIOBrowserView: View {
                 signInPrompt
             case true?:
                 if !benchHides("header") { header }
-                Rectangle().fill(palette.borderLine).frame(height: 1)
                 if !isListLayout && !benchHides("favbar") {
                     favouritesBar
                     Rectangle().fill(palette.borderLine).frame(height: 1)
@@ -1041,7 +1040,7 @@ struct FrameIOBrowserView: View {
                     .foregroundColor(palette.primaryBtnFg)
                     .padding(.horizontal, 16)
                     .padding(.vertical, 7)
-                    .background(RoundedRectangle(cornerRadius: 6).fill(palette.primaryBtnBg))
+                    .background(RoundedRectangle(cornerRadius: Radius.segment).fill(palette.primaryBtnBg))
             }
             .buttonStyle(.plain)
             .disabled(browser.isSigningIn)
@@ -1058,10 +1057,12 @@ struct FrameIOBrowserView: View {
 
     // MARK: Header
 
-    /// Where you are, and the actions that don't depend on it: refresh, Frame.io's status, the account, and the right
-    /// drawer's chevron at the far right.
+    /// The Assets & Queue chevron, where you are, and the actions that don't depend on it: refresh, Frame.io's
+    /// status, the account, and the right drawer's chevron at the far right. Sized like the Play and Inspect headers.
     private var header: some View {
         HStack(spacing: 4) {
+            QueueSleeveToggle(isLightMode: isLightMode)
+                .padding(.trailing, 8)
             if !benchHides("crumbs") { breadcrumbs }
             Spacer(minLength: 12)
             if inFolder {
@@ -1090,9 +1091,7 @@ struct FrameIOBrowserView: View {
             toolDivider
             if !benchHides("drawertabs") { DrawerTabs(isLightMode: isLightMode) }
         }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 8)
-        .background(palette.bgPanel)
+        .headerBand(palette)
     }
 
     /// Filter, then what applies to the open place: Favourites / All (project list), view, undo, share, its star,
@@ -1104,7 +1103,7 @@ struct FrameIOBrowserView: View {
             filterField
             if !browser.filter.isEmpty {
                 Text("\(browser.visibleItems.count) of \(browser.listedItems.count)")
-                    .font(.ui(size: 10))
+                    .font(.ui(size: 11))
                     .foregroundColor(palette.textMuted)
                     .padding(.leading, 6)
             }
@@ -1282,7 +1281,7 @@ struct FrameIOBrowserView: View {
                     .foregroundColor(palette.textMain)
                 if !browser.favourites.isEmpty {
                     Text("\(browser.favouritePages.count > 1 ? browser.pageFavourites.count : browser.favourites.count)")
-                        .font(.ui(size: 10, weight: .semibold))
+                        .font(.ui(size: 11, weight: .semibold))
                         .monospacedDigit()
                         .foregroundColor(palette.textMuted)
                         .padding(.horizontal, 5)
@@ -1315,7 +1314,7 @@ struct FrameIOBrowserView: View {
             ScrollView(.horizontal, showsIndicators: false) { favouritePageTabs }
             if browser.pageFavourites.count > 1 {
                 Text("Drag to reorder, or onto a tab to move")
-                    .font(.ui(size: 10))
+                    .font(.ui(size: 11))
                     .foregroundColor(palette.textMuted)
             }
             if browser.pageFavourites.isEmpty {
@@ -1640,7 +1639,7 @@ struct FrameIOBrowserView: View {
                 .onChange(of: browser.revealID) { _, id in
                     guard let id else { return }
                     DispatchQueue.main.async {
-                        withAnimation { scroller.scrollTo(id, anchor: .center) }
+                        withAnimation(Motion.list) { scroller.scrollTo(id, anchor: .center) }
                         browser.didReveal()   // so pasting the same link again scrolls again
                     }
                 }
@@ -1648,7 +1647,7 @@ struct FrameIOBrowserView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .overlay(RoundedRectangle(cornerRadius: 4).stroke(isListTargeted ? palette.accentBlue : .clear, lineWidth: 2).padding(2))
+        .overlay(RoundedRectangle(cornerRadius: Radius.control).stroke(isListTargeted ? palette.accentBlue : .clear, lineWidth: 2).padding(2))
         .dropIf(inFolder, isTargeted: $isListTargeted) { providers in
             guard let folder = browser.currentFolderID else { return false }
             return accept(providers, into: folder, titles: browser.destinationTitles)
@@ -1698,7 +1697,7 @@ struct FrameIOBrowserView: View {
                 }
                 Color.clear.frame(width: StudioTheme.scale(10))
             }
-            .font(.ui(size: 10, weight: .semibold))
+            .font(.ui(size: 11, weight: .semibold))
             .foregroundColor(palette.textMuted)
             .padding(.horizontal, 20)
             .padding(.vertical, 6)
@@ -1891,7 +1890,7 @@ struct FrameIOBrowserView: View {
 
     private func versionBadge(_ text: String, isSelected: Bool) -> some View {
         Text(text)
-            .font(.ui(size: 10, weight: .bold))
+            .font(.ui(size: 11, weight: .bold))
             .foregroundColor(isSelected ? palette.accentBlue : .white)
             .padding(.horizontal, 5)
             .padding(.vertical, 1)
@@ -1921,7 +1920,7 @@ struct FrameIOBrowserView: View {
             }
             if index == 0 {
                 Text("Current")
-                    .font(.ui(size: 10, weight: .semibold))
+                    .font(.ui(size: 11, weight: .semibold))
                     .foregroundColor(isSelected ? .white : palette.positive)
             }
             Spacer()
@@ -2257,8 +2256,8 @@ struct FrameIOBrowserView: View {
             }
             .padding(.horizontal, 14)
             .padding(.vertical, 9)
-            .background(RoundedRectangle(cornerRadius: 8).fill(palette.bgPanel).shadow(color: .black.opacity(0.25), radius: 8, y: 2))
-            .overlay(RoundedRectangle(cornerRadius: 8).stroke(palette.borderLine))
+            .background(RoundedRectangle(cornerRadius: Radius.container).fill(palette.bgPanel).shadow(color: .black.opacity(0.25), radius: 8, y: 2))
+            .overlay(RoundedRectangle(cornerRadius: Radius.container).stroke(palette.borderLine))
             .padding(.bottom, 16)
             .padding(.horizontal, 20)
             .transition(.move(edge: .bottom).combined(with: .opacity))
@@ -2474,7 +2473,7 @@ private struct FrameIOStackSheet: View {
                 ForEach(Array(ordered.enumerated()), id: \.element.id) { index, file in
                     HStack(spacing: 10) {
                         Text("V\(index + 1)")
-                            .font(.ui(size: 10, weight: .bold))
+                            .font(.ui(size: 11, weight: .bold))
                             .foregroundColor(.white)
                             .padding(.horizontal, 5)
                             .padding(.vertical, 1)
@@ -2482,7 +2481,7 @@ private struct FrameIOStackSheet: View {
                             .frame(width: 34, alignment: .leading)
                         Text(file.title).font(.ui(size: 12)).lineLimit(1).truncationMode(.middle)
                         if index == ordered.count - 1 {
-                            Text("Current").font(.ui(size: 10, weight: .semibold)).foregroundColor(palette.positive)
+                            Text("Current").font(.ui(size: 11, weight: .semibold)).foregroundColor(palette.positive)
                         }
                         Spacer()
                         Button(action: { ordered.swapAt(index, index - 1) }) { Image(systemName: "chevron.up") }
@@ -2592,7 +2591,7 @@ private struct FrameIOShareSheet: View {
             ZStack {
                 Text("Settings").font(.ui(size: 13, weight: .semibold))
                 HStack {
-                    Button(action: { withAnimation(.easeInOut(duration: 0.2)) { showSettings = false } }) {
+                    Button(action: { withAnimation(Motion.list) { showSettings = false } }) {
                         HStack(spacing: 3) {
                             Image(systemName: "chevron.left").font(.system(size: StudioTheme.scaleFont(11), weight: .semibold))
                             Text(name.isEmpty ? "Back" : name).font(.ui(size: 12)).lineLimit(1)
@@ -2755,7 +2754,7 @@ private struct FrameIOShareSheet: View {
 
     private var preview: some View {
         ZStack {
-            RoundedRectangle(cornerRadius: 6).fill(palette.bgSubtle)
+            RoundedRectangle(cornerRadius: Radius.segment).fill(palette.bgSubtle)
             if let first = request.items.first {
                 FrameIOThumbnail(item: first, width: 200, isLightMode: isLightMode)
             } else {
@@ -2765,7 +2764,7 @@ private struct FrameIOShareSheet: View {
             }
             if request.assetIDs.count > 1 {
                 Text("\(request.assetIDs.count) items")
-                    .font(.ui(size: 10, weight: .semibold))
+                    .font(.ui(size: 11, weight: .semibold))
                     .foregroundColor(.white)
                     .padding(.horizontal, 6)
                     .padding(.vertical, 2)
@@ -2779,7 +2778,7 @@ private struct FrameIOShareSheet: View {
 
     /// Opens the Settings page (Frame.io's "Settings ›" row).
     private var settingsLink: some View {
-        Button(action: { withAnimation(.easeInOut(duration: 0.2)) { showSettings = true } }) {
+        Button(action: { withAnimation(Motion.list) { showSettings = true } }) {
             HStack {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Settings").font(.ui(size: 13, weight: .semibold)).foregroundColor(palette.textMain)
@@ -2790,8 +2789,8 @@ private struct FrameIOShareSheet: View {
                 Image(systemName: "chevron.right").foregroundColor(palette.textMuted)
             }
             .padding(12)
-            .background(RoundedRectangle(cornerRadius: 8).fill(palette.bgCardSubtle))
-            .overlay(RoundedRectangle(cornerRadius: 8).stroke(palette.borderLine.opacity(0.7), lineWidth: 0.5))
+            .background(RoundedRectangle(cornerRadius: Radius.container).fill(palette.bgCardSubtle))
+            .overlay(RoundedRectangle(cornerRadius: Radius.container).stroke(palette.borderLine.opacity(0.7), lineWidth: 0.5))
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -2849,7 +2848,7 @@ private struct FrameIOShareSheet: View {
                             .padding(.bottom, 10)
                             if passphraseText.trimmingCharacters(in: .whitespaces).count < 8 {
                                 Text("Use at least 8 characters.")
-                                    .font(.ui(size: 10))
+                                    .font(.ui(size: 11))
                                     .foregroundColor(palette.negative)
                                     .padding(.horizontal, 12)
                                     .padding(.bottom, 8)
@@ -2888,8 +2887,8 @@ private struct FrameIOShareSheet: View {
                 .foregroundColor(palette.textMuted)
                 .padding(.leading, 4)
             VStack(spacing: 0) { rows() }
-                .background(RoundedRectangle(cornerRadius: 8).fill(palette.bgCardSubtle))
-                .overlay(RoundedRectangle(cornerRadius: 8).stroke(palette.borderLine.opacity(0.7), lineWidth: 0.5))
+                .background(RoundedRectangle(cornerRadius: Radius.container).fill(palette.bgCardSubtle))
+                .overlay(RoundedRectangle(cornerRadius: Radius.container).stroke(palette.borderLine.opacity(0.7), lineWidth: 0.5))
         }
     }
 
@@ -2903,7 +2902,7 @@ private struct FrameIOShareSheet: View {
             VStack(alignment: .leading, spacing: 1) {
                 Text(title).font(.ui(size: 12)).foregroundColor(palette.textMain)
                 if let detail {
-                    Text(detail).font(.ui(size: 10)).foregroundColor(palette.textMuted).lineLimit(1)
+                    Text(detail).font(.ui(size: 11)).foregroundColor(palette.textMuted).lineLimit(1)
                 }
             }
             Spacer(minLength: 8)
@@ -3290,7 +3289,7 @@ private struct FavouritePageTab: View {
             }
             if count > 0 && !isRenaming {
                 Text("\(count)")
-                    .font(.ui(size: 10, weight: .semibold))
+                    .font(.ui(size: 11, weight: .semibold))
                     .monospacedDigit()
                     .foregroundColor(isSelected ? palette.accentBlue : palette.textMuted)
             }
@@ -3340,7 +3339,7 @@ private struct FavouritePageDropDelegate: DropDelegate {
     func performDrop(info: DropInfo) -> Bool {
         isTargeted = false
         guard let dragging else { return false }
-        withAnimation(.spring(response: 0.25, dampingFraction: 0.85)) { onDrop(dragging) }
+        withAnimation(Motion.snap) { onDrop(dragging) }
         self.dragging = nil
         return true
     }
@@ -3356,7 +3355,7 @@ private struct FavouriteDropDelegate: DropDelegate {
 
     func dropEntered(info: DropInfo) {
         guard let dragging, dragging != target else { return }
-        withAnimation(.spring(response: 0.25, dampingFraction: 0.85)) { move(dragging, target) }
+        withAnimation(Motion.snap) { move(dragging, target) }
     }
 
     func dropUpdated(info: DropInfo) -> DropProposal? { DropProposal(operation: .move) }
@@ -3463,7 +3462,7 @@ private struct FavouriteChip: View {
                     .truncationMode(.middle)
                 if !favourite.location.isEmpty {
                     Text(favourite.location)
-                        .font(.ui(size: 10))
+                        .font(.ui(size: 11))
                         .foregroundColor(palette.textMuted)
                         .lineLimit(1)
                         .truncationMode(.head)
@@ -3488,14 +3487,14 @@ private struct FavouriteChip: View {
         .frame(height: StudioTheme.scale(34))
         .frame(maxWidth: fullWidth ? .infinity : 240, alignment: .leading)
         .opacity(isDragging ? 0.45 : 1)
-        .background(RoundedRectangle(cornerRadius: 8, style: .continuous)
+        .background(RoundedRectangle(cornerRadius: Radius.container, style: .continuous)
             .fill(isCurrent ? palette.accentBlue.opacity(0.18) : (isHovered ? palette.bgSubtle : palette.bgCardSubtle)))
-        .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous)
+        .overlay(RoundedRectangle(cornerRadius: Radius.container, style: .continuous)
             .stroke(isCurrent ? palette.accentBlue.opacity(0.7) : palette.borderLine, lineWidth: 1))
-        .contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .contentShape(RoundedRectangle(cornerRadius: Radius.container, style: .continuous))
         .onTapGesture(perform: onOpen)
         .onHover { isHovered = $0 }
-        .animation(.easeInOut(duration: 0.12), value: isHovered)
+        .animation(Motion.hover, value: isHovered)
         .contextMenu {
             Button(action: onOpen) { Label("Open", systemImage: "arrow.right.circle") }
             if pages.count > 1 {
@@ -3559,7 +3558,7 @@ private struct ToolHover: ViewModifier {
                     .fill(isOn || (isEnabled && isHovered) ? fill : .clear)
             )
             .onHover { isHovered = $0 }
-            .animation(.easeInOut(duration: 0.12), value: isHovered)
+            .animation(Motion.hover, value: isHovered)
     }
 }
 
@@ -3634,6 +3633,20 @@ private enum ContentColumn: CaseIterable {
     }
 }
 
+/// The Assets & Queue panel's chevron at the far left of the Frame.io header (⌘⇧← too). Its own view, so toggling the
+/// panel doesn't redraw the browser.
+private struct QueueSleeveToggle: View {
+    let isLightMode: Bool
+    @AppStorage("uploadQueueOpen") private var isOpen = true
+
+    var body: some View {
+        SleeveToggle(side: .leading, isOpen: isOpen, isLightMode: isLightMode,
+                     help: isOpen ? "Hide Assets & Queue panel (⌘⇧←)." : "Reveal Assets & Queue panel (⌘⇧←).") {
+            isOpen.toggle()
+        }
+    }
+}
+
 /// The right drawer's chevron at the far right of the Frame.io header (⌘⇧→ too): opens / closes the drawer, whose own
 /// tabs pick Media Info, Downloads or Log. Starting a download opens it on Downloads, a running one shows its percentage
 /// here, and Frame.io rows dropped on it download. The only part of the header that observes `DownloadQueue` (its
@@ -3649,30 +3662,23 @@ private struct DrawerTabs: View {
     private var palette: StudioPalette { StudioPalette(isLightMode) }
 
     var body: some View {
-        Button(action: { withAnimation(.spring(response: 0.32, dampingFraction: 0.78)) { isOpen.toggle() } }) {
-            HStack(spacing: 4) {
-                if downloads.isRunning {
-                    Text("\(downloads.percent)%")
-                        .font(.ui(size: 10, weight: .semibold))
-                        .monospacedDigit()
-                        .foregroundColor(palette.accentBlue)
-                }
-                Image(systemName: isOpen ? "chevron.right" : "chevron.left")
-                    .font(.system(size: StudioTheme.scaleFont(11), weight: .bold))
-                    .foregroundColor(isOpen ? palette.accentBlue : palette.textMain)
+        HStack(spacing: 2) {
+            if downloads.isRunning {
+                Text("\(downloads.percent)%")
+                    .font(.ui(size: 11, weight: .semibold))
+                    .monospacedDigit()
+                    .foregroundColor(palette.accentBlue)
+                    .padding(.leading, 6)
             }
-            .padding(.horizontal, downloads.isRunning ? 6 : 0)
-            .frame(minWidth: StudioTheme.scale(22))
-            .frame(height: StudioTheme.scale(24))
-            .contentShape(Rectangle())
+            SleeveToggle(side: .trailing, isOpen: isOpen, isLightMode: isLightMode,
+                         help: isOpen ? "Close the drawer (⌘⇧→)." : "Open Media Info, Downloads & Log (⌘⇧→).") {
+                isOpen.toggle()
+            }
         }
-        .buttonStyle(.plain)
-        .modifier(ToolHover(fill: palette.bgSubtle))
         .background(RoundedRectangle(cornerRadius: StudioTheme.cornerRadius).fill(isDropTarget ? palette.accentBlue.opacity(0.25) : .clear))
         .onDrop(of: [.utf8PlainText], isTargeted: $isDropTarget, perform: DownloadQueue.acceptDrop)
-        .tip(isOpen ? "Close the drawer (⌘⇧→)" : "Open Media Info, Downloads & Log (⌘⇧→)")
         .onChange(of: downloads.startCount) {
-            withAnimation(.spring(response: 0.32, dampingFraction: 0.78)) { tab = "downloads"; isOpen = true }
+            withAnimation(Motion.sleeve) { tab = "downloads"; isOpen = true }
         }
     }
 }

@@ -42,7 +42,7 @@ struct ExposureScrubberView: View {
         HStack(spacing: 2) {
             // Aperture Reset Button
             Button(action: {
-                withAnimation(.easeOut(duration: 0.12)) {
+                withAnimation(Motion.hover) {
                     engine.resetExposure()
                 }
             }) {
@@ -52,7 +52,7 @@ struct ExposureScrubberView: View {
                     .foregroundColor(iconColor)
                     .rotationEffect(.degrees(engine.exposureEV * 6))
                     .scaleEffect(1 + engine.exposureEV * 0.016)
-                    .animation(.easeOut(duration: 0.18), value: engine.exposureEV)
+                    .animation(Motion.list, value: engine.exposureEV)
                     .frame(width: StudioTheme.scale(22), height: StudioTheme.scale(26))
                     .contentShape(Rectangle())
             }
@@ -90,7 +90,7 @@ struct ExposureScrubberView: View {
                         }
                 )
                 .onTapGesture(count: 2) {
-                    withAnimation(.easeOut(duration: 0.12)) {
+                    withAnimation(Motion.hover) {
                         engine.resetExposure()
                     }
                 }
@@ -178,8 +178,8 @@ struct StudioVolumeSlider: View {
                     )
                     .shadow(color: Color.black.opacity(isLightMode ? 0.2 : 0.4), radius: 1, x: 0, y: 0.5)
                     .position(x: thumbCenter, y: geo.size.height / 2)
-                    .animation(.easeInOut(duration: 0.12), value: isHovered)
-                    .animation(.easeInOut(duration: 0.12), value: isDragging)
+                    .animation(Motion.hover, value: isHovered)
+                    .animation(Motion.hover, value: isDragging)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
             .contentShape(Rectangle())
@@ -337,7 +337,7 @@ extension ContentView {
             onOpenProperties: { url in
                 openProperties(for: url, showModal: false)
                 playerDrawerTab = .mediaInfo
-                withAnimation(.spring(response: 0.32, dampingFraction: 0.78)) {
+                withAnimation(Motion.sleeve) {
                     showNotesDrawer = true
                 }
             },
@@ -375,9 +375,7 @@ extension ContentView {
         VStack(spacing: 0) {
                 // Monitor Header Bar
                 playerMonitorHeader
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 10)
-                    .panelHeaderBar(background: bgCardHeader, divider: borderLine)
+                    .headerBand(palette)
                 
                 // Program Monitor Viewport Canvas
                 GeometryReader { vpGeo in
@@ -394,7 +392,7 @@ extension ContentView {
                                     .font(.ui(size: 13, weight: .semibold))
                                     .foregroundColor(textMain)
                                 Text("Click a file from the queue on the left to begin inspecting.")
-                                    .font(.ui(size: 10))
+                                    .font(.ui(size: 11))
                                     .foregroundColor(textSubtle)
                             }
                             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -518,19 +516,10 @@ extension ContentView {
     private var playerMonitorHeader: some View {
         HStack(spacing: 12) {
             // Left sleeve toggle button (Hide / Reveal Assets & Queue)
-            Button(action: {
-                withAnimation(.spring(response: 0.32, dampingFraction: 0.78)) {
-                    showPlayerQueue.toggle()
-                }
-            }) {
-                Image(systemName: showPlayerQueue ? "chevron.left" : "chevron.right")
-                    .font(.system(size: StudioTheme.scaleFont(11), weight: .bold))
-                    .frame(width: StudioTheme.scale(24), height: StudioTheme.scale(26))
-                    .foregroundColor(textMain)
-                    .contentShape(Rectangle())
+            SleeveToggle(side: .leading, isOpen: showPlayerQueue, isLightMode: isLightMode,
+                         help: showPlayerQueue ? "Hide Assets & Queue panel (⌘⇧←)." : "Reveal Assets & Queue panel (⌘⇧←).") {
+                showPlayerQueue.toggle()
             }
-            .buttonStyle(TransportIconButtonStyle())
-            .explain(showPlayerQueue ? "Hide Assets & Queue panel (⌘⇧←)." : "Reveal Assets & Queue panel (⌘⇧←).")
 
             if playerEngine.slotB.url != nil {
                 Color.clear
@@ -555,7 +544,7 @@ extension ContentView {
                     
                     if !playerEngine.activeResolution.isEmpty {
                         Text(playerEngine.slotA.infoLine)
-                            .font(.ui(size: 9, weight: .semibold))
+                            .font(.ui(size: 10, weight: .semibold))
                             .foregroundColor(textMuted)
                     }
                 }
@@ -590,23 +579,13 @@ extension ContentView {
                 .explain("Clean Video Fullscreen with zero UI (F). Press ESC to exit.")
                 
                 // Review Sleeve Toggle Arrow Button
-                Button(action: {
-                    withAnimation(.spring(response: 0.32, dampingFraction: 0.78)) {
-                        if !showNotesDrawer {
-                            playerDrawerTab = currentFileHasNotes ? .notes : .mediaInfo
-                        }
-                        showNotesDrawer.toggle()
+                SleeveToggle(side: .trailing, isOpen: showNotesDrawer, isLightMode: isLightMode, isEnabled: playerEngine.activeURL != nil,
+                             help: showNotesDrawer ? "Collapse review sleeve (⌘⇧→)." : "Bring out review sleeve (Media Info & Notes) (⌘⇧→).") {
+                    if !showNotesDrawer {
+                        playerDrawerTab = currentFileHasNotes ? .notes : .mediaInfo
                     }
-                }) {
-                    Image(systemName: showNotesDrawer ? "chevron.right" : "chevron.left")
-                        .font(.system(size: StudioTheme.scaleFont(11), weight: .bold))
-                        .frame(width: StudioTheme.scale(24), height: StudioTheme.scale(26))
-                        .foregroundColor(playerEngine.activeURL == nil ? textMuted : textMain)
-                        .contentShape(Rectangle())
+                    showNotesDrawer.toggle()
                 }
-                .buttonStyle(TransportIconButtonStyle())
-                .disabled(playerEngine.activeURL == nil)
-                .explain(showNotesDrawer ? "Collapse review sleeve (⌘⇧→)." : "Bring out review sleeve (Media Info & Notes) (⌘⇧→).")
             }
             .frame(width: StudioTheme.scale(92), alignment: .trailing)
         }
@@ -633,7 +612,7 @@ extension ContentView {
                         .font(.system(size: StudioTheme.scaleFont(9), weight: .bold))
                     if !compact {
                         Text("Note")
-                            .font(.ui(size: 9, weight: .semibold))
+                            .font(.ui(size: 10, weight: .semibold))
                     }
                 }
                 .frame(height: StudioTheme.scale(24))
@@ -661,7 +640,7 @@ extension ContentView {
                 .explain(hasNotes ? "Jump to previous note ([)." : "No notes logged")
                 
                 Button(action: {
-                    withAnimation(.easeInOut(duration: 0.15)) {
+                    withAnimation(Motion.fade) {
                         if showNotesDrawer && playerDrawerTab == .notes {
                             showNotesDrawer = false
                         } else {
@@ -679,7 +658,7 @@ extension ContentView {
                             hasNotes ? "\(notesCount)" : "Notes",
                             mode: hasNotes ? .character : .word,
                             direction: .up,
-                            font: .ui(size: 9, weight: .semibold),
+                            font: .ui(size: 10, weight: .semibold),
                             foregroundColor: isNotesActive ? accentBlue : (hasNotes ? textMain : textMuted)
                         )
                         }
@@ -763,7 +742,7 @@ extension ContentView {
             )
             
             Text("Line")
-                .font(.ui(size: 9, weight: .semibold))
+                .font(.ui(size: 10, weight: .semibold))
                 .foregroundColor(hasGlitches ? alertRed : textMuted)
                 .padding(.horizontal, 3)
             
@@ -799,7 +778,7 @@ extension ContentView {
                 }
                 if !compact {
                     Text("Missed Line")
-                        .font(.ui(size: 9, weight: .semibold))
+                        .font(.ui(size: 10, weight: .semibold))
                 }
             }
             .frame(height: StudioTheme.scale(24))
@@ -833,8 +812,8 @@ extension ContentView {
                     .resizable()
                     .aspectRatio(contentMode: .fit)
                     .frame(maxWidth: .infinity, maxHeight: 150)
-                    .clipShape(RoundedRectangle(cornerRadius: 4))
-                    .overlay(RoundedRectangle(cornerRadius: 4).stroke(borderLine, lineWidth: 1))
+                    .clipShape(RoundedRectangle(cornerRadius: Radius.control))
+                    .overlay(RoundedRectangle(cornerRadius: Radius.control).stroke(borderLine, lineWidth: 1))
             }
             VStack(alignment: .leading, spacing: 6) {
                 missedLineInfoRow("Clip", fileName)
@@ -860,7 +839,7 @@ extension ContentView {
     private func missedLineInfoRow(_ label: String, _ value: String) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: 10) {
             Text(label)
-                .font(.ui(size: 9, weight: .semibold))
+                .font(.ui(size: 10, weight: .semibold))
                 .foregroundColor(textMuted)
                 .frame(width: 44, alignment: .leading)
             Text(value)
@@ -887,7 +866,7 @@ extension ContentView {
                 }
                 if !compact {
                     Text("Tags")
-                        .font(.ui(size: 9, weight: .semibold))
+                        .font(.ui(size: 10, weight: .semibold))
                 }
             }
             .frame(height: StudioTheme.scale(24))
@@ -1061,7 +1040,7 @@ extension ContentView {
     }
     
     func revealPlayerFolderContaining(url: URL) {
-        withAnimation(.easeInOut(duration: 0.2)) {
+        withAnimation(Motion.list) {
             FileSystemTreeBuilder.expandAncestors(of: url, in: playerTreeNodes, collapsedIDs: &playerCollapsedFolderIDs)
         }
     }
@@ -1391,7 +1370,7 @@ struct PlayerComparisonBar: View {
                         Image(systemName: "speaker.wave.2.fill")
                             .font(.system(size: StudioTheme.scaleFont(11), weight: .bold))
                         Text(engine.audioSlot == .slotA ? "A" : "B")
-                            .font(.ui(size: 9, weight: .semibold))
+                            .font(.ui(size: 10, weight: .semibold))
                     }
                     .frame(height: StudioTheme.scale(26))
                     .padding(.horizontal, StudioTheme.scale(4))
@@ -1432,7 +1411,7 @@ struct PlayerComparisonBar: View {
                         Image(systemName: "xmark")
                             .font(.system(size: StudioTheme.scaleFont(9), weight: .bold))
                         Text("Clear B")
-                            .font(.ui(size: 9, weight: .semibold))
+                            .font(.ui(size: 10, weight: .semibold))
                     }
                     .frame(height: StudioTheme.scale(26))
                     .padding(.horizontal, StudioTheme.scale(4))
@@ -1723,7 +1702,7 @@ private struct PlayerTimecodeReadout: View {
                     .foregroundColor(accentBlue)
                     .opacity(isHovered ? 1.0 : 0.82)
                     .brightness(isHovered ? 0.05 : 0.0)
-                    .animation(.easeInOut(duration: 0.12), value: isHovered)
+                    .animation(Motion.hover, value: isHovered)
             }
         } else {
             PlaybackClockText(
@@ -1777,7 +1756,7 @@ struct PlayerZoomMenuView: View {
             .studioBox(background: bgSubtle, border: isHovered ? borderLine.opacity(0.8) : borderLine)
             .opacity(isHovered ? 1.0 : 0.82)
             .brightness(isHovered ? 0.05 : 0.0)
-            .animation(.easeInOut(duration: 0.12), value: isHovered)
+            .animation(Motion.hover, value: isHovered)
             .onHover { isHovered = $0 }
             .contentShape(Rectangle())
         }

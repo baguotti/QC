@@ -79,8 +79,6 @@ struct NotesDrawerPanelView: View {
             // Frame.io Style Segmented Tab Header Bar
             topSegmentedHeader
             
-            Rectangle().fill(palette.borderLine).frame(height: 1)
-            
             ZStack(alignment: .top) {
                 if selectedDrawerTab == .mediaInfo {
                     MediaInfoPanel(url: effectiveURL, asset: mediaAsset, loader: mediaInfo, isLightMode: isLightMode,
@@ -133,7 +131,7 @@ struct NotesDrawerPanelView: View {
                 ForEach(PlayerDrawerTab.allCases.filter { $0 != .subtitles || hasSubtitles }) { tab in
                     let isSelected = (selectedDrawerTab == tab)
                     Button(action: {
-                        withAnimation(.spring(response: 0.32, dampingFraction: 0.84)) {
+                        withAnimation(Motion.page) {
                             selectedDrawerTab = tab
                         }
                     }) {
@@ -154,13 +152,13 @@ struct NotesDrawerPanelView: View {
                                     Image(systemName: "icloud.and.arrow.down")
                                         .font(.system(size: StudioTheme.scaleFont(8), weight: .bold))
                                     Text("+\(newSyncedNotesCount)")
-                                        .font(.ui(size: 9, weight: .semibold))
+                                        .font(.ui(size: 10, weight: .semibold))
                                 }
                                 .foregroundColor(palette.accentBlue)
                                 .help("\(newSyncedNotesCount) new note\(newSyncedNotesCount == 1 ? "" : "s") from your collaborators")
                             } else if tab == .notes && !notes.isEmpty {
                                 Text("\(notes.count)")
-                                    .font(.ui(size: 9, weight: .semibold))
+                                    .font(.ui(size: 10, weight: .semibold))
                                     .padding(.horizontal, 4)
                                     .padding(.vertical, 1)
                                     .background(
@@ -176,10 +174,10 @@ struct NotesDrawerPanelView: View {
                         .background(
                             Group {
                                 if isSelected {
-                                    RoundedRectangle(cornerRadius: 6)
+                                    RoundedRectangle(cornerRadius: Radius.segment)
                                         .fill(isLightMode ? palette.bgPanel : Color(white: 0.22))
                                         .overlay(
-                                            RoundedRectangle(cornerRadius: 6)
+                                            RoundedRectangle(cornerRadius: Radius.segment)
                                                 .stroke(isLightMode ? palette.borderStrong : Color.white.opacity(0.18), lineWidth: 1)
                                         )
                                         .shadow(color: Color.black.opacity(isLightMode ? 0.08 : 0.25), radius: 2, y: 1)
@@ -195,28 +193,17 @@ struct NotesDrawerPanelView: View {
             }
             .padding(3)
             .background(
-                RoundedRectangle(cornerRadius: 8)
+                RoundedRectangle(cornerRadius: Radius.container)
                     .fill(palette.bgSubtle)
                     .overlay(
-                        RoundedRectangle(cornerRadius: 8)
+                        RoundedRectangle(cornerRadius: Radius.container)
                             .stroke(palette.borderLine, lineWidth: 1)
                     )
             )
             
-            // Close 'X' Button
-            Button(action: { withAnimation(.spring(response: 0.32, dampingFraction: 0.78)) { isPresented = false } }) {
-                Image(systemName: "xmark")
-                    .font(.system(size: StudioTheme.scaleFont(10), weight: .bold))
-                    .foregroundColor(palette.textMuted)
-                    .padding(6)
-                    .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .help("Close Side Panel")
+            DrawerCloseButton(isLightMode: isLightMode) { isPresented = false }
         }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 8)
-        .background(palette.bgPanel)
+        .headerBand(palette, horizontalPadding: 12)
     }
     
     // MARK: - Tab 1: Notes Content View
@@ -231,13 +218,13 @@ struct NotesDrawerPanelView: View {
                         "\(notes.count)",
                         mode: .character,
                         direction: .up,
-                        font: .ui(size: 10, weight: .semibold),
+                        font: .ui(size: 11, weight: .semibold),
                         foregroundColor: palette.textMain,
                         tracking: 0.5
                     )
                     Text(")")
                 }
-                .font(.ui(size: 10, weight: .semibold))
+                .font(.ui(size: 11, weight: .semibold))
                 .foregroundColor(palette.textMain)
                 .lineLimit(1)
                 
@@ -249,7 +236,7 @@ struct NotesDrawerPanelView: View {
                             Image(systemName: "trash")
                                 .font(.system(size: StudioTheme.scaleFont(7.5), weight: .bold))
                             Text(filteredNoteIDs == nil ? "Clear All" : "Clear Filtered")
-                                .font(.ui(size: 8, weight: .semibold))
+                                .font(.ui(size: 10, weight: .semibold))
                                 .lineLimit(1)
                         }
                         .padding(.horizontal, 6)
@@ -266,7 +253,7 @@ struct NotesDrawerPanelView: View {
                         Image(systemName: "plus")
                             .font(.system(size: StudioTheme.scaleFont(7.5), weight: .bold))
                         Text("Add (N)")
-                            .font(.ui(size: 8, weight: .semibold))
+                            .font(.ui(size: 10, weight: .semibold))
                             .lineLimit(1)
                     }
                     .padding(.horizontal, 6)
@@ -306,7 +293,7 @@ struct NotesDrawerPanelView: View {
                             Image(systemName: "plus.circle.fill")
                             Text("Add First Note")
                         }
-                        .font(.ui(size: 10, weight: .semibold))
+                        .font(.ui(size: 11, weight: .semibold))
                         .padding(.horizontal, 12)
                         .padding(.vertical, 6)
                         .foregroundColor(palette.textMain)
@@ -352,7 +339,7 @@ struct NotesDrawerPanelView: View {
                     Button("Copy Checklist for Slack/Email") {
                         let text = QCNotesManager.generateMarkdown(notes: notes, mediaName: mediaName)
                         copyToClipboard(text)
-                        onToast("Notes copied for Slack/Email!")
+                        onToast("Notes copied for Slack/Email")
                     }
                     Button("Export QCpie Notes (.qcnotes)…") {
                         onExportNotes()
@@ -364,7 +351,7 @@ struct NotesDrawerPanelView: View {
                     Button("Export DaVinci Resolve Markers (EDL)") {
                         let edl = QCNotesManager.generateResolveEDL(notes: notes, mediaName: mediaName)
                         copyToClipboard(edl)
-                        onToast("Resolve Marker EDL copied!")
+                        onToast("Resolve Marker EDL copied")
                     }
                 } label: {
                     HStack(spacing: 4) {
@@ -372,7 +359,7 @@ struct NotesDrawerPanelView: View {
                             .font(.system(size: StudioTheme.scaleFont(9), weight: .bold))
                             .foregroundColor(palette.textMain)
                         Text("Export")
-                            .font(.ui(size: 9, weight: .semibold))
+                            .font(.ui(size: 10, weight: .semibold))
                             .foregroundColor(palette.textMain)
                         Image(systemName: "chevron.down")
                             .font(.system(size: StudioTheme.scaleFont(7), weight: .bold))
@@ -393,7 +380,7 @@ struct NotesDrawerPanelView: View {
                         Image(systemName: "square.and.arrow.down")
                             .font(.system(size: StudioTheme.scaleFont(9), weight: .bold))
                         Text("Import")
-                            .font(.ui(size: 9, weight: .semibold))
+                            .font(.ui(size: 10, weight: .semibold))
                     }
                     .padding(.horizontal, 8)
                     .padding(.vertical, 5)
@@ -406,7 +393,7 @@ struct NotesDrawerPanelView: View {
                 Spacer()
                 
                 Text("\(notes.filter { $0.isResolved }.count)/\(notes.count) resolved")
-                    .font(.ui(size: 9, weight: .semibold))
+                    .font(.ui(size: 10, weight: .semibold))
                     .foregroundColor(palette.textSubtle)
             }
             .padding(.horizontal, 14)
@@ -564,7 +551,7 @@ struct NotesDrawerPanelView: View {
                             note.timecode,
                             mode: .character,
                             direction: .down,
-                            font: .ui(size: 9, weight: .semibold),
+                            font: .ui(size: 10, weight: .semibold),
                             foregroundColor: colorForTag(note.colorTag),
                             tracking: 0.5,
                             animateOnAppear: true
@@ -580,7 +567,7 @@ struct NotesDrawerPanelView: View {
                 
                 // Author
                 Text(note.author)
-                    .font(.ui(size: 9, weight: .semibold))
+                    .font(.ui(size: 10, weight: .semibold))
                     .foregroundColor(palette.textMain)
                     .lineLimit(1)
                 
@@ -623,7 +610,7 @@ struct NotesDrawerPanelView: View {
             } else {
             // Note Text with Clickable Links and File Paths
             Text(attributedText)
-                .font(.ui(size: 10))
+                .font(.ui(size: 11))
                 .strikethrough(note.isResolved, color: palette.textMuted)
                 .textSelection(.enabled)
                 .lineSpacing(2)
@@ -634,7 +621,7 @@ struct NotesDrawerPanelView: View {
             
             if let editedAt = note.editedAt {
                 Text("edited \(editedAt.formatted(date: .abbreviated, time: .shortened))")
-                    .font(.ui(size: 8))
+                    .font(.ui(size: 10))
                     .foregroundColor(palette.textSubtle)
             }
             }
@@ -648,7 +635,7 @@ struct NotesDrawerPanelView: View {
                                 Image(systemName: item.iconName)
                                     .font(.system(size: StudioTheme.scaleFont(8), weight: .bold))
                                 Text(item.label)
-                                    .font(.ui(size: 8.5, weight: .semibold))
+                                    .font(.ui(size: 10, weight: .semibold))
                                     .lineLimit(1)
                             }
                             .padding(.horizontal, 6)
@@ -684,7 +671,7 @@ struct NotesDrawerPanelView: View {
     private func noteColorFilterBar(presentColors: [String], active: Set<String>) -> some View {
         HStack(spacing: 4) {
             Text("Filter")
-                .font(.ui(size: 8.5, weight: .semibold))
+                .font(.ui(size: 10, weight: .semibold))
                 .foregroundColor(palette.textMuted)
             ForEach(presentColors, id: \.self) { id in
                 let isOn = active.contains(id)
@@ -694,7 +681,7 @@ struct NotesDrawerPanelView: View {
                     HStack(spacing: 4) {
                         Circle().fill(colorForTag(id)).frame(width: 8, height: 8)
                         Text("\(notes.filter { $0.colorTag == id }.count)")
-                            .font(.ui(size: 8.5, weight: .semibold))
+                            .font(.ui(size: 10, weight: .semibold))
                             .foregroundColor(isOn ? palette.textMain : palette.textMuted)
                     }
                     .padding(.horizontal, 6)
@@ -709,7 +696,7 @@ struct NotesDrawerPanelView: View {
             if !active.isEmpty {
                 Button("Show All") { colorFilter.removeAll() }
                     .buttonStyle(.plain)
-                    .font(.ui(size: 8.5, weight: .semibold))
+                    .font(.ui(size: 10, weight: .semibold))
                     .foregroundColor(palette.accentBlue)
             }
         }
@@ -728,7 +715,7 @@ struct NotesDrawerPanelView: View {
     private func noteEditor(note: QCFileNote) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             TextField("Note", text: $editText, axis: .vertical)
-                .font(.ui(size: 10))
+                .font(.ui(size: 11))
                 .textFieldStyle(.plain)
                 .lineLimit(1...8)
                 .padding(6)
@@ -754,11 +741,11 @@ struct NotesDrawerPanelView: View {
                 Spacer()
                 Button("Cancel") { editingNoteID = nil }
                     .buttonStyle(.plain)
-                    .font(.ui(size: 9, weight: .semibold))
+                    .font(.ui(size: 10, weight: .semibold))
                     .foregroundColor(palette.textMuted)
                 Button("Save") { commitEdit(note: note) }
                     .buttonStyle(.plain)
-                    .font(.ui(size: 9, weight: .semibold))
+                    .font(.ui(size: 10, weight: .semibold))
                     .foregroundColor(palette.accentBlue)
             }
         }
@@ -784,14 +771,14 @@ struct NotesDrawerPanelView: View {
                     VStack(alignment: .leading, spacing: 2) {
                         HStack(spacing: 5) {
                             Text(reply.author)
-                                .font(.ui(size: 8.5, weight: .semibold))
+                                .font(.ui(size: 10, weight: .semibold))
                                 .foregroundColor(palette.textMain)
                             Text(reply.createdAt.formatted(date: .abbreviated, time: .shortened))
-                                .font(.ui(size: 8))
+                                .font(.ui(size: 10))
                                 .foregroundColor(palette.textSubtle)
                         }
                         Text(reply.text)
-                            .font(.ui(size: 9.5))
+                            .font(.ui(size: 10))
                             .foregroundColor(palette.textMuted)
                             .textSelection(.enabled)
                     }
@@ -805,7 +792,7 @@ struct NotesDrawerPanelView: View {
         if replyingNoteID == note.id {
             HStack(spacing: 6) {
                 TextField("Reply…", text: $replyText)
-                    .font(.ui(size: 9.5))
+                    .font(.ui(size: 10))
                     .textFieldStyle(.plain)
                     .padding(5)
                     .studioBox(background: palette.bgMain, border: palette.borderLine)
@@ -816,7 +803,7 @@ struct NotesDrawerPanelView: View {
                     .onExitCommand { replyingNoteID = nil }
                 Button("Send") { commitReply(note: note) }
                     .buttonStyle(.plain)
-                    .font(.ui(size: 9, weight: .semibold))
+                    .font(.ui(size: 10, weight: .semibold))
                     .foregroundColor(palette.accentBlue)
             }
         } else {
@@ -828,7 +815,7 @@ struct NotesDrawerPanelView: View {
                     Image(systemName: "arrowshape.turn.up.left")
                         .font(.system(size: StudioTheme.scaleFont(8), weight: .bold))
                     Text(note.replies.isEmpty ? "Reply" : "Reply (\(note.replies.count))")
-                        .font(.ui(size: 8, weight: .semibold))
+                        .font(.ui(size: 10, weight: .semibold))
                 }
                 .foregroundColor(palette.textMuted)
             }
@@ -976,7 +963,7 @@ private struct NotesSyncProjectBar: View {
                         .font(.system(size: StudioTheme.scaleFont(9), weight: .bold))
                         .foregroundColor(palette.textMuted)
                     Text("Sync")
-                        .font(.ui(size: 8, weight: .semibold))
+                        .font(.ui(size: 10, weight: .semibold))
                         .foregroundColor(palette.textMuted)
                     Menu {
                         ForEach(status.projects) { project in
@@ -990,7 +977,7 @@ private struct NotesSyncProjectBar: View {
                         }
                     } label: {
                         Text(label)
-                            .font(.ui(size: 9, weight: .semibold))
+                            .font(.ui(size: 10, weight: .semibold))
                             .foregroundColor(palette.textMain)
                             .lineLimit(1)
                     }
@@ -1040,16 +1027,16 @@ private struct FrameIOCommentsBar: View {
                         .font(.system(size: StudioTheme.scaleFont(9), weight: .bold))
                         .foregroundColor(QCNoteTheme.color(for: FrameIOCommentImport.colorTag))
                     Text("Frame.io")
-                        .font(.ui(size: 8, weight: .semibold))
+                        .font(.ui(size: 10, weight: .semibold))
                         .foregroundColor(palette.textMuted)
                     Text(detail)
-                        .font(.ui(size: 9))
+                        .font(.ui(size: 10))
                         .foregroundColor(sync.lastError == nil ? palette.textMain : palette.negative)
                         .lineLimit(1)
                         .truncationMode(.tail)
                     Spacer(minLength: 4)
                     Button("Check Now", action: sync.checkActive)
-                        .font(.ui(size: 9, weight: .semibold))
+                        .font(.ui(size: 10, weight: .semibold))
                         .buttonStyle(.borderless)
                         .disabled(sync.isChecking)
                         .help("Import new Frame.io comments on this clip now")
@@ -1072,10 +1059,10 @@ private struct FrameIOCommentsBar: View {
                     .font(.system(size: StudioTheme.scaleFont(9), weight: .bold))
                     .foregroundColor(palette.textMuted)
                 Text("Frame.io")
-                    .font(.ui(size: 8, weight: .semibold))
+                    .font(.ui(size: 10, weight: .semibold))
                     .foregroundColor(palette.textMuted)
                 Text(linkMessage ?? "Not linked")
-                    .font(.ui(size: 9))
+                    .font(.ui(size: 10))
                     .foregroundColor(palette.textMuted)
                     .lineLimit(1)
                     .truncationMode(.tail)
@@ -1085,7 +1072,7 @@ private struct FrameIOCommentsBar: View {
                         linkMessage = "Copy the file's Frame.io link first"
                     }
                 }
-                .font(.ui(size: 9, weight: .semibold))
+                .font(.ui(size: 10, weight: .semibold))
                 .buttonStyle(.borderless)
                 .help("In Frame.io, right-click the file → Copy Asset URL, then click here or press ⌘V in the Player to import its comments (share links don't work for this)")
             }

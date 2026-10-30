@@ -107,7 +107,7 @@ struct SubtitleCrossCheckSheet: View {
     private var footer: some View {
         HStack {
             Text("Click a difference to open that file at the line.")
-                .font(.ui(size: 10))
+                .font(.ui(size: 11))
                 .foregroundColor(palette.textSubtle)
             Spacer()
             Button(action: onClose) {
@@ -116,7 +116,7 @@ struct SubtitleCrossCheckSheet: View {
                     .foregroundColor(palette.primaryBtnFg)
                     .padding(.horizontal, 18)
                     .padding(.vertical, 5)
-                    .background(RoundedRectangle(cornerRadius: 6).fill(palette.primaryBtnBg))
+                    .background(RoundedRectangle(cornerRadius: Radius.segment).fill(palette.primaryBtnBg))
             }
             .buttonStyle(.plain)
             .keyboardShortcut(.defaultAction)
@@ -173,7 +173,7 @@ struct SubtitleCrossCheckSheet: View {
                             .lineLimit(1)
                             .truncationMode(.middle)
                         Text("\(file.srtURL.lastPathComponent) — \(file.cues.count) lines")
-                            .font(.ui(size: 10))
+                            .font(.ui(size: 11))
                             .foregroundColor(palette.textSubtle)
                             .lineLimit(1)
                             .truncationMode(.middle)
@@ -233,7 +233,7 @@ struct SubtitleCrossCheckSheet: View {
             .padding(.horizontal, 10)
             .padding(.vertical, 8)
             .background(
-                RoundedRectangle(cornerRadius: 6)
+                RoundedRectangle(cornerRadius: Radius.segment)
                     .fill(isHovered ? palette.textMain.opacity(0.08) : (striped ? palette.textMain.opacity(0.03) : .clear))
             )
             .contentShape(Rectangle())
@@ -247,7 +247,7 @@ struct SubtitleCrossCheckSheet: View {
     private func comparisonLine(_ label: String, _ line: Int?, _ text: AttributedString?, timing: String?) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: 10) {
             Text(line.map { "\(label) #\($0)" } ?? label)
-                .font(.ui(size: 10))
+                .font(.ui(size: 11))
                 .foregroundColor(palette.textSubtle)
                 .frame(width: 84, alignment: .leading)
             VStack(alignment: .leading, spacing: 2) {

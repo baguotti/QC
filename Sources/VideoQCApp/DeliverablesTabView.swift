@@ -40,19 +40,10 @@ extension ContentView {
             VStack(alignment: .leading, spacing: 0) {
                 // Specs Header Bar with Sleeve Toggle
                 HStack(spacing: 12) {
-                    Button(action: {
-                        withAnimation(.spring(response: 0.32, dampingFraction: 0.78)) {
-                            showSpecsControlPanel.toggle()
-                        }
-                    }) {
-                        Image(systemName: showSpecsControlPanel ? "chevron.left" : "chevron.right")
-                            .font(.system(size: StudioTheme.scaleFont(11), weight: .bold))
-                            .frame(width: StudioTheme.scale(24), height: StudioTheme.scale(26))
-                            .foregroundColor(textMain)
-                            .contentShape(Rectangle())
+                    SleeveToggle(side: .leading, isOpen: showSpecsControlPanel, isLightMode: isLightMode,
+                                 help: showSpecsControlPanel ? "Hide Specs Control Panel (⌘⇧←)." : "Reveal Specs Control Panel (⌘⇧←).") {
+                        showSpecsControlPanel.toggle()
                     }
-                    .buttonStyle(TransportIconButtonStyle())
-                    .explain(showSpecsControlPanel ? "Hide Specs Control Panel (⌘⇧←)." : "Reveal Specs Control Panel (⌘⇧←).")
                     
                     Text("Specs Audit")
                         .font(.ui(size: 11, weight: .semibold))
@@ -60,15 +51,13 @@ extension ContentView {
                     
                     Spacer()
                 }
-                .padding(.horizontal, 16)
-                .padding(.vertical, 10)
-                .panelHeaderBar(background: bgCardHeader, divider: borderLine)
+                .headerBand(palette)
                 
                 if specsState.isInspectingDeliverables {
                     VStack(alignment: .center, spacing: 12) {
                         Spacer()
                         Text("Inspecting deliverables specs...")
-                            .font(.ui(size: 18, weight: .semibold))
+                            .font(.ui(size: 15, weight: .semibold))
                         ProgressView()
                             .scaleEffect(1.2)
                         Spacer()
@@ -103,7 +92,7 @@ extension ContentView {
     /// Opens a cross-check result: load the file in the player at that line with the Subtitles panel open.
     func openSubtitleDifference(video: URL, seconds: Double) {
         let fps = specsState.deliverableAssets.first { $0.fileURL.standardizedFileURL == video.standardizedFileURL }.flatMap { $0.fps > 0 ? $0.fps : nil } ?? 25
-        withAnimation(.spring(response: 0.22, dampingFraction: 0.85)) {
+        withAnimation(Motion.snap) {
             selectedTab = .player
         }
         playerEngine.loadVideo(url: video, into: .slotA, initialSeekFrame: max(0, Int(ceil(seconds * max(1, fps) - 0.5))))
@@ -176,7 +165,7 @@ extension ContentView {
                                     .scaleEffect(0.65)
                                     .frame(width: 10, height: 10)
                                 Text("Measuring Loudness (\(specsState.analyzedAudioCount)/\(specsState.totalAudioCount))")
-                                    .font(.ui(size: 9.5, weight: .semibold))
+                                    .font(.ui(size: 10, weight: .semibold))
                                     .foregroundColor(accentBlue)
                                 Spacer()
                                 Image(systemName: "xmark.circle.fill")
@@ -186,7 +175,7 @@ extension ContentView {
                                 Image(systemName: "waveform")
                                     .font(.system(size: StudioTheme.scaleFont(8.5), weight: .bold))
                                 Text(hasPendingAudioAnalysis ? "Check Loudness" : "Recheck Loudness")
-                                    .font(.ui(size: 9.5, weight: .semibold))
+                                    .font(.ui(size: 10, weight: .semibold))
                                 Spacer()
                             }
                         }
@@ -214,7 +203,7 @@ extension ContentView {
                         if specsState.isCheckingEndFrames {
                             ProgressView().controlSize(.mini).scaleEffect(0.65).frame(width: 10, height: 10)
                             Text("Checking End Frames (\(specsState.checkedEndFrameCount)/\(specsState.totalEndFrameCount))")
-                                .font(.ui(size: 9.5, weight: .semibold))
+                                .font(.ui(size: 10, weight: .semibold))
                                 .foregroundColor(accentBlue)
                             Spacer()
                             Image(systemName: "xmark.circle.fill").font(.system(size: StudioTheme.scaleFont(9), weight: .bold)).foregroundColor(textMuted)
@@ -222,7 +211,7 @@ extension ContentView {
                             Image(systemName: "rectangle.lefthalf.inset.filled.arrow.left")
                                 .font(.system(size: StudioTheme.scaleFont(8.5), weight: .bold))
                             Text(hasPendingEndFrameCheck ? "Check End Frames" : "Recheck End Frames")
-                                .font(.ui(size: 9.5, weight: .semibold))
+                                .font(.ui(size: 10, weight: .semibold))
                             Spacer()
                         }
                     }
@@ -250,10 +239,10 @@ extension ContentView {
                             CCBadge(size: 8.5)
                         }
                         Text("Cross-Check Subtitles")
-                            .font(.ui(size: 9.5, weight: .semibold))
+                            .font(.ui(size: 10, weight: .semibold))
                         Spacer()
                         Text(crossCheckTargets.count >= 2 ? "\(crossCheckTargets.count) files" : "Need 2+ SRT")
-                            .font(.ui(size: 7.5, weight: .semibold))
+                            .font(.ui(size: 10, weight: .semibold))
                             .foregroundColor(crossCheckTargets.count >= 2 ? accentBlue : textMuted)
                             .padding(.horizontal, 4)
                             .padding(.vertical, 1.5)
@@ -282,7 +271,7 @@ extension ContentView {
                             Image(systemName: "arrow.up.right.square")
                                 .font(.system(size: StudioTheme.scaleFont(8.5), weight: .bold))
                             Text("Sheets")
-                                .font(.ui(size: 9.5, weight: .semibold))
+                                .font(.ui(size: 10, weight: .semibold))
                                 .lineLimit(1)
                                 .minimumScaleFactor(0.8)
                         }
@@ -304,7 +293,7 @@ extension ContentView {
                             Image(systemName: "doc.text")
                                 .font(.system(size: StudioTheme.scaleFont(8.5), weight: .bold))
                             Text("Save CSV")
-                                .font(.ui(size: 9.5, weight: .semibold))
+                                .font(.ui(size: 10, weight: .semibold))
                                 .lineLimit(1)
                                 .minimumScaleFactor(0.8)
                         }
@@ -326,7 +315,7 @@ extension ContentView {
                             Image(systemName: "safari")
                                 .font(.system(size: StudioTheme.scaleFont(8.5), weight: .bold))
                             Text("Open HTML")
-                                .font(.ui(size: 9.5, weight: .semibold))
+                                .font(.ui(size: 10, weight: .semibold))
                                 .lineLimit(1)
                                 .minimumScaleFactor(0.8)
                         }
@@ -348,7 +337,7 @@ extension ContentView {
                             Image(systemName: "folder")
                                 .font(.system(size: StudioTheme.scaleFont(9), weight: .bold))
                             Text("Reveal in Finder")
-                                .font(.ui(size: 10, weight: .semibold))
+                                .font(.ui(size: 11, weight: .semibold))
                         }
                         .frame(maxWidth: .infinity, alignment: .center)
                         .frame(height: 28)
@@ -370,7 +359,7 @@ extension ContentView {
                         Image(systemName: "xmark")
                             .font(.system(size: StudioTheme.scaleFont(8), weight: .bold))
                         Text("Clear List")
-                            .font(.ui(size: 9, weight: .semibold))
+                            .font(.ui(size: 10, weight: .semibold))
                     }
                     .foregroundColor(textMuted)
                     .frame(maxWidth: .infinity, alignment: .center)
@@ -446,7 +435,7 @@ extension ContentView {
                             Image(systemName: isFileNameExpanded ? "arrow.right.and.line.vertical.and.arrow.left" : "arrow.left.and.line.vertical.and.arrow.right")
                                 .font(.system(size: StudioTheme.scaleFont(8.5), weight: .bold))
                             Text(isFileNameExpanded ? "Reset Name" : "Fit Name")
-                                .font(.ui(size: 9.5, weight: .semibold))
+                                .font(.ui(size: 10, weight: .semibold))
                         }
                         .padding(.horizontal, 8)
                         .frame(height: 24)
@@ -469,7 +458,7 @@ extension ContentView {
                                 isFoldersHidden ? "Show" : "Hide",
                                 mode: .word,
                                 direction: .up,
-                                font: .ui(size: 9.5, weight: .semibold),
+                                font: .ui(size: 10, weight: .semibold),
                                 foregroundColor: canToggleFolders ? (isFoldersHidden ? accentBlue : textMain) : textSubtle,
                                 tracking: 0.3,
                                 stagger: 0.018,
@@ -503,7 +492,7 @@ extension ContentView {
                     // Button 3: List / Thumbs (Direct Toggle + Chevron Popover)
                     HStack(spacing: 0) {
                         Button(action: {
-                            withAnimation(.easeInOut(duration: 0.15)) {
+                            withAnimation(Motion.fade) {
                                 specsDisplayMode = (specsDisplayMode == "thumbnail" ? "inline" : "thumbnail")
                             }
                         }) {
@@ -511,7 +500,7 @@ extension ContentView {
                                 Image(systemName: specsDisplayMode == "thumbnail" ? "square.grid.2x2" : "list.bullet")
                                     .font(.system(size: StudioTheme.scaleFont(8.5), weight: .bold))
                                 Text(specsDisplayMode == "thumbnail" ? "Thumbs" : "List")
-                                    .font(.ui(size: 9.5, weight: .semibold))
+                                    .font(.ui(size: 10, weight: .semibold))
                             }
                             .padding(.horizontal, 9)
                             .frame(height: 24)
@@ -570,7 +559,7 @@ extension ContentView {
                             sortableHeaderCell("Audio Spec", column: .audioCodec)
                             sortableHeaderCell("Path", column: .path, customWidth: pathColWidth, alignment: .leading, isResizable: false)
                         }
-                        .font(.ui(size: 9, weight: .semibold))
+                        .font(.ui(size: 10, weight: .semibold))
                         .foregroundColor(textMuted)
                         .padding(.horizontal, 14)
                         .padding(.vertical, specsDisplayMode == "large" ? 10 : (specsDisplayMode == "thumbnail" ? 8 : 6))
@@ -615,7 +604,7 @@ extension ContentView {
                                             .foregroundColor(textMuted)
                                         Button(action: { specsState.specsFilterText = "" }) {
                                             Text("Clear Filter")
-                                                .font(.ui(size: 10, weight: .semibold))
+                                                .font(.ui(size: 11, weight: .semibold))
                                                 .foregroundColor(accentBlue)
                                         }
                                         .buttonStyle(.plain)
@@ -712,7 +701,7 @@ extension ContentView {
     }
     
     func autoFitFileNameColumnWidth() {
-        withAnimation(.easeInOut(duration: 0.15)) {
+        withAnimation(Motion.fade) {
             specsState.autoFitFileNameColumnWidth(filteredAssets: filteredDeliverableAssets)
         }
     }
@@ -740,7 +729,7 @@ extension ContentView {
     // MARK: - Finder-Style Column Sorting & Resizing Helpers
     
     func toggleSpecsSort(_ column: SpecsSortColumn) {
-        withAnimation(.easeInOut(duration: 0.15)) {
+        withAnimation(Motion.fade) {
             specsState.toggleSpecsSort(column)
         }
     }
@@ -880,7 +869,7 @@ extension ContentView {
                     .font(.system(size: StudioTheme.scaleFont(7), weight: .semibold))
                     .foregroundColor(textMuted)
             }
-            .font(.ui(size: 10, weight: .medium))
+            .font(.ui(size: 11, weight: .medium))
             .padding(.horizontal, 8)
             .contentShape(Rectangle())
         }
@@ -975,7 +964,7 @@ extension ContentView {
                     .lineLimit(1)
                 
                 Text("(\(node.videoCount) \(node.videoCount == 1 ? "asset" : "assets"))")
-                    .font(.ui(size: 9, weight: .semibold))
+                    .font(.ui(size: 10, weight: .semibold))
                     .foregroundColor(textMuted)
             }
             .padding(.leading, CGFloat(node.depth * 14))
@@ -984,19 +973,19 @@ extension ContentView {
             
             HStack(spacing: 12) {
                 Text(formattedDur)
-                    .font(.ui(size: 9, weight: .semibold))
+                    .font(.ui(size: 10, weight: .semibold))
                     .foregroundColor(textSubtle)
                 
                 Text(formattedSize)
-                    .font(.ui(size: 9, weight: .semibold))
+                    .font(.ui(size: 10, weight: .semibold))
                     .foregroundColor(textSubtle)
                 
                 if folderMismatches > 0 {
                     Text("\(folderMismatches) mismatch\(folderMismatches == 1 ? "" : "es")")
-                        .font(.ui(size: 8, weight: .semibold))
+                        .font(.ui(size: 10, weight: .semibold))
                         .padding(.horizontal, 6)
                         .padding(.vertical, 2)
-                        .background(RoundedRectangle(cornerRadius: 4).fill(alertRed))
+                        .background(RoundedRectangle(cornerRadius: Radius.control).fill(alertRed))
                         .foregroundColor(.white)
                 }
             }
@@ -1117,7 +1106,7 @@ extension ContentView {
                         Image(systemName: isDismissed ? "checkmark.circle" : "exclamationmark.triangle.fill")
                             .font(.system(size: StudioTheme.scaleFont(7), weight: .bold))
                         Text(isDismissed ? "\(detail) (dismissed)" : detail)
-                            .font(.ui(size: 8, weight: isDismissed ? .medium : .semibold))
+                            .font(.ui(size: 10, weight: isDismissed ? .medium : .semibold))
                         
                         Button(action: {
                             specsState.toggleDismissMismatch(for: asset.fileURL)
@@ -1153,7 +1142,7 @@ extension ContentView {
             VStack(alignment: .center, spacing: 3) {
                 HStack(spacing: 4) {
                     Text(asset.aspectRatioString)
-                        .font(.ui(size: 9, weight: .semibold))
+                        .font(.ui(size: 10, weight: .semibold))
                         .padding(.horizontal, 4)
                         .padding(.vertical, 2)
                         .foregroundColor((asset.validation.isRatioMismatch && !isDismissed) ? .white : textMain)
@@ -1171,7 +1160,7 @@ extension ContentView {
                         Image(systemName: isDismissed ? "checkmark.circle" : "exclamationmark.triangle.fill")
                             .font(.system(size: StudioTheme.scaleFont(7), weight: .bold))
                         Text(isDismissed ? "\(detail) (dismissed)" : detail)
-                            .font(.ui(size: 8, weight: isDismissed ? .medium : .semibold))
+                            .font(.ui(size: 10, weight: isDismissed ? .medium : .semibold))
                         
                         Button(action: {
                             specsState.toggleDismissMismatch(for: asset.fileURL)
@@ -1210,7 +1199,7 @@ extension ContentView {
             
             // Creation Date Column
             Text(asset.formattedCreationDate)
-                .font(.ui(size: 9))
+                .font(.ui(size: 10))
                 .foregroundColor(textSubtle)
                 .frame(width: CGFloat(specsState.columnWidth(for: .date)), alignment: .center)
             
@@ -1224,18 +1213,18 @@ extension ContentView {
             // Audio Column
             if !asset.hasAudio {
                 Text("None")
-                    .font(.ui(size: 9, weight: .semibold))
+                    .font(.ui(size: 10, weight: .semibold))
                     .foregroundColor(textMuted)
                     .frame(width: CGFloat(specsState.columnWidth(for: .audioCodec)), alignment: .center)
             } else {
                 VStack(alignment: .center, spacing: 3) {
                     HStack(spacing: 4) {
                         Text(asset.audioCodec)
-                            .font(.ui(size: 10, weight: .semibold))
+                            .font(.ui(size: 11, weight: .semibold))
                             .foregroundColor(textMain)
                         if asset.audioBitrate != "--" {
                             Text(asset.audioBitrate)
-                                .font(.ui(size: 8, weight: .semibold))
+                                .font(.ui(size: 10, weight: .semibold))
                                 .padding(.horizontal, 4)
                                 .padding(.vertical, 1)
                                 .foregroundColor(textSubtle)
@@ -1248,7 +1237,7 @@ extension ContentView {
                             Image(systemName: "speaker.slash.fill")
                                 .font(.system(size: StudioTheme.scaleFont(7), weight: .bold))
                             Text(asset.validation.audioMuteDetail ?? "Mute")
-                                .font(.ui(size: 8, weight: .semibold))
+                                .font(.ui(size: 10, weight: .semibold))
                         }
                         .padding(.horizontal, 5)
                         .padding(.vertical, 1.5)
@@ -1270,7 +1259,7 @@ extension ContentView {
                                     .font(.system(size: StudioTheme.scaleFont(7), weight: .bold))
                             }
                             Text(loudness.summary)
-                                .font(.ui(size: 8, weight: .semibold))
+                                .font(.ui(size: 10, weight: .semibold))
                                 .lineLimit(1)
                                 .minimumScaleFactor(0.8)
                         }
@@ -1279,7 +1268,7 @@ extension ContentView {
                         HStack(spacing: 4) {
                             if !asset.audioFormatDetail.isEmpty {
                                 Text(asset.audioFormatDetail)
-                                    .font(.ui(size: 8, weight: .medium))
+                                    .font(.ui(size: 10, weight: .medium))
                                     .foregroundColor(textMuted)
                                     .lineLimit(1)
                             }
@@ -1297,7 +1286,7 @@ extension ContentView {
                     Image(systemName: "folder")
                         .font(.system(size: StudioTheme.scaleFont(9)))
                     Text(asset.fileURL.deletingLastPathComponent().path)
-                        .font(.ui(size: 10))
+                        .font(.ui(size: 11))
                         .lineLimit(1)
                         .truncationMode(.tail)
                 }
@@ -1449,7 +1438,7 @@ extension ContentView {
         VStack(alignment: .leading, spacing: 2) {
             // Thumbnail View
             Button(action: {
-                withAnimation(.easeInOut(duration: 0.15)) {
+                withAnimation(Motion.fade) {
                     specsDisplayMode = "thumbnail"
                 }
             }) {
@@ -1479,7 +1468,7 @@ extension ContentView {
             
             // List View
             Button(action: {
-                withAnimation(.easeInOut(duration: 0.15)) {
+                withAnimation(Motion.fade) {
                     specsDisplayMode = "inline"
                 }
             }) {
@@ -1592,7 +1581,7 @@ extension ContentView {
                         .overlay(RoundedRectangle(cornerRadius: 1.5).stroke(textMuted, lineWidth: 1))
                 }
                 Text(check.verdict.rawValue)
-                    .font(.ui(size: 9.5, weight: .semibold))
+                    .font(.ui(size: 10, weight: .semibold))
                     .foregroundColor(check.verdict == .unavailable ? textMuted : textMain)
                     .lineLimit(1)
             }
@@ -1601,7 +1590,7 @@ extension ContentView {
                   : "Last frame \(check.timecode): \(String(format: "%.2f", 100 - check.litPercent))% black, \(String(format: "%.2f", check.litPercent))% picture/content (mean luma \(String(format: "%.1f", check.meanLuma)) / 255)")
         } else {
             Text("—")
-                .font(.ui(size: 9.5, weight: .semibold))
+                .font(.ui(size: 10, weight: .semibold))
                 .foregroundColor(textMuted)
                 .help("Not checked yet: use CHECK END FRAMES")
         }

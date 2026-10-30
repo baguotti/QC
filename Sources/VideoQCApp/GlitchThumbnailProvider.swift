@@ -186,7 +186,7 @@ public struct GlitchThumbnailView: View {
                             .scaleEffect(0.5)
                     } else {
                         Image(systemName: "film")
-                            .font(.system(size: 10))
+                            .font(.system(size: 10))   // design-ok: drawn on the thumbnail tile, sized to the image, not the UI
                             .foregroundColor(Color(white: 0.35))
                     }
                 }
@@ -240,32 +240,32 @@ public struct GlitchThumbnailView: View {
                         }
                 }
                 .frame(width: 360, height: 202)
-                .clipShape(RoundedRectangle(cornerRadius: 4))
-                .overlay(RoundedRectangle(cornerRadius: 4).stroke(Color(white: 0.3), lineWidth: 1))
+                .clipShape(RoundedRectangle(cornerRadius: Radius.control))
+                .overlay(RoundedRectangle(cornerRadius: Radius.control).stroke(Color(white: 0.3), lineWidth: 1))
             }
             
             HStack(spacing: 8) {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(fileURL.lastPathComponent)
-                        .font(.ui(size: 10, weight: .semibold))
+                        .font(.ui(size: 11, weight: .semibold))
                         .foregroundColor(.white)
                         .lineLimit(1)
                     
                     HStack(spacing: 6) {
                         if let tc = timecode {
                             Text(tc)
-                                .font(.system(size: 10, weight: .heavy, design: .monospaced))
+                                .font(.system(size: 10, weight: .heavy, design: .monospaced))   // design-ok: drawn on the thumbnail tile, sized to the image, not the UI
                                 .foregroundColor(Color(red: 0.2, green: 0.8, blue: 0.4))
                         }
                         Text("FRAME \(frameIndex)")
-                            .font(.system(size: 9, weight: .bold, design: .monospaced))
+                            .font(.system(size: 9, weight: .bold, design: .monospaced))   // design-ok: drawn on the thumbnail tile, sized to the image, not the UI
                             .foregroundColor(Color(white: 0.7))
                         
                         if let edge = edge {
                             Text("•")
                                 .foregroundColor(Color(white: 0.5))
                             Text("\(edge.rawValue.uppercased()) EDGE")
-                                .font(.system(size: 9, weight: .black, design: .monospaced))
+                                .font(.system(size: 9, weight: .black, design: .monospaced))   // design-ok: drawn on the thumbnail tile, sized to the image, not the UI
                                 .foregroundColor(Color(red: 0.95, green: 0.3, blue: 0.3))
                         }
                     }
@@ -279,7 +279,7 @@ public struct GlitchThumbnailView: View {
                             .frame(width: 10, height: 10)
                             .border(Color.white.opacity(0.4), width: 1)
                         Text(c.hexString.uppercased())
-                            .font(.ui(size: 9, weight: .semibold))
+                            .font(.ui(size: 10, weight: .semibold))
                             .foregroundColor(.white)
                     }
                 }
@@ -395,7 +395,7 @@ public struct AssetThumbnailView: View {
                     
                     if let badge = badgeText {
                         Text(badge)
-                            .font(.system(size: 7.5, weight: .black, design: .monospaced))
+                            .font(.system(size: 7.5, weight: .black, design: .monospaced))   // design-ok: drawn on the thumbnail tile, sized to the image, not the UI
                             .foregroundColor(.white)
                             .padding(.horizontal, 3)
                             .padding(.vertical, 1)
@@ -418,7 +418,7 @@ public struct AssetThumbnailView: View {
                             .scaleEffect(0.35)
                     } else {
                         Image(systemName: QCUtilities.mediaKind(of: fileURL) == .audio ? "waveform" : "video")
-                            .font(.system(size: 9))
+                            .font(.system(size: 9))   // design-ok: drawn on the thumbnail tile, sized to the image, not the UI
                             .foregroundColor(Color(white: 0.35))
                     }
                 }

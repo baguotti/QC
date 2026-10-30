@@ -229,7 +229,7 @@ struct SubtitlesPanelView: View {
         HStack(spacing: 6) {
             CCBadge(color: palette.textMuted, size: 10)
             Text(engine.subtitleFileName ?? "Subtitles")
-                .font(.ui(size: 10, weight: .semibold))
+                .font(.ui(size: 11, weight: .semibold))
                 .foregroundColor(palette.textMain)
                 .lineLimit(1)
                 .truncationMode(.middle)
@@ -247,7 +247,7 @@ struct SubtitlesPanelView: View {
                     Image(systemName: spelling.issueCount == 0 ? "checkmark.seal" : "text.badge.xmark")
                         .font(.system(size: StudioTheme.scaleFont(9), weight: .bold))
                     Text(spelling.issueCount == 0 ? "Spelling OK" : "\(spelling.issueCount) typo\(spelling.issueCount == 1 ? "" : "s")")
-                        .font(.ui(size: 8.5, weight: .semibold))
+                        .font(.ui(size: 10, weight: .semibold))
                 }
                 .padding(.horizontal, 6)
                 .padding(.vertical, 3.5)
@@ -261,7 +261,7 @@ struct SubtitlesPanelView: View {
 
             Button(action: save) {
                 Text("Save")
-                    .font(.ui(size: 8.5, weight: .semibold))
+                    .font(.ui(size: 10, weight: .semibold))
                     .padding(.horizontal, 7)
                     .padding(.vertical, 3.5)
                     .foregroundColor(engine.hasUnsavedSubtitleEdits ? palette.accentBlue : palette.textSubtle)
@@ -274,7 +274,7 @@ struct SubtitlesPanelView: View {
 
             Button(action: saveAs) {
                 Text("Save As…")
-                    .font(.ui(size: 8.5, weight: .semibold))
+                    .font(.ui(size: 10, weight: .semibold))
                     .padding(.horizontal, 7)
                     .padding(.vertical, 3.5)
                     .foregroundColor(palette.textMain)
@@ -319,18 +319,18 @@ struct SubtitlesPanelView: View {
                         .foregroundColor(palette.textMuted)
                     TextField("Find", text: $query)
                         .textFieldStyle(.plain)
-                        .font(.ui(size: 10.5))
+                        .font(.ui(size: 11))
                         .focused($isFindFocused)
                         .onSubmit { goToMatch(currentMatch + 1, in: currentMatches) }
                     if !query.isEmpty {
                         Text(currentMatches.isEmpty ? "0" : "\(min(currentMatch, currentMatches.count - 1) + 1)/\(currentMatches.count)")
-                            .font(.ui(size: 9, weight: .semibold))
+                            .font(.ui(size: 10, weight: .semibold))
                             .foregroundColor(currentMatches.isEmpty ? palette.alertRed : palette.textMuted)
                     }
                 }
                 Button(action: { matchCase.toggle() }) {
                     Text("Aa")
-                        .font(.ui(size: 9.5, weight: .semibold))
+                        .font(.ui(size: 10, weight: .semibold))
                         .frame(width: 24, height: 22)
                         .foregroundColor(matchCase ? palette.accentBlue : palette.textMuted)
                         .studioBox(background: matchCase ? palette.accentBlue.opacity(0.15) : palette.bgSubtle,
@@ -350,7 +350,7 @@ struct SubtitlesPanelView: View {
                         .foregroundColor(palette.textMuted)
                     TextField("Replace with", text: $replacement)
                         .textFieldStyle(.plain)
-                        .font(.ui(size: 10.5))
+                        .font(.ui(size: 11))
                         .onSubmit { replaceCurrent(currentMatches) }
                 }
                 textButton("Replace") { replaceCurrent(currentMatches) }
@@ -378,7 +378,7 @@ struct SubtitlesPanelView: View {
             .pickerStyle(.inline)
         } label: {
             Text(spellLanguage.isEmpty ? "Auto" : spellLanguage.replacingOccurrences(of: "_", with: "-"))
-                .font(.ui(size: 9, weight: .semibold))
+                .font(.ui(size: 10, weight: .semibold))
                 .foregroundColor(palette.textMuted)
         }
         .menuStyle(.borderlessButton)
@@ -425,7 +425,7 @@ struct SubtitlesPanelView: View {
                                 if highlightedIndex == index {
                                     Button(action: { select(index, seek: false) }) {
                                         Text("Edit")
-                                            .font(.ui(size: 8, weight: .semibold))
+                                            .font(.ui(size: 10, weight: .semibold))
                                             .padding(.horizontal, 6)
                                             .padding(.vertical, 2.5)
                                             .foregroundColor(palette.accentBlue)
@@ -444,11 +444,11 @@ struct SubtitlesPanelView: View {
             }
             .onChange(of: tracker.activeIndex) { _, active in
                 guard let active = active, engine.isPlaying, selectedIndex == nil else { return }
-                withAnimation(.easeInOut(duration: 0.2)) { proxy.scrollTo(active, anchor: .center) }
+                withAnimation(Motion.list) { proxy.scrollTo(active, anchor: .center) }
             }
             .onChange(of: selectedIndex) { _, selected in
                 guard let selected = selected else { return }
-                withAnimation(.easeInOut(duration: 0.15)) { proxy.scrollTo(selected, anchor: .center) }
+                withAnimation(Motion.fade) { proxy.scrollTo(selected, anchor: .center) }
             }
         }
     }
@@ -457,7 +457,7 @@ struct SubtitlesPanelView: View {
         VStack(alignment: .leading, spacing: 5) {
             HStack(spacing: 6) {
                 Text("\(index + 1)")
-                    .font(.ui(size: 9, weight: .semibold))
+                    .font(.ui(size: 10, weight: .semibold))
                     .foregroundColor(palette.accentBlue)
                 Text("\(timecode(cue.start)) → \(timecode(cue.end))")
                     .font(.system(size: StudioTheme.scaleFont(9), weight: .semibold, design: .monospaced))
@@ -465,7 +465,7 @@ struct SubtitlesPanelView: View {
                 Spacer()
                 Button(action: { deselect() }) {
                     Text("Done")
-                        .font(.ui(size: 8, weight: .semibold))
+                        .font(.ui(size: 10, weight: .semibold))
                         .foregroundColor(palette.accentBlue)
                 }
                 .buttonStyle(.plain)
@@ -646,7 +646,7 @@ struct SubtitlesPanelView: View {
     private func textButton(_ title: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Text(title)
-                .font(.ui(size: 8.5, weight: .semibold))
+                .font(.ui(size: 10, weight: .semibold))
                 .padding(.horizontal, 7)
                 .frame(height: 22)
                 .foregroundColor(palette.textMain)
@@ -693,10 +693,10 @@ struct SubtitleCueRow: View, Equatable {
             VStack(alignment: .leading, spacing: 3) {
                 HStack(spacing: 6) {
                     Text("\(number)")
-                        .font(.ui(size: 9, weight: .semibold))
+                        .font(.ui(size: 10, weight: .semibold))
                         .foregroundColor(isActive ? palette.accentBlue : palette.textSubtle)
                     Text("\(inTC) → \(outTC)")
-                        .font(.ui(size: 9, weight: .medium))
+                        .font(.ui(size: 10, weight: .medium))
                         .foregroundColor(palette.textMuted)
                     Spacer(minLength: 0)
                     if !spellingIssues.isEmpty {

@@ -33,9 +33,9 @@ struct PanelResizeHandle: View {
         .frame(width: Self.hitWidth)
         .contentShape(Rectangle())
         .onHover { isHovering = $0 }
-        .animation(.easeOut(duration: 0.12), value: isHovering)
+        .animation(Motion.hover, value: isHovering)
         .onTapGesture(count: 2) {
-            withAnimation(.spring(response: 0.28, dampingFraction: 0.82)) { width = min(range.upperBound, defaultWidth) }
+            withAnimation(Motion.sleeve) { width = min(range.upperBound, defaultWidth) }
         }
         .gesture(
             DragGesture(minimumDistance: 1, coordinateSpace: .global)

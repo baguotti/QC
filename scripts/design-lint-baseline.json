@@ -1,0 +1,41 @@
+{
+  "radius": {
+    "DeliverablesTabView.swift": 6,
+    "FrameIOBrowserView.swift": 5,
+    "GlitchThumbnailProvider.swift": 1,
+    "LineScannerTabView.swift": 5,
+    "MediaInfoPanel.swift": 1,
+    "MediaKindFilter.swift": 1,
+    "PlaybackClockViews.swift": 1,
+    "PlayerQueueFileRowView.swift": 4,
+    "PlayerQueuePanelView.swift": 1,
+    "PlayerTransportDeckView.swift": 6,
+    "PropertiesModalView.swift": 5,
+    "SidebarModalShell.swift": 3,
+    "ThemeSettingsModalView.swift": 3,
+    "TimelineScrubberView.swift": 3,
+    "UpdateModalView.swift": 4,
+    "UploadTabView.swift": 3,
+    "UserGuideView.swift": 2
+  },
+  "raw-color": {
+    "AddNotePopoverView.swift": 4,
+    "ContentView.swift": 1,
+    "FrameIOBrowserView.swift": 10,
+    "FrameIOStatusBadge.swift": 2,
+    "GlitchThumbnailProvider.swift": 15,
+    "ImageSequencePlayback.swift": 1,
+    "LineScannerTabView.swift": 1,
+    "MediaStills.swift": 4,
+    "NotesDrawerPanelView.swift": 1,
+    "PanelResizeHandle.swift": 2,
+    "PlayerTabView.swift": 4,
+    "PropertiesModalView.swift": 1,
+    "ReviewFullscreenHUDView.swift": 2,
+    "ScannerState.swift": 2,
+    "TimelineScrubberView.swift": 17,
+    "UploadTabView.swift": 1,
+    "VideoViewportView.swift": 13,
+    "WindowChrome.swift": 4
+  }
+}

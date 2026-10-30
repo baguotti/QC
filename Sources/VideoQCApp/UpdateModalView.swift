@@ -157,7 +157,7 @@ struct UpdateModalView: View {
     private func step(_ number: Int, _ text: String) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: 8) {
             Text("\(number)")
-                .font(.ui(size: 10, weight: .semibold))
+                .font(.ui(size: 11, weight: .semibold))
                 .foregroundColor(palette.textMuted)
                 .frame(width: 16, height: 16)
                 .background(Circle().fill(palette.bgSubtle))
@@ -178,7 +178,7 @@ struct UpdateModalView: View {
             }
         }
         .frame(height: 6)
-        .animation(.easeOut(duration: 0.2), value: progress)
+        .animation(Motion.list, value: progress)
     }
 
     /// The bottom row: an optional link on the left, buttons on the right.
@@ -252,7 +252,7 @@ struct UpdateModalView: View {
 
     private func dismissModal() {
         if isBusy { return }
-        withAnimation(.easeInOut(duration: 0.15)) {
+        withAnimation(Motion.fade) {
             isPresented = false
         }
         DispatchQueue.main.async {
@@ -298,6 +298,6 @@ private struct UpdateButtonBody: View {
             .brightness(hoverFill == nil && !underlineOnHover && isHovered ? 0.04 : 0)
             .opacity(!isEnabled ? 0.4 : (configuration.isPressed ? 0.75 : 1))
             .onHover { isHovered = $0 }
-            .animation(.easeInOut(duration: 0.12), value: isHovered)
+            .animation(Motion.hover, value: isHovered)
     }
 }

@@ -63,7 +63,7 @@ struct MediaInfoPanel: View {
                     ProgressView()
                         .scaleEffect(0.9)
                     Text("Reading Media info...")
-                        .font(.ui(size: 10, weight: .semibold))
+                        .font(.ui(size: 11, weight: .semibold))
                         .foregroundColor(palette.textMuted)
                     Spacer()
                 }
@@ -98,7 +98,7 @@ struct MediaInfoPanel: View {
                 .font(.ui(size: 11, weight: .semibold))
                 .foregroundColor(palette.textMain)
             Text(emptyMessage)
-                .font(.ui(size: 10))
+                .font(.ui(size: 11))
                 .foregroundColor(palette.textSubtle)
                 .multilineTextAlignment(.center)
                 .padding(.horizontal, 24)
@@ -112,18 +112,18 @@ struct MediaInfoPanel: View {
     private func tracksView(info: ExtendedMediaInfo) -> some View {
         VStack(alignment: .leading, spacing: 12) {
             Text(info.isImage ? "Image" : "Track Inventory (\(info.tracks.count))")
-                .font(.ui(size: 10, weight: .semibold))
+                .font(.ui(size: 11, weight: .semibold))
                 .foregroundColor(palette.textMain)
             
             ForEach(info.tracks) { track in
                 VStack(alignment: .leading, spacing: 6) {
                     HStack {
                         Text(track.typeName)
-                            .font(.ui(size: 9.5, weight: .semibold))
+                            .font(.ui(size: 10, weight: .semibold))
                             .foregroundColor(track.typeName.contains("VIDEO") ? palette.accentPositive : (track.typeName.contains("AUDIO") ? palette.accentSlotB : palette.textMain))
                         Spacer()
                         Text(track.format.uppercased())
-                            .font(.ui(size: 8.5, weight: .semibold))
+                            .font(.ui(size: 10, weight: .semibold))
                             .padding(.horizontal, 6)
                             .padding(.vertical, 2)
                             .foregroundColor(palette.textMain)
@@ -187,7 +187,7 @@ struct MediaInfoPanel: View {
         VStack(alignment: .leading, spacing: 14) {
             VStack(alignment: .leading, spacing: 6) {
                 Text("File System")
-                    .font(.ui(size: 10, weight: .semibold))
+                    .font(.ui(size: 11, weight: .semibold))
                     .foregroundColor(palette.textMain)
                 
                 VStack(alignment: .leading, spacing: 5) {
@@ -195,14 +195,14 @@ struct MediaInfoPanel: View {
                     let fileName = effectiveAsset?.fileName ?? url?.lastPathComponent ?? "UNKNOWN"
                     HStack(alignment: .top, spacing: 6) {
                         Text("File Name:")
-                            .font(.ui(size: 10, weight: .semibold))
+                            .font(.ui(size: 11, weight: .semibold))
                             .foregroundColor(palette.textMuted)
                             .frame(width: 84, alignment: .leading)
                         
                         if let url = url {
                             Button(action: { revealInFinder(url) }) {
                                 Text(fileName)
-                                    .font(.ui(size: 10, weight: .semibold))
+                                    .font(.ui(size: 11, weight: .semibold))
                                     .foregroundColor(palette.textMain)
                                     .multilineTextAlignment(.leading)
                                     .fixedSize(horizontal: false, vertical: true)
@@ -214,7 +214,7 @@ struct MediaInfoPanel: View {
                             .help("Left click to reveal in Finder")
                         } else {
                             Text(fileName)
-                                .font(.ui(size: 10, weight: .semibold))
+                                .font(.ui(size: 11, weight: .semibold))
                                 .foregroundColor(palette.textMain)
                                 .multilineTextAlignment(.leading)
                                 .fixedSize(horizontal: false, vertical: true)
@@ -239,7 +239,7 @@ struct MediaInfoPanel: View {
                     VStack(alignment: .leading, spacing: 3) {
                         HStack {
                             Text("Path:")
-                                .font(.ui(size: 10, weight: .semibold))
+                                .font(.ui(size: 11, weight: .semibold))
                                 .foregroundColor(palette.textMuted)
                             
                             Spacer()
@@ -253,7 +253,7 @@ struct MediaInfoPanel: View {
                                         Image(systemName: "doc.on.doc")
                                             .font(.system(size: StudioTheme.scaleFont(8)))
                                         Text("Copy")
-                                            .font(.ui(size: 8, weight: .semibold))
+                                            .font(.ui(size: 10, weight: .semibold))
                                     }
                                     .foregroundColor(palette.textMuted)
                                     .padding(.horizontal, 4)
@@ -274,7 +274,7 @@ struct MediaInfoPanel: View {
                                         .foregroundColor(palette.accentBlue)
                                     
                                     Text(url.path)
-                                        .font(.ui(size: 9.5, weight: .medium))
+                                        .font(.ui(size: 10, weight: .medium))
                                         .foregroundColor(palette.textMain)
                                         .lineLimit(3)
                                         .truncationMode(.middle)
@@ -291,10 +291,10 @@ struct MediaInfoPanel: View {
                                 .padding(.vertical, 5)
                                 .frame(maxWidth: .infinity, alignment: .leading)
                                 .background(
-                                    RoundedRectangle(cornerRadius: 4)
+                                    RoundedRectangle(cornerRadius: Radius.control)
                                         .fill(palette.bgSubtle.opacity(0.8))
                                         .overlay(
-                                            RoundedRectangle(cornerRadius: 4)
+                                            RoundedRectangle(cornerRadius: Radius.control)
                                                 .stroke(palette.borderLine, lineWidth: 0.8)
                                         )
                                 )
@@ -322,7 +322,7 @@ struct MediaInfoPanel: View {
             if let asset = effectiveAsset {
                 VStack(alignment: .leading, spacing: 6) {
                     Text(info.isImage ? "Raster" : "Timing & Raster")
-                        .font(.ui(size: 10, weight: .semibold))
+                        .font(.ui(size: 11, weight: .semibold))
                         .foregroundColor(palette.textMain)
                     
                     VStack(alignment: .leading, spacing: 4) {
@@ -350,12 +350,12 @@ struct MediaInfoPanel: View {
     private func drawerInfoRow(label: String, value: String, copyable: Bool = false) -> some View {
         HStack(alignment: .top, spacing: 6) {
             Text(label)
-                .font(.ui(size: 10, weight: .semibold))
+                .font(.ui(size: 11, weight: .semibold))
                 .foregroundColor(palette.textMuted)
                 .frame(width: 84, alignment: .leading)
             
             Text(value)
-                .font(.ui(size: 10, weight: .medium))
+                .font(.ui(size: 11, weight: .medium))
                 .foregroundColor(palette.textMain)
                 .multilineTextAlignment(.leading)
                 .fixedSize(horizontal: false, vertical: true)
@@ -381,13 +381,13 @@ struct MediaInfoPanel: View {
     private func drawerAudioLevelRow(levelString: String, isMute: Bool) -> some View {
         HStack(alignment: .center, spacing: 6) {
             Text("Levels:")
-                .font(.ui(size: 10, weight: .semibold))
+                .font(.ui(size: 11, weight: .semibold))
                 .foregroundColor(palette.textMuted)
                 .frame(width: 84, alignment: .leading)
             
             HStack(spacing: 5) {
                 Text(levelString.isEmpty ? (isMute ? "Mute" : "--") : levelString)
-                    .font(.ui(size: 9.5, weight: .semibold))
+                    .font(.ui(size: 10, weight: .semibold))
                     .foregroundColor(isMute ? palette.alertRed : palette.accentPositive)
                     .padding(.horizontal, 5)
                     .padding(.vertical, 1.5)
@@ -402,11 +402,11 @@ struct MediaInfoPanel: View {
                 
                 if isMute {
                     Text("Silent")
-                        .font(.ui(size: 8.5, weight: .semibold))
+                        .font(.ui(size: 10, weight: .semibold))
                         .foregroundColor(palette.alertRed)
                 } else {
                     Text("Loudness")
-                        .font(.ui(size: 8.5, weight: .medium))
+                        .font(.ui(size: 10, weight: .medium))
                         .foregroundColor(palette.textMuted)
                 }
             }
@@ -439,7 +439,7 @@ struct MediaInfoPanel: View {
                         Image(systemName: "doc.on.doc")
                             .font(.system(size: StudioTheme.scaleFont(8.5), weight: .bold))
                         Text("Specs")
-                            .font(.ui(size: 8.5, weight: .semibold))
+                            .font(.ui(size: 10, weight: .semibold))
                     }
                     .padding(.horizontal, 7)
                     .padding(.vertical, 5)
@@ -458,7 +458,7 @@ struct MediaInfoPanel: View {
                         Image(systemName: "folder")
                             .font(.system(size: StudioTheme.scaleFont(8.5), weight: .bold))
                         Text("Reveal")
-                            .font(.ui(size: 8.5, weight: .semibold))
+                            .font(.ui(size: 10, weight: .semibold))
                     }
                     .padding(.horizontal, 7)
                     .padding(.vertical, 5)

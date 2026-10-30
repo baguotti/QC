@@ -557,7 +557,7 @@ public struct PropertiesModalView: View {
                     // Close ESC Button
                     Button(action: { dismissModal() }) {
                         Text("Esc")
-                            .font(.ui(size: 9, weight: .semibold))
+                            .font(.ui(size: 10, weight: .semibold))
                             .padding(.horizontal, 7)
                             .padding(.vertical, 3)
                             .foregroundColor(palette.textMuted)
@@ -609,7 +609,7 @@ public struct PropertiesModalView: View {
                             .foregroundColor(palette.textMain)
                         if let effectiveURL = effectiveURL {
                             Text(effectiveURL.path)
-                                .font(.ui(size: 10))
+                                .font(.ui(size: 11))
                                 .foregroundColor(palette.textSubtle)
                                 .multilineTextAlignment(.center)
                                 .padding(.horizontal, 24)
@@ -649,7 +649,7 @@ public struct PropertiesModalView: View {
         HStack(spacing: 4) {
             ForEach(MediaInfoTab.allCases) { tab in
                 Button(action: {
-                    withAnimation(.easeInOut(duration: 0.12)) {
+                    withAnimation(Motion.hover) {
                         selectedTab = tab
                     }
                 }) {
@@ -692,13 +692,13 @@ public struct PropertiesModalView: View {
                 VStack(alignment: .leading, spacing: 8) {
                     HStack {
                         Text(track.typeName)
-                            .font(.ui(size: 10, weight: .semibold))
+                            .font(.ui(size: 11, weight: .semibold))
                             .foregroundColor(track.typeName.contains("VIDEO") ? palette.accentPositive : (track.typeName.contains("AUDIO") ? palette.accentSlotB : palette.textMain))
                         
                         Spacer()
                         
                         Text(track.format.uppercased())
-                            .font(.ui(size: 9, weight: .semibold))
+                            .font(.ui(size: 10, weight: .semibold))
                             .padding(.horizontal, 8)
                             .padding(.vertical, 3)
                             .foregroundColor(palette.textMain)
@@ -838,7 +838,7 @@ public struct PropertiesModalView: View {
                         Image(systemName: "doc.on.doc")
                             .font(.system(size: StudioTheme.scaleFont(9), weight: .bold))
                         Text("Copy Specs")
-                            .font(.ui(size: 9, weight: .semibold))
+                            .font(.ui(size: 10, weight: .semibold))
                     }
                     .padding(.horizontal, 9)
                     .padding(.vertical, 6)
@@ -856,7 +856,7 @@ public struct PropertiesModalView: View {
                         Image(systemName: "folder")
                             .font(.system(size: StudioTheme.scaleFont(9), weight: .bold))
                         Text("Reveal")
-                            .font(.ui(size: 9, weight: .semibold))
+                            .font(.ui(size: 10, weight: .semibold))
                     }
                     .padding(.horizontal, 8)
                     .padding(.vertical, 6)
@@ -873,9 +873,9 @@ public struct PropertiesModalView: View {
                 }) {
                     HStack(spacing: 3) {
                         Text("+A")
-                            .font(.ui(size: 9, weight: .semibold))
+                            .font(.ui(size: 10, weight: .semibold))
                         Text("Master")
-                            .font(.ui(size: 9, weight: .semibold))
+                            .font(.ui(size: 10, weight: .semibold))
                     }
                     .padding(.horizontal, 8)
                     .padding(.vertical, 6)
@@ -890,9 +890,9 @@ public struct PropertiesModalView: View {
                 }) {
                     HStack(spacing: 3) {
                         Text("+B")
-                            .font(.ui(size: 9, weight: .semibold))
+                            .font(.ui(size: 10, weight: .semibold))
                         Text("Compare")
-                            .font(.ui(size: 9, weight: .semibold))
+                            .font(.ui(size: 10, weight: .semibold))
                     }
                     .padding(.horizontal, 8)
                     .padding(.vertical, 6)
@@ -962,7 +962,7 @@ public struct PropertiesModalView: View {
     }
     
     private func dismissModal() {
-        withAnimation(.easeInOut(duration: 0.15)) {
+        withAnimation(Motion.fade) {
             isPresented = false
         }
         DispatchQueue.main.async {

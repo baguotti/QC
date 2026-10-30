@@ -36,6 +36,38 @@ enum AppTab: Int, CaseIterable, Identifiable {
     }
 }
 
+// MARK: - Motion
+
+/// The app's few animations, so the same gesture moves the same way on every tab.
+enum Motion {
+    /// A side panel (sleeve, drawer) sliding in or out: the slight bounce of every tab's panels.
+    static let sleeve = Animation.spring(response: 0.32, dampingFraction: 0.78)
+    /// Switching pages inside a drawer (Media Info / Notes, Downloads, Log).
+    static let page = Animation.spring(response: 0.32, dampingFraction: 0.84)
+    /// Hover highlights.
+    static let hover = Animation.easeInOut(duration: 0.12)
+    /// Modals, popovers and small fades.
+    static let fade = Animation.easeInOut(duration: 0.15)
+    /// Content changing inside a view: rows added or removed, folders expanding, scrolling to a row, notices.
+    static let list = Animation.easeInOut(duration: 0.2)
+    /// A quick settle with no bounce: switching the main tab, dropping dragged items into place.
+    static let snap = Animation.spring(response: 0.22, dampingFraction: 0.85)
+    /// A toast popping in (it leaves with `list`).
+    static let toast = Animation.spring(response: 0.3, dampingFraction: 0.7)
+    /// A button's press-in.
+    static let press = Animation.easeOut(duration: 0.1)
+}
+
+/// Corner radii. `StudioTheme.cornerRadius` (4) is the control radius; these name the rest of the scale.
+enum Radius {
+    /// Buttons, fields, rows, boxes, cards: the master radius.
+    static let control = StudioTheme.cornerRadius
+    /// A segment inside a pill (the drawer tabs' selected tab).
+    static let segment: CGFloat = 6
+    /// A pill or container that holds segments, and floating panels.
+    static let container: CGFloat = 8
+}
+
 // MARK: - Typography
 
 /// The app's type scale. Every `Font.ui` size snaps to one of six steps (10 caption, 11 small, 12 body, 13 emphasis,
@@ -70,6 +102,9 @@ struct StudioTheme {
     /// Master corner radius controlling all boxes, buttons, cards, and input fields.
     /// Tweak this single value to adjust corner rounding across the entire app.
     nonisolated static let cornerRadius: CGFloat = 4.0
+
+    /// Height of every header band (`headerBand`), divider included: fits a 26pt control or a two-line title.
+    static var headerBandHeight: CGFloat { scale(46) }
     
     static var buttonZoom: UIButtonZoomLevel { ThemeManager.shared.buttonZoom }
     static func scale(_ val: CGFloat) -> CGFloat { ThemeManager.shared.scale(val) }
@@ -194,6 +229,57 @@ public struct StudioPalette {
 
 // MARK: - Minimal Borderless Transport Button Style
 
+/// The chevron that slides a tab's side panel in and out (⌘⇧← / ⌘⇧→), the same on every tab: it points the way
+/// the panel will move, and animates with `Motion.sleeve`.
+struct SleeveToggle: View {
+    enum Side { case leading, trailing }
+    let side: Side
+    let isOpen: Bool
+    let isLightMode: Bool
+    var isEnabled = true
+    let help: String
+    let action: () -> Void
+
+    private var symbol: String {
+        switch side {
+        case .leading: return isOpen ? "chevron.left" : "chevron.right"
+        case .trailing: return isOpen ? "chevron.right" : "chevron.left"
+        }
+    }
+
+    var body: some View {
+        let palette = StudioPalette(isLightMode)
+        Button(action: { withAnimation(Motion.sleeve, action) }) {
+            Image(systemName: symbol)
+                .font(.system(size: StudioTheme.scaleFont(11), weight: .bold))
+                .frame(width: StudioTheme.scale(24), height: StudioTheme.scale(26))
+                .foregroundColor(isEnabled ? palette.textMain : palette.textMuted)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(TransportIconButtonStyle())
+        .disabled(!isEnabled)
+        .explain(help)
+    }
+}
+
+/// The ✕ beside a drawer's tab pill (Play's review sleeve, the Upload drawer): closes it like its chevron and ⌘⇧→.
+struct DrawerCloseButton: View {
+    let isLightMode: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: { withAnimation(Motion.sleeve, action) }) {
+            Image(systemName: "xmark")
+                .font(.system(size: StudioTheme.scaleFont(10), weight: .bold))
+                .foregroundColor(StudioPalette(isLightMode).textMuted)
+                .padding(6)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .tip("Close the drawer (⌘⇧→)")
+    }
+}
+
 struct TransportIconButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         TransportIconButtonBody(configuration: configuration)
@@ -214,8 +300,8 @@ private struct TransportIconButtonBody: View {
                     .fill(Color.primary.opacity(isEnabled && isHovered ? 0.05 : 0.0))
             )
             .scaleEffect(configuration.isPressed ? 0.94 : 1.0)
-            .animation(.easeOut(duration: 0.1), value: configuration.isPressed)
-            .animation(.easeInOut(duration: 0.12), value: isHovered)
+            .animation(Motion.press, value: configuration.isPressed)
+            .animation(Motion.hover, value: isHovered)
             .onHover { hovering in
                 if isEnabled {
                     isHovered = hovering
@@ -293,11 +379,17 @@ extension View {
         self.help(text).explain(text)
     }
     
-    /// A panel's header band under the tab strip: flat, with a bottom divider only (a boxed header doubles the strip's line).
-    func panelHeaderBar(background: Color, divider: Color) -> some View {
+    /// The header band under the tab strip, for every column of every tab (left panel, center, drawer): one fixed
+    /// height, so the bands and their dividers line up straight across the window. Flat, with a bottom divider only
+    /// (a boxed header doubles the strip's line). The divider is inside the height.
+    func headerBand(_ palette: StudioPalette, horizontalPadding: CGFloat = 16) -> some View {
         self
-            .background(background)
-            .overlay(alignment: .bottom) { Rectangle().fill(divider).frame(height: 1) }
+            .padding(.horizontal, horizontalPadding)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .frame(height: StudioTheme.headerBandHeight - 1)
+            .background(palette.bgCardHeader)
+            .padding(.bottom, 1)
+            .background(alignment: .bottom) { Rectangle().fill(palette.borderLine).frame(height: 1) }
     }
     
     /// Applies the rounded studio box background and border using master corner radius

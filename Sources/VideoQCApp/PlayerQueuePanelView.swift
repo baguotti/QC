@@ -219,10 +219,10 @@ public struct PlayerQueuePanelView: View, Equatable {
                             .font(.system(size: StudioTheme.scaleFont(24)))
                             .foregroundColor(textMuted)
                         Text("No Video Files Loaded")
-                            .font(.ui(size: 10, weight: .semibold))
+                            .font(.ui(size: 11, weight: .semibold))
                             .foregroundColor(textMuted)
                         Text("Select or drop a folder to populate playback queue.")
-                            .font(.ui(size: 9))
+                            .font(.ui(size: 10))
                             .foregroundColor(textSubtle)
                             .multilineTextAlignment(.center)
                         Spacer()
@@ -255,7 +255,7 @@ public struct PlayerQueuePanelView: View, Equatable {
                         }
                         .onChange(of: queueScrollTarget) { _, targetURL in
                             if let targetURL = targetURL {
-                                withAnimation(.easeInOut(duration: 0.15)) {
+                                withAnimation(Motion.fade) {
                                     scrollProxy.scrollTo(targetURL.path, anchor: nil)
                                 }
                             }
@@ -281,7 +281,7 @@ public struct PlayerQueuePanelView: View, Equatable {
                         Image(systemName: "xmark")
                             .font(.system(size: StudioTheme.scaleFont(8), weight: .bold))
                         Text("Clear List")
-                            .font(.ui(size: 9, weight: .semibold))
+                            .font(.ui(size: 10, weight: .semibold))
                     }
                     .foregroundColor(textMuted)
                     .frame(maxWidth: .infinity, alignment: .center)
@@ -426,14 +426,14 @@ public struct PlayerQueuePanelView: View, Equatable {
                 .frame(width: 14, height: 14)
             
             Text(node.name)
-                .font(.ui(size: 10, weight: .semibold))
+                .font(.ui(size: 11, weight: .semibold))
                 .foregroundColor(textMain)
                 .lineLimit(1)
             
             Spacer()
             
             Text("\(node.videoCount)")
-                .font(.ui(size: 8, weight: .semibold))
+                .font(.ui(size: 10, weight: .semibold))
                 .foregroundColor(textSubtle)
                 .padding(.horizontal, 5)
                 .padding(.vertical, 1)
@@ -510,7 +510,7 @@ public struct PlayerQueuePanelView: View, Equatable {
     
     // MARK: - Queue View Options Popover (Thumbnail View / List View / Size Slider)
     private func revealFolderContaining(url: URL) {
-        withAnimation(.easeInOut(duration: 0.2)) {
+        withAnimation(Motion.list) {
             FileSystemTreeBuilder.expandAncestors(of: url, in: playerTreeNodes, collapsedIDs: &playerCollapsedFolderIDs)
         }
     }

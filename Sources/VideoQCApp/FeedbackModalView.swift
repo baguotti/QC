@@ -99,7 +99,7 @@ struct FeedbackModalView: View {
                             .foregroundColor(textMain)
                         
                         Text("To: \(targetEmail)")
-                            .font(.ui(size: 9, weight: .semibold))
+                            .font(.ui(size: 10, weight: .semibold))
                             .foregroundColor(textMuted)
                             .padding(.horizontal, 6)
                             .padding(.vertical, 2)
@@ -112,7 +112,7 @@ struct FeedbackModalView: View {
                         }
                     }) {
                         Text("Close (Esc)")
-                            .font(.ui(size: 10, weight: .semibold))
+                            .font(.ui(size: 11, weight: .semibold))
                             .padding(.horizontal, 9)
                             .padding(.vertical, 5)
                             .foregroundColor(textMain)
@@ -154,7 +154,7 @@ struct FeedbackModalView: View {
                         // Category Picker
                         VStack(alignment: .leading, spacing: 6) {
                             Text("Category")
-                                .font(.ui(size: 10, weight: .semibold))
+                                .font(.ui(size: 11, weight: .semibold))
                                 .foregroundColor(textMuted)
                             
                             HStack(spacing: 8) {
@@ -164,7 +164,7 @@ struct FeedbackModalView: View {
                                             Image(systemName: type.icon)
                                                 .font(.system(size: StudioTheme.scaleFont(10)))
                                             Text(type.rawValue)
-                                                .font(.ui(size: 10, weight: .semibold))
+                                                .font(.ui(size: 11, weight: .semibold))
                                         }
                                         .padding(.horizontal, 10)
                                         .padding(.vertical, 6)
@@ -181,11 +181,11 @@ struct FeedbackModalView: View {
                         VStack(alignment: .leading, spacing: 6) {
                             HStack {
                                 Text("Your Email (Optional)")
-                                    .font(.ui(size: 10, weight: .semibold))
+                                    .font(.ui(size: 11, weight: .semibold))
                                     .foregroundColor(textMuted)
                                 Spacer()
                                 Text("For follow-up replies")
-                                    .font(.ui(size: 9))
+                                    .font(.ui(size: 10))
                                     .foregroundColor(textSubtle)
                             }
                             
@@ -202,11 +202,11 @@ struct FeedbackModalView: View {
                         VStack(alignment: .leading, spacing: 6) {
                             HStack {
                                 Text("Message / Notes")
-                                    .font(.ui(size: 10, weight: .semibold))
+                                    .font(.ui(size: 11, weight: .semibold))
                                     .foregroundColor(textMuted)
                                 Spacer()
                                 Text("\(feedbackText.count) chars")
-                                    .font(.ui(size: 9))
+                                    .font(.ui(size: 10))
                                     .foregroundColor(textSubtle)
                             }
                             
@@ -236,10 +236,10 @@ struct FeedbackModalView: View {
                             
                             VStack(alignment: .leading, spacing: 2) {
                                 Text("Include app version and macOS build specs")
-                                    .font(.ui(size: 10, weight: .semibold))
+                                    .font(.ui(size: 11, weight: .semibold))
                                     .foregroundColor(textMain)
                                 Text("QCpie v\(AppVersionInfo.version) • macOS \(ProcessInfo.processInfo.operatingSystemVersionString)")
-                                    .font(.ui(size: 9))
+                                    .font(.ui(size: 10))
                                     .foregroundColor(textMuted)
                             }
                             
@@ -261,8 +261,8 @@ struct FeedbackModalView: View {
                             Image(systemName: "checkmark.circle.fill")
                                 .font(.system(size: StudioTheme.scaleFont(10)))
                                 .foregroundColor(accentPositive)
-                            Text("Copied to Clipboard!")
-                                .font(.ui(size: 10, weight: .semibold))
+                            Text("Copied to Clipboard")
+                                .font(.ui(size: 11, weight: .semibold))
                                 .foregroundColor(accentPositive)
                         }
                         .transition(.opacity)
@@ -272,7 +272,7 @@ struct FeedbackModalView: View {
                                 .font(.system(size: StudioTheme.scaleFont(10)))
                                 .foregroundColor(accentNegative)
                             Text(err)
-                                .font(.ui(size: 9, weight: .semibold))
+                                .font(.ui(size: 10, weight: .semibold))
                                 .foregroundColor(accentNegative)
                                 .lineLimit(1)
                         }
@@ -288,7 +288,7 @@ struct FeedbackModalView: View {
                                 Image(systemName: "doc.on.doc")
                                     .font(.system(size: StudioTheme.scaleFont(10)))
                                 Text("Copy")
-                                    .font(.ui(size: 10, weight: .semibold))
+                                    .font(.ui(size: 11, weight: .semibold))
                             }
                             .padding(.horizontal, 12)
                             .padding(.vertical, 7)
@@ -306,12 +306,12 @@ struct FeedbackModalView: View {
                                         .scaleEffect(0.6)
                                         .frame(width: 12, height: 12)
                                     Text("Sending...")
-                                        .font(.ui(size: 10, weight: .semibold))
+                                        .font(.ui(size: 11, weight: .semibold))
                                 } else {
                                     Image(systemName: "paperplane.fill")
                                         .font(.system(size: StudioTheme.scaleFont(10)))
                                     Text("Send Feedback")
-                                        .font(.ui(size: 10, weight: .semibold))
+                                        .font(.ui(size: 11, weight: .semibold))
                                 }
                             }
                             .padding(.horizontal, 16)
@@ -324,7 +324,7 @@ struct FeedbackModalView: View {
                     } else {
                         Button(action: { dismissModal() }) {
                             Text("Done")
-                                .font(.ui(size: 10, weight: .semibold))
+                                .font(.ui(size: 11, weight: .semibold))
                                 .padding(.horizontal, 16)
                                 .padding(.vertical, 7)
                                 .foregroundColor(primaryBtnFg)
@@ -345,7 +345,7 @@ struct FeedbackModalView: View {
     }
     
     private func dismissModal() {
-        withAnimation(.easeInOut(duration: 0.15)) {
+        withAnimation(Motion.fade) {
             isPresented = false
         }
         DispatchQueue.main.async {
@@ -360,11 +360,11 @@ struct FeedbackModalView: View {
         let text = fullEmailBody
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(text, forType: .string)
-        withAnimation(.easeInOut(duration: 0.2)) {
+        withAnimation(Motion.list) {
             copySuccessNotice = true
         }
         DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) {
-            withAnimation(.easeInOut(duration: 0.2)) {
+            withAnimation(Motion.list) {
                 copySuccessNotice = false
             }
         }
@@ -422,11 +422,11 @@ struct FeedbackModalView: View {
                 }
                 
                 if let success = json["success"] as? Bool, success {
-                    withAnimation(.easeInOut(duration: 0.25)) {
+                    withAnimation(Motion.list) {
                         self.sendSuccess = true
                     }
                     DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
-                        withAnimation {
+                        withAnimation(Motion.list) {
                             self.isPresented = false
                         }
                     }

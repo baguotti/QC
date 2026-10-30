@@ -187,19 +187,19 @@ struct ContentView: View {
     
     private var contentWithAnimations: some View {
         baseContent
-            .animation(.easeInOut(duration: 0.15), value: showUserGuide)
-            .animation(.easeInOut(duration: 0.15), value: showFeedbackModal)
-            .animation(.easeInOut(duration: 0.15), value: showThemeModal)
-            .animation(.easeInOut(duration: 0.15), value: showSyncModal)
-            .animation(.easeInOut(duration: 0.15), value: showUserSettingsModal)
-            .animation(.easeInOut(duration: 0.15), value: showPropertiesModal)
-            .animation(.easeInOut(duration: 0.15), value: showAddNoteModal)
-            // The Play tab's sleeves bounce like the Upload drawer (this overrides the callers' `withAnimation`).
-            .animation(.spring(response: 0.32, dampingFraction: 0.78), value: showNotesDrawer)
-            .animation(.spring(response: 0.32, dampingFraction: 0.78), value: showPlayerQueue)
-            .animation(.easeInOut(duration: 0.15), value: showSpecsControlPanel)
-            .animation(.easeInOut(duration: 0.15), value: fullscreenMode)
-            .animation(.spring(response: 0.3, dampingFraction: 0.7), value: toastMessage)
+            .animation(Motion.fade, value: showUserGuide)
+            .animation(Motion.fade, value: showFeedbackModal)
+            .animation(Motion.fade, value: showThemeModal)
+            .animation(Motion.fade, value: showSyncModal)
+            .animation(Motion.fade, value: showUserSettingsModal)
+            .animation(Motion.fade, value: showPropertiesModal)
+            .animation(Motion.fade, value: showAddNoteModal)
+            // Every tab's sleeves bounce alike (these override the callers' `withAnimation`).
+            .animation(Motion.sleeve, value: showNotesDrawer)
+            .animation(Motion.sleeve, value: showPlayerQueue)
+            .animation(Motion.sleeve, value: showSpecsControlPanel)
+            .animation(Motion.fade, value: fullscreenMode)
+            .animation(Motion.toast, value: toastMessage)
     }
     
     private var contentWithChangeHandlers: some View {
@@ -390,7 +390,7 @@ struct ContentView: View {
                 isLoading: isInspectingProperties,
                 isLightMode: isLightMode,
                 onCopySpecs: { _ in
-                    showToast("Specs copied to clipboard!")
+                    showToast("Specs copied to clipboard")
                 },
                 onRevealInFinder: { url in
                     NSWorkspace.shared.activateFileViewerSelecting([url])
@@ -478,7 +478,7 @@ struct ContentView: View {
                 .padding(.vertical, 10)
                 .background(bgPanel.opacity(0.96))
                 .overlay(
-                    RoundedRectangle(cornerRadius: 6)
+                    RoundedRectangle(cornerRadius: Radius.segment)
                         .stroke(accentPositive.opacity(0.6), lineWidth: 1)
                 )
                 .cornerRadius(6)
@@ -502,7 +502,7 @@ struct ContentView: View {
                         Image(systemName: "arrow.down.circle.fill")
                             .font(.system(size: StudioTheme.scaleFont(10)))
                         Text("UPDATE v\(updateManager.latestVersion)")
-                            .font(.ui(size: 10, weight: .semibold))
+                            .font(.ui(size: 11, weight: .semibold))
                     }
                     .padding(.horizontal, 8)
                     .padding(.vertical, 5)
@@ -569,7 +569,7 @@ struct ContentView: View {
                     Button(action: {
                         showSettingsPopover = false
                         DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) {
-                            withAnimation(.easeInOut(duration: 0.15)) {
+                            withAnimation(Motion.fade) {
                                 showUserSettingsModal = true
                             }
                         }
@@ -595,7 +595,7 @@ struct ContentView: View {
                     Button(action: {
                         showSettingsPopover = false
                         DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) {
-                            withAnimation(.easeInOut(duration: 0.15)) {
+                            withAnimation(Motion.fade) {
                                 showThemeModal = true
                             }
                         }
@@ -610,7 +610,7 @@ struct ContentView: View {
                                     .font(.ui(size: 11, weight: .semibold))
                                     .foregroundColor(textMain)
                                 Text(themeManager.currentTheme.name)
-                                    .font(.ui(size: 9, weight: .medium))
+                                    .font(.ui(size: 10, weight: .medium))
                                     .foregroundColor(themeManager.currentTheme.playColor)
                                     .lineLimit(1)
                             }
@@ -634,7 +634,7 @@ struct ContentView: View {
                     Button(action: {
                         showSettingsPopover = false
                         DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) {
-                            withAnimation(.easeInOut(duration: 0.15)) {
+                            withAnimation(Motion.fade) {
                                 showSyncModal = true
                             }
                         }
@@ -660,7 +660,7 @@ struct ContentView: View {
                     Button(action: {
                         showSettingsPopover = false
                         DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) {
-                            withAnimation(.easeInOut(duration: 0.15)) {
+                            withAnimation(Motion.fade) {
                                 showUserGuide = true
                             }
                         }
@@ -686,7 +686,7 @@ struct ContentView: View {
                     Button(action: {
                         showSettingsPopover = false
                         DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) {
-                            withAnimation(.easeInOut(duration: 0.15)) {
+                            withAnimation(Motion.fade) {
                                 showFeedbackModal = true
                             }
                         }
@@ -774,7 +774,7 @@ struct ContentView: View {
         }
         .buttonStyle(.plain)
         .onHover { hovering in
-            withAnimation(.easeInOut(duration: 0.12)) {
+            withAnimation(Motion.hover) {
                 if hovering {
                     hoveredTab = tab
                 } else if hoveredTab == tab {
@@ -815,7 +815,7 @@ struct ContentView: View {
     // MARK: - Folder Grouping Helpers
     
     func toggleHideFolders() {
-        withAnimation(.easeInOut(duration: 0.2)) {
+        withAnimation(Motion.list) {
             if hideAllFolders || !hiddenFolderIDs.isEmpty {
                 hideAllFolders = false
                 hiddenFolderIDs.removeAll()
@@ -826,14 +826,14 @@ struct ContentView: View {
     }
     
     func hideSpecificFolder(id: String) {
-        withAnimation(.easeInOut(duration: 0.2)) {
+        withAnimation(Motion.list) {
             _ = hiddenFolderIDs.insert(id)
         }
     }
     
     /// Empties the asset list (all tabs share it) and closes both player slots.
     func clearQueue() {
-        withAnimation(.easeInOut(duration: 0.2)) {
+        withAnimation(Motion.list) {
             playerEngine.clearSlotB()
             playerEngine.unload()
             videoFiles = []
@@ -853,7 +853,7 @@ struct ContentView: View {
     
     func clearFolder(node: FileSystemTreeNode) {
         let urlsToRemove = Set(node.videoURLs.map { $0.standardizedFileURL.path })
-        withAnimation(.easeInOut(duration: 0.2)) {
+        withAnimation(Motion.list) {
             videoFiles.removeAll { urlsToRemove.contains($0.standardizedFileURL.path) }
             specsState.deliverableAssets.removeAll { urlsToRemove.contains($0.fileURL.standardizedFileURL.path) }
             scannerState.scanResults.removeAll { urlsToRemove.contains($0.fileURL.standardizedFileURL.path) }
@@ -1083,7 +1083,7 @@ struct ContentView: View {
         guard !urls.isEmpty else { return }
         self.selectedTab = .player
         if isInitialLaunch {
-            withAnimation(.easeInOut(duration: 0.15)) {
+            withAnimation(Motion.fade) {
                 self.showPlayerQueue = false
             }
             self.playerEngine.clipInfoOverlayMode = .off
@@ -1202,7 +1202,7 @@ struct ContentView: View {
         if let url = URL(string: "https://sheets.new") {
             NSWorkspace.shared.open(url)
         }
-        showToast("Scan report copied! Press ⌘V in Google Sheets.")
+        showToast("Scan report copied. Press ⌘V in Google Sheets.")
     }
     
     // MARK: - Player Queue Refresh
@@ -1287,7 +1287,7 @@ struct ContentView: View {
     // MARK: - Deliverables Specs Execution
     
     func playDeliverableInPlayer(url: URL) {
-        withAnimation(.spring(response: 0.22, dampingFraction: 0.85)) {
+        withAnimation(Motion.snap) {
             selectedTab = .player
         }
         playerEngine.loadVideo(url: url, into: .slotA, autoplay: true)
@@ -1310,18 +1310,18 @@ struct ContentView: View {
         if let url = URL(string: "https://sheets.new") {
             NSWorkspace.shared.open(url)
         }
-        showToast("Specs copied! Press ⌘V in Google Sheets.")
+        showToast("Specs copied. Press ⌘V in Google Sheets.")
     }
     
     func showToast(_ message: String) {
         toastDismissTask?.cancel()
-        withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
+        withAnimation(Motion.toast) {
             self.toastMessage = message
         }
         toastDismissTask = Task { @MainActor in
             try? await Task.sleep(nanoseconds: 3_500_000_000)
             guard !Task.isCancelled else { return }
-            withAnimation(.easeOut(duration: 0.25)) {
+            withAnimation(Motion.list) {
                 self.toastMessage = nil
             }
         }
@@ -1339,11 +1339,11 @@ struct ContentView: View {
     func statBox(title: String, val: String, isRed: Bool = false, isPositive: Bool = false) -> some View {
         VStack(alignment: .leading, spacing: 4) {
             Text(title)
-                .font(.ui(size: 8, weight: .semibold))
+                .font(.ui(size: 10, weight: .semibold))
                 .foregroundColor(textMuted)
                 .lineLimit(1)
             Text(val)
-                .font(.ui(size: 16, weight: .semibold))
+                .font(.ui(size: 15, weight: .semibold))
                 .foregroundColor(isRed ? alertRed : (isPositive ? accentPositive : textMain))
                 .lineLimit(1)
         }
@@ -1355,7 +1355,7 @@ struct ContentView: View {
     func statItem(label: String, val: String, width: CGFloat? = nil, isAlert: Bool = false, isPositive: Bool = false) -> some View {
         VStack(alignment: .leading, spacing: 2) {
             Text(label)
-                .font(.ui(size: 8, weight: .semibold))
+                .font(.ui(size: 10, weight: .semibold))
                 .foregroundColor(textMuted)
                 .lineLimit(1)
             Text(val)
@@ -1438,39 +1438,39 @@ struct ContentView: View {
     
     func dismissTopmostModalOrFullscreen() -> Bool {
         if showPropertiesModal {
-            withAnimation(.easeInOut(duration: 0.15)) { showPropertiesModal = false }
+            withAnimation(Motion.fade) { showPropertiesModal = false }
             return true
         }
         if showAddNoteModal {
-            withAnimation(.easeInOut(duration: 0.15)) { showAddNoteModal = false }
+            withAnimation(Motion.fade) { showAddNoteModal = false }
             return true
         }
         if showNotesDrawer {
-            withAnimation(.easeInOut(duration: 0.15)) { showNotesDrawer = false }
+            withAnimation(Motion.fade) { showNotesDrawer = false }
             return true
         }
         if showThemeModal {
-            withAnimation(.easeInOut(duration: 0.15)) { showThemeModal = false }
+            withAnimation(Motion.fade) { showThemeModal = false }
             return true
         }
         if showSyncModal {
-            withAnimation(.easeInOut(duration: 0.15)) { showSyncModal = false }
+            withAnimation(Motion.fade) { showSyncModal = false }
             return true
         }
         if showUserSettingsModal {
-            withAnimation(.easeInOut(duration: 0.15)) { showUserSettingsModal = false }
+            withAnimation(Motion.fade) { showUserSettingsModal = false }
             return true
         }
         if showUserGuide {
-            withAnimation(.easeInOut(duration: 0.15)) { showUserGuide = false }
+            withAnimation(Motion.fade) { showUserGuide = false }
             return true
         }
         if showFeedbackModal {
-            withAnimation(.easeInOut(duration: 0.15)) { showFeedbackModal = false }
+            withAnimation(Motion.fade) { showFeedbackModal = false }
             return true
         }
         if updateManager.showModal {
-            withAnimation(.easeInOut(duration: 0.15)) { updateManager.showModal = false }
+            withAnimation(Motion.fade) { updateManager.showModal = false }
             return true
         }
         if fullscreenMode != .none {
@@ -1494,24 +1494,24 @@ struct ContentView: View {
                 self.decreaseThumbnailSize()
             },
             onZoomIn: {
-                withAnimation(.easeInOut(duration: 0.15)) {
+                withAnimation(Motion.fade) {
                     _ = self.themeManager.increaseButtonZoom()
                 }
                 self.showToast("Button size: \(self.themeManager.buttonZoom.title) (\(String(format: "%g", self.themeManager.buttonZoom.scaleFactor))×)")
             },
             onZoomOut: {
-                withAnimation(.easeInOut(duration: 0.15)) {
+                withAnimation(Motion.fade) {
                     _ = self.themeManager.decreaseButtonZoom()
                 }
                 self.showToast("Button size: \(self.themeManager.buttonZoom.title) (\(String(format: "%g", self.themeManager.buttonZoom.scaleFactor))×)")
             },
             onSelectPlayerTab: {
-                withAnimation(.spring(response: 0.22, dampingFraction: 0.85)) {
+                withAnimation(Motion.snap) {
                     self.selectedTab = .player
                 }
             },
             onSelectSpecsTab: {
-                withAnimation(.spring(response: 0.22, dampingFraction: 0.85)) {
+                withAnimation(Motion.snap) {
                     self.selectedTab = .specs
                 }
                 if self.specsState.deliverableAssets.isEmpty && !self.videoFiles.isEmpty {
@@ -1519,22 +1519,22 @@ struct ContentView: View {
                 }
             },
             onSelectLineFinderTab: {
-                withAnimation(.spring(response: 0.22, dampingFraction: 0.85)) {
+                withAnimation(Motion.snap) {
                     self.selectedTab = .lineFinder
                 }
             },
             onSelectUploadTab: {
-                withAnimation(.spring(response: 0.22, dampingFraction: 0.85)) {
+                withAnimation(Motion.snap) {
                     self.selectedTab = .upload
                 }
             },
             onToggleLightMode: {
-                withAnimation(.easeInOut(duration: 0.15)) {
+                withAnimation(Motion.fade) {
                     self.isLightMode.toggle()
                 }
             },
             onCycleAccentTheme: {
-                withAnimation(.easeInOut(duration: 0.15)) {
+                withAnimation(Motion.fade) {
                     ThemeManager.shared.cycleAccentTheme()
                 }
             },
@@ -1631,18 +1631,21 @@ struct ContentView: View {
             onToggleProperties: { self.togglePropertiesModalForActiveOrSelected() },
             onToggleLeftSleeve: {
                 if self.selectedTab == .player {
-                    withAnimation(.spring(response: 0.32, dampingFraction: 0.78)) {
+                    withAnimation(Motion.sleeve) {
                         self.showPlayerQueue.toggle()
                     }
                 } else if self.selectedTab == .specs {
-                    withAnimation(.spring(response: 0.32, dampingFraction: 0.78)) {
+                    withAnimation(Motion.sleeve) {
                         self.showSpecsControlPanel.toggle()
                     }
+                } else if self.selectedTab == .upload {
+                    // The Upload tab's Assets & Queue panel (it animates on the stored value).
+                    UserDefaults.standard.set(!UserDefaults.standard.bool(forKey: "uploadQueueOpen"), forKey: "uploadQueueOpen")
                 }
             },
             onToggleRightSleeve: {
                 if self.selectedTab == .player {
-                    withAnimation(.spring(response: 0.32, dampingFraction: 0.78)) {
+                    withAnimation(Motion.sleeve) {
                         if !self.showNotesDrawer {
                             self.playerDrawerTab = self.currentFileHasNotes ? .notes : .mediaInfo
                         }
@@ -1650,7 +1653,7 @@ struct ContentView: View {
                     }
                 } else if self.selectedTab == .upload {
                     // The Upload tab's drawer (Media Info, Downloads, Log), as its header chevron does.
-                    withAnimation(.spring(response: 0.32, dampingFraction: 0.78)) {
+                    withAnimation(Motion.sleeve) {
                         UserDefaults.standard.set(!UserDefaults.standard.bool(forKey: "uploadLogOpen"), forKey: "uploadLogOpen")
                     }
                 }
@@ -1661,23 +1664,23 @@ struct ContentView: View {
     func increaseThumbnailSize() {
         if selectedTab == .specs {
             if specsDisplayMode == "inline" {
-                withAnimation(.easeInOut(duration: 0.15)) {
+                withAnimation(Motion.fade) {
                     specsDisplayMode = "thumbnail"
                     specsThumbnailSize = 36.0
                 }
             } else {
-                withAnimation(.easeInOut(duration: 0.15)) {
+                withAnimation(Motion.fade) {
                     specsThumbnailSize = min(110.0, specsThumbnailSize + 10.0)
                 }
             }
         } else {
             if queueDisplayMode == "inline" {
-                withAnimation(.easeInOut(duration: 0.15)) {
+                withAnimation(Motion.fade) {
                     queueDisplayMode = "thumbnail"
                     playerThumbnailSize = 36.0
                 }
             } else {
-                withAnimation(.easeInOut(duration: 0.15)) {
+                withAnimation(Motion.fade) {
                     playerThumbnailSize = min(110.0, playerThumbnailSize + 10.0)
                 }
             }
@@ -1688,11 +1691,11 @@ struct ContentView: View {
         if selectedTab == .specs {
             if specsDisplayMode == "thumbnail" {
                 if specsThumbnailSize <= 36.0 {
-                    withAnimation(.easeInOut(duration: 0.15)) {
+                    withAnimation(Motion.fade) {
                         specsDisplayMode = "inline"
                     }
                 } else {
-                    withAnimation(.easeInOut(duration: 0.15)) {
+                    withAnimation(Motion.fade) {
                         let nextSize = specsThumbnailSize - 10.0
                         if nextSize < 36.0 {
                             specsDisplayMode = "inline"
@@ -1705,11 +1708,11 @@ struct ContentView: View {
         } else {
             if queueDisplayMode == "thumbnail" {
                 if playerThumbnailSize <= 36.0 {
-                    withAnimation(.easeInOut(duration: 0.15)) {
+                    withAnimation(Motion.fade) {
                         queueDisplayMode = "inline"
                     }
                 } else {
-                    withAnimation(.easeInOut(duration: 0.15)) {
+                    withAnimation(Motion.fade) {
                         let nextSize = playerThumbnailSize - 10.0
                         if nextSize < 36.0 {
                             queueDisplayMode = "inline"
@@ -1903,7 +1906,7 @@ struct ContentView: View {
             propertiesAsset = existing
             isInspectingProperties = false
             if showModal {
-                withAnimation(.easeInOut(duration: 0.15)) {
+                withAnimation(Motion.fade) {
                     showPropertiesModal = true
                 }
             }
@@ -1911,7 +1914,7 @@ struct ContentView: View {
             propertiesAsset = nil
             isInspectingProperties = true
             if showModal {
-                withAnimation(.easeInOut(duration: 0.15)) {
+                withAnimation(Motion.fade) {
                     showPropertiesModal = true
                 }
             }
@@ -1931,14 +1934,14 @@ struct ContentView: View {
     func togglePropertiesModalForActiveOrSelected() {
         if selectedTab == .player {
             if showPropertiesModal {
-                withAnimation(.easeInOut(duration: 0.15)) {
+                withAnimation(Motion.fade) {
                     showPropertiesModal = false
                 }
                 return
             }
             
             if showNotesDrawer && playerDrawerTab == .mediaInfo {
-                withAnimation(.easeInOut(duration: 0.15)) {
+                withAnimation(Motion.fade) {
                     showNotesDrawer = false
                 }
                 return
@@ -1949,14 +1952,14 @@ struct ContentView: View {
                 openProperties(for: url, showModal: false)
             }
             playerDrawerTab = .mediaInfo
-            withAnimation(.spring(response: 0.32, dampingFraction: 0.78)) {
+            withAnimation(Motion.sleeve) {
                 showNotesDrawer = true
             }
             return
         }
         
         if showPropertiesModal {
-            withAnimation(.easeInOut(duration: 0.15)) {
+            withAnimation(Motion.fade) {
                 showPropertiesModal = false
             }
             return
@@ -2009,7 +2012,7 @@ struct ContentView: View {
                 if let activeURL = self.playerEngine.activeURL, activeURL == result.fileURL {
                     let updatedNotes = notes
                     await MainActor.run {
-                        withAnimation(.spring(response: 0.32, dampingFraction: 0.78)) {
+                        withAnimation(Motion.sleeve) {
                             self.playerEngine.activeNotes = updatedNotes
                         }
                     }
@@ -2078,7 +2081,7 @@ struct ContentView: View {
     func openAddNoteModal() {
         guard playerEngine.activeURL != nil else { return }
         playerEngine.pause()
-        withAnimation(.easeInOut(duration: 0.15)) {
+        withAnimation(Motion.fade) {
             showAddNoteModal = true
         }
     }
@@ -2093,7 +2096,7 @@ struct ContentView: View {
             }
             playerEngine.activeTarget = .slotA
         }
-        withAnimation(.spring(response: 0.32, dampingFraction: 0.78)) {
+        withAnimation(Motion.sleeve) {
             playerDrawerTab = .notes
             showNotesDrawer = true
         }
@@ -2189,7 +2192,7 @@ struct ContentView: View {
         var currentNotes = playerEngine.activeNotes
         currentNotes.append(note)
         currentNotes.sort { $0.frameIndex < $1.frameIndex }
-        withAnimation(.spring(response: 0.32, dampingFraction: 0.78)) {
+        withAnimation(Motion.sleeve) {
             playerEngine.activeNotes = currentNotes
             playerEngine.activeNotesURL = url
             playerDrawerTab = .notes
@@ -2209,7 +2212,7 @@ struct ContentView: View {
     
     func deleteNote(id: UUID) {
         guard let url = notesTargetURL else { return }
-        withAnimation(.easeInOut(duration: 0.2)) {
+        withAnimation(Motion.list) {
             playerEngine.activeNotes.removeAll(where: { $0.id == id })
             playerEngine.activeNotesURL = url
         }
@@ -2220,7 +2223,7 @@ struct ContentView: View {
     /// Deletes the given notes (Notes drawer: "Clear Filtered") and keeps the rest.
     func deleteNotes(ids: Set<UUID>) {
         guard let url = notesTargetURL, !ids.isEmpty else { return }
-        withAnimation(.easeInOut(duration: 0.2)) {
+        withAnimation(Motion.list) {
             playerEngine.activeNotes.removeAll { ids.contains($0.id) }
             playerEngine.activeNotesURL = url
         }
@@ -2230,7 +2233,7 @@ struct ContentView: View {
     
     func clearAllNotes() {
         guard let url = notesTargetURL else { return }
-        withAnimation(.easeInOut(duration: 0.2)) {
+        withAnimation(Motion.list) {
             playerEngine.activeNotes.removeAll()
             playerEngine.activeNotesURL = url
         }
@@ -2284,7 +2287,7 @@ struct ContentView: View {
             return
         }
         let result = QCNotesManager.merge(existing: playerEngine.activeNotes, incoming: doc.notes)
-        withAnimation(.spring(response: 0.32, dampingFraction: 0.78)) {
+        withAnimation(Motion.sleeve) {
             playerEngine.activeNotes = result.notes
             playerEngine.activeNotesURL = url
             playerDrawerTab = .notes
@@ -2367,7 +2370,7 @@ struct ContentView: View {
         if !notesTabIsVisible {
             unseenSyncedNoteIDs.formUnion(Set(result.notes.map(\.id)).subtracting(shownIDs))
         }
-        withAnimation(.spring(response: 0.32, dampingFraction: 0.78)) {
+        withAnimation(Motion.sleeve) {
             playerEngine.activeNotes = result.notes
             playerEngine.activeNotesURL = url
         }
@@ -2387,7 +2390,7 @@ struct ContentView: View {
             let current = Set(notes.map(\.id))
             unseenSyncedNoteIDs = unseenSyncedNoteIDs.intersection(current).union(current.subtracting(shownIDs))
         }
-        withAnimation(.spring(response: 0.32, dampingFraction: 0.78)) {
+        withAnimation(Motion.sleeve) {
             playerEngine.activeNotes = notes
             playerEngine.activeNotesURL = url
         }
@@ -2409,12 +2412,12 @@ struct StudioStatusBarView: View {
                     .font(.system(size: StudioTheme.scaleFont(9)))
                     .foregroundColor(hoverCoordinator.text.isEmpty ? textMuted : textMain)
                 Text("Info")
-                    .font(.ui(size: 9, weight: .semibold))
+                    .font(.ui(size: 10, weight: .semibold))
                     .foregroundColor(hoverCoordinator.text.isEmpty ? textMuted : textMain)
             }
             
             Text(hoverCoordinator.text.isEmpty ? "Hover over any button, field, or control for function details." : hoverCoordinator.text)
-                .font(.ui(size: 10, weight: hoverCoordinator.text.isEmpty ? .regular : .medium))
+                .font(.ui(size: 11, weight: hoverCoordinator.text.isEmpty ? .regular : .medium))
                 .foregroundColor(hoverCoordinator.text.isEmpty ? textMuted : textMain)
                 .lineLimit(1)
                 .truncationMode(.middle)
@@ -2422,7 +2425,7 @@ struct StudioStatusBarView: View {
             Spacer()
             
             Text("v\(AppVersionInfo.version)")
-                .font(.ui(size: 9, weight: .semibold))
+                .font(.ui(size: 10, weight: .semibold))
                 .foregroundColor(textMuted)
         }
     }

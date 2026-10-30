@@ -16,7 +16,7 @@ MACOS="${CONTENTS}/MacOS"
 RESOURCES="${CONTENTS}/Resources"
 
 # Version & Metadata
-APP_VERSION="0.10.9"
+APP_VERSION="0.10.10"
 GIT_COMMIT_COUNT=$(git rev-list --count HEAD 2>/dev/null || echo "1")
 
 echo "📌 Version: v${APP_VERSION} (Build: ${GIT_COMMIT_COUNT})"
@@ -36,6 +36,9 @@ SWIFT_BUILD_FLAGS=()
 if [ -d "/Library/Developer/CommandLineTools/SDKs/MacOSX26.5.sdk" ] && ! [ -f "/Library/Developer/CommandLineTools/usr/lib/swift/host/plugins/libSwiftUIMacros.dylib" ]; then
     SWIFT_BUILD_FLAGS+=(--sdk /Library/Developer/CommandLineTools/SDKs/MacOSX26.5.sdk)
 fi
+
+# UI must stay on the shared design tokens (DESIGN.md).
+python3 "$SCRIPT_DIR/design_lint.py"
 
 swift build -c release "${SWIFT_BUILD_FLAGS[@]}"
 BIN_DIR=$(swift build -c release "${SWIFT_BUILD_FLAGS[@]}" --show-bin-path)

@@ -82,7 +82,7 @@ struct FullscreenPlayerView: View {
     
     private func userDidInteract() {
         if !showControls {
-            withAnimation(.easeInOut(duration: 0.15)) {
+            withAnimation(Motion.fade) {
                 showControls = true
             }
         }
@@ -92,7 +92,7 @@ struct FullscreenPlayerView: View {
             hideTask = Task { @MainActor in
                 try? await Task.sleep(nanoseconds: 3_000_000_000)
                 if !Task.isCancelled && engine.isPlaying && !isHoveringControls {
-                    withAnimation(.easeInOut(duration: 0.3)) {
+                    withAnimation(.easeInOut(duration: 0.3)) {   // design-ok: the HUD fades away slower than UI, like a player's
                         showControls = false
                     }
                     NSCursor.setHiddenUntilMouseMoves(true)
@@ -125,7 +125,7 @@ struct FullscreenPlayerView: View {
                     
                     if !engine.activeResolution.isEmpty {
                         Text(engine.slotA.infoLine)
-                            .font(.ui(size: 10, weight: .semibold))
+                            .font(.ui(size: 11, weight: .semibold))
                             .foregroundColor(palette.textMuted)
                     }
                 }
@@ -235,7 +235,7 @@ struct FullscreenPlayerView: View {
                     
                     if engine.shuttleStateText != "PAUSE" && (engine.isPlaying || engine.rate != 0) {
                         Text(engine.shuttleStateText)
-                            .font(.ui(size: 10, weight: .semibold))
+                            .font(.ui(size: 11, weight: .semibold))
                             .monospacedDigit()
                             .foregroundColor(accentBlue)
                             .tracking(0.5)
@@ -315,7 +315,7 @@ private struct FullscreenTimecodeReadout: View {
     let accentBlue: Color
     let onToggle: () -> Void
     
-    private static let font = Font.ui(size: 14, weight: .semibold)
+    private static let font = Font.ui(size: 13, weight: .semibold)
     
     var body: some View {
         // Click switches timecode ↔ frames; right-click copies the value as currently shown.

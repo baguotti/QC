@@ -94,7 +94,7 @@ struct SidebarModalShell<Sidebar: View, Detail: View>: View {
     }
 
     private func dismiss() {
-        withAnimation(.easeInOut(duration: 0.15)) { isPresented = false }
+        withAnimation(Motion.fade) { isPresented = false }
         DispatchQueue.main.async {
             if let window = NSApp.windows.first(where: { $0.canBecomeKey }) {
                 window.makeKeyAndOrderFront(nil)

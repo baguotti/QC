@@ -80,7 +80,8 @@ struct QCpieApp: App {
         }
         UserDefaults.standard.register(defaults: [
             "queueDisplayMode": "inline",
-            "specsDisplayMode": "inline"
+            "specsDisplayMode": "inline",
+            "uploadQueueOpen": true   // the Upload tab's Assets & Queue panel (⌘⇧← reads it as a plain bool)
         ])
     }
     

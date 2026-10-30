@@ -33,7 +33,7 @@ struct SettingsModalShell<Content: View>: View {
                     Spacer()
                     Button(action: { dismiss() }) {
                         Text("Close (Esc)")
-                            .font(.ui(size: 10, weight: .semibold))
+                            .font(.ui(size: 11, weight: .semibold))
                             .padding(.horizontal, 9)
                             .padding(.vertical, 5)
                             .foregroundColor(palette.textMain)
@@ -64,7 +64,7 @@ struct SettingsModalShell<Content: View>: View {
                     Spacer()
                     Button(action: { dismiss() }) {
                         Text("Done")
-                            .font(.ui(size: 10, weight: .semibold))
+                            .font(.ui(size: 11, weight: .semibold))
                             .padding(.horizontal, 18)
                             .padding(.vertical, 6)
                             .foregroundColor(palette.primaryBtnFg)
@@ -85,7 +85,7 @@ struct SettingsModalShell<Content: View>: View {
     }
     
     private func dismiss() {
-        withAnimation(.easeInOut(duration: 0.15)) { isPresented = false }
+        withAnimation(Motion.fade) { isPresented = false }
         DispatchQueue.main.async {
             if let window = NSApp.windows.first(where: { $0.canBecomeKey }) {
                 window.makeKeyAndOrderFront(nil)
@@ -120,13 +120,13 @@ struct NotesSyncModalView: View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
                 Text("Projects")
-                    .font(.ui(size: 10, weight: .semibold))
+                    .font(.ui(size: 11, weight: .semibold))
                     .foregroundColor(palette.textMuted)
                 
                 Spacer()
                 
                 Text(syncStatusText)
-                    .font(.ui(size: 9, weight: .semibold))
+                    .font(.ui(size: 10, weight: .semibold))
                     .foregroundColor(syncStatusColor)
                     .lineLimit(1)
             }
@@ -227,7 +227,7 @@ struct NotesSyncModalView: View {
     private func syncButton(_ title: String, primary: Bool = false, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Text(title)
-                .font(.ui(size: 10, weight: .semibold))
+                .font(.ui(size: 11, weight: .semibold))
                 .padding(.horizontal, 9)
                 .padding(.vertical, 6)
                 .foregroundColor(primary ? palette.primaryBtnFg : palette.textMain)

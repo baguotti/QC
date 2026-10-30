@@ -66,8 +66,8 @@ struct AssetSourcePanel: View {
         }
         .disabled(isBusy)
         .fixedSize()
-        .background(RoundedRectangle(cornerRadius: 6).fill(palette.bgSubtle.opacity(0.5)))
-        .overlay(RoundedRectangle(cornerRadius: 6).stroke(palette.borderLine, lineWidth: 1))
+        .background(RoundedRectangle(cornerRadius: Radius.segment).fill(palette.bgSubtle.opacity(0.5)))
+        .overlay(RoundedRectangle(cornerRadius: Radius.segment).stroke(palette.borderLine, lineWidth: 1))
     }
 
     private var divider: some View {
@@ -77,7 +77,7 @@ struct AssetSourcePanel: View {
     private func segment(_ title: String, tint: Color, help: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Text(title)
-                .font(.ui(size: 11.5, weight: .medium))
+                .font(.ui(size: 12, weight: .medium))
                 .lineLimit(1)
             .foregroundColor(tint)
             .padding(.horizontal, StudioTheme.scale(9))

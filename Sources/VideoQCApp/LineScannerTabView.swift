@@ -61,7 +61,7 @@ extension ContentView {
             if divider { Rectangle().fill(borderLine).frame(height: 1) }
             VStack(alignment: .leading, spacing: 8) {
                 Text(label)
-                    .font(.ui(size: 9, weight: .semibold))
+                    .font(.ui(size: 10, weight: .semibold))
                     .foregroundColor(textMuted)
                 content()
             }
@@ -72,7 +72,7 @@ extension ContentView {
     func checkToggle(_ title: String, isOn: Binding<Bool>, disabled: Bool = false, help: String) -> some View {
         Toggle(title, isOn: isOn)
             .toggleStyle(StudioToggleStyle(isLight: isLightMode))
-            .font(.ui(size: 10, weight: .semibold))
+            .font(.ui(size: 11, weight: .semibold))
             .foregroundColor(textMain)
             .disabled(scannerState.isScanning || disabled)
             .explain(help)
@@ -145,7 +145,7 @@ extension ContentView {
                         Spacer()
                         if scannerState.anyColor {
                             Text("Any Colour")
-                                .font(.ui(size: 9, weight: .semibold))
+                                .font(.ui(size: 10, weight: .semibold))
                                 .foregroundColor(accentBlue)
                         }
                     }
@@ -160,7 +160,7 @@ extension ContentView {
                                         .overlay(RoundedRectangle(cornerRadius: 1).stroke(borderLine, lineWidth: 0.5))
                                     Text(name.capitalized)
                                 }
-                                .font(.ui(size: 9, weight: .semibold))
+                                .font(.ui(size: 10, weight: .semibold))
                                 .frame(maxWidth: .infinity)
                                 .padding(.vertical, 5)
                                 .foregroundColor(isOn ? primaryBtnFg : textMain)
@@ -181,7 +181,7 @@ extension ContentView {
                             .disabled(scannerState.isScanning || scannerState.anyColor)
                             .explain("How faint a line may be. Higher values also flag semi-transparent and blended lines; faint lines are only flagged when they hold for 6 frames.")
                         Text("\(Int(scannerState.sensitivityPercentage))%")
-                            .font(.ui(size: 10, weight: .semibold))
+                            .font(.ui(size: 11, weight: .semibold))
                             .foregroundColor(textMain)
                             .frame(width: 34, alignment: .trailing)
                     }
@@ -196,11 +196,11 @@ extension ContentView {
                                 help: "Also inspects the whole frame for split-screen seams and internal dividing lines.")
                     HStack {
                         Text("Edge Depth")
-                            .font(.ui(size: 10, weight: .semibold))
+                            .font(.ui(size: 11, weight: .semibold))
                             .foregroundColor(textMain)
                         Spacer()
                         Text("\(scannerState.edgeDepth) px")
-                            .font(.ui(size: 10, weight: .semibold))
+                            .font(.ui(size: 11, weight: .semibold))
                             .foregroundColor(textMain)
                         Stepper("", value: $scannerState.edgeDepth, in: 2...40)
                             .labelsHidden()
@@ -250,7 +250,7 @@ extension ContentView {
                     .foregroundColor(textMain)
                 Spacer()
                 Text("Processing")
-                    .font(.ui(size: 10, weight: .semibold))
+                    .font(.ui(size: 11, weight: .semibold))
                     .foregroundColor(textMain)
                     .padding(.horizontal, 8)
                     .padding(.vertical, 4)
@@ -260,10 +260,10 @@ extension ContentView {
                 VStack(alignment: .leading, spacing: 16) {
                     VStack(alignment: .leading, spacing: 4) {
                         Text("Current Asset")
-                            .font(.ui(size: 10, weight: .semibold))
+                            .font(.ui(size: 11, weight: .semibold))
                             .foregroundColor(textMuted)
                         Text(p.currentFileName)
-                            .font(.ui(size: 18, weight: .semibold))
+                            .font(.ui(size: 15, weight: .semibold))
                             .foregroundColor(textMain)
                             .lineLimit(1)
                     }
@@ -388,7 +388,7 @@ extension ContentView {
         if flagged.isEmpty {
             VStack(spacing: 8) {
                 Text("All Deliveries Passed")
-                    .font(.ui(size: 16, weight: .semibold))
+                    .font(.ui(size: 15, weight: .semibold))
                     .foregroundColor(accentPositive)
                 Text("No colored edge lines or matte artifacts detected.")
                     .font(.ui(size: 11, weight: .medium))
@@ -428,7 +428,7 @@ extension ContentView {
                     Text("Color").frame(width: 75, alignment: .trailing)
                     Text("Player").frame(width: 75, alignment: .trailing)
                 }
-                .font(.ui(size: 9, weight: .semibold))
+                .font(.ui(size: 10, weight: .semibold))
                 .foregroundColor(textMuted)
                 .padding(.horizontal, 14)
                 .padding(.vertical, 8)
@@ -479,12 +479,12 @@ extension ContentView {
                         .foregroundColor(textMain)
                     if let detail = seg.locationDetail {
                         Text(detail)
-                            .font(.ui(size: 8, weight: .semibold))
+                            .font(.ui(size: 10, weight: .semibold))
                             .foregroundColor(textMuted)
                     }
                     if seg.isOffColor {
                         Text("Off-Colour")
-                            .font(.ui(size: 8, weight: .semibold))
+                            .font(.ui(size: 10, weight: .semibold))
                             .foregroundColor(textMuted)
                             .help("A line of another colour than the target, flagged because it persists")
                     }
@@ -512,7 +512,7 @@ extension ContentView {
                         .frame(width: 10, height: 10)
                         .border(borderStrong, width: 1)
                     Text(seg.detectedColor.hexString.uppercased())
-                        .font(.ui(size: 10, weight: .semibold))
+                        .font(.ui(size: 11, weight: .semibold))
                         .foregroundColor(textMain)
                 }
                 .frame(width: 75, alignment: .trailing)
@@ -522,7 +522,7 @@ extension ContentView {
                     Image(systemName: "play.fill")
                         .font(.system(size: StudioTheme.scaleFont(8), weight: .bold))
                     Text("Inspect")
-                        .font(.ui(size: 9, weight: .semibold))
+                        .font(.ui(size: 10, weight: .semibold))
                 }
                 .padding(.horizontal, 7)
                 .padding(.vertical, 3)
@@ -542,7 +542,7 @@ extension ContentView {
     /// A file that couldn't be opened or stopped decoding early (shown instead of, or above, its findings).
     private func unreadableNotice(_ reason: String, framesChecked: Int) -> some View {
         Text("Unreadable: \(reason). \(framesChecked) frames checked.")
-            .font(.ui(size: 10, weight: .semibold))
+            .font(.ui(size: 11, weight: .semibold))
             .foregroundColor(alertRed)
             .padding(.horizontal, 14)
             .padding(.vertical, 8)
@@ -552,21 +552,21 @@ extension ContentView {
         HStack {
             VStack(alignment: .leading, spacing: 3) {
                 Text(result.fileName)
-                    .font(.ui(size: 14, weight: .semibold))
+                    .font(.ui(size: 13, weight: .semibold))
                     .foregroundColor(textMain)
                 Text("\(result.resolution) · \(String(format: "%.2f", result.fps)) fps · \(result.totalFrames) frames")
-                    .font(.ui(size: 10, weight: .semibold))
+                    .font(.ui(size: 11, weight: .semibold))
                     .foregroundColor(textMuted)
             }
             Spacer()
             
             VStack(alignment: .trailing, spacing: 3) {
                 Text(result.readError != nil && segmentsCount == 0 ? "Unreadable" : "\(segmentsCount) occurrence\(segmentsCount == 1 ? "" : "s") · \(result.errorFrames.count) frames")
-                    .font(.ui(size: 10, weight: .semibold))
+                    .font(.ui(size: 11, weight: .semibold))
                     .foregroundColor(alertRed)
                 if scannerState.lastScanTagInFinder {
                     Text("Finder Red Tag Applied")
-                        .font(.ui(size: 8, weight: .semibold))
+                        .font(.ui(size: 10, weight: .semibold))
                         .foregroundColor(textMuted)
                 }
             }
@@ -618,7 +618,7 @@ extension ContentView {
             checkCard {
                 checkRow("What It Finds", divider: false) {
                     Text("Frame-rate mismatch (e.g. 23.976 fps material exported at 25 fps), flash frames (stray black or solid frames mid-edit), Media Offline frames and brightness or colour outside broadcast-legal levels. One fast pass per video.")
-                        .font(.ui(size: 10))
+                        .font(.ui(size: 11))
                         .foregroundColor(textSubtle)
                         .fixedSize(horizontal: false, vertical: true)
                 }
@@ -691,7 +691,7 @@ extension ContentView {
             if let p = scannerState.frameCheckProgress {
                 VStack(alignment: .leading, spacing: 16) {
                     Text(p.fileName)
-                        .font(.ui(size: 18, weight: .semibold))
+                        .font(.ui(size: 15, weight: .semibold))
                         .foregroundColor(textMain)
                         .lineLimit(1)
                     HStack(spacing: 20) {
@@ -737,7 +737,7 @@ extension ContentView {
         if flagged.isEmpty {
             VStack(spacing: 8) {
                 Text("All Videos Clean")
-                    .font(.ui(size: 16, weight: .semibold))
+                    .font(.ui(size: 15, weight: .semibold))
                     .foregroundColor(accentPositive)
                 Text("No frame-rate mismatch, flash frames, Media Offline or out-of-range levels detected.")
                     .font(.ui(size: 11, weight: .medium))
@@ -789,15 +789,15 @@ extension ContentView {
             HStack(alignment: .top) {
                 VStack(alignment: .leading, spacing: 3) {
                     Text(result.fileName)
-                        .font(.ui(size: 14, weight: .semibold))
+                        .font(.ui(size: 13, weight: .semibold))
                         .foregroundColor(textMain)
                     Text("\(FrameCheckAnalyzer.rateLabel(result.fps)) · \(result.totalFrames) frames\(result.legalRange.isEmpty ? "" : " · Legal range: \(result.legalSpec.name)")")
-                        .font(.ui(size: 10, weight: .semibold))
+                        .font(.ui(size: 11, weight: .semibold))
                         .foregroundColor(textMuted)
                 }
                 Spacer()
                 Text(result.verdict)
-                    .font(.ui(size: 10, weight: .semibold))
+                    .font(.ui(size: 11, weight: .semibold))
                     .foregroundColor(alertRed)
                     .multilineTextAlignment(.trailing)
                     .frame(maxWidth: 320, alignment: .trailing)
@@ -823,7 +823,7 @@ extension ContentView {
                         Spacer()
                         HStack(spacing: 4) {
                             Image(systemName: "play.fill").font(.system(size: StudioTheme.scaleFont(8), weight: .bold))
-                            Text("Inspect").font(.ui(size: 9, weight: .semibold))
+                            Text("Inspect").font(.ui(size: 10, weight: .semibold))
                         }
                         .padding(.horizontal, 7)
                         .padding(.vertical, 3)
@@ -845,7 +845,7 @@ extension ContentView {
             }
             if rows.count > shown.count {
                 Text("+ \(rows.count - shown.count) More")
-                    .font(.ui(size: 9, weight: .semibold))
+                    .font(.ui(size: 10, weight: .semibold))
                     .foregroundColor(textMuted)
                     .padding(.horizontal, 14)
                     .padding(.vertical, 8)

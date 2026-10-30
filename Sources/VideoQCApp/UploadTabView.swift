@@ -34,6 +34,7 @@ struct UploadTabView: View {
     var onPlay: (URL) -> Void
     var onDrop: ([NSItemProvider]) -> Bool
     @AppStorage("uploadPanelWidth") private var panelWidth: Double = 380
+    @AppStorage("uploadQueueOpen") private var isPanelOpen = true   // the Assets & Queue panel (⌘⇧←)
     @AppStorage("uploadLogOpen") private var isDrawerOpen = false   // the Media Info, Downloads & Log drawer (key kept from when it was Log only)
     @AppStorage("uploadDrawerWidth") private var drawerWidth: Double = 360
 
@@ -42,33 +43,40 @@ struct UploadTabView: View {
     var body: some View {
         // A layout, not a GeometryReader: the reader re-ran this whole body (and rebuilt the browser) on every resize
         // frame just to clamp the widths; `UploadColumns` clamps them while placing, so resizing only moves things.
-        UploadColumns(panelWidth: panelWidth, drawerWidth: drawerWidth, hasDrawer: isDrawerOpen && !benchHides("drawer")) {
-            VStack(alignment: .leading, spacing: 18) {
-                if !benchHides("assets") { assets }
-                // Rebuilt only when the queue, its folders, light mode or the theme change (it redraws itself for
-                // uploads and selection): dragging a divider re-ran it per mouse move, flattening the whole tree.
-                if !benchHides("queue") {
-                    EquatableRow(key: QueuePanelKey(queueVersion: queueVersion, collapsed: collapsedFolderIDs, isLightMode: isLightMode,
-                                                    theme: ThemeManager.shared.revision)) {
-                        UploadQueuePanel(isLightMode: isLightMode, nodes: nodes, collapsedFolderIDs: $collapsedFolderIDs,
-                                         onClearQueue: onClearQueue, onClearFolder: onClearFolder, onPlay: onPlay)
+        let hasDrawer = isDrawerOpen && !benchHides("drawer")
+        UploadColumns(panelWidth: panelWidth, drawerWidth: drawerWidth, hasPanel: isPanelOpen, hasDrawer: hasDrawer) {
+            if isPanelOpen {
+                VStack(alignment: .leading, spacing: 18) {
+                    if !benchHides("assets") { assets }
+                    // Rebuilt only when the queue, its folders, light mode or the theme change (it redraws itself for
+                    // uploads and selection): dragging a divider re-ran it per mouse move, flattening the whole tree.
+                    if !benchHides("queue") {
+                        EquatableRow(key: QueuePanelKey(queueVersion: queueVersion, collapsed: collapsedFolderIDs, isLightMode: isLightMode,
+                                                        theme: ThemeManager.shared.revision)) {
+                            UploadQueuePanel(isLightMode: isLightMode, nodes: nodes, collapsedFolderIDs: $collapsedFolderIDs,
+                                             onClearQueue: onClearQueue, onClearFolder: onClearFolder, onPlay: onPlay)
+                        }
+                        .equatable()
                     }
-                    .equatable()
                 }
+                .padding(22)
+                .frame(maxHeight: .infinity)
+                .background(palette.bgPanel)
+                .overlay(Rectangle().fill(palette.borderLine).frame(width: 1), alignment: .trailing)
+                .overlay(alignment: .trailing) {
+                    // The range is the widest the panel can be; `UploadColumns` narrows it to what the window allows.
+                    PanelResizeHandle(width: $panelWidth, range: UploadColumns.panelRange, defaultWidth: 380, isLightMode: isLightMode,
+                                      help: "Drag to resize the Assets & Queue panel. Double-click to reset (380 pt).")
+                }
+                .onDrop(of: [UTType.fileURL.identifier], isTargeted: nil, perform: onDrop)
+                .transition(.move(edge: .leading).combined(with: .opacity))
+                .zIndex(1)   // slides out over the browser
+                .layoutValue(key: UploadColumns.Role.self, value: .panel)
             }
-            .padding(22)
-            .frame(maxHeight: .infinity)
-            .background(palette.bgPanel)
-            .overlay(Rectangle().fill(palette.borderLine).frame(width: 1), alignment: .trailing)
-            .overlay(alignment: .trailing) {
-                // The range is the widest the panel can be; `UploadColumns` narrows it to what the window allows.
-                PanelResizeHandle(width: $panelWidth, range: UploadColumns.panelRange, defaultWidth: 380, isLightMode: isLightMode,
-                                  help: "Drag to resize the Assets & Queue panel. Double-click to reset (380 pt).")
-            }
-            .onDrop(of: [UTType.fileURL.identifier], isTargeted: nil, perform: onDrop)
 
-            if benchHides("browser") { Color.clear } else { FrameIOBrowserView(isLightMode: isLightMode) }
-            if isDrawerOpen && !benchHides("drawer") {
+            Group { if benchHides("browser") { Color.clear } else { FrameIOBrowserView(isLightMode: isLightMode) } }
+                .layoutValue(key: UploadColumns.Role.self, value: .browser)
+            if hasDrawer {
                 UploadSideDrawer(isLightMode: isLightMode, onToast: onToast)
                     .overlay(Rectangle().fill(palette.borderLine).frame(width: 1), alignment: .leading)
                     .overlay(alignment: .leading) {
@@ -77,8 +85,15 @@ struct UploadTabView: View {
                                           edge: .leading)
                     }
                     .transition(.move(edge: .trailing).combined(with: .opacity))
+                    .zIndex(1)
+                    .layoutValue(key: UploadColumns.Role.self, value: .drawer)
             }
         }
+        // Both flags are @AppStorage, written from the header chevrons and ⌘⇧←/→: their writes don't carry
+        // `withAnimation`, so the columns animate on the values (the Play tab's sleeve spring).
+        .clipped()
+        .animation(Motion.sleeve, value: isPanelOpen)
+        .animation(Motion.sleeve, value: hasDrawer)
         .task(id: queueVersion) {
             UploadQueue.shared.sync(with: UploadQueuePanel.rows(in: nodes), version: queueVersion)
         }
@@ -87,13 +102,21 @@ struct UploadTabView: View {
 
 /// The Upload tab's columns: queue panel | Frame.io browser | drawer. Widths are clamped to the window here, while
 /// placing (queue 300…900 and leaving the browser 420; drawer 300…800 and leaving the browser 360), so a resize never
-/// re-runs the tab's body.
+/// re-runs the tab's body. The side columns slide in and out with their `.move` transitions while the browser takes
+/// its new width at once: animating the widths instead re-laid the whole browser list on every frame of the spring,
+/// which stuttered. A column on its way out keeps its full width at its edge, so it slides out over the browser.
 struct UploadColumns: Layout {
     static let panelRange: ClosedRange<Double> = 300...900
     static let drawerRange: ClosedRange<Double> = 300...800
 
+    enum Role: LayoutValueKey {
+        case panel, browser, drawer
+        static let defaultValue = Role.browser
+    }
+
     var panelWidth: Double
     var drawerWidth: Double
+    var hasPanel: Bool
     var hasDrawer: Bool
 
     func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
@@ -104,14 +127,18 @@ struct UploadColumns: Layout {
         guard !subviews.isEmpty else { return }
         let total = bounds.width
         let left = min(max(panelWidth, 300), max(300, min(900, total - 420)))
-        let drawer = hasDrawer && subviews.count > 2 ? min(max(drawerWidth, 300), max(300, min(800, total - left - 360))) : 0
-        let middle = max(0, total - left - drawer)
-        let widths = [left, middle, drawer]
-        var x = bounds.minX
-        for (index, subview) in subviews.enumerated() {
-            let width = index < widths.count ? widths[index] : 0
+        let shownLeft = hasPanel ? left : 0
+        let drawer = min(max(drawerWidth, 300), max(300, min(800, total - shownLeft - 360)))
+        let shownDrawer = hasDrawer ? drawer : 0
+        let middle = max(0, total - shownLeft - shownDrawer)
+        for subview in subviews {
+            let (x, width): (CGFloat, CGFloat)
+            switch subview[Role.self] {
+            case .panel: (x, width) = (bounds.minX, left)
+            case .browser: (x, width) = (bounds.minX + shownLeft, middle)
+            case .drawer: (x, width) = (bounds.maxX - drawer, drawer)
+            }
             subview.place(at: CGPoint(x: x, y: bounds.minY), proposal: ProposedViewSize(width: width, height: bounds.height))
-            x += width
         }
     }
 }
@@ -179,10 +206,10 @@ struct UploadQueuePanel: View {
                         .font(.system(size: StudioTheme.scaleFont(24)))
                         .foregroundColor(palette.textMuted)
                     Text("Nothing to Upload")
-                        .font(.ui(size: 10, weight: .semibold))
+                        .font(.ui(size: 11, weight: .semibold))
                         .foregroundColor(palette.textMuted)
                     Text("Select or drop a folder: the same queue is used in every tab.")
-                        .font(.ui(size: 9))
+                        .font(.ui(size: 10))
                         .foregroundColor(palette.textSubtle)
                         .multilineTextAlignment(.center)
                     Spacer()
@@ -227,7 +254,7 @@ struct UploadQueuePanel: View {
                 Button(action: onClearQueue) {
                     HStack(spacing: 4) {
                         Image(systemName: "xmark").font(.system(size: StudioTheme.scaleFont(8), weight: .bold))
-                        Text("Clear List").font(.ui(size: 9, weight: .semibold))
+                        Text("Clear List").font(.ui(size: 10, weight: .semibold))
                     }
                     .foregroundColor(palette.textMuted)
                     .frame(maxWidth: .infinity, alignment: .center)
@@ -261,12 +288,12 @@ struct UploadQueuePanel: View {
                 .foregroundColor(isSelected ? .white : palette.textSubtle)
                 .frame(width: 14, height: 14)
             Text(node.name)
-                .font(.ui(size: 10, weight: .semibold))
+                .font(.ui(size: 11, weight: .semibold))
                 .foregroundColor(isSelected ? .white : palette.textMain)
                 .lineLimit(1)
             Spacer()
             Text("\(node.videoCount)")
-                .font(.ui(size: 8, weight: .semibold))
+                .font(.ui(size: 10, weight: .semibold))
                 .foregroundColor(isSelected ? .white : palette.textSubtle)
                 .padding(.horizontal, 5)
                 .padding(.vertical, 1)
@@ -408,7 +435,7 @@ private struct UploadControls: View {
                     .frame(width: 16)
                 VStack(alignment: .leading, spacing: 1) {
                     Text("Upload to")
-                        .font(.ui(size: 10))
+                        .font(.ui(size: 11))
                         .foregroundColor(palette.textMuted)
                     Text(destinationText)
                         .font(.ui(size: 12, weight: browser.destination == nil ? .regular : .semibold))
@@ -433,7 +460,7 @@ private struct UploadControls: View {
                         .font(.ui(size: 12))
                         .foregroundColor(palette.textMain)
                     Text(structureDetail)
-                        .font(.ui(size: 10))
+                        .font(.ui(size: 11))
                         .foregroundColor(palette.textMuted)
                         .lineLimit(1)
                         .truncationMode(.tail)
@@ -448,8 +475,8 @@ private struct UploadControls: View {
             .padding(.horizontal, 12)
             .padding(.vertical, 9)
         }
-        .background(RoundedRectangle(cornerRadius: 8).fill(palette.bgCardSubtle))
-        .overlay(RoundedRectangle(cornerRadius: 8).stroke(palette.borderLine.opacity(0.7), lineWidth: 0.5))
+        .background(RoundedRectangle(cornerRadius: Radius.container).fill(palette.bgCardSubtle))
+        .overlay(RoundedRectangle(cornerRadius: Radius.container).stroke(palette.borderLine.opacity(0.7), lineWidth: 0.5))
         .explain("Off: every file goes straight into the chosen Frame.io folder. On: the queue's subfolders are recreated inside it.")
     }
 
@@ -465,7 +492,7 @@ private struct UploadControls: View {
                     .font(.ui(size: 12, weight: .semibold))
                     .foregroundColor(palette.textMain)
                 Text("To \(saved.destinationPath) · Resume picks up where it stopped")
-                    .font(.ui(size: 10))
+                    .font(.ui(size: 11))
                     .foregroundColor(palette.textMuted)
                     .lineLimit(1)
                     .truncationMode(.head)
@@ -474,8 +501,8 @@ private struct UploadControls: View {
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 9)
-        .background(RoundedRectangle(cornerRadius: 8).fill(palette.bgCardSubtle))
-        .overlay(RoundedRectangle(cornerRadius: 8).stroke(palette.borderLine.opacity(0.7), lineWidth: 0.5))
+        .background(RoundedRectangle(cornerRadius: Radius.container).fill(palette.bgCardSubtle))
+        .overlay(RoundedRectangle(cornerRadius: Radius.container).stroke(palette.borderLine.opacity(0.7), lineWidth: 0.5))
     }
 
     /// Names the queue's own subfolders, so the choice is concrete.
@@ -575,7 +602,7 @@ private struct UploadQueueRow: View, Equatable {
                 HStack(spacing: 4) {
                     statusIcon.font(.system(size: StudioTheme.scaleFont(7.5), weight: .semibold))
                     Text(detail)
-                        .font(.ui(size: 8, weight: .semibold))
+                        .font(.ui(size: 10, weight: .semibold))
                         .foregroundColor(tone(failure != nil ? palette.negative : palette.textMuted.opacity(0.85)))
                         .lineLimit(1)
                 }
@@ -595,7 +622,7 @@ private struct UploadQueueRow: View, Equatable {
                 .truncationMode(.middle)
             if job.files.count > 1 {
                 Text("Seq \(job.files.count)")
-                    .font(.ui(size: 7.5, weight: .semibold))
+                    .font(.ui(size: 10, weight: .semibold))
                     .foregroundColor(tone(palette.textMuted))
                     .padding(.horizontal, 3)
                     .padding(.vertical, 1)
@@ -632,18 +659,18 @@ private struct UploadQueueRow: View, Equatable {
         switch job.status {
         case .uploading:
             Text("\(Int(fraction * 100))%")
-                .font(.ui(size: 9, weight: .semibold))
+                .font(.ui(size: 10, weight: .semibold))
                 .foregroundColor(tone(palette.accentBlue))
         case .paused:
             Text("Paused · \(Int(fraction * 100))%")
-                .font(.ui(size: 9, weight: .semibold))
+                .font(.ui(size: 10, weight: .semibold))
                 .foregroundColor(tone(palette.textMuted))
         case .skipped:
-            Text("Already There").font(.ui(size: 9)).foregroundColor(tone(palette.textMuted))
+            Text("Already There").font(.ui(size: 10)).foregroundColor(tone(palette.textMuted))
         case .failed:
-            Text("Failed").font(.ui(size: 9, weight: .semibold)).foregroundColor(tone(palette.negative))
+            Text("Failed").font(.ui(size: 10, weight: .semibold)).foregroundColor(tone(palette.negative))
         default:
-            Text(UploadQueuePanel.bytes(job.size)).font(.ui(size: 9)).foregroundColor(tone(palette.textMuted))
+            Text(UploadQueuePanel.bytes(job.size)).font(.ui(size: 10)).foregroundColor(tone(palette.textMuted))
         }
     }
 
@@ -758,7 +785,7 @@ struct TransferProgressCard: View {
                 Spacer()
                 Text(timeText)
             }
-            .font(.ui(size: 10))
+            .font(.ui(size: 11))
             .foregroundColor(palette.textMuted)
 
             if isRunning || transferred > 0 {
@@ -768,11 +795,11 @@ struct TransferProgressCard: View {
                             .font(.ui(size: 13, weight: .semibold))
                             .foregroundColor(palette.textMain)
                         Text(UploadLogFormat.megabits(isRunning ? bytesPerSecond : average))
-                            .font(.ui(size: 10))
+                            .font(.ui(size: 11))
                             .foregroundColor(palette.textMuted)
                         Spacer()
                         Text(isRunning ? "now" : "average")
-                            .font(.ui(size: 10))
+                            .font(.ui(size: 11))
                             .foregroundColor(palette.textMuted)
                     }
                     SpeedGraph(samples: history, color: palette.accentBlue)
@@ -782,7 +809,7 @@ struct TransferProgressCard: View {
                         Spacer()
                         Text("peak \(UploadLogFormat.speed(history.max() ?? 0))")
                     }
-                    .font(.ui(size: 10))
+                    .font(.ui(size: 11))
                     .foregroundColor(palette.textMuted)
                 }
             }
@@ -847,7 +874,6 @@ private struct UploadSideDrawer: View {
     var body: some View {
         VStack(spacing: 0) {
             DrawerTabBar(isLightMode: isLightMode, tab: tab, onSelect: select)
-            Rectangle().fill(palette.borderLine).frame(height: 1)
             ZStack(alignment: .top) {
                 switch tab {
                 case "downloads": DownloadsDrawer(isLightMode: isLightMode).transition(slide)
@@ -862,11 +888,11 @@ private struct UploadSideDrawer: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .clipped()
-            .overlay(RoundedRectangle(cornerRadius: 4).stroke(isDropTarget ? palette.accentBlue : .clear, lineWidth: 2).padding(2))
+            .overlay(RoundedRectangle(cornerRadius: Radius.control).stroke(isDropTarget ? palette.accentBlue : .clear, lineWidth: 2).padding(2))
             // Frame.io rows dropped on any page download (the Downloads page opens when they start).
             .onDrop(of: [.utf8PlainText], isTargeted: $isDropTarget, perform: DownloadQueue.acceptDrop)
             // `tab` is @AppStorage: its writes don't carry `withAnimation`, so animate on the value.
-            .animation(.spring(response: 0.32, dampingFraction: 0.84), value: tab)
+            .animation(Motion.page, value: tab)
         }
         .onReceive(UploadQueue.shared.$selection.removeDuplicates()) { selection = $0 }
         // Read only while Media Info shows (coming back to it reads the file again).
@@ -897,20 +923,22 @@ private struct DrawerTabBar: View {
     var tab: String
     var onSelect: (String) -> Void
     @ObservedObject private var downloads = DownloadQueue.shared
+    @AppStorage("uploadLogOpen") private var isOpen = false
 
     private var palette: StudioPalette { StudioPalette(isLightMode) }
     var body: some View {
-        HStack(spacing: 4) {
-            tabButton("info", "Media Info", badge: nil)
-            tabButton("downloads", "Downloads", badge: downloads.isRunning ? "\(downloads.percent)%" : nil)
-            tabButton("log", "Log", badge: nil)
+        HStack(spacing: 8) {
+            HStack(spacing: 4) {
+                tabButton("info", "Media Info", badge: nil)
+                tabButton("downloads", "Downloads", badge: downloads.isRunning ? "\(downloads.percent)%" : nil)
+                tabButton("log", "Log", badge: nil)
+            }
+            .padding(3)
+            .background(RoundedRectangle(cornerRadius: Radius.container).fill(palette.bgSubtle)
+                .overlay(RoundedRectangle(cornerRadius: Radius.container).stroke(palette.borderLine, lineWidth: 1)))
+            DrawerCloseButton(isLightMode: isLightMode) { isOpen = false }
         }
-        .padding(3)
-        .background(RoundedRectangle(cornerRadius: 8).fill(palette.bgSubtle)
-            .overlay(RoundedRectangle(cornerRadius: 8).stroke(palette.borderLine, lineWidth: 1)))
-        .padding(.horizontal, 12)
-        .padding(.vertical, 9)
-        .background(palette.bgPanel)
+        .headerBand(palette, horizontalPadding: 12)
     }
 
     private func tabButton(_ id: String, _ title: String, badge: String?) -> some View {
@@ -920,7 +948,7 @@ private struct DrawerTabBar: View {
                 Text(title).font(.ui(size: 11, weight: isSelected ? .semibold : .medium)).lineLimit(1)
                 if let badge {
                     Text(badge)
-                        .font(.ui(size: 9, weight: .semibold))
+                        .font(.ui(size: 10, weight: .semibold))
                         .monospacedDigit()
                         .foregroundColor(palette.accentBlue)
                 }
@@ -930,9 +958,9 @@ private struct DrawerTabBar: View {
             .foregroundColor(isSelected ? (isLightMode ? Color.black : Color.white) : palette.textMuted)
             .background {
                 if isSelected {
-                    RoundedRectangle(cornerRadius: 6)
+                    RoundedRectangle(cornerRadius: Radius.segment)
                         .fill(isLightMode ? palette.bgPanel : Color(white: 0.22))
-                        .overlay(RoundedRectangle(cornerRadius: 6).stroke(isLightMode ? palette.borderStrong : Color.white.opacity(0.18), lineWidth: 1))
+                        .overlay(RoundedRectangle(cornerRadius: Radius.segment).stroke(isLightMode ? palette.borderStrong : Color.white.opacity(0.18), lineWidth: 1))
                         .shadow(color: Color.black.opacity(isLightMode ? 0.08 : 0.25), radius: 2, y: 1)
                 }
             }
@@ -1053,7 +1081,7 @@ private struct DownloadRow: View, Equatable {
                     .lineLimit(1)
                     .truncationMode(.middle)
                 Text(detail)
-                    .font(.ui(size: 10))
+                    .font(.ui(size: 11))
                     .foregroundColor(failure != nil ? palette.negative : palette.textMuted)
                     .lineLimit(1)
                     .truncationMode(.middle)
@@ -1071,7 +1099,7 @@ private struct DownloadRow: View, Equatable {
                 .tip("Show in Finder")
             } else if job.status == .downloading {
                 Text("\(Int(fraction * 100))%")
-                    .font(.ui(size: 10, weight: .semibold))
+                    .font(.ui(size: 11, weight: .semibold))
                     .monospacedDigit()
                     .foregroundColor(palette.accentBlue)
             }
@@ -1227,7 +1255,7 @@ private struct UploadLogRunView: View, Equatable {
                     Image(systemName: isDownload ? "arrow.down" : "arrow.up")
                         .font(.system(size: StudioTheme.scaleFont(8), weight: .heavy))
                     Text(isDownload ? "DOWNLOAD" : "UPLOAD")
-                        .font(.ui(size: 10, weight: .bold))
+                        .font(.ui(size: 11, weight: .bold))
                         .underline(true, color: kindColor)
                 }
                 .foregroundColor(kindColor)
@@ -1238,7 +1266,7 @@ private struct UploadLogRunView: View, Equatable {
                     .foregroundColor(statusColor)
                 Spacer()
                 Text(UploadLogFormat.dateTime(run.started))
-                    .font(.ui(size: 10))
+                    .font(.ui(size: 11))
                     .foregroundColor(palette.textMuted)
                 Button(action: { UploadLogDrawer.copy([run]) }) {
                     Image(systemName: "doc.on.doc").font(.system(size: StudioTheme.scaleFont(10)))
@@ -1305,7 +1333,7 @@ private struct UploadLogRunView: View, Equatable {
     private func stat(_ label: String, _ value: String) -> some View {
         VStack(alignment: .leading, spacing: 2) {
             Text(label.uppercased())
-                .font(.ui(size: 8, weight: .semibold))
+                .font(.ui(size: 10, weight: .semibold))
                 .foregroundColor(palette.textMuted)
             Text(value)
                 .font(.ui(size: 11, weight: .semibold))
@@ -1330,11 +1358,11 @@ private struct UploadLogRunView: View, Equatable {
                     .truncationMode(.middle)
                 Spacer(minLength: 6)
                 Text(UploadLogFormat.bytes(entry.bytes))
-                    .font(.ui(size: 10))
+                    .font(.ui(size: 11))
                     .foregroundColor(palette.textMuted)
             }
             Text(UploadLogFormat.entryLine(entry, in: run))
-                .font(.ui(size: 10))
+                .font(.ui(size: 11))
                 .foregroundColor(entry.outcome == .failed ? palette.negative : palette.textMuted)
                 .padding(.leading, 18)
                 .fixedSize(horizontal: false, vertical: true)

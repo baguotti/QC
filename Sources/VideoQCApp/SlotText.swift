@@ -41,7 +41,7 @@ public struct SlotText: View {
         _ text: String,
         mode: SlotRollMode = .character,
         direction: SlotRollDirection = .down,
-        font: Font = .ui(size: 10, weight: .semibold),
+        font: Font = .ui(size: 11, weight: .semibold),
         foregroundColor: Color = .primary,
         tracking: CGFloat = 0.5,
         stagger: Double = 0.025,
@@ -145,6 +145,8 @@ public struct SlotText: View {
 }
 
 public struct SlotSegmentCell: View {
+    /// The digit roll: its own spring, tuned to read as a mechanical counter.
+    private static let roll = Animation.spring(response: 0.28, dampingFraction: 0.76)   // design-ok: counter roll
     public let segment: String
     public let index: Int
     public let direction: SlotRollDirection
@@ -234,7 +236,7 @@ public struct SlotSegmentCell: View {
             if animateOnAppear {
                 let delay = Double(index) * stagger
                 DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
-                    withAnimation(.spring(response: 0.28, dampingFraction: 0.76)) {
+                    withAnimation(Self.roll) {
                         rollProgress = 1.0
                     }
                 }
@@ -248,7 +250,7 @@ public struct SlotSegmentCell: View {
             
             let delay = Double(index) * stagger
             DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
-                withAnimation(.spring(response: 0.28, dampingFraction: 0.76)) {
+                withAnimation(Self.roll) {
                     rollProgress = 1.0
                 }
             }
@@ -269,7 +271,7 @@ public struct SlotSegmentCell: View {
         
         let delay = Double(index) * stagger
         DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
-            withAnimation(.spring(response: 0.28, dampingFraction: 0.76)) {
+            withAnimation(Self.roll) {
                 rollProgress = 1.0
             }
         }

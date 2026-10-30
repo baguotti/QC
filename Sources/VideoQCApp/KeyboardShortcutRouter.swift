@@ -86,6 +86,8 @@ final class KeyboardShortcutRouter {
         case playerOrSpecs
         case playerOnly
         case playerOrUpload
+        /// The tabs with a left sleeve: Play, Inspect and Upload.
+        case playerSpecsOrUpload
         case uploadOnly
     }
     
@@ -175,6 +177,8 @@ final class KeyboardShortcutRouter {
                 isScopeActive = (currentTab == .player)
             case .playerOrUpload:
                 isScopeActive = (currentTab == .player || currentTab == .upload)
+            case .playerSpecsOrUpload:
+                isScopeActive = (currentTab == .player || currentTab == .specs || currentTab == .upload)
             case .uploadOnly:
                 isScopeActive = (currentTab == .upload)
             }
@@ -779,7 +783,7 @@ extension KeyboardShortcutRouter {
             Rule(
                 id: "toggleLeftSleeve",
                 trigger: ShortcutTrigger(keyCodes: [123], modifiers: [.command, .shift]),
-                scope: .playerOrSpecs
+                scope: .playerSpecsOrUpload
             ) {
                 actions.onToggleLeftSleeve()
                 return true
