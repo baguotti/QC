@@ -364,11 +364,15 @@ final class TimelinePlayheadNSView: NSView {
         let trackWidth = max(1.0, bounds.width - trackInset * 2)
         let playheadX = trackInset + trackWidth * fraction
         let needleWidth: CGFloat = isDragging ? 1.75 : 1.0
+        // Snapped to device pixels, so the 1 pt needle is equally crisp at every frame position (a fractional x spreads
+        // it over two pixels at partial brightness).
+        let scale = window?.backingScaleFactor ?? 2
+        let needleX = ((playheadX - needleWidth / 2) * scale).rounded() / scale
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         // Bottom-up layer space: SwiftUI y (from the top) → bounds.height - y - height.
-        needleLayer.frame = CGRect(x: playheadX - needleWidth / 2, y: 1, width: needleWidth, height: max(0, bounds.height - 3))
-        headLayer.position = CGPoint(x: playheadX, y: bounds.height - 1 - Self.headSize.height / 2)
+        needleLayer.frame = CGRect(x: needleX, y: 1, width: needleWidth, height: max(0, bounds.height - 3))
+        headLayer.position = CGPoint(x: needleX + needleWidth / 2, y: bounds.height - 1 - Self.headSize.height / 2)
         CATransaction.commit()
     }
 
