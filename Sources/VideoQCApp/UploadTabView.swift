@@ -12,6 +12,7 @@ extension ContentView {
         UploadTabView(isLightMode: isLightMode, assets: AnyView(deliveryAssetsSection(forTab: .upload)),
                       nodes: playerTreeNodes, queueVersion: queueVersion,
                       collapsedFolderIDs: $playerCollapsedFolderIDs, onClearQueue: clearQueue,
+                      onClearFolder: { clearFolder(node: $0) }, onToast: showToast,
                       onPlay: { url in
                           selectedTab = .player
                           playerEngine.loadVideo(url: url, into: .slotA, autoplay: true)
@@ -28,10 +29,12 @@ struct UploadTabView: View {
     var queueVersion: Int
     @Binding var collapsedFolderIDs: Set<String>
     var onClearQueue: () -> Void
+    var onClearFolder: (FileSystemTreeNode) -> Void
+    var onToast: (String) -> Void
     var onPlay: (URL) -> Void
     var onDrop: ([NSItemProvider]) -> Bool
     @AppStorage("uploadPanelWidth") private var panelWidth: Double = 380
-    @AppStorage("uploadLogOpen") private var isDrawerOpen = false   // the Downloads & Log drawer (key kept from when it was Log only)
+    @AppStorage("uploadLogOpen") private var isDrawerOpen = false   // the Media Info, Downloads & Log drawer (key kept from when it was Log only)
     @AppStorage("uploadDrawerWidth") private var drawerWidth: Double = 360
 
     private var palette: StudioPalette { StudioPalette(isLightMode) }
@@ -48,7 +51,7 @@ struct UploadTabView: View {
                     EquatableRow(key: QueuePanelKey(queueVersion: queueVersion, collapsed: collapsedFolderIDs, isLightMode: isLightMode,
                                                     theme: ThemeManager.shared.revision)) {
                         UploadQueuePanel(isLightMode: isLightMode, nodes: nodes, collapsedFolderIDs: $collapsedFolderIDs,
-                                         onClearQueue: onClearQueue, onPlay: onPlay)
+                                         onClearQueue: onClearQueue, onClearFolder: onClearFolder, onPlay: onPlay)
                     }
                     .equatable()
                 }
@@ -66,11 +69,11 @@ struct UploadTabView: View {
 
             if benchHides("browser") { Color.clear } else { FrameIOBrowserView(isLightMode: isLightMode) }
             if isDrawerOpen && !benchHides("drawer") {
-                UploadSideDrawer(isLightMode: isLightMode)
+                UploadSideDrawer(isLightMode: isLightMode, onToast: onToast)
                     .overlay(Rectangle().fill(palette.borderLine).frame(width: 1), alignment: .leading)
                     .overlay(alignment: .leading) {
                         PanelResizeHandle(width: $drawerWidth, range: UploadColumns.drawerRange, defaultWidth: 360, isLightMode: isLightMode,
-                                          help: "Drag to resize the Downloads & Log drawer. Double-click to reset (360 pt).",
+                                          help: "Drag to resize the drawer. Double-click to reset (360 pt).",
                                           edge: .leading)
                     }
                     .transition(.move(edge: .trailing).combined(with: .opacity))
@@ -128,6 +131,7 @@ struct UploadQueuePanel: View {
     var nodes: [FileSystemTreeNode]
     @Binding var collapsedFolderIDs: Set<String>
     var onClearQueue: () -> Void
+    var onClearFolder: (FileSystemTreeNode) -> Void
     var onPlay: (URL) -> Void
     @ObservedObject private var queue = UploadQueue.shared
     /// Last row clicked without Shift: the other end of a Shift-click range.
@@ -196,7 +200,10 @@ struct UploadQueuePanel: View {
                                 UploadQueueRow(job: job, depth: node.depth, isSelected: !queue.isRunning && queue.selection.contains(node.url.path),
                                                thumbnailWidth: displayMode == "inline" ? nil : thumbnailSize, isLightMode: isLightMode)
                                     .equatable()
-                                    .onTapGesture { click([node.url.path]) }
+                                    .onTapGesture {
+                                        // Double-click plays it (the first click already selected it).
+                                        if (NSApp.currentEvent?.clickCount ?? 1) >= 2 { onPlay(node.url) } else { click([node.url.path]) }
+                                    }
                                     .onDrag { dragProvider([node.url.path]) }
                                     .contextMenu {
                                         Button("Play") { onPlay(node.url) }
@@ -273,7 +280,25 @@ struct UploadQueuePanel: View {
         .onTapGesture { click(files) }
         .onDrag { dragProvider(files) }
         .contextMenu {
+            // Like the Play queue's Clear Folder; on a selected folder, clears every selected folder.
+            let selected = selectedFolders(in: nodes)
+            let targets = selected.contains { $0.id == node.id } ? selected : [node]
+            Button(targets.count > 1 ? "Clear \(targets.count) Folders" : "Clear Folder") {
+                for folder in targets { onClearFolder(folder) }
+            }
+            .disabled(queue.isRunning)
+            Divider()
             Button("Reveal in Finder") { NSWorkspace.shared.activateFileViewerSelecting([node.url]) }
+        }
+    }
+
+    /// The outermost folders whose files are all selected.
+    private func selectedFolders(in nodes: [FileSystemTreeNode]) -> [FileSystemTreeNode] {
+        nodes.flatMap { node -> [FileSystemTreeNode] in
+            guard node.isDirectory else { return [] }
+            let files = node.videoURLs.map(\.path)
+            if !files.isEmpty && files.allSatisfy(queue.selection.contains) { return [node] }
+            return selectedFolders(in: node.children)
         }
     }
 
@@ -801,51 +826,82 @@ private struct SpeedGraph: View {
     }
 }
 
-/// The Upload tab's right drawer: Downloads and the upload Log, switched like the Player's review sleeve.
+/// The Upload tab's right drawer: the selected queue file's Media Info (the Player's panel), Downloads and the upload
+/// Log, switched like the Player's review sleeve.
 private struct UploadSideDrawer: View {
     var isLightMode: Bool
-    @AppStorage("uploadDrawerTab") private var tab = "log"
+    var onToast: (String) -> Void
+    @AppStorage("uploadDrawerTab") private var tab = "info"
     @State private var isDropTarget = false
+    /// Pages slide in from the side of their tab: set just before `tab` changes.
+    @State private var forward = true
+    /// The queue's selection, heard without observing the queue (its upload progress mustn't redraw the drawer).
+    @State private var selection: Set<String> = []
+    @StateObject private var mediaInfo = MediaInfoLoader()
 
+    static let tabs = ["info", "downloads", "log"]
     private var palette: StudioPalette { StudioPalette(isLightMode) }
+    /// Media Info shows a file when exactly one is selected.
+    private var inspectedFile: URL? { selection.count == 1 ? selection.first.map { URL(fileURLWithPath: $0) } : nil }
 
     var body: some View {
         VStack(spacing: 0) {
-            DrawerTabBar(isLightMode: isLightMode, tab: $tab)
+            DrawerTabBar(isLightMode: isLightMode, tab: tab, onSelect: select)
             Rectangle().fill(palette.borderLine).frame(height: 1)
-            // Pages slide in from their tab's side, like the review sleeve's Media Info | Notes.
             ZStack(alignment: .top) {
-                if tab == "downloads" {
-                    DownloadsDrawer(isLightMode: isLightMode)
-                        .transition(.move(edge: .leading).combined(with: .opacity))
-                }
-                if tab != "downloads" {
-                    UploadLogDrawer(isLightMode: isLightMode)
-                        .transition(.move(edge: .trailing).combined(with: .opacity))
+                switch tab {
+                case "downloads": DownloadsDrawer(isLightMode: isLightMode).transition(slide)
+                case "log": UploadLogDrawer(isLightMode: isLightMode).transition(slide)
+                default:
+                    MediaInfoPanel(url: inspectedFile, loader: mediaInfo, isLightMode: isLightMode,
+                                   emptyTitle: selection.count > 1 ? "\(selection.count) Files Selected" : "No File Selected",
+                                   emptyMessage: "Select one file in the queue to inspect its tracks and metadata.",
+                                   onToast: onToast)
+                        .transition(slide)
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .clipped()
             .overlay(RoundedRectangle(cornerRadius: 4).stroke(isDropTarget ? palette.accentBlue : .clear, lineWidth: 2).padding(2))
-            // Frame.io rows dropped on either page download (the Downloads page opens when they start).
+            // Frame.io rows dropped on any page download (the Downloads page opens when they start).
             .onDrop(of: [.utf8PlainText], isTargeted: $isDropTarget, perform: DownloadQueue.acceptDrop)
-            // `tab` is @AppStorage: its writes don't carry the tab button's `withAnimation`, so animate on the value.
+            // `tab` is @AppStorage: its writes don't carry `withAnimation`, so animate on the value.
             .animation(.spring(response: 0.32, dampingFraction: 0.84), value: tab)
         }
+        .onReceive(UploadQueue.shared.$selection.removeDuplicates()) { selection = $0 }
+        // Read only while Media Info shows (coming back to it reads the file again).
+        .task(id: [tab, inspectedFile?.path ?? ""]) {
+            guard tab == "info" || !Self.tabs.contains(tab) else { return }
+            await mediaInfo.load(inspectedFile, asset: nil)
+        }
+    }
+
+    private var slide: AnyTransition {
+        .asymmetric(insertion: .move(edge: forward ? .trailing : .leading), removal: .move(edge: forward ? .leading : .trailing))
+            .combined(with: .opacity)
+    }
+
+    private func select(_ id: String) {
+        guard id != tab else { return }
+        forward = (Self.tabs.firstIndex(of: id) ?? 0) > (Self.tabs.firstIndex(of: tab) ?? 0)
+        // A turn later: the leaving page's transition is the one from the render before the switch.
+        DispatchQueue.main.async { tab = id }
     }
 }
 
-/// The drawer's Downloads | Log switcher (the review sleeve's pill). Observes downloads for its percentage on its own,
-/// so the Log page doesn't redraw at the download's 5 Hz.
+/// The drawer's Media Info | Downloads | Log switcher (the review sleeve's pill). Observes downloads for its
+/// percentage on its own, so the other pages don't redraw at the download's 5 Hz.
 private struct DrawerTabBar: View {
     @ObservedObject private var themeManager = ThemeManager.shared   // accent changes redraw
     var isLightMode: Bool
-    @Binding var tab: String
+    var tab: String
+    var onSelect: (String) -> Void
     @ObservedObject private var downloads = DownloadQueue.shared
 
     private var palette: StudioPalette { StudioPalette(isLightMode) }
     var body: some View {
         HStack(spacing: 4) {
+            tabButton("info", "Media Info", badge: nil)
             tabButton("downloads", "Downloads", badge: downloads.isRunning ? "\(downloads.percent)%" : nil)
             tabButton("log", "Log", badge: nil)
         }
@@ -858,10 +914,10 @@ private struct DrawerTabBar: View {
     }
 
     private func tabButton(_ id: String, _ title: String, badge: String?) -> some View {
-        let isSelected = tab == id
-        return Button(action: { withAnimation(.spring(response: 0.32, dampingFraction: 0.84)) { tab = id } }) {
+        let isSelected = tab == id || (id == "info" && !UploadSideDrawer.tabs.contains(tab))
+        return Button(action: { onSelect(id) }) {
             HStack(spacing: 5) {
-                Text(title).font(.ui(size: 11, weight: isSelected ? .semibold : .medium))
+                Text(title).font(.ui(size: 11, weight: isSelected ? .semibold : .medium)).lineLimit(1)
                 if let badge {
                     Text(badge)
                         .font(.ui(size: 9, weight: .semibold))

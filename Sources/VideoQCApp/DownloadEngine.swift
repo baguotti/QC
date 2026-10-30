@@ -115,6 +115,8 @@ final class DownloadEngine: Sendable {
             }
             let done = saved?.done ?? []
             resume.begin(item.jobID, partial: partial, done: done)
+            // A retried or resumed file: chunks of the earlier attempt count again only once they're fetched or done.
+            progress.clearParts(item.jobID, prefix: "c")
 
             // Size unknown (0): one request for the whole file. Otherwise 32 MB ranges.
             var ranges: [Range<Int64>?] = item.size == 0 ? [nil] : []

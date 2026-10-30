@@ -423,8 +423,10 @@ final class FrameIOBrowser: ObservableObject {
                 }
                 if crumbs != loadedPath { selection = []; anchor = nil; filter = "" }
                 loadedPath = crumbs
-                // A stack lists its versions newest first: keep that order (it is the version order).
-                items = crumbs.last?.level == .stack ? loaded : Self.sorted(loaded)
+                // A stack lists its versions newest first: keep that order (it is the version order). Items deleted a
+                // moment ago stay hidden in case Frame.io still lists them while it finishes deleting.
+                let listed = recentlyDeleted.isEmpty ? loaded : loaded.filter { !recentlyDeleted.contains($0.id) }
+                items = crumbs.last?.level == .stack ? listed : Self.sorted(listed)
                 selection.formIntersection(items.map(\.id))
                 if let pending = pendingSelection, items.contains(where: { $0.id == pending }) {
                     selection = [pending]
@@ -468,11 +470,16 @@ final class FrameIOBrowser: ObservableObject {
         }
     }
 
+    /// Stacks whose version count is being fetched (a reload while it's in flight doesn't ask again).
+    private var countingStacks: Set<String> = []
+
     /// Fetches the version count of each stack in the open folder (one call each, the first 25).
     private func loadVersionCounts(_ stacks: [FrameIO.Item]) {
         guard let account = accountID else { return }
-        for stack in stacks.prefix(25) where versionCounts[stack.id] == nil {
+        for stack in stacks.prefix(25) where versionCounts[stack.id] == nil && !countingStacks.contains(stack.id) {
+            countingStacks.insert(stack.id)
             Task {
+                defer { countingStacks.remove(stack.id) }
                 if let versions = try? await FrameIO.shared.stackVersions(account: account, stack: stack.id, thumbnails: false) {
                     versionCounts[stack.id] = versions.count
                 }
@@ -644,6 +651,97 @@ final class FrameIOBrowser: ObservableObject {
             } catch {
                 show(Toast(message: "Couldn't duplicate: \(error.localizedDescription)", isError: true))
             }
+        }
+    }
+
+    // MARK: Delete
+
+    /// What Delete acts on for a right-click on `item` (nil: nothing here can be deleted): files, folders and stacks in
+    /// a folder, or versions in an open stack. Never projects, workspaces or accounts.
+    func deletable(for item: FrameIO.Item) -> [FrameIO.Item]? {
+        guard destination != nil || inStack else { return nil }
+        let targets = targets(for: item).filter(FrameIODelete.canDelete)
+        return targets.isEmpty ? nil : targets
+    }
+
+    /// ⌘⌫: the selection, after asking.
+    func deleteSelection() {
+        guard destination != nil || inStack else { return }
+        let targets = items.filter { selection.contains($0.id) && FrameIODelete.canDelete($0) }
+        if !targets.isEmpty { confirmDelete(targets) }
+    }
+
+    /// Asks (a sheet on the window, Cancel is the default button), then deletes. While an upload runs, folders stay:
+    /// one may be where it's uploading.
+    func confirmDelete(_ targets: [FrameIO.Item]) {
+        guard !targets.isEmpty else { return }
+        if UploadQueue.shared.isRunning && targets.contains(where: \.isFolder) {
+            show(Toast(message: "Folders can't be deleted while an upload is running.", isError: true))
+            return
+        }
+        let text = FrameIODelete.summary(targets)
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = text.title
+        alert.informativeText = text.detail
+        let delete = alert.addButton(withTitle: "Delete")
+        delete.hasDestructiveAction = true
+        let cancel = alert.addButton(withTitle: "Cancel")
+        // Return cancels, so a stray key press never deletes.
+        delete.keyEquivalent = ""
+        cancel.keyEquivalent = "\r"
+        let finish: (NSApplication.ModalResponse) -> Void = { response in
+            if response == .alertFirstButtonReturn { self.delete(targets) }
+        }
+        if let window = NSApp.keyWindow ?? NSApp.mainWindow {
+            alert.beginSheetModal(for: window, completionHandler: finish)
+        } else {
+            finish(alert.runModal())
+        }
+    }
+
+    /// Ids deleted in the last 30 s, left out of listings (`reload`).
+    private var recentlyDeleted: Set<String> = []
+
+    private func hideDeleted(_ ids: Set<String>) {
+        guard !ids.isEmpty else { return }
+        recentlyDeleted.formUnion(ids)
+        Task {
+            try? await Task.sleep(for: .seconds(30))
+            recentlyDeleted.subtract(ids)
+        }
+    }
+
+    /// Deletes from Frame.io: the rows go at once, and come back with the next listing if they couldn't be deleted.
+    private func delete(_ targets: [FrameIO.Item]) {
+        guard let account = accountID else { return }
+        let ids = Set(targets.map(\.id))
+        let stack = inStack ? path.last : nil
+        items.removeAll { ids.contains($0.id) }
+        selection.subtract(ids)
+        let what = targets.count == 1 ? "“\(targets[0].title)”" : "\(targets.count) items"
+        if targets.count > 3 { show(Toast(message: "Deleting \(what)…")) }
+        Task {
+            let outcome = await FrameIODelete.run(targets, account: account, api: FrameIO.shared)
+            // Favourites of deleted folders and stacks (or anything inside them) can't open any more.
+            if favourites.contains(where: { $0.path.contains { outcome.deleted.contains($0.id) } }) {
+                favourites.removeAll { $0.path.contains { outcome.deleted.contains($0.id) } }
+                saveFavourites()
+            }
+            for id in outcome.deleted { versionCounts[id] = nil }
+            hideDeleted(outcome.deleted)
+            if let stack { versionCounts[stack.id] = nil }
+            if let first = outcome.failures.first {
+                let failed = outcome.failures.count == 1 ? "“\(first.title)”" : "\(outcome.failures.count) items"
+                let message = outcome.deleted.isEmpty ? "Couldn't delete \(failed)"
+                    : "Deleted \(outcome.deleted.count), but couldn't delete \(failed)"
+                show(Toast(message: "\(message): \(first.message)", isError: true))
+            } else {
+                show(Toast(message: "Deleted \(what)"))
+            }
+            // A stack whose last versions went is gone: back to the folder that held it.
+            if let stack, path.last?.id == stack.id, items.isEmpty, !outcome.deleted.isEmpty { path.removeLast() }
+            reload()
         }
     }
 
@@ -961,7 +1059,7 @@ struct FrameIOBrowserView: View {
     // MARK: Header
 
     /// Where you are, and the actions that don't depend on it: refresh, Frame.io's status, the account, and the right
-    /// drawer's tabs (Downloads, Log) at the far right.
+    /// drawer's chevron at the far right.
     private var header: some View {
         HStack(spacing: 4) {
             if !benchHides("crumbs") { breadcrumbs }
@@ -1854,6 +1952,7 @@ struct FrameIOBrowserView: View {
                 Label(targets.count == 1 ? "Remove from Stack" : "Remove \(targets.count) Versions from Stack",
                       systemImage: "square.stack.3d.down.right")
             }
+            deleteButton(for: item)
         }
     }
 
@@ -1921,6 +2020,18 @@ struct FrameIOBrowserView: View {
         }
         if let single, single.isFolder || single.isVersionStack, !browser.isFavourite(single) {
             Button { browser.addFavourite(single) } label: { Label("Add to Favourites", systemImage: "star") }
+        }
+        deleteButton(for: item)
+    }
+
+    /// Frame.io's Delete, last in its menu; asks first.
+    @ViewBuilder
+    private func deleteButton(for item: FrameIO.Item) -> some View {
+        if let targets = browser.deletable(for: item) {
+            Divider()
+            Button(role: .destructive) { browser.confirmDelete(targets) } label: {
+                Label(targets.count == 1 ? "Delete" : "Delete \(targets.count) Items", systemImage: "trash")
+            }
         }
     }
 
@@ -3523,70 +3634,45 @@ private enum ContentColumn: CaseIterable {
     }
 }
 
-/// The right drawer's tabs at the far right of the Frame.io header, like the Player's review sleeve: a tab opens the
-/// drawer on its page (or closes it when already showing), the chevron opens / closes it, and starting a download
-/// opens Downloads. The only part of the header that observes `DownloadQueue` (its 5 Hz progress mustn't redraw the
-/// browser's list).
+/// The right drawer's chevron at the far right of the Frame.io header (⌘⇧→ too): opens / closes the drawer, whose own
+/// tabs pick Media Info, Downloads or Log. Starting a download opens it on Downloads, a running one shows its percentage
+/// here, and Frame.io rows dropped on it download. The only part of the header that observes `DownloadQueue` (its
+/// 5 Hz progress mustn't redraw the browser's list).
 private struct DrawerTabs: View {
     @ObservedObject private var themeManager = ThemeManager.shared   // accent changes redraw
     let isLightMode: Bool
     @AppStorage("uploadLogOpen") private var isOpen = false
-    @AppStorage("uploadDrawerTab") private var tab = "log"
+    @AppStorage("uploadDrawerTab") private var tab = "info"
     @ObservedObject private var downloads = DownloadQueue.shared
     @State private var isDropTarget = false
-    @State private var isLogDropTarget = false
 
     private var palette: StudioPalette { StudioPalette(isLightMode) }
 
     var body: some View {
-        HStack(spacing: 4) {
-            tabButton("downloads", "Downloads", badge: downloads.isRunning ? "\(downloads.percent)%" : nil)
-                .background(RoundedRectangle(cornerRadius: StudioTheme.cornerRadius).fill(isDropTarget ? palette.accentBlue.opacity(0.25) : .clear))
-                // Dropping Frame.io rows here downloads them (and opens the drawer once a download starts).
-                .onDrop(of: [.utf8PlainText], isTargeted: $isDropTarget, perform: DownloadQueue.acceptDrop)
-            tabButton("log", "Log", badge: nil)
-                .background(RoundedRectangle(cornerRadius: StudioTheme.cornerRadius).fill(isLogDropTarget ? palette.accentBlue.opacity(0.25) : .clear))
-                .onDrop(of: [.utf8PlainText], isTargeted: $isLogDropTarget, perform: DownloadQueue.acceptDrop)
-            Button(action: { toggle { isOpen.toggle() } }) {
-                Image(systemName: isOpen ? "chevron.right" : "chevron.left")
-                    .font(.system(size: StudioTheme.scaleFont(11), weight: .bold))
-                    .foregroundColor(isOpen ? palette.accentBlue : palette.textMain)
-                    .frame(width: StudioTheme.scale(22), height: StudioTheme.scale(24))
-                    .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .modifier(ToolHover(fill: palette.bgSubtle))
-            .tip(isOpen ? "Close the drawer" : "Open Downloads & Log")
-        }
-        .onChange(of: downloads.startCount) {
-            toggle { tab = "downloads"; isOpen = true }
-        }
-    }
-
-    private func toggle(_ change: () -> Void) {
-        withAnimation(.spring(response: 0.32, dampingFraction: 0.78), change)
-    }
-
-    private func tabButton(_ id: String, _ title: String, badge: String?) -> some View {
-        let showing = isOpen && tab == id
-        return Button(action: { toggle { if showing { isOpen = false } else { tab = id; isOpen = true } } }) {
+        Button(action: { withAnimation(.spring(response: 0.32, dampingFraction: 0.78)) { isOpen.toggle() } }) {
             HStack(spacing: 4) {
-                Text(title)
-                    .font(.ui(size: 12))
-                    .foregroundColor(showing ? palette.accentBlue : palette.textMain)
-                if let badge {
-                    Text(badge)
+                if downloads.isRunning {
+                    Text("\(downloads.percent)%")
                         .font(.ui(size: 10, weight: .semibold))
                         .monospacedDigit()
                         .foregroundColor(palette.accentBlue)
                 }
+                Image(systemName: isOpen ? "chevron.right" : "chevron.left")
+                    .font(.system(size: StudioTheme.scaleFont(11), weight: .bold))
+                    .foregroundColor(isOpen ? palette.accentBlue : palette.textMain)
             }
-            .padding(.horizontal, 7)
+            .padding(.horizontal, downloads.isRunning ? 6 : 0)
+            .frame(minWidth: StudioTheme.scale(22))
             .frame(height: StudioTheme.scale(24))
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .modifier(ToolHover(fill: palette.bgSubtle, isOn: showing))
-        .tip(showing ? "Close \(title)" : "Show \(title)")
+        .modifier(ToolHover(fill: palette.bgSubtle))
+        .background(RoundedRectangle(cornerRadius: StudioTheme.cornerRadius).fill(isDropTarget ? palette.accentBlue.opacity(0.25) : .clear))
+        .onDrop(of: [.utf8PlainText], isTargeted: $isDropTarget, perform: DownloadQueue.acceptDrop)
+        .tip(isOpen ? "Close the drawer (⌘⇧→)" : "Open Media Info, Downloads & Log (⌘⇧→)")
+        .onChange(of: downloads.startCount) {
+            withAnimation(.spring(response: 0.32, dampingFraction: 0.78)) { tab = "downloads"; isOpen = true }
+        }
     }
 }

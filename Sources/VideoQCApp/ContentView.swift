@@ -194,8 +194,9 @@ struct ContentView: View {
             .animation(.easeInOut(duration: 0.15), value: showUserSettingsModal)
             .animation(.easeInOut(duration: 0.15), value: showPropertiesModal)
             .animation(.easeInOut(duration: 0.15), value: showAddNoteModal)
-            .animation(.easeInOut(duration: 0.15), value: showNotesDrawer)
-            .animation(.easeInOut(duration: 0.15), value: showPlayerQueue)
+            // The Play tab's sleeves bounce like the Upload drawer (this overrides the callers' `withAnimation`).
+            .animation(.spring(response: 0.32, dampingFraction: 0.78), value: showNotesDrawer)
+            .animation(.spring(response: 0.32, dampingFraction: 0.78), value: showPlayerQueue)
             .animation(.easeInOut(duration: 0.15), value: showSpecsControlPanel)
             .animation(.easeInOut(duration: 0.15), value: fullscreenMode)
             .animation(.spring(response: 0.3, dampingFraction: 0.7), value: toastMessage)
@@ -1571,6 +1572,7 @@ struct ContentView: View {
             onToggleWaveforms: { self.playerEngine.drawsWaveforms.toggle() },
             onSelectAllUploads: { UploadQueue.shared.selectAll() },
             onUndoFrameIO: { FrameIOBrowser.shared.performUndo() },
+            onDeleteFrameIO: { FrameIOBrowser.shared.deleteSelection() },
             onPasteFrameIOLink: { FrameIOBrowser.shared.openLinkOnClipboard() },
             onPasteFrameIOLinkInPlayer: { FrameIOCommentSync.shared.linkActiveFromClipboard { self.showToast($0) } },
             onTogglePlayPause: { self.playerEngine.togglePlayPause() },
@@ -1645,6 +1647,11 @@ struct ContentView: View {
                             self.playerDrawerTab = self.currentFileHasNotes ? .notes : .mediaInfo
                         }
                         self.showNotesDrawer.toggle()
+                    }
+                } else if self.selectedTab == .upload {
+                    // The Upload tab's drawer (Media Info, Downloads, Log), as its header chevron does.
+                    withAnimation(.spring(response: 0.32, dampingFraction: 0.78)) {
+                        UserDefaults.standard.set(!UserDefaults.standard.bool(forKey: "uploadLogOpen"), forKey: "uploadLogOpen")
                     }
                 }
             }

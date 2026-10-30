@@ -419,7 +419,13 @@ actor FrameIO {
 
     /// Removes a placeholder whose upload was cancelled or failed.
     func deleteFile(account: String, id: String) async throws {
-        _ = try await request("DELETE", "/v4/accounts/\(account)/files/\(id)")
+        try await delete(account: account, kind: "files", id: id)
+    }
+
+    /// Deletes a file or a folder with everything in it (`kind`: "files" or "folders"; 204). Rate limits: 100 files and
+    /// 60 folders a minute (a 429 waits and retries). The V4 API has no call to delete a version stack.
+    func delete(account: String, kind: String, id: String) async throws {
+        _ = try await request("DELETE", "/v4/accounts/\(account)/\(kind)/\(id)")
     }
 
     /// Every comment on a file, with replies and authors, and the timecode Frame.io shows for each (`timecode`, a
@@ -575,15 +581,25 @@ actor FrameIO {
         guard let current = tokens else { throw Failure.signedOut }
         if current.expires.timeIntervalSinceNow > 60 { return current.access }
         guard let refresh = current.refresh else { signOut(); throw Failure.signedOut }
-        if let refreshing { return try await refreshing.value.access }
-        let task = Task { try await self.refreshTokens(refresh) }
-        refreshing = task
-        defer { refreshing = nil }
+        let task: Task<Tokens, Error>
+        if let refreshing {
+            task = refreshing
+        } else {
+            task = Task { try await self.refreshTokens(refresh) }
+            refreshing = task
+        }
         do {
-            return try await task.value.access
-        } catch Failure.http(let code, _) where (400..<500).contains(code) {
+            let tokens = try await task.value
+            if refreshing == task { refreshing = nil }
+            return tokens.access
+        } catch Failure.http(let code, _) where (400..<500).contains(code) && code != 408 && code != 429 {
+            // The refresh token was refused (expired or revoked). A busy or slow server isn't a sign-out.
+            if refreshing == task { refreshing = nil }
             signOut()
             throw Failure.signedOut
+        } catch {
+            if refreshing == task { refreshing = nil }
+            throw error
         }
     }
 

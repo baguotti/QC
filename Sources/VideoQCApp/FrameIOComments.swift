@@ -68,6 +68,18 @@ actor FrameIOLinks {
         return Self.size(of: url) == link.size ? link : nil
     }
 
+    /// A Frame.io file that's gone (deleted here or on the web): clips linked to it are unlinked and it leaves the
+    /// name/size index, so it isn't linked again.
+    func forget(fileID: String) {
+        let links = state.links.filter { $0.value.fileID != fileID }
+        let seen = state.seen?.filter { $0.value.fileID != fileID }
+        guard links.count != state.links.count || seen?.count != state.seen?.count else { return }
+        state.links = links
+        state.seen = seen
+        state.imported[fileID] = nil
+        save()
+    }
+
     /// Records the files of a listing (stacks: their current version) for matching clips by name and size later.
     func remember(_ items: [FrameIO.Item], account: String) {
         var seen = state.seen ?? [:]
@@ -350,6 +362,12 @@ final class FrameIOCommentSync: ObservableObject {
             NotificationCenter.default.post(name: Self.didFetch, object: Change(
                 url: url, fileID: link.fileID, comments: comments,
                 previouslyImported: Set(previous.map(FrameIOCommentImport.noteID)), userInitiated: userInitiated))
+        } catch FrameIO.Failure.http(404, _) {
+            // The Frame.io file was deleted: stop asking for it (and showing an error) every minute.
+            await FrameIOLinks.shared.forget(fileID: link.fileID)
+            guard isActive(url) else { return }
+            activeLinked = false
+            lastError = nil
         } catch {
             guard isActive(url) else { return }
             lastError = UploadEngine.describe(error)

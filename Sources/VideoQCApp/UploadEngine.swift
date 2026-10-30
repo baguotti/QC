@@ -341,16 +341,6 @@ final class UploadEngine: Sendable {
         }
     }
 
-    nonisolated static func read(_ range: Range<Int64>, of file: URL) throws -> Data {
-        guard FileManager.default.fileExists(atPath: file.path) else { throw UploadError.missing }
-        let handle = try FileHandle(forReadingFrom: file)
-        defer { try? handle.close() }
-        try handle.seek(toOffset: UInt64(range.lowerBound))
-        let data = try handle.read(upToCount: Int(range.count)) ?? Data()
-        guard data.count == range.count else { throw UploadError.changed }
-        return data
-    }
-
     /// The file's modification date, after checking it's still there at the expected size. Read from disk each time
     /// (`URL.resourceValues` caches per URL, which hid changes made mid-upload).
     nonisolated static func checkedModificationDate(of file: URL, size: Int64) throws -> Date {

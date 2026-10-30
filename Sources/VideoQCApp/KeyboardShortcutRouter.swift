@@ -85,6 +85,7 @@ final class KeyboardShortcutRouter {
         case global
         case playerOrSpecs
         case playerOnly
+        case playerOrUpload
         case uploadOnly
     }
     
@@ -172,6 +173,8 @@ final class KeyboardShortcutRouter {
                 isScopeActive = (currentTab == .player || currentTab == .specs)
             case .playerOnly:
                 isScopeActive = (currentTab == .player)
+            case .playerOrUpload:
+                isScopeActive = (currentTab == .player || currentTab == .upload)
             case .uploadOnly:
                 isScopeActive = (currentTab == .upload)
             }
@@ -252,6 +255,7 @@ struct KeyboardShortcutActions {
     var onToggleWaveforms: () -> Void
     var onSelectAllUploads: () -> Void
     var onUndoFrameIO: () -> Void
+    var onDeleteFrameIO: () -> Void
     /// ⌘V in the Upload tab: opens a Frame.io link on the clipboard; false (not handled) for anything else.
     var onPasteFrameIOLink: () -> Bool
     /// ⌘V in the Player: links the open clip to a Frame.io link on the clipboard (imports its comments).
@@ -306,6 +310,7 @@ struct KeyboardShortcutActions {
         onToggleWaveforms: @escaping () -> Void = {},
         onSelectAllUploads: @escaping () -> Void = {},
         onUndoFrameIO: @escaping () -> Void = {},
+        onDeleteFrameIO: @escaping () -> Void = {},
         onPasteFrameIOLink: @escaping () -> Bool = { false },
         onPasteFrameIOLinkInPlayer: @escaping () -> Bool = { false },
         onTogglePlayPause: @escaping () -> Void = {},
@@ -353,6 +358,7 @@ struct KeyboardShortcutActions {
         self.onToggleWaveforms = onToggleWaveforms
         self.onSelectAllUploads = onSelectAllUploads
         self.onUndoFrameIO = onUndoFrameIO
+        self.onDeleteFrameIO = onDeleteFrameIO
         self.onPasteFrameIOLink = onPasteFrameIOLink
         self.onPasteFrameIOLinkInPlayer = onPasteFrameIOLinkInPlayer
         self.onTogglePlayPause = onTogglePlayPause
@@ -528,6 +534,14 @@ extension KeyboardShortcutRouter {
                 scope: .uploadOnly
             ) {
                 actions.onSelectAllUploads()
+                return true
+            },
+            Rule(
+                id: "frameioDelete",
+                trigger: ShortcutTrigger(keyCode: 51, modifiers: [.command]),
+                scope: .uploadOnly
+            ) {
+                actions.onDeleteFrameIO()
                 return true
             },
             Rule(
@@ -773,7 +787,7 @@ extension KeyboardShortcutRouter {
             Rule(
                 id: "toggleRightSleeve",
                 trigger: ShortcutTrigger(keyCodes: [124], modifiers: [.command, .shift]),
-                scope: .playerOnly
+                scope: .playerOrUpload
             ) {
                 actions.onToggleRightSleeve()
                 return true
