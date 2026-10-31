@@ -143,7 +143,7 @@ final class FrameIOPreview: ObservableObject {
                 let hasPreview = still != nil || (kind == "audio" ? audio != nil : (sharp ?? small) != nil)
                 if deferOpen {
                     guard hasPreview else {
-                        FrameIOBrowser.shared.notice("Frame.io is still processing “\(file.name ?? item.title)”. Try the preview again in a minute.")
+                        FrameIOBrowser.shared.notify("Frame.io is still processing “\(file.name ?? item.title)”. Try the preview again in a minute.")
                         return
                     }
                     withAnimation(Motion.fade) { self.item = item }

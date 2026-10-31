@@ -43,7 +43,10 @@ struct UserGuideView: View {
             GuideShortcut(["⇧J", "⇧L"], "Slow frame-by-frame reverse / forward"),
             GuideShortcut(["←", "→"], "Step one frame"),
             GuideShortcut(["⇧←", "⇧→"], "Step five frames"),
-            GuideShortcut(["Home", "⇧I"], "Go to the first frame"),
+            GuideShortcut(["Home"], "Go to the first frame"),
+            GuideShortcut(["I", "O"], "Mark In / Out"),
+            GuideShortcut(["⇧I", "⇧O"], "Go to In / Out (first / last frame when not set)"),
+            GuideShortcut(["⌥X"], "Clear In and Out"),
             GuideShortcut(["End"], "Go to the last frame"),
             GuideShortcut(["⌘L"], "Loop on / off"),
         ]),
@@ -66,8 +69,16 @@ struct UserGuideView: View {
             GuideShortcut(["⇧M", "M"], "Previous / next Scan finding"),
             GuideShortcut(["1", "–", "7"], "Finder tag: red, green, blue, yellow, orange, purple, grey"),
             GuideShortcut(["0"], "Clear the Finder tag"),
-            GuideShortcut(["I"], "Cycle the clip info overlay"),
+            GuideShortcut(["⌥I"], "Cycle the clip info overlay"),
             GuideShortcut(["⌘I"], "Media Info"),
+        ]),
+        GuideTopic(title: "Upload", body: "", shortcuts: [
+            GuideShortcut(["Space"], "Preview the selected Frame.io file"),
+            GuideShortcut(["←", "→"], "Previous / next file in the preview"),
+            GuideShortcut(["⌘A"], "Select all"),
+            GuideShortcut(["⌘Z"], "Undo the last rename or move"),
+            GuideShortcut(["⌘V"], "Go to a pasted Frame.io link"),
+            GuideShortcut(["⌘⌫"], "Delete on Frame.io (asks first)"),
         ]),
         GuideTopic(title: "View", body: "", shortcuts: [
             GuideShortcut(["F"], "Video full screen"),
@@ -90,7 +101,8 @@ struct UserGuideView: View {
             GuideTopic(title: "Hide, Auto and Wave", body: "Hide flattens the folder list. Auto (A) plays a clip from the start when you select it. Wave (W) draws the audio waveform under the timeline; scroll over it to resize the lane."),
             GuideTopic(title: "Images, Audio and Sequences", body: "Stills and audio open in the Player too. Numbered image sequences are detected automatically and play as a clip; right-click one in the queue to change its frame rate or read it as single images."),
             GuideTopic(title: "Play and Shuttle (Space, J / K / L)", body: "Space plays and pauses. L plays forward and speeds up on each press (1×, 2×, 4×, 8×, 16×), J does the same in reverse, K stops. ⇧L / ⇧J play slowly frame by frame. ⌘L loops."),
-            GuideTopic(title: "Stepping (← / →)", body: "← / → step one frame, ⇧← / ⇧→ step five. Home or ⇧I jumps to the first frame, End to the last."),
+            GuideTopic(title: "Stepping (← / →)", body: "← / → step one frame, ⇧← / ⇧→ step five (or the step set in User Settings). Home jumps to the first frame, End to the last."),
+            GuideTopic(title: "In and Out (I / O)", body: "I and O mark an In and Out point on the timeline; ⇧I and ⇧O go to them, ⌥X clears them. With loop on (⌘L), playback loops between them, to review one shot over and over. The range's length shows next to the duration: click it to export the range as its own file (original quality when the format allows)."),
             GuideTopic(title: "Timeline", body: "Drag the playhead or click the ruler to scrub frame-accurately. Note, line and tag markers sit on the timeline; click one to jump to it."),
             GuideTopic(title: "Compare A / B", body: "With two clips loaded, C cycles the compare modes (split, side by side, difference, overlay), Tab blinks between A and B, and S or X swaps the slots. Linked A / B plays and steps both together."),
             GuideTopic(title: "Zoom and Pan", body: "Scroll to zoom (it follows the cursor; change this in User Settings) and drag to pan. Above 175% pixels are shown square for pixel-level QC."),
@@ -264,5 +276,119 @@ struct UserGuideView: View {
         if id.topic + 1 < Self.chapters[id.chapter].topics.count { return GuideTopicID(chapter: id.chapter, topic: id.topic + 1) }
         if id.chapter + 1 < Self.chapters.count { return GuideTopicID(chapter: id.chapter + 1, topic: 0) }
         return nil
+    }
+}
+
+
+/// Hold ⌘ for a second: the shortcuts that work in the current tab, from the User Guide's lists. Shown over the window,
+/// gone when ⌘ is released.
+struct ShortcutCheatSheet: View {
+    let tab: AppTab
+    let isLightMode: Bool
+
+    private var palette: StudioPalette { StudioPalette(isLightMode) }
+
+    private var topics: [GuideTopic] {
+        let names: [String]
+        switch tab {
+        case .player: names = ["Playback", "Queue", "Compare", "Review", "View"]
+        case .upload: names = ["Upload", "View"]
+        default: names = ["View"]
+        }
+        return names.compactMap { name in UserGuideView.shortcutsChapter.topics.first { $0.title == name } }
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Text("Keyboard Shortcuts")
+                .font(.ui(size: 15, weight: .semibold))
+                .foregroundColor(palette.textMain)
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: StudioTheme.scale(300)), alignment: .top)], alignment: .leading, spacing: 16) {
+                ForEach(topics, id: \.title) { topic in
+                    VStack(alignment: .leading, spacing: 5) {
+                        Text(topic.title)
+                            .font(.ui(size: 11, weight: .semibold))
+                            .foregroundColor(palette.textMuted)
+                        ForEach(topic.shortcuts, id: \.self) { row in
+                            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                                Text(row.keys.joined(separator: " "))
+                                    .font(.system(size: StudioTheme.scaleFont(11), weight: .medium, design: .rounded))
+                                    .foregroundColor(palette.textMain)
+                                    .frame(width: StudioTheme.scale(84), alignment: .leading)
+                                Text(row.action)
+                                    .font(.ui(size: 11))
+                                    .foregroundColor(palette.textMain.opacity(0.85))
+                                    .fixedSize(horizontal: false, vertical: true)
+                            }
+                        }
+                    }
+                }
+            }
+            Text("Every shortcut is in the User Guide (?).")
+                .font(.ui(size: 11))
+                .foregroundColor(palette.textMuted)
+        }
+        .padding(20)
+        .frame(maxWidth: StudioTheme.scale(980))
+        .background(RoundedRectangle(cornerRadius: Radius.container).fill(palette.bgPanel))
+        .overlay(RoundedRectangle(cornerRadius: Radius.container).stroke(palette.borderStrong, lineWidth: 1))
+        .padding(40)
+        .allowsHitTesting(false)
+    }
+}
+
+/// Watches for ⌘ held alone for a second (cancelled by any key, click or other modifier) and reports when the cheat
+/// sheet should show. Local monitors only: costs nothing until a modifier changes. Used on the main thread only (event
+/// monitors and the resign notification are delivered there).
+final class CommandHoldMonitor: @unchecked Sendable {
+    private var monitors: [Any] = []
+    private var resignObserver: NSObjectProtocol?
+    private var pending: DispatchWorkItem?
+    private var isShowing = false
+    var onChange: (Bool) -> Void = { _ in }
+
+    func start() {
+        guard monitors.isEmpty else { return }
+        if let flags = NSEvent.addLocalMonitorForEvents(matching: .flagsChanged, handler: { [weak self] event in
+            let mods = event.modifierFlags.intersection([.command, .shift, .option, .control])
+            if mods == .command { self?.arm() } else { self?.cancel() }
+            return event
+        }) { monitors.append(flags) }
+        if let other = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .leftMouseDown, .rightMouseDown, .scrollWheel], handler: { [weak self] event in
+            self?.cancel()
+            return event
+        }) { monitors.append(other) }
+        resignObserver = NotificationCenter.default.addObserver(forName: NSApplication.didResignActiveNotification, object: nil,
+                                                                queue: .main) { [weak self] _ in
+            self?.cancel()
+        }
+    }
+
+    func stop() {
+        monitors.forEach(NSEvent.removeMonitor)
+        monitors = []
+        if let resignObserver { NotificationCenter.default.removeObserver(resignObserver) }
+        resignObserver = nil
+        cancel()
+    }
+
+    private func arm() {
+        pending?.cancel()
+        let work = DispatchWorkItem { [weak self] in
+            guard let self else { return }
+            self.isShowing = true
+            self.onChange(true)
+        }
+        pending = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1, execute: work)
+    }
+
+    private func cancel() {
+        pending?.cancel()
+        pending = nil
+        if isShowing {
+            isShowing = false
+            onChange(false)
+        }
     }
 }

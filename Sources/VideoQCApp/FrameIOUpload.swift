@@ -200,12 +200,14 @@ final class UploadQueue: ObservableObject {
     /// interrupted upload is discarded first, keeping the files this upload reuses.
     /// First checks the files (`UploadPreflight`: names already in the folder, files still being written, odd files)
     /// and asks about any it flags.
-    func start(to destination: Destination, paths: Set<String>? = nil) {
+    func start(to destination: Destination, paths: Set<String>? = nil, share: Bool = false) {
         guard !isRunning else { return }
         guard !isChecking else {
             FrameIOBrowser.shared.notify("Still checking the last files: drop these again in a moment", isError: true)
             return
         }
+        pendingShare = share ? FrameIOBrowser.shared.path.first(where: { $0.level == .project })
+            .map { ShareRequest(account: destination.account, project: $0.id, folder: destination.folder, path: destination.path) } : nil
         let targets = paths ?? (selection.isEmpty ? Set(jobs.map(\.url.path)) : selection)
         // Read once: the checks and the upload must agree on where files go.
         let keep = keepStructure
@@ -272,9 +274,45 @@ final class UploadQueue: ObservableObject {
         run(to: destination, targets: targets, keepStructure: keep, discardingFirst: reused)
     }
 
+    // MARK: Upload & Share
+
+    /// Upload & Share: where the run's share link is made once it finishes.
+    struct ShareRequest {
+        let account: String
+        let project: String
+        let folder: String
+        let path: String
+    }
+    private var pendingShare: ShareRequest?
+    private var runShare: ShareRequest?
+
+    /// Shares what the run put in the destination (the folder itself when that's everything in it), and copies the link.
+    /// Never the whole folder when it holds other things: those weren't part of this upload.
+    private func shareRun(_ share: ShareRequest, names: Set<String>) async {
+        do {
+            let items = try await FrameIO.shared.children(account: share.account, folder: share.folder, thumbnails: false)
+            let matched = items.filter { names.contains($0.title) }
+            guard !matched.isEmpty else { throw CocoaError(.fileNoSuchFile) }
+            let folderName = share.path.split(separator: "›").last.map { $0.trimmingCharacters(in: .whitespaces) } ?? "Upload"
+            let whole = matched.count == items.count
+            let created = try await FrameIO.shared.createShare(
+                account: share.account, project: share.project,
+                name: whole || matched.count > 1 ? folderName : matched[0].title,
+                assetIDs: whole ? [share.folder] : matched.map(\.id))
+            guard let link = created.shortURL else { throw CocoaError(.fileReadUnknown) }
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.setString(link, forType: .string)
+            FrameIOBrowser.shared.notify("Share link copied: \(link)")
+            FrameIOBrowser.shared.loadShares()
+        } catch {
+            FrameIOBrowser.shared.notify("Uploaded, but the share link couldn't be made: \(UploadEngine.describe(error))", isError: true)
+        }
+    }
+
     /// Continues the paused, interrupted or partly failed upload from the next unsent part of each file.
     func resume() {
         guard !isRunning, let saved = resumable else { return }
+        pendingShare = nil
         let known = Set(jobs.map { $0.url.standardizedFileURL })
         for job in saved.jobs where !known.contains(URL(fileURLWithPath: job.path).standardizedFileURL) {
             jobs.append(Job(url: URL(fileURLWithPath: job.path), files: job.files.map { URL(fileURLWithPath: $0) },
@@ -320,6 +358,8 @@ final class UploadQueue: ObservableObject {
         let work = jobs.filter { $0.status == .queued && targets.contains($0.url.path) }
         guard !work.isEmpty else { return }
         runIDs = Set(work.map(\.id))
+        runShare = pendingShare
+        pendingShare = nil
         runDestination = destination.path
         currentRunID = TransferLog.shared.begin(.upload, destination: destination.path, keepStructure: keep)
         isRunning = true
@@ -410,7 +450,15 @@ final class UploadQueue: ObservableObject {
             let uploaded = finished.filter { $0.status == .done }.count, skipped = finished.filter { $0.status == .skipped }.count
             Notifier.shared.post(.uploads, NotificationText.upload(uploaded: uploaded, skipped: skipped,
                                                                    failed: finished.count - uploaded - skipped, destination: runDestination))
+            if let share = runShare, uploaded + skipped > 0 {
+                // Top-level names in the destination: the file, or its first subfolder when keeping the structure.
+                let names = Set(finished.filter { $0.status == .done || $0.status == .skipped }.flatMap { job in
+                    job.folders.first.map { [$0] } ?? job.files.map(\.lastPathComponent)
+                })
+                Task { await self.shareRun(share, names: names) }
+            }
         }
+        runShare = nil
         if stop == .cancel {
             await discardSaved(keeping: [])
         } else {

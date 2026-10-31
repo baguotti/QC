@@ -385,6 +385,19 @@ extension ContentView {
             statBox(title: "Passed Files", val: String(format: "%02d", clean), isPositive: clean > 0)
             statBox(title: "Glitch Segments", val: String(format: "%02d", totalSegments), isRed: totalSegments > 0)
         }
+        let withHidden = LineCheckDismissals.clipsWithHidden(in: scannerState.scanResults)
+        if !withHidden.isEmpty {
+            HStack(spacing: 6) {
+                Image(systemName: "eye.slash")
+                    .font(.system(size: StudioTheme.scaleFont(10)))
+                Text("Findings marked Not a Line are hidden in \(withHidden.count) clip\(withHidden.count == 1 ? "" : "s").")
+                Button("Restore All") { withHidden.forEach(restoreFindings) }
+                    .buttonStyle(.plain)
+                    .foregroundColor(accentBlue)
+            }
+            .font(.ui(size: 11))
+            .foregroundColor(textMuted)
+        }
         if flagged.isEmpty {
             VStack(spacing: 8) {
                 Text("All Deliveries Passed")
@@ -529,6 +542,18 @@ extension ContentView {
                 .foregroundColor(primaryBtnFg)
                 .studioBox(background: primaryBtnBg, border: primaryBtnBg)
                 .frame(width: 75, alignment: .trailing)
+
+                Button {
+                    dismissFinding(seg, in: result)
+                } label: {
+                    Image(systemName: "xmark.circle")
+                        .font(.system(size: StudioTheme.scaleFont(12)))
+                        .foregroundColor(textMuted)
+                        .frame(width: 22, height: 22)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .tip("Not a line: hide this finding, now and in every later scan of this clip (Restore in the clip's header).")
             }
             .font(.ui(size: 11))
             .padding(.horizontal, 14)
@@ -537,6 +562,22 @@ extension ContentView {
         }
         .buttonStyle(.plain)
         .explain("Click to jump immediately to \(seg.startTimecode) in the Player tab to inspect this glitch frame.")
+        .contextMenu {
+            Button("Not a Line") { dismissFinding(seg, in: result) }
+        }
+    }
+
+    private func dismissFinding(_ segment: GlitchSegment, in result: VideoQCResult) {
+        LineCheckDismissals.dismiss(segment, in: result)
+        scannerState.refilterResults()
+        playerEngine.setScanResults(scannerState.scanResults)
+        showToast("Hidden: \(segment.edge.rawValue) \(segment.startTimecode). Restore it from the clip's header.")
+    }
+
+    private func restoreFindings(_ result: VideoQCResult) {
+        LineCheckDismissals.restore(result)
+        scannerState.refilterResults()
+        playerEngine.setScanResults(scannerState.scanResults)
     }
     
     /// A file that couldn't be opened or stopped decoding early (shown instead of, or above, its findings).
@@ -564,6 +605,14 @@ extension ContentView {
                 Text(result.readError != nil && segmentsCount == 0 ? "Unreadable" : "\(segmentsCount) occurrence\(segmentsCount == 1 ? "" : "s") · \(result.errorFrames.count) frames")
                     .font(.ui(size: 11, weight: .semibold))
                     .foregroundColor(alertRed)
+                let dismissed = LineCheckDismissals.ranges(for: result).count
+                if dismissed > 0 {
+                    Button("\(dismissed) hidden · Restore") { restoreFindings(result) }
+                        .buttonStyle(.plain)
+                        .font(.ui(size: 10, weight: .semibold))
+                        .foregroundColor(accentBlue)
+                        .tip("Findings marked Not a Line on this clip. Restore shows them again (and in later scans).")
+                }
                 if scannerState.lastScanTagInFinder {
                     Text("Finder Red Tag Applied")
                         .font(.ui(size: 10, weight: .semibold))

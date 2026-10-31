@@ -189,6 +189,47 @@ struct TimelineMarks: View, Equatable {
     }
 }
 
+/// The In–Out range (I / O): a tinted band across the ruler and track with bracket ends. Redrawn only when the points
+/// or geometry change.
+struct TimelineInOutRange: View, Equatable {
+    let inFrame: Int?
+    let outFrame: Int?
+    let totalFrames: Int
+    let trackWidth: CGFloat
+    let trackInset: CGFloat
+    let height: CGFloat
+    let color: Color
+
+    var body: some View {
+        if totalFrames > 0, inFrame != nil || outFrame != nil {
+            let start = CGFloat(inFrame ?? 0) / CGFloat(totalFrames)
+            let end = CGFloat((outFrame ?? (totalFrames - 1)) + 1) / CGFloat(totalFrames)
+            let x0 = trackInset + trackWidth * start, x1 = trackInset + trackWidth * min(1, end)
+            ZStack(alignment: .topLeading) {
+                Rectangle()
+                    .fill(color.opacity(0.14))
+                    .frame(width: max(1, x1 - x0), height: height)
+                    .offset(x: x0)
+                if inFrame != nil { bracket(at: x0, opening: true) }
+                if outFrame != nil { bracket(at: x1 - 2, opening: false) }
+            }
+            .allowsHitTesting(false)
+        }
+    }
+
+    private func bracket(at x: CGFloat, opening: Bool) -> some View {
+        Path { path in
+            path.move(to: CGPoint(x: opening ? 5 : 0, y: 0))
+            path.addLine(to: CGPoint(x: opening ? 0 : 5, y: 0))
+            path.addLine(to: CGPoint(x: opening ? 0 : 5, y: height))
+            path.addLine(to: CGPoint(x: opening ? 5 : 0, y: height))
+        }
+        .stroke(color, lineWidth: 1.5)
+        .frame(width: 5, height: height)
+        .offset(x: opening ? x : x - 3)
+    }
+}
+
 // MARK: - Audio Waveform (drawn once per file / size, never per frame)
 
 struct TimelineWaveform: View, Equatable {
@@ -276,6 +317,10 @@ public struct TimelineScrubberView: View {
                     .frame(height: 0.75)
                     .offset(y: 22)
                 
+                TimelineInOutRange(inFrame: engine.inFrame, outFrame: engine.outFrame, totalFrames: engine.totalFrames,
+                                   trackWidth: trackWidth, trackInset: trackInset, height: 41, color: playheadAccent)
+                    .equatable()
+
                 // MARK: - Time Ruler (Top 22px)
                 ZStack(alignment: .topLeading) {
                     RulerTicksCanvasView(

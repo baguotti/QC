@@ -14,6 +14,8 @@ struct ContentView: View {
     @State var showFeedbackModal: Bool = false
     @State var showSettingsPopover: Bool = false
     @State var showSyncModal: Bool = false
+    /// ⌘ held for a second (`CommandHoldMonitor`).
+    @State var showShortcutCheatSheet = false
     @State var showUserSettingsModal: Bool = false
     @State var showPropertiesModal: Bool = false
     @State var showAddNoteModal: Bool = false
@@ -94,6 +96,7 @@ struct ContentView: View {
     final class EventMonitorCoordinator {
         var mouseMonitor: Any? = nil
         var keyMonitor: Any? = nil
+        let commandHold = CommandHoldMonitor()
         
         deinit {
             cleanup()
@@ -108,6 +111,7 @@ struct ContentView: View {
                 NSEvent.removeMonitor(k)
                 keyMonitor = nil
             }
+            commandHold.stop()
         }
     }
     
@@ -432,6 +436,12 @@ struct ContentView: View {
             .allowsHitTesting(showPropertiesModal)
         }
         
+        if showShortcutCheatSheet {
+            ShortcutCheatSheet(tab: selectedTab, isLightMode: isLightMode)
+                .transition(.opacity)
+                .zIndex(300)
+        }
+
         if showSyncModal {
             NotesSyncModalView(isPresented: $showSyncModal)
                 .transition(.opacity.combined(with: .scale(scale: 0.98)))
@@ -1453,6 +1463,14 @@ struct ContentView: View {
         }
         
         let router = KeyboardShortcutRouter.standardRouter(actions: buildKeyboardShortcutActions())
+        eventMonitors.commandHold.onChange = { show in
+            // Not over modals, sheets (alerts, panels) or while another window (Settings sheet, menu) has the keys.
+            let window = NSApp.keyWindow
+            guard !show || (!self.isAnyModalActive && window?.attachedSheet == nil && window?.sheetParent == nil
+                            && window?.canBecomeMain == true) else { return }
+            withAnimation(Motion.fade) { self.showShortcutCheatSheet = show }
+        }
+        eventMonitors.commandHold.start()
         
         eventMonitors.keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
             router.handle(
@@ -1617,6 +1635,15 @@ struct ContentView: View {
             },
             onJumpToBeginning: { self.playerEngine.jumpToBeginning() },
             onJumpToEnd: { self.playerEngine.jumpToEnd() },
+            onInOut: { command in
+                switch command {
+                case .markIn: self.playerEngine.markIn()
+                case .markOut: self.playerEngine.markOut()
+                case .goToIn: self.playerEngine.goToIn()
+                case .goToOut: self.playerEngine.goToOut()
+                case .clear: self.playerEngine.clearInOut()
+                }
+            },
             onSelectPreviousFile: { target in self.playerSelectPreviousFile(target: target) },
             onSelectNextFile: { target in self.playerSelectNextFile(target: target) },
             onToggleFullscreenVideo: {

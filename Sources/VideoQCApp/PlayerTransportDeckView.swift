@@ -260,7 +260,7 @@ struct PlayerTransportDeckView: View, Equatable {
 
                 transportBtn(
                     icon: "info.circle",
-                    tooltip: "Clip Info: \(transportState.clipInfoOverlayMode.rawValue) (I: Cycle, Right-click to choose).",
+                    tooltip: "Clip Info: \(transportState.clipInfoOverlayMode.rawValue) (⌥I: Cycle, Right-click to choose).",
                     isActive: transportState.clipInfoOverlayMode != .off,
                     size: 12,
                     weight: .semibold,

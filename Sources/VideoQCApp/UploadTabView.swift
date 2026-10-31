@@ -416,11 +416,15 @@ private struct UploadControls: View {
                 } else {
                     actionButton(queue.isChecking ? "Checking files…"
                                     : queue.selection.isEmpty ? "Upload All (\(queue.jobs.count))" : "Upload Selected (\(queue.selection.count))",
-                                 primary: true, action: start)
+                                 primary: true, action: { start(share: false) })
                         .disabled(browser.destination == nil || queue.jobs.isEmpty || queue.isChecking)
                         .explain(queue.selection.isEmpty
                                  ? "Uploads every file in the queue to the open Frame.io folder. Files already there (same name and size) are skipped. It checks first for names already used there, files still being written and files that aren't media."
                                  : "Uploads the selected files to the open Frame.io folder. Files already there (same name and size) are skipped. It checks first for names already used there, files still being written and files that aren't media.")
+                    actionButton("Upload & Share", primary: false, action: { start(share: true) })
+                        .frame(maxWidth: StudioTheme.scale(130))
+                        .disabled(browser.destination == nil || queue.jobs.isEmpty || queue.isChecking || browser.projectID == nil)
+                        .explain("Uploads like Upload, then makes a share link (view, comment, download) for what was uploaded and copies it. When the folder holds only this upload, the folder itself is shared.")
                 }
             }
         }
@@ -534,9 +538,9 @@ private struct UploadControls: View {
         return browser.path.filter { $0.level == .project || $0.level == .folder }.map(\.title).joined(separator: " › ")
     }
 
-    private func start() {
+    private func start(share: Bool) {
         guard let account = browser.accountID, let destination = browser.destination else { return }
-        queue.start(to: .init(account: account, folder: destination.folderID ?? destination.id, path: destinationText))
+        queue.start(to: .init(account: account, folder: destination.folderID ?? destination.id, path: destinationText), share: share)
     }
 
 }
@@ -748,6 +752,9 @@ struct TransferProgressCard: View {
     var history: [Double]
     var started: Date?
     var finished: Date?
+    /// Compact by default (title, %, bar, time left); a click shows sizes and the speed graph. Shared by uploads and
+    /// downloads, remembered.
+    @AppStorage("transferCardExpanded") private var isExpanded = false
 
     private var palette: StudioPalette { StudioPalette(isLightMode) }
     private var fraction: Double { min(1, Double(done) / Double(max(total, 1))) }
@@ -758,16 +765,68 @@ struct TransferProgressCard: View {
     private var average: Double { elapsed > 0 ? Double(transferred) / elapsed : 0 }
 
     var body: some View {
+        Group {
+            if isExpanded { expanded } else { compact }
+        }
+        .padding(isExpanded ? 12 : 10)
+        .studioBox(background: palette.bgCardSubtle, border: palette.borderLine)
+        .contentShape(Rectangle())
+        .onTapGesture { isExpanded.toggle() }
+        .animation(Motion.snap, value: isExpanded)   // @AppStorage writes drop withAnimation
+        .explain(isExpanded ? "Click for the short view." : "Click for sizes, speed and the speed graph.")
+    }
+
+    private var percent: some View {
+        Text("\(Int((fraction * 100).rounded(.down)))%")
+            .monospacedDigit()
+            .foregroundColor(failed && !isRunning ? palette.negative : palette.accentBlue)
+    }
+
+    private var chevron: some View {
+        Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
+            .font(.system(size: StudioTheme.scaleFont(9), weight: .semibold))
+            .foregroundColor(palette.textMuted)
+    }
+
+    private var bar: some View {
+        GeometryReader { geo in
+            ZStack(alignment: .leading) {
+                Capsule().fill(palette.bgSubtle)
+                Capsule()
+                    .fill(palette.accentBlue)
+                    .frame(width: max(fraction > 0 ? 4 : 0, geo.size.width * CGFloat(fraction)))
+            }
+        }
+    }
+
+    private var compact: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(alignment: .firstTextBaseline, spacing: 6) {
+                Text(title)
+                    .font(.ui(size: 12, weight: .semibold))
+                    .foregroundColor(palette.textMain)
+                    .lineLimit(1)
+                Spacer(minLength: 4)
+                Text(timeText)
+                    .font(.ui(size: 11))
+                    .foregroundColor(palette.textMuted)
+                    .lineLimit(1)
+                percent.font(.ui(size: 12, weight: .semibold))
+                chevron
+            }
+            bar.frame(height: StudioTheme.scale(4))
+        }
+    }
+
+    private var expanded: some View {
         VStack(alignment: .leading, spacing: 9) {
             HStack(alignment: .firstTextBaseline) {
                 Text(title)
                     .font(.ui(size: 13, weight: .semibold))
                     .foregroundColor(palette.textMain)
                 Spacer()
-                Text("\(Int((fraction * 100).rounded(.down)))%")
-                    .font(.system(size: StudioTheme.scaleFont(17), weight: .semibold, design: .rounded))
-                    .monospacedDigit()
-                    .foregroundColor(failed && !isRunning ? palette.negative : palette.accentBlue)
+                percent.font(.system(size: StudioTheme.scaleFont(17), weight: .semibold, design: .rounded))
+                chevron
             }
 
             GeometryReader { geo in
@@ -815,8 +874,6 @@ struct TransferProgressCard: View {
                 }
             }
         }
-        .padding(12)
-        .studioBox(background: palette.bgCardSubtle, border: palette.borderLine)
     }
 
     private var timeText: String {

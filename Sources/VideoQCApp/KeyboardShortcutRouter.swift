@@ -76,6 +76,8 @@ struct ShortcutTrigger: Sendable {
     }
 }
 
+enum InOutCommand { case markIn, markOut, goToIn, goToOut, clear }
+
 // MARK: - Shortcut Scope & Rule
 
 @MainActor
@@ -275,6 +277,8 @@ struct KeyboardShortcutActions {
     var onStepFrames: (Int, Bool) -> Void // count, forward
     var onJumpToBeginning: () -> Void
     var onJumpToEnd: () -> Void
+    /// I / O / ⇧I / ⇧O / ⌥X.
+    var onInOut: (InOutCommand) -> Void
     var onSelectPreviousFile: (SlotTarget) -> Void
     var onSelectNextFile: (SlotTarget) -> Void
     
@@ -328,6 +332,7 @@ struct KeyboardShortcutActions {
         onStepFrames: @escaping (Int, Bool) -> Void = { _, _ in },
         onJumpToBeginning: @escaping () -> Void = {},
         onJumpToEnd: @escaping () -> Void = {},
+        onInOut: @escaping (InOutCommand) -> Void = { _ in },
         onSelectPreviousFile: @escaping (SlotTarget) -> Void = { _ in },
         onSelectNextFile: @escaping (SlotTarget) -> Void = { _ in },
         onToggleFullscreenVideo: @escaping () -> Bool = { false },
@@ -378,6 +383,7 @@ struct KeyboardShortcutActions {
         self.onStepFrames = onStepFrames
         self.onJumpToBeginning = onJumpToBeginning
         self.onJumpToEnd = onJumpToEnd
+        self.onInOut = onInOut
         self.onSelectPreviousFile = onSelectPreviousFile
         self.onSelectNextFile = onSelectNextFile
         self.onToggleFullscreenVideo = onToggleFullscreenVideo
@@ -741,7 +747,7 @@ extension KeyboardShortcutRouter {
             },
             Rule(
                 id: "clipInfo",
-                trigger: ShortcutTrigger(characters: ["i"], modifiers: []),
+                trigger: ShortcutTrigger(keyCodes: [34], modifiers: [.option]),
                 scope: .playerOnly
             ) {
                 actions.onCycleClipInfo()
@@ -869,12 +875,25 @@ extension KeyboardShortcutRouter {
                 actions.onJumpToBeginning()
                 return true
             },
-            Rule(
-                id: "jumpBeginningShiftI",
-                trigger: ShortcutTrigger(keyCodes: [34], characters: ["i"], modifiers: [.shift]),
-                scope: .playerOnly
-            ) {
-                actions.onJumpToBeginning()
+            // Player: In / Out (I / O set, ⇧I / ⇧O go there, ⌥X clears)
+            Rule(id: "markIn", trigger: ShortcutTrigger(keyCodes: [34], modifiers: []), scope: .playerOnly) {
+                actions.onInOut(.markIn)
+                return true
+            },
+            Rule(id: "markOut", trigger: ShortcutTrigger(keyCodes: [31], modifiers: []), scope: .playerOnly) {
+                actions.onInOut(.markOut)
+                return true
+            },
+            Rule(id: "goToIn", trigger: ShortcutTrigger(keyCodes: [34], modifiers: [.shift]), scope: .playerOnly) {
+                actions.onInOut(.goToIn)
+                return true
+            },
+            Rule(id: "goToOut", trigger: ShortcutTrigger(keyCodes: [31], modifiers: [.shift]), scope: .playerOnly) {
+                actions.onInOut(.goToOut)
+                return true
+            },
+            Rule(id: "clearInOut", trigger: ShortcutTrigger(keyCodes: [7], modifiers: [.option]), scope: .playerOnly) {
+                actions.onInOut(.clear)
                 return true
             },
             Rule(

@@ -554,7 +554,13 @@ public final class PlayerEngine: ObservableObject {
             displaySleepActivity = nil
         }
     }
-    @Published public var isLooping: Bool = UserPreferences.loop
+    @Published public var isLooping: Bool = UserPreferences.loop {
+        didSet { if isLooping != oldValue { applyInOutRange() } }
+    }
+    /// In / Out points on slot A (I / O, frames, Out inclusive). With loop on, playback loops between them: the item's
+    /// `forwardPlaybackEndTime` ends it at Out (no per-frame check) and the end handler seeks back to In.
+    @Published public private(set) var inFrame: Int?
+    @Published public private(set) var outFrame: Int?
     
     // Zoom & Pan
     @Published public var zoomScale: CGFloat = 1.0
@@ -1082,6 +1088,8 @@ public final class PlayerEngine: ObservableObject {
         self.currentFrame = 0
         self.currentProgress = 0.0
         self.currentTimecode = "00:00:00:00"
+        self.inFrame = nil
+        self.outFrame = nil
         self.panOffset = .zero
         self.isScrubbing = false
         self.wasPlayingBeforeScrub = false
@@ -1132,6 +1140,8 @@ public final class PlayerEngine: ObservableObject {
                 slot.player.automaticallyWaitsToMinimizeStalling = false
                 slot.player.preroll(atRate: 1.0) { _ in }
                 if target == .slotB { self.syncSlotBToMaster() }
+                // A replaced item for the same clip (sequence rate change) keeps the In–Out loop.
+                if target == .slotA { self.applyInOutRange() }
                 let autoplay = (target == .slotA) ? self.pendingAutoplay : self.pendingAutoplayB
                 if autoplay {
                     if target == .slotA { self.pendingAutoplay = false } else { self.pendingAutoplayB = false }
@@ -1458,6 +1468,10 @@ public final class PlayerEngine: ObservableObject {
         }
         let wasPlaying = self.isPlaying
         pause()
+        // The range belongs to the clip leaving slot A; its item (and end time) is about to move to slot B.
+        slotA.player.currentItem?.forwardPlaybackEndTime = .invalid
+        inFrame = nil
+        outFrame = nil
         
         let snapA = SlotSnapshot(from: slotA)
         let snapB = SlotSnapshot(from: slotB)
@@ -1900,8 +1914,14 @@ public final class PlayerEngine: ObservableObject {
             }
         }
         
-        // Reverse playback loop handling
-        if self.rate < 0 && currSecs <= 0.05 && self.isLooping && durSecs > 0.5 {
+        // Reverse playback loop handling (between In and Out when set)
+        if self.rate < 0, self.isLooping, let inFrame, let outFrame,
+           currSecs <= Double(inFrame) / max(1, activeFps) + 0.05 {
+            self.seek(toFrame: outFrame) { [weak self] in
+                guard let self = self else { return }
+                self.setPlaybackRate(self.rate)
+            }
+        } else if self.rate < 0 && currSecs <= 0.05 && self.isLooping && durSecs > 0.5 {
             self.seek(toProgress: 0.999) { [weak self] in
                 guard let self = self else { return }
                 self.setPlaybackRate(self.rate)
@@ -1938,7 +1958,8 @@ public final class PlayerEngine: ObservableObject {
     private func handlePlaybackEnded() {
         if isLooping {
             let savedRate = self.rate
-            seek(toTime: .zero) { [weak self] in
+            let start = outFrame != nil ? (inFrame ?? 0) : 0
+            seek(toFrame: start) { [weak self] in
                 guard let self = self else { return }
                 let resumeRate = savedRate > 0 ? savedRate : 1.0
                 self.setPlaybackRate(resumeRate)
@@ -1952,6 +1973,10 @@ public final class PlayerEngine: ObservableObject {
     
     public func pressL() {
         guard slotA.player.currentItem != nil else { return }
+        if isLooping, let outFrame, currentFrame > outFrame {
+            seek(toFrame: inFrame ?? 0) { [weak self] in self?.pressL() }
+            return
+        }
         
         if CMTimeGetSeconds(currentTime) >= CMTimeGetSeconds(duration) - 0.05 {
             seek(toTime: .zero) { [weak self] in
@@ -2106,6 +2131,17 @@ public final class PlayerEngine: ObservableObject {
     
     private func executeSingleFrameStep(forward: Bool) {
         guard slotA.player.currentItem != nil else { return }
+        // Looping inside In–Out: wrap at the range ends.
+        if isLooping, let outFrame {
+            let inFrame = self.inFrame ?? 0
+            let wrap: Int? = forward ? (currentFrame >= outFrame ? inFrame : nil) : (currentFrame <= inFrame ? outFrame : nil)
+            if let wrap {
+                currentFrame = wrap
+                currentTimecode = TimecodeFormatter.format(frameIndex: wrap, fps: activeFps)
+                seek(toFrame: wrap)
+                return
+            }
+        }
         let durSecs = CMTimeGetSeconds(duration)
         let currSecs = CMTimeGetSeconds(currentTime)
         
@@ -2287,6 +2323,67 @@ public final class PlayerEngine: ObservableObject {
         seek(toFrame: 0)
     }
     
+    // MARK: - In / Out
+
+    public func markIn() {
+        guard hasTimeline else { return }
+        inFrame = currentFrame
+        if let outFrame, outFrame <= currentFrame { self.outFrame = nil }
+        applyInOutRange()
+    }
+
+    public func markOut() {
+        guard hasTimeline else { return }
+        outFrame = currentFrame
+        if let inFrame, inFrame >= currentFrame { self.inFrame = nil }
+        applyInOutRange()
+    }
+
+    public func clearInOut() {
+        inFrame = nil
+        outFrame = nil
+        applyInOutRange()
+    }
+
+    /// ⇧I / ⇧O: the In or Out point, or the first / last frame when it isn't set.
+    public func goToIn() {
+        guard let inFrame else { return jumpToBeginning() }
+        jump(to: inFrame)
+    }
+
+    public func goToOut() {
+        guard let outFrame else { return jumpToEnd() }
+        jump(to: outFrame)
+    }
+
+    /// Paused jump with the clock updated at once (like Home / End).
+    private func jump(to frame: Int) {
+        pause()
+        currentFrame = frame
+        currentTimecode = TimecodeFormatter.format(frameIndex: frame, fps: activeFps)
+        let durSecs = CMTimeGetSeconds(duration)
+        if durSecs > 0 { currentProgress = min(1, max(0, (Double(frame) + 0.5) / max(1, activeFps) / durSecs)) }
+        seek(toFrame: frame)
+    }
+
+    private func applyInOutRange() {
+        guard let item = slotA.player.currentItem else { return }
+        guard isLooping, let outFrame else {
+            item.forwardPlaybackEndTime = .invalid
+            return
+        }
+        item.forwardPlaybackEndTime = CMTime(seconds: Double(outFrame + 1) / max(1, activeFps), preferredTimescale: 60000)
+    }
+
+    /// The In–Out range of slot A's file as a time range (whole clip ends where a point isn't set).
+    public var inOutTimeRange: CMTimeRange? {
+        guard inFrame != nil || outFrame != nil else { return nil }
+        let fps = max(1, activeFps)
+        let start = CMTime(seconds: Double(inFrame ?? 0) / fps, preferredTimescale: 60000)
+        let end = outFrame.map { CMTime(seconds: Double($0 + 1) / fps, preferredTimescale: 60000) } ?? duration
+        return CMTimeRange(start: start, end: end)
+    }
+
     public func jumpToEnd() {
         pause()
         let lastFrame = max(0, totalFrames - 1)

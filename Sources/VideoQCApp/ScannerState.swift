@@ -26,7 +26,20 @@ public final class ScannerState: ObservableObject {
     
     @Published public var isScanning: Bool = false
     @Published public var progressInfo: VideoScanner.ScanProgress? = nil
-    @Published public var scanResults: [VideoQCResult] = []
+    /// Line Check results with the findings marked "Not a Line" removed (`LineCheckDismissals`).
+    @Published public var scanResults: [VideoQCResult] = [] {
+        didSet { if !isFiltering { rawResults = scanResults } }
+    }
+    /// The results as scanned, so Restore can bring dismissed findings back.
+    private var rawResults: [VideoQCResult] = []
+    private var isFiltering = false
+
+    /// Re-applies the dismissals to the scanned results (after a dismiss or restore).
+    func refilterResults() {
+        isFiltering = true
+        scanResults = LineCheckDismissals.filter(rawResults)
+        isFiltering = false
+    }
     @Published public var lastScanConfig: QCConfig? = nil
     @Published public var generatedReportURL: URL? = nil
     @Published public var generatedCSVURL: URL? = nil
@@ -144,31 +157,38 @@ public final class ScannerState: ObservableObject {
                 },
                 onFileCompleted: { result in
                     DispatchQueue.main.async {
-                        if !self.scanResults.contains(where: { $0.fileURL == result.fileURL }) {
-                            self.scanResults.append(result)
+                        if !self.rawResults.contains(where: { $0.fileURL == result.fileURL }) {
+                            // Only the new file is filtered (refiltering all per file was O(n²) on big batches).
+                            self.isFiltering = true
+                            self.rawResults.append(result)
+                            self.scanResults.append(contentsOf: LineCheckDismissals.filter([result]))
+                            self.isFiltering = false
                         }
                     }
                 }
             )
             
+            // Findings marked "Not a Line" never reach the Finder tags, reports or Player markers.
+            let filtered = await MainActor.run { LineCheckDismissals.filter(results) }
             if self.tagInFinder {
                 await Task.detached(priority: .utility) {
-                    ReportWriter.tagFlaggedFilesInFinder(results: results)
+                    ReportWriter.tagFlaggedFilesInFinder(results: filtered)
                 }.value
             }
             
             DispatchQueue.main.async {
                 self.scanResults = results
+                self.refilterResults()
                 self.lastScanConfig = config
                 self.isScanning = false
                 self.isCancelling = false
                 self.scannerActor = nil
                 // A Full Check notifies once, after its Frame Check.
                 if !self.wasScanCancelled && !self.isFullCheck {
-                    Notifier.shared.post(.scans, NotificationText.scan(check: "Line Check", flagged: results.filter(\.isFlagged).count,
+                    Notifier.shared.post(.scans, NotificationText.scan(check: "Line Check", flagged: self.scanResults.filter(\.isFlagged).count,
                                                                       total: results.count))
                 }
-                onComplete(results, config)
+                onComplete(self.scanResults, config)
             }
         }
     }
@@ -269,5 +289,71 @@ public final class ScannerState: ObservableObject {
     public func generateTSVReport() -> String? {
         guard !scanResults.isEmpty else { return nil }
         return ReportWriter.generateTSVReport(results: scanResults)
+    }
+}
+
+
+/// Line Check findings marked "Not a Line": remembered per clip (file name + frame count, so no disk reads), edge and
+/// frame range, and removed from every later scan of that clip (results, Finder tags, reports, Player markers).
+@MainActor
+enum LineCheckDismissals {
+    private static let key = "lineCheckDismissed"
+    /// Detections up to this many frames outside a dismissed range count as the same finding (sensitivity changes can
+    /// move a segment's ends slightly).
+    private static let slack = 2
+
+    struct Range: Equatable {
+        let edge: String
+        let start: Int
+        let end: Int
+    }
+
+    static func clipKey(_ result: VideoQCResult) -> String { "\(result.fileName)|\(result.totalFrames)" }
+
+    static func ranges(for result: VideoQCResult) -> [Range] {
+        ranges(in: UserDefaults.standard.dictionary(forKey: key) ?? [:], for: result)
+    }
+
+    private static func ranges(in store: [String: Any], for result: VideoQCResult) -> [Range] {
+        let stored = store[clipKey(result)] as? [String] ?? []
+        return stored.compactMap { entry in
+            let parts = entry.split(separator: ":")
+            guard parts.count == 3, let start = Int(parts[1]), let end = Int(parts[2]) else { return nil }
+            return Range(edge: String(parts[0]), start: start, end: end)
+        }
+    }
+
+    static func dismiss(_ segment: GlitchSegment, in result: VideoQCResult) {
+        var all = UserDefaults.standard.dictionary(forKey: key) ?? [:]
+        var entries = all[clipKey(result)] as? [String] ?? []
+        let entry = "\(segment.edge.rawValue):\(segment.startFrame):\(segment.endFrame)"
+        guard !entries.contains(entry) else { return }
+        entries.append(entry)
+        all[clipKey(result)] = entries
+        UserDefaults.standard.set(all, forKey: key)
+    }
+
+    /// Results with hidden findings (one read of the store).
+    static func clipsWithHidden(in results: [VideoQCResult]) -> [VideoQCResult] {
+        guard let all = UserDefaults.standard.dictionary(forKey: key), !all.isEmpty else { return [] }
+        return results.filter { (all[clipKey($0)] as? [String])?.isEmpty == false }
+    }
+
+    static func restore(_ result: VideoQCResult) {
+        var all = UserDefaults.standard.dictionary(forKey: key) ?? [:]
+        all[clipKey(result)] = nil
+        UserDefaults.standard.set(all, forKey: key)
+    }
+
+    /// The results without their dismissed findings (one read of the store for the batch).
+    static func filter(_ results: [VideoQCResult]) -> [VideoQCResult] {
+        guard let store = UserDefaults.standard.dictionary(forKey: key), !store.isEmpty else { return results }
+        return results.map { result in
+            let dismissed = ranges(in: store, for: result)
+            guard !dismissed.isEmpty else { return result }
+            return result.removingDetections { frame, detection in
+                dismissed.contains { $0.edge == detection.edge.rawValue && frame >= $0.start - slack && frame <= $0.end + slack }
+            }
+        }
     }
 }

@@ -904,6 +904,66 @@ extension ContentView {
         )
     }
     
+    /// The In–Out range (I / O): its length, with Export and Clear.
+    private var inOutChip: some View {
+        let fps = max(1, playerEngine.activeFps)
+        let start = playerEngine.inFrame ?? 0
+        let end = playerEngine.outFrame ?? max(0, playerEngine.totalFrames - 1)
+        let frames = max(0, end - start + 1)
+        return Menu {
+            Button("Export In–Out…") { exportInOutRange() }
+            Button("Go to In (⇧I)") { playerEngine.goToIn() }
+            Button("Go to Out (⇧O)") { playerEngine.goToOut() }
+            Divider()
+            Button("Clear In and Out (⌥X)") { playerEngine.clearInOut() }
+        } label: {
+            HStack(spacing: 4) {
+                Image(systemName: "rectangle.dashed")
+                    .font(.system(size: StudioTheme.scaleFont(9), weight: .semibold))
+                Text(TimecodeFormatter.format(frameIndex: frames, fps: fps))
+                    .font(.system(size: StudioTheme.scaleFont(11), weight: .medium, design: .monospaced))
+            }
+            .foregroundColor(accentBlue)
+        }
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .fixedSize()
+        .explain("In–Out range (I / O). With loop on (⌘L), playback loops inside it. Click to export it or clear it (⌥X).")
+    }
+
+    /// Saves slot A's In–Out range as its own file: the original samples copied (no re-encode) when the format allows,
+    /// else the highest-quality encode.
+    func exportInOutRange() {
+        guard let url = playerEngine.slotA.url, let range = playerEngine.inOutTimeRange,
+              playerEngine.slotA.sequence == nil else {
+            showToast("Export works on video and audio files")
+            return
+        }
+        playerEngine.pause()
+        let panel = NSSavePanel()
+        let isAudio = playerEngine.slotA.mediaKind == .audio
+        let ext = isAudio ? "m4a" : url.pathExtension.lowercased() == "mp4" ? "mp4" : "mov"
+        panel.nameFieldStringValue = url.deletingPathExtension().lastPathComponent + "_\(playerEngine.inFrame ?? 0)-\(playerEngine.outFrame ?? playerEngine.totalFrames - 1).\(ext)"
+        panel.directoryURL = url.deletingLastPathComponent()
+        panel.allowedContentTypes = [UTType(filenameExtension: ext) ?? .movie]
+        guard panel.runModal() == .OK, let target = panel.url else { return }
+        // The save panel allows replacing any file: never the clip being cut.
+        guard target.standardizedFileURL.resolvingSymlinksInPath() != url.standardizedFileURL.resolvingSymlinksInPath() else {
+            showToast("Choose another name: that's the clip itself")
+            return
+        }
+        showToast("Exporting \(target.lastPathComponent)…")
+        Task {
+            do {
+                try await InOutExporter.export(source: url, range: range, to: target)
+                showToast("Exported \(target.lastPathComponent)")
+                NSWorkspace.shared.activateFileViewerSelecting([target])
+            } catch {
+                showToast("Export failed: \(error.localizedDescription)")
+            }
+        }
+    }
+
     // 7. Duration / Total Frames Label
     private var playerDurationLabel: some View {
         Text(playerEngine.displayTimeAsFrames ? "\(playerEngine.totalFrames) frames" : playerEngine.durationTimecode)
@@ -962,8 +1022,11 @@ extension ContentView {
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 
-                playerDurationLabel
-                    .frame(maxWidth: .infinity, alignment: .trailing)
+                HStack(spacing: 8) {
+                    if playerEngine.inFrame != nil || playerEngine.outFrame != nil { inOutChip }
+                    playerDurationLabel
+                }
+                .frame(maxWidth: .infinity, alignment: .trailing)
             }
         }
         .frame(height: StudioTheme.scale(24))
@@ -1773,3 +1836,33 @@ struct PlayerZoomMenuView: View {
 
 
 
+
+/// Writes a time range of a file to a new file, off the main thread: passthrough (original samples, no quality loss)
+/// when the container allows it, else the highest-quality preset.
+enum InOutExporter {
+    struct Failed: LocalizedError {
+        let errorDescription: String?
+    }
+
+    static func export(source: URL, range: CMTimeRange, to target: URL) async throws {
+        let asset = AVURLAsset(url: source)
+        let ext = target.pathExtension.lowercased()
+        let type: AVFileType = ext == "m4a" ? .m4a : ext == "mp4" ? .mp4 : .mov
+        let presets = type == .m4a ? [AVAssetExportPresetPassthrough, AVAssetExportPresetAppleM4A]
+            : [AVAssetExportPresetPassthrough, AVAssetExportPresetHighestQuality]
+        var lastError: Error?
+        for preset in presets {
+            guard await AVAssetExportSession.compatibility(ofExportPreset: preset, with: asset, outputFileType: type),
+                  let session = AVAssetExportSession(asset: asset, presetName: preset) else { continue }
+            try? FileManager.default.removeItem(at: target)
+            session.outputURL = target
+            session.outputFileType = type
+            session.timeRange = range
+            await session.export()
+            if session.status == .completed { return }
+            lastError = session.error
+        }
+        try? FileManager.default.removeItem(at: target)   // a failed attempt can leave a partial file
+        throw lastError ?? Failed(errorDescription: "This file can't be exported")
+    }
+}

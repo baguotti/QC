@@ -229,6 +229,23 @@ public struct VideoQCResult: Identifiable, Sendable {
     public var isFlagged: Bool {
         !errorFrames.isEmpty || readError != nil
     }
+
+    /// A copy without the detections `dismiss` matches (frames left with none are dropped): Line Check findings the
+    /// user marked as not a line.
+    public func removingDetections(where dismiss: (Int, LineDetection) -> Bool) -> VideoQCResult {
+        var changed = false
+        let frames = errorFrames.compactMap { frame -> FrameError? in
+            let kept = frame.detections.filter { !dismiss(frame.frameIndex, $0) }
+            guard kept.count != frame.detections.count else { return frame }
+            changed = true
+            return kept.isEmpty ? nil : FrameError(frameIndex: frame.frameIndex, timecode: frame.timecode, detections: kept)
+        }
+        guard changed else { return self }
+        var copy = VideoQCResult(id: id, fileURL: fileURL, fileName: fileName, resolution: resolution, fps: fps,
+                                 totalFrames: totalFrames, durationSeconds: durationSeconds, errorFrames: frames, readError: readError)
+        copy.stoppedEarly = stoppedEarly
+        return copy
+    }
     
     public init(
         id: UUID = UUID(),

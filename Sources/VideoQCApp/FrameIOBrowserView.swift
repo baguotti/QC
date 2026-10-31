@@ -941,8 +941,6 @@ final class FrameIOBrowser: ObservableObject {
         toast = nil
     }
 
-    /// A passing note at the bottom of the browser (no undo).
-    func notice(_ message: String) { show(Toast(message: message)) }
 
     func performUndo() {
         guard let undo = lastUndo?.undo else { return }
