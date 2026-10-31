@@ -10,8 +10,10 @@ if [ $? -eq 0 ]; then
         # Re-sign each bundle after swapping its binary: the debug binary's own ad-hoc signature names it by a hash, so
         # macOS wouldn't see it as com.studio.qcpie (notifications, for one, never register).
         cp ./.build/debug/QCpie ./build/QCpie.app/Contents/MacOS/QCpie
+        cp ./Resources/Chime.caf ./build/QCpie.app/Contents/Resources/Chime.caf 2>/dev/null || true
         codesign --force --deep --sign - ./build/QCpie.app 2>/dev/null || true
         if [ -d "/Applications/QCpie.app" ]; then
+            cp ./Resources/Chime.caf /Applications/QCpie.app/Contents/Resources/Chime.caf 2>/dev/null
             cp ./.build/debug/QCpie /Applications/QCpie.app/Contents/MacOS/QCpie 2>/dev/null \
                 && codesign --force --deep --sign - /Applications/QCpie.app 2>/dev/null || true
         fi

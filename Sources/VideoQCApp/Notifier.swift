@@ -43,6 +43,8 @@ enum NotificationText {
         let title: String
         let subtitle: String
         let body: String
+        /// Something failed or was flagged: still shown with "Only problems" on.
+        var isProblem = false
     }
 
     static func upload(uploaded: Int, skipped: Int, failed: Int, destination: String) -> Message {
@@ -50,20 +52,20 @@ enum NotificationText {
         if skipped > 0 { parts.append("\(skipped) already there") }
         if failed > 0 { parts.append("\(failed) failed") }
         return Message(title: failed > 0 ? "Upload finished with errors" : "Upload finished", subtitle: destination,
-                       body: parts.joined(separator: " · "))
+                       body: parts.joined(separator: " · "), isProblem: failed > 0)
     }
 
     static func download(downloaded: Int, failed: Int, destination: String) -> Message {
         var parts = ["\(count(downloaded, "file")) downloaded"]
         if failed > 0 { parts.append("\(failed) failed") }
         return Message(title: failed > 0 ? "Download finished with errors" : "Download finished", subtitle: destination,
-                       body: parts.joined(separator: " · "))
+                       body: parts.joined(separator: " · "), isProblem: failed > 0)
     }
 
     /// `check`: "Line Check", "Frame Check" or "Full Check".
     static func scan(check: String, flagged: Int, total: Int) -> Message {
         Message(title: "\(check) finished", subtitle: count(total, "clip"),
-                body: flagged == 0 ? "No issues found" : "\(flagged) of \(count(total, "clip")) flagged")
+                body: flagged == 0 ? "No issues found" : "\(flagged) of \(count(total, "clip")) flagged", isProblem: flagged > 0)
     }
 
     struct Remark: Equatable, Sendable {
@@ -104,8 +106,9 @@ enum NotificationText {
     private static func count(_ value: Int, _ noun: String) -> String { "\(value) \(noun)\(value == 1 ? "" : "s")" }
 }
 
-/// Posts macOS notifications (User Settings → Notifications). Quiet by design: no sound, grouped by kind, shown only
-/// while QCpie isn't the front app (it shows its own status when it is) unless the user asks for them anyway. macOS
+/// Posts macOS notifications (User Settings → Notifications). Silent unless the chime is on (`soundKey`, off by
+/// default), grouped by kind, shown only while QCpie isn't the front app (it shows its own status when it is) unless
+/// the user asks for them anyway. macOS
 /// asks permission the first time one is posted (or when the master switch is turned on). Clicking one brings QCpie
 /// forward on the tab it's about. Needs the app bundle: a bare debug binary posts nothing.
 @MainActor
@@ -114,13 +117,16 @@ final class Notifier: NSObject, ObservableObject, UNUserNotificationCenterDelega
 
     static let enabledKey = "notificationsEnabled"
     static let whileActiveKey = "notificationsWhileActive"
+    nonisolated static let soundKey = "notificationsSound"
+    /// Uploads, downloads and scans notify only when something failed or was flagged.
+    static let problemsOnlyKey = "notificationsProblemsOnly"
     static func key(_ kind: NotificationKind) -> String { "notify.\(kind.rawValue)" }
     /// Posted with an `AppTab` when a notification is clicked.
     static let openTab = Notification.Name("QCpieNotificationOpenTab")
 
-    /// Defaults: everything on (macOS still asks before the first one shows).
+    /// Defaults: everything on but the sound (macOS still asks before the first one shows).
     static var registeredDefaults: [String: Any] {
-        var defaults: [String: Any] = [enabledKey: true, whileActiveKey: false]
+        var defaults: [String: Any] = [enabledKey: true, whileActiveKey: false, soundKey: false]
         for kind in NotificationKind.allCases { defaults[key(kind)] = true }
         return defaults
     }
@@ -140,6 +146,23 @@ final class Notifier: NSObject, ObservableObject, UNUserNotificationCenterDelega
     func start() {
         center?.delegate = self
         refreshAuthorization()
+        Task.detached(priority: .utility) { Self.installChime() }
+    }
+
+    /// Notification Center resolves named sounds itself and didn't find the one in the bundle (played the default
+    /// sound), so the chime is also put in ~/Library/Sounds, which it always searches.
+    private nonisolated static let chimeName = "QCpie Chime.caf"
+    private nonisolated static func installChime() {
+        let fm = FileManager.default
+        guard let source = Bundle.main.url(forResource: "Chime", withExtension: "caf"),
+              let library = fm.urls(for: .libraryDirectory, in: .userDomainMask).first else { return }
+        let sounds = library.appendingPathComponent("Sounds", isDirectory: true)
+        let target = sounds.appendingPathComponent(chimeName)
+        let size = { (url: URL) in (try? fm.attributesOfItem(atPath: url.path)[.size] as? Int) ?? nil }
+        guard size(target) != size(source) else { return }
+        try? fm.createDirectory(at: sounds, withIntermediateDirectories: true)
+        try? fm.removeItem(at: target)
+        try? fm.copyItem(at: source, to: target)
     }
 
     func isOn(_ kind: NotificationKind) -> Bool {
@@ -167,7 +190,7 @@ final class Notifier: NSObject, ObservableObject, UNUserNotificationCenterDelega
     func requestAuthorization() async {
         guard let center else { return }
         do {
-            _ = try await center.requestAuthorization(options: [.alert])
+            _ = try await center.requestAuthorization(options: [.alert, .sound])
         } catch {
             // e.g. a debug copy whose signature doesn't match the bundle: macOS won't register it.
             problem = "macOS refused: \(error.localizedDescription)"
@@ -178,7 +201,9 @@ final class Notifier: NSObject, ObservableObject, UNUserNotificationCenterDelega
     /// Posts unless switched off, or QCpie is in front (and the user didn't ask for those too). `image`: a still shown
     /// with it (the file is moved into the notification).
     func post(_ kind: NotificationKind, _ message: NotificationText.Message, image: URL? = nil) {
-        guard let center, wouldShow(kind) else {
+        let quiet = UserDefaults.standard.bool(forKey: Self.problemsOnlyKey) && !message.isProblem
+            && [.uploads, .downloads, .scans].contains(kind)
+        guard let center, wouldShow(kind), !quiet else {
             if let image { try? FileManager.default.removeItem(at: image) }
             return
         }
@@ -189,6 +214,7 @@ final class Notifier: NSObject, ObservableObject, UNUserNotificationCenterDelega
         content.threadIdentifier = kind.rawValue
         content.userInfo = ["tab": kind.tab.rawValue]
         content.interruptionLevel = .active
+        content.sound = Self.sound
         if let image {
             // The attachment moves the file into Notification Center's store; if it can't, drop it.
             if let attachment = try? UNNotificationAttachment(identifier: "still", url: image) {
@@ -216,6 +242,7 @@ final class Notifier: NSObject, ObservableObject, UNUserNotificationCenterDelega
         content.subtitle = message.subtitle
         content.body = message.body
         content.threadIdentifier = "example"
+        content.sound = Self.chime
         Task {
             await requestAuthorization()
             if authorization == .denied { return }
@@ -226,6 +253,12 @@ final class Notifier: NSObject, ObservableObject, UNUserNotificationCenterDelega
             }
         }
     }
+
+    /// The chime (Resources/Chime.caf, bundled by BuildApp.sh) when switched on.
+    private static var sound: UNNotificationSound? {
+        UserDefaults.standard.bool(forKey: soundKey) ? chime : nil
+    }
+    private static let chime = UNNotificationSound(named: UNNotificationSoundName(chimeName))
 
     /// A small still of a clip at a frame, written where a notification can take it. Nil if the clip can't be read.
     nonisolated static func still(of url: URL, frame: Int, fps: Double) async -> URL? {
@@ -244,7 +277,7 @@ final class Notifier: NSObject, ObservableObject, UNUserNotificationCenterDelega
 
     nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter, willPresent notification: UNNotification)
         async -> UNNotificationPresentationOptions {
-        [.banner, .list]
+        notification.request.content.sound != nil ? [.banner, .list, .sound] : [.banner, .list]
     }
 
     nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse) async {

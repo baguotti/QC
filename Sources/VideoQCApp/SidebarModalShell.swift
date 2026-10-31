@@ -10,9 +10,15 @@ struct SidebarModalShell<Sidebar: View, Detail: View>: View {
     var height: CGFloat = 500
     var sidebarWidth: CGFloat = 180
     var footnote: String? = nil
+    /// When set, the window can be resized by dragging its corners; the size is remembered under this key.
+    var resizeKey: String? = nil
     @ViewBuilder var sidebar: Sidebar
     @ViewBuilder var detail: Detail
     @AppStorage("isLightMode") private var isLightMode: Bool = false
+    @State private var size: CGSize?
+    @State private var dragStart: CGSize?
+    /// A resize cursor is pushed (hover events can arrive unpaired: pop only what was pushed).
+    @State private var cursorPushed = false
 
     private var palette: StudioPalette { StudioPalette(isLightMode) }
 
@@ -79,10 +85,11 @@ struct SidebarModalShell<Sidebar: View, Detail: View>: View {
                 .padding(.vertical, 10)
                 .background(palette.bgCardHeader)
             }
-            .frame(width: width, height: height)
+            .frame(width: currentSize.width, height: currentSize.height)
             .background(palette.bgPanel)
             .clipShape(RoundedRectangle(cornerRadius: 10))
             .overlay(RoundedRectangle(cornerRadius: 10).stroke(palette.borderStrong, lineWidth: 1))
+            .overlay { if resizeKey != nil { resizeCorners } }
             .shadow(color: Color.black.opacity(0.45), radius: 28, x: 0, y: 14)
 
             Button("") { dismiss() }
@@ -91,6 +98,62 @@ struct SidebarModalShell<Sidebar: View, Detail: View>: View {
                 .allowsHitTesting(false)
         }
         .allowsHitTesting(isPresented)
+    }
+
+    private var currentSize: CGSize {
+        if let size { return size }
+        if let resizeKey, let saved = UserDefaults.standard.string(forKey: resizeKey).map(NSSizeFromString),
+           saved.width > 0 { return clamped(saved) }
+        return CGSize(width: width, height: height)
+    }
+
+    private func clamped(_ s: CGSize) -> CGSize {
+        let screen = NSApp.keyWindow?.frame.size ?? CGSize(width: 1600, height: 1000)
+        return CGSize(width: min(max(s.width, width * 0.8), screen.width - 40),
+                      height: min(max(s.height, 380), screen.height - 40))
+    }
+
+    /// Invisible hit areas on the four corners. The modal stays centred, so each side moves by half the size change:
+    /// the size grows by twice the drag to keep the corner under the cursor. Measured in global space, since the
+    /// corners themselves move while dragging (local coordinates would feed that motion back and jitter).
+    private var resizeCorners: some View {
+        VStack(spacing: 0) {
+            HStack(spacing: 0) { corner(-1, -1); Spacer(); corner(1, -1) }
+            Spacer()
+            HStack(spacing: 0) { corner(-1, 1); Spacer(); corner(1, 1) }
+        }
+    }
+
+    private func corner(_ dx: CGFloat, _ dy: CGFloat) -> some View {
+        Color.clear
+            .frame(width: 14, height: 14)
+            .contentShape(Rectangle())
+            .gesture(DragGesture(minimumDistance: 1, coordinateSpace: .global)
+                .onChanged { value in
+                    let start = dragStart ?? currentSize
+                    dragStart = start
+                    var transaction = Transaction()
+                    transaction.disablesAnimations = true
+                    withTransaction(transaction) {
+                        size = clamped(CGSize(width: start.width + value.translation.width * 2 * dx,
+                                              height: start.height + value.translation.height * 2 * dy))
+                    }
+                }
+                .onEnded { _ in
+                    dragStart = nil
+                    if let resizeKey, let size { UserDefaults.standard.set(NSStringFromSize(size), forKey: resizeKey) }
+                })
+            .onHover { inside in
+                guard inside != cursorPushed else { return }
+                cursorPushed = inside
+                guard inside else { NSCursor.pop(); return }
+                if #available(macOS 15, *) {
+                    let position: NSCursor.FrameResizePosition = dy < 0 ? (dx < 0 ? .topLeft : .topRight) : (dx < 0 ? .bottomLeft : .bottomRight)
+                    NSCursor.frameResize(position: position, directions: .all).push()
+                } else {
+                    NSCursor.crosshair.push()
+                }
+            }
     }
 
     private func dismiss() {

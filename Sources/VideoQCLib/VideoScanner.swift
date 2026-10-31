@@ -51,13 +51,14 @@ public actor VideoScanner {
     }
     
     /// Finds all files the Player can open (video, image, audio) within a given directory
-    public static func findMediaFiles(in directoryURL: URL) -> [URL] {
+    public static func findMediaFiles(in directoryURL: URL, includeSubfolders: Bool = true) -> [URL] {
         let fileManager = FileManager.default
         
         guard let enumerator = fileManager.enumerator(
             at: directoryURL,
             includingPropertiesForKeys: [.isRegularFileKey],
-            options: [.skipsHiddenFiles, .skipsPackageDescendants]
+            options: includeSubfolders ? [.skipsHiddenFiles, .skipsPackageDescendants]
+                : [.skipsHiddenFiles, .skipsPackageDescendants, .skipsSubdirectoryDescendants]
         ) else {
             return []
         }

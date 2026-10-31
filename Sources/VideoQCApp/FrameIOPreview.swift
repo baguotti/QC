@@ -53,6 +53,9 @@ final class FrameIOPreview: ObservableObject {
         pathWatch = FrameIOBrowser.shared.$path.dropFirst().sink { [weak self] _ in self?.close() }
     }
 
+    /// "auto" (180p while a transfer runs), "sharp" or "small" (User Settings → Frame.io).
+    static let qualityKey = "prefFrameioPreviewQuality"
+
     static func canPreview(_ item: FrameIO.Item) -> Bool { item.type == "file" || item.isVersionStack }
 
     /// Space: opens the selected file (the first previewable one in list order), or closes. False when there's nothing
@@ -97,30 +100,58 @@ final class FrameIOPreview: ObservableObject {
         DownloadQueue.shared.download([item], account: account)
     }
 
+    /// Changed in the last 2 hours: Frame.io may still be making its proxies.
+    private static func isRecent(_ item: FrameIO.Item) -> Bool {
+        guard let stamp = item.updatedAt ?? item.createdAt else { return false }
+        let date = fractionalDates.date(from: stamp) ?? plainDates.date(from: stamp)
+        return date.map { -$0.timeIntervalSinceNow < 2 * 3600 } ?? false
+    }
+    private static let fractionalDates: ISO8601DateFormatter = {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return formatter
+    }()
+    private static let plainDates = ISO8601DateFormatter()
+
     private func show(_ item: FrameIO.Item) {
         loadTask?.cancel()
         stopPlayback()
         content = .loading
         proxySize = nil
-        if !isOpen { withAnimation(Motion.fade) { self.item = item } } else { self.item = item }
+        // A recent file may have no proxy yet: ask first, and if so say so in a toast instead of opening an empty panel.
+        let deferOpen = !isOpen && Self.isRecent(item)
+        if !deferOpen {
+            if !isOpen { withAnimation(Motion.fade) { self.item = item } } else { self.item = item }
+        }
         guard let account = FrameIOBrowser.shared.accountID, let fileID = item.isVersionStack ? item.headVersion?.id : item.id else {
+            self.item = item
             content = .unavailable("This stack has no version to preview.")
             return
         }
-        let busy = UploadQueue.shared.isRunning || DownloadQueue.shared.isRunning
+        let quality = UserDefaults.standard.string(forKey: Self.qualityKey) ?? "auto"
+        let busy = quality == "small" || (quality == "auto" && (UploadQueue.shared.isRunning || DownloadQueue.shared.isRunning))
         loadTask = Task {
             do {
                 let file = try await FrameIO.shared.previewFile(account: account, file: fileID)
-                guard !Task.isCancelled, self.item?.id == item.id else { return }
+                guard !Task.isCancelled, deferOpen ? !isOpen : self.item?.id == item.id else { return }
                 let links = file.mediaLinks
                 let kind = file.mediaType?.split(separator: "/").first.map(String.init) ?? ""
                 let small = links?.videoH264180?.stream, sharp = links?.efficient?.stream
                 let still = links?.highQuality?.stream ?? links?.thumbnailHighQuality?.url.flatMap(URL.init(string:))
                     ?? links?.original?.inlineURL.flatMap(URL.init(string:))
+                let audio = links?.efficient?.stream ?? links?.original?.downloadURL.flatMap(URL.init(string:))
+                let hasPreview = still != nil || (kind == "audio" ? audio != nil : (sharp ?? small) != nil)
+                if deferOpen {
+                    guard hasPreview else {
+                        FrameIOBrowser.shared.notice("Frame.io is still processing “\(file.name ?? item.title)”. Try the preview again in a minute.")
+                        return
+                    }
+                    withAnimation(Motion.fade) { self.item = item }
+                }
                 if kind == "image", let still {
                     source = "Preview"
                     content = .image(still)
-                } else if kind == "audio", let original = links?.efficient?.stream ?? links?.original?.downloadURL.flatMap(URL.init(string:)) {
+                } else if kind == "audio", let original = audio {
                     source = links?.efficient?.stream == nil ? "Original" : "Proxy"
                     isLowResolution = false
                     play(original, as: .audio)
@@ -132,10 +163,13 @@ final class FrameIOPreview: ObservableObject {
                     source = "Preview"
                     content = .image(still)
                 } else {
-                    content = .unavailable("Frame.io hasn't made a preview of this file yet. It may still be processing, or the project doesn't allow previews.")
+                    content = .unavailable(Self.isRecent(item)
+                        ? "Frame.io is still processing this file. Try again in a minute."
+                        : "Frame.io hasn't made a preview of this file. The project may not allow previews.")
                 }
             } catch {
-                guard !Task.isCancelled, self.item?.id == item.id else { return }
+                guard !Task.isCancelled, deferOpen ? !isOpen : self.item?.id == item.id else { return }
+                if deferOpen { withAnimation(Motion.fade) { self.item = item } }
                 content = .unavailable("Couldn't load the preview: \(UploadEngine.describe(error))")
             }
         }

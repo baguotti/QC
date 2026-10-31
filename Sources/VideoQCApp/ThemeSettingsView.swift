@@ -1,8 +1,8 @@
 import SwiftUI
 import AppKit
 
-struct ThemeSettingsModalView: View {
-    @Binding var isPresented: Bool
+/// User Settings → Appearance: light / dark, accent presets and colours, button size, live preview.
+struct ThemeSettingsView: View {
     @ObservedObject private var themeManager = ThemeManager.shared
     @AppStorage("isLightMode") private var isLightMode: Bool = false
     
@@ -13,130 +13,34 @@ struct ThemeSettingsModalView: View {
     private var palette: StudioPalette { StudioPalette(isLightMode) }
     
     var body: some View {
-        ZStack {
-            // Backdrop Scrim
-            Color.black.opacity(isPresented ? 0.65 : 0.0)
-                .edgesIgnoringSafeArea(.all)
-                .allowsHitTesting(isPresented)
-                .onTapGesture {
-                    dismissModal()
+        VStack(alignment: .leading, spacing: 20) {
+            appearanceModeSection
+            presetsSection
+            customColorsSection
+            buttonZoomSection
+            previewSection
+            Button(action: {
+                withAnimation(Motion.fade) {
+                    themeManager.resetToDefault()
+                    isLightMode = false
                 }
-            
-            // Modal Card Container
-            VStack(spacing: 0) {
-                // Header Bar
-                HStack {
-                    HStack(spacing: 8) {
-                        Image(systemName: "paintpalette.fill")
-                            .font(.system(size: StudioTheme.scaleFont(13), weight: .bold))
-                            .foregroundColor(themeManager.currentTheme.playColor)
-                        Text("Appearance & Theme")
-                            .font(.ui(size: 12, weight: .semibold))
-                            .foregroundColor(palette.textMain)
-                    }
-                    
-                    Spacer()
-                    
-                    Button(action: { dismissModal() }) {
-                        Text("Close (Esc)")
-                            .font(.ui(size: 11, weight: .semibold))
-                            .padding(.horizontal, 9)
-                            .padding(.vertical, 5)
-                            .foregroundColor(palette.textMain)
-                            .studioBox(background: palette.bgSubtle, border: palette.borderLine)
-                    }
-                    .buttonStyle(.plain)
-                    .keyboardShortcut(.escape, modifiers: [])
+            }) {
+                HStack(spacing: 6) {
+                    Image(systemName: "arrow.counterclockwise")
+                        .font(.system(size: StudioTheme.scaleFont(10), weight: .bold))
+                    Text("Reset Appearance")
+                        .font(.ui(size: 11, weight: .semibold))
                 }
-                .padding(.horizontal, 18)
-                .padding(.vertical, 12)
-                .background(palette.bgPanel)
-                
-                Rectangle().fill(palette.borderLine).frame(height: 1)
-                
-                // Scrollable Content Body
-                ScrollView(.vertical, showsIndicators: true) {
-                    VStack(alignment: .leading, spacing: 20) {
-                        // Section 1: Light / Dark Theme Mode
-                        appearanceModeSection
-                        
-                        // Section 2: Accent Presets
-                        presetsSection
-                        
-                        // Section 3: Customize Accent Colors (Per-Slot)
-                        customColorsSection
-                        
-                        // Section 4: Button & UI Size (Zoom)
-                        buttonZoomSection
-                        
-                        // Section 5: Live UI Element Preview
-                        previewSection
-                    }
-                    .padding(20)
-                }
-                .frame(maxHeight: 540)
-                .background(palette.bgMain)
-                
-                Rectangle().fill(palette.borderLine).frame(height: 1)
-                
-                // Footer Action Bar
-                HStack {
-                    Button(action: {
-                        withAnimation(Motion.fade) {
-                            themeManager.resetToDefault()
-                            isLightMode = false
-                        }
-                    }) {
-                        HStack(spacing: 6) {
-                            Image(systemName: "arrow.counterclockwise")
-                                .font(.system(size: StudioTheme.scaleFont(10), weight: .bold))
-                            Text("Reset to Default")
-                                .font(.ui(size: 11, weight: .semibold))
-                        }
-                        .padding(.horizontal, 11)
-                        .padding(.vertical, 6)
-                        .foregroundColor(palette.textMuted)
-                        .studioBox(background: palette.bgSubtle, border: palette.borderLine)
-                    }
-                    .buttonStyle(.plain)
-                    
-                    Spacer()
-                    
-                    Button(action: { dismissModal() }) {
-                        Text("Done")
-                            .font(.ui(size: 11, weight: .semibold))
-                            .padding(.horizontal, 18)
-                            .padding(.vertical, 6)
-                            .foregroundColor(palette.primaryBtnFg)
-                            .background(palette.primaryBtnBg)
-                            .cornerRadius(StudioTheme.cornerRadius)
-                    }
-                    .buttonStyle(.plain)
-                }
-                .padding(.horizontal, 18)
-                .padding(.vertical, 12)
-                .background(palette.bgPanel)
+                .padding(.horizontal, 11)
+                .padding(.vertical, 6)
+                .foregroundColor(palette.textMuted)
+                .studioBox(background: palette.bgSubtle, border: palette.borderLine)
             }
-            .frame(width: 640)
-            .studioBox(background: palette.bgPanel, border: palette.borderStrong)
-            .shadow(color: Color.black.opacity(0.45), radius: 28, x: 0, y: 14)
-        }
-        .allowsHitTesting(isPresented)
-    }
-    
-    private func dismissModal() {
-        withAnimation(Motion.fade) {
-            isPresented = false
-            isSavingPreset = false
-        }
-        DispatchQueue.main.async {
-            if let window = NSApp.windows.first(where: { $0.canBecomeKey }) {
-                window.makeKeyAndOrderFront(nil)
-                window.makeFirstResponder(nil)
-            }
+            .buttonStyle(.plain)
+            .explain("Dark mode, the default accent preset and Small buttons.")
         }
     }
-    
+
     // MARK: - Section 1: Appearance Mode (Light / Dark)
     
     private var appearanceModeSection: some View {
@@ -559,7 +463,7 @@ struct ThemeSettingsModalView: View {
             HStack(spacing: 8) {
                 // Size Icon Indicator
                 ZStack {
-                    RoundedRectangle(cornerRadius: 3)
+                    RoundedRectangle(cornerRadius: Radius.control)
                         .stroke(isSelected ? themeManager.currentTheme.playColor : palette.borderLine, lineWidth: 1.2)
                         .frame(
                             width: 14 * (level.scaleFactor == 1.0 ? 0.8 : (level.scaleFactor == 1.2 ? 1.0 : 1.25)),
@@ -714,12 +618,12 @@ struct ThemeSettingsModalView: View {
                         
                         ZStack(alignment: .leading) {
                             // Scrubber Track Background
-                            RoundedRectangle(cornerRadius: 2)
+                            RoundedRectangle(cornerRadius: Radius.control)
                                 .fill(palette.bgSubtle)
                                 .frame(height: 8)
                             
                             // Progress Played Fill (Playhead Accent)
-                            RoundedRectangle(cornerRadius: 2)
+                            RoundedRectangle(cornerRadius: Radius.control)
                                 .fill(themeManager.currentTheme.playColor.opacity(0.35))
                                 .frame(width: playheadX, height: 8)
                             

@@ -64,7 +64,36 @@ final class FrameIOBrowser: ObservableObject {
 
     @Published private(set) var signedIn: Bool?
     @Published private(set) var userName = ""
-    @Published private(set) var path: [Crumb] = []
+    @Published private(set) var path: [Crumb] = [] {
+        didSet {
+            // Remembered for "Open at: Last place" (navigation only, not per frame).
+            if path != oldValue, path.count > 1, let data = try? JSONEncoder().encode(path) {
+                UserDefaults.standard.set(data, forKey: Self.lastPathKey)
+            }
+        }
+    }
+    /// Where the browser opens after signing in (User Settings → Frame.io): "home", "last" or a favourite's id.
+    static let startPlaceKey = "prefFrameioStartPlace"
+
+    /// After signing in: the remembered place or a favourite (User Settings → Frame.io → Open at), else the top.
+    private func openStartPlace() {
+        let start = UserDefaults.standard.string(forKey: Self.startPlaceKey) ?? "last"
+        var target: [Crumb] = []
+        if start == "last", let data = UserDefaults.standard.data(forKey: Self.lastPathKey),
+           let saved = try? JSONDecoder().decode([Crumb].self, from: data) {
+            target = saved
+        } else if let favourite = favourites.first(where: { $0.id == start }) {
+            target = favourite.path
+        }
+        // A remembered place from another account (signed in as someone else) fails and falls back to the top.
+        isRestoringStart = !target.isEmpty
+        path = target
+        reload()
+    }
+
+    /// User Settings → Clear Caches.
+    nonisolated static func clearThumbnailCache() { Task { await FrameIOThumbnailCache.shared.clear() } }
+    static let lastPathKey = "frameioLastPath"
     @Published private(set) var items: [FrameIO.Item] = []
     @Published private(set) var isLoading = false
     @Published private(set) var isSigningIn = false
@@ -182,7 +211,9 @@ final class FrameIOBrowser: ObservableObject {
         guard signedIn == nil else { return }
         Task {
             signedIn = await FrameIO.shared.isSignedIn
-            if signedIn == true { await loadUser(); reload() }
+            guard signedIn == true else { return }
+            await loadUser()
+            openStartPlace()
         }
     }
 
@@ -196,8 +227,7 @@ final class FrameIOBrowser: ObservableObject {
                 signedIn = true
                 FrameIOCommentSync.shared.signInChanged(true)
                 await loadUser()
-                path = []
-                reload()
+                openStartPlace()
             } catch let failure as ASWebAuthenticationSessionError where failure.code == .canceledLogin {
                 return
             } catch {
@@ -442,6 +472,7 @@ final class FrameIOBrowser: ObservableObject {
                 }
                 pendingSelection = nil
                 isLoading = false
+                isRestoringStart = false
                 if let account = crumbs.first?.id, crumbs.last?.level == .folder || crumbs.last?.level == .project {
                     FrameIOCommentSync.shared.linkQueueClips(to: items, account: account)
                 }
@@ -450,6 +481,13 @@ final class FrameIOBrowser: ObservableObject {
                 if projectID != sharesProject { loadShares() }
             } catch {
                 guard token == loadToken else { return }
+                // The remembered place is gone (deleted, access removed): start from the top instead.
+                if isRestoringStart, !crumbs.isEmpty {
+                    isRestoringStart = false
+                    path = []
+                    reload()
+                    return
+                }
                 items = []
                 loadedPath = crumbs
                 isLoading = false
@@ -457,6 +495,9 @@ final class FrameIOBrowser: ObservableObject {
             }
         }
     }
+
+    /// The first listing after sign-in is a remembered place (falls back to the top if it fails).
+    private var isRestoringStart = false
 
     /// The path `items` were listed for (selection is kept across refreshes of the same folder).
     private var loadedPath: [Crumb] = []
@@ -899,6 +940,9 @@ final class FrameIOBrowser: ObservableObject {
     func dismissToast() {
         toast = nil
     }
+
+    /// A passing note at the bottom of the browser (no undo).
+    func notice(_ message: String) { show(Toast(message: message)) }
 
     func performUndo() {
         guard let undo = lastUndo?.undo else { return }
@@ -3279,6 +3323,8 @@ private actor FrameIOThumbnailCache {
         return cache
     }()
     private var inFlight: [String: Task<CGImage?, Never>] = [:]
+
+    func clear() { cache.removeAllObjects() }
 
     final class CGImageBox: @unchecked Sendable {
         let image: CGImage

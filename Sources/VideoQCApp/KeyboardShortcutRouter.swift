@@ -832,7 +832,7 @@ extension KeyboardShortcutRouter {
                 trigger: ShortcutTrigger(keyCodes: [123], modifiers: [.shift]),
                 scope: .playerOnly
             ) {
-                actions.onStepFrames(5, false)
+                actions.onStepFrames(UserPreferences.shiftStep, false)
                 return true
             },
             Rule(
@@ -848,7 +848,7 @@ extension KeyboardShortcutRouter {
                 trigger: ShortcutTrigger(keyCodes: [124], modifiers: [.shift]),
                 scope: .playerOnly
             ) {
-                actions.onStepFrames(5, true)
+                actions.onStepFrames(UserPreferences.shiftStep, true)
                 return true
             },
             Rule(

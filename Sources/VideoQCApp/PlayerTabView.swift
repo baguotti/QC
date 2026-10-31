@@ -804,8 +804,8 @@ extension ContentView {
                 Image(systemName: "paperplane.fill")
                     .font(.system(size: StudioTheme.scaleFont(13), weight: .bold))
                     .foregroundColor(accentBlue)
-                Text("Report a missed line")
-                    .font(.system(size: StudioTheme.scaleFont(14), weight: .bold))
+                Text("Report a Missed Line")
+                    .font(.ui(size: 13, weight: .semibold))
                     .foregroundColor(textMain)
             }
             if let frame = slotState.lastDecodedFrame {
@@ -822,6 +822,11 @@ extension ContentView {
                 missedLineInfoRow("Sends", "This frame (original pixels, no EV), clip details, Line Check settings and results, your name")
                 missedLineInfoRow("To", "The QCpie developer, to improve line detection")
             }
+            TextField("Add a comment (optional): where the line is, what it looks like…", text: $missedLineComment, axis: .vertical)
+                .textFieldStyle(.roundedBorder)
+                .font(.ui(size: 11))
+                .lineLimit(2...5)
+                .explain("Sent with the report, above the automatic details.")
             HStack(spacing: 8) {
                 Spacer()
                 Button("Cancel") { showMissedLineConfirm = false }

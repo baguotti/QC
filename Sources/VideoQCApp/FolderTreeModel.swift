@@ -49,6 +49,7 @@ public struct FileSystemTreeBuilder {
         let rootURL: URL?
         let files: [URL]
         let preserveFileOrder: Bool
+        var sort: QueueSort = .name
         let tree: [FileSystemTreeNode]
         let orderedURLs: [URL]
     }
@@ -66,7 +67,9 @@ public struct FileSystemTreeBuilder {
     public static func buildTree(rootURL: URL?, files: [URL], preserveFileOrder: Bool = false) -> [FileSystemTreeNode] {
         guard !files.isEmpty else { return [] }
         
-        if let match = treeCache.first(where: { $0.rootURL == rootURL && $0.files == files && $0.preserveFileOrder == preserveFileOrder }) {
+        let sort = QueueSort.current
+        let sortKeys = sort == .name ? [:] : QueueSortKeys.snapshot()
+        if let match = treeCache.first(where: { $0.rootURL == rootURL && $0.files == files && $0.preserveFileOrder == preserveFileOrder && $0.sort == sort }) {
             return match.tree
         }
         
@@ -172,9 +175,7 @@ public struct FileSystemTreeBuilder {
             if preserveFileOrder {
                 sortedFiles = dir.fileURLs
             } else {
-                sortedFiles = dir.fileURLs.sorted {
-                    $0.lastPathComponent.localizedStandardCompare($1.lastPathComponent) == .orderedAscending
-                }
+                sortedFiles = sort.sorted(dir.fileURLs, keys: sortKeys)
             }
             
             for file in sortedFiles {
@@ -199,7 +200,7 @@ public struct FileSystemTreeBuilder {
         if treeCache.count >= maxCacheEntries {
             treeCache.removeFirst()
         }
-        treeCache.append(TreeCacheEntry(rootURL: rootURL, files: files, preserveFileOrder: preserveFileOrder, tree: result, orderedURLs: ordered))
+        treeCache.append(TreeCacheEntry(rootURL: rootURL, files: files, preserveFileOrder: preserveFileOrder, sort: sort, tree: result, orderedURLs: ordered))
         return result
     }
     

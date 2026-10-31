@@ -13,7 +13,6 @@ struct ContentView: View {
     @State var showUserGuide: Bool = false
     @State var showFeedbackModal: Bool = false
     @State var showSettingsPopover: Bool = false
-    @State var showThemeModal: Bool = false
     @State var showSyncModal: Bool = false
     @State var showUserSettingsModal: Bool = false
     @State var showPropertiesModal: Bool = false
@@ -65,6 +64,7 @@ struct ContentView: View {
     @State var playerFilterText: String = ""
     @State var isSendingMissedLine = false
     @State var showMissedLineConfirm = false
+    @State var missedLineComment = ""
     @AppStorage(MediaKindFilter.storageKey) var mediaKindFilter: Int = MediaKindFilter.all
     @State var playerCollapsedFolderIDs: Set<String> = []
     @State var fileTagsMap: [URL: FinderTagColor] = [:]
@@ -138,12 +138,14 @@ struct ContentView: View {
             var isDir: ObjCBool = false
             guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDir) else { return nil }
             if isDir.boolValue {
-                return ScannedAssetInput(url: url, isDirectory: true, videos: VideoScanner.findMediaFiles(in: url))
+                return ScannedAssetInput(url: url, isDirectory: true,
+                                         videos: VideoScanner.findMediaFiles(in: url, includeSubfolders: UserPreferences.includeSubfolders))
             }
             return ScannedAssetInput(url: url, isDirectory: false, videos: QCUtilities.isSupportedMedia(url: url) ? [url] : [])
         }
         // Image sequences read as one clip keep only their first frame (across all inputs: dropped frames too).
         let kept = Set(ImageSequenceStore.shared.collapse(inputs.flatMap(\.videos)).map(\.path))
+        if QueueSort.current != .name { QueueSortKeys.fill(inputs.flatMap(\.videos)) }
         return inputs.map { ScannedAssetInput(url: $0.url, isDirectory: $0.isDirectory, videos: $0.videos.filter { kept.contains($0.path) }) }
     }
     
@@ -189,7 +191,6 @@ struct ContentView: View {
         baseContent
             .animation(Motion.fade, value: showUserGuide)
             .animation(Motion.fade, value: showFeedbackModal)
-            .animation(Motion.fade, value: showThemeModal)
             .animation(Motion.fade, value: showSyncModal)
             .animation(Motion.fade, value: showUserSettingsModal)
             .animation(Motion.fade, value: showPropertiesModal)
@@ -219,7 +220,6 @@ struct ContentView: View {
                 let targetURL = (newTarget == .slotB && playerEngine.slotB.url != nil) ? playerEngine.slotB.url : playerEngine.slotA.url
                 loadNotesForActiveURL(targetURL)
             }
-            .onChange(of: showThemeModal) { _, newValue in if !newValue { dismissFocusReset() } }
             .onChange(of: showSyncModal) { _, newValue in if !newValue { dismissFocusReset() } }
             .onChange(of: showUserSettingsModal) { _, newValue in if !newValue { dismissFocusReset() } }
             .onChange(of: notesTabIsVisible) { _, visible in if visible { unseenSyncedNoteIDs = [] } }
@@ -274,6 +274,11 @@ struct ContentView: View {
             .onReceive(NotificationCenter.default.publisher(for: DownloadQueue.addToQueue)) { notification in
                 if let urls = notification.object as? [URL], !urls.isEmpty { loadAssets(urls, append: true) }
             }
+            .onReceive(NotificationCenter.default.publisher(for: UserSettingsModalView.toggle)) { _ in
+                guard showUserSettingsModal || !isAnyModalActive else { return }
+                showSettingsPopover = false
+                withAnimation(Motion.fade) { showUserSettingsModal.toggle() }
+            }
             .onReceive(NotificationCenter.default.publisher(for: Notifier.openTab)) { notification in
                 guard let tab = notification.object as? AppTab else { return }
                 withAnimation(Motion.snap) { selectedTab = tab }
@@ -303,6 +308,10 @@ struct ContentView: View {
                 #endif
                 updatePlayerTreeNodes()
                 setupKeyboardMonitor()
+                if UserPreferences.restoreQueue, videoFiles.isEmpty, fileOpenManager.pendingURLs.isEmpty,
+                   let paths = UserDefaults.standard.stringArray(forKey: UserPreferences.lastQueueKey), !paths.isEmpty {
+                    loadAssets(paths.map { URL(fileURLWithPath: $0) }, append: false)
+                }
                 loadFinderTagsForQueue()
                 updateManager.checkForUpdates(userInitiated: false)
                 NotesSyncProject.applySaved()
@@ -315,6 +324,17 @@ struct ContentView: View {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
                     fileOpenManager.isAppAlreadyRunning = true
                 }
+            }
+            .onReceive(NotificationCenter.default.publisher(for: QueueSort.changed)) { _ in
+                let files = videoFiles
+                Task {
+                    await Task.detached(priority: .userInitiated) { QueueSortKeys.fill(files) }.value
+                    FileSystemTreeBuilder.clearCache()
+                    updatePlayerTreeNodes()
+                }
+            }
+            .onReceive(NotificationCenter.default.publisher(for: NSApplication.willTerminateNotification)) { _ in
+                saveQueueForNextLaunch()
             }
             .onDisappear {
                 eventMonitors.cleanup()
@@ -410,14 +430,6 @@ struct ContentView: View {
             .transition(.opacity.combined(with: .scale(scale: 0.98)))
             .zIndex(156)
             .allowsHitTesting(showPropertiesModal)
-        }
-        
-        // Theme & Accent Colors Overlay Modal
-        if showThemeModal {
-            ThemeSettingsModalView(isPresented: $showThemeModal)
-                .transition(.opacity.combined(with: .scale(scale: 0.98)))
-                .zIndex(158)
-                .allowsHitTesting(showThemeModal)
         }
         
         if showSyncModal {
@@ -587,6 +599,10 @@ struct ContentView: View {
                             Text("User Settings")
                                 .font(.ui(size: 11, weight: .semibold))
                                 .foregroundColor(textMain)
+                            Spacer(minLength: 8)
+                            Text("⌘,")
+                                .font(.ui(size: 11))
+                                .foregroundColor(textMuted)
                         }
                         .padding(.horizontal, 10)
                         .padding(.vertical, 7)
@@ -601,7 +617,8 @@ struct ContentView: View {
                         showSettingsPopover = false
                         DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) {
                             withAnimation(Motion.fade) {
-                                showThemeModal = true
+                                UserDefaults.standard.set("Appearance", forKey: UserSettingsModalView.paneKey)
+                                showUserSettingsModal = true
                             }
                         }
                     }) {
@@ -1024,8 +1041,18 @@ struct ContentView: View {
                 if self.playerEngine.activeURL == nil, let first = uniqueVideos.first {
                     self.playerEngine.loadVideo(url: first)
                 }
+                if UserPreferences.autoLineCheck, !self.scannerState.isScanning { self.startScan() }
             }
         }
+    }
+
+    /// Saves the queue for "Restore the last queue" (at quit only). Sequences save every frame, so they're detected
+    /// again on restore.
+    func saveQueueForNextLaunch() {
+        let paths = videoFiles.flatMap { url in
+            ImageSequenceStore.shared.sequence(for: url)?.frameURLs.map(\.path) ?? [url.path]
+        }
+        UserDefaults.standard.set(UserPreferences.restoreQueue ? paths : nil, forKey: UserPreferences.lastQueueKey)
     }
     
     func handleDrop(providers: [NSItemProvider], forTab: AppTab, targetSlot: SlotTarget? = nil) -> Bool {
@@ -1438,7 +1465,7 @@ struct ContentView: View {
     }
     
     var isAnyModalActive: Bool {
-        showThemeModal || showSyncModal || showUserSettingsModal || showUserGuide || showFeedbackModal || updateManager.showModal || showPropertiesModal || showAddNoteModal
+        showSyncModal || showUserSettingsModal || showUserGuide || showFeedbackModal || updateManager.showModal || showPropertiesModal || showAddNoteModal
     }
     
     func dismissTopmostModalOrFullscreen() -> Bool {
@@ -1452,10 +1479,6 @@ struct ContentView: View {
         }
         if showNotesDrawer {
             withAnimation(Motion.fade) { showNotesDrawer = false }
-            return true
-        }
-        if showThemeModal {
-            withAnimation(Motion.fade) { showThemeModal = false }
             return true
         }
         if showSyncModal {
@@ -1589,7 +1612,9 @@ struct ContentView: View {
             onPasteFrameIOLinkInPlayer: { FrameIOCommentSync.shared.linkActiveFromClipboard { self.showToast($0) } },
             onTogglePlayPause: { self.playerEngine.togglePlayPause() },
             onStepFrame: { forward in self.playerEngine.stepFrame(forward: forward) },
-            onStepFrames: { count, forward in self.playerEngine.stepFrames(count: count, forward: forward) },
+            onStepFrames: { count, forward in
+                self.playerEngine.stepFrames(count: count > 0 ? count : max(1, Int(self.playerEngine.activeFps.rounded())), forward: forward)
+            },
             onJumpToBeginning: { self.playerEngine.jumpToBeginning() },
             onJumpToEnd: { self.playerEngine.jumpToEnd() },
             onSelectPreviousFile: { target in self.playerSelectPreviousFile(target: target) },
@@ -2137,9 +2162,12 @@ struct ContentView: View {
             return scan.glitchSegments.prefix(6).map { "\($0.edge.rawValue) \($0.startTimecode)–\($0.endTimecode)\($0.isOffColor ? " (off-colour)" : "")" }.joined(separator: "; ")
         }()
         let reviewer = (UserDefaults.standard.string(forKey: "reviewerName")).flatMap { $0.isEmpty ? nil : $0 } ?? NSFullUserName()
+        let comment = missedLineComment.trimmingCharacters(in: .whitespacesAndNewlines)
         let details = [
             "A reviewer flagged a line the automatic Line Check missed.",
             "",
+            comment.isEmpty ? nil : "Reviewer's comment: \(comment)",
+            comment.isEmpty ? nil : "",
             "File: \(fileName)",
             "Folder: \(url.deletingLastPathComponent().lastPathComponent)",
             "Slot: \(slot == .slotA ? "A" : "B")",
@@ -2150,7 +2178,7 @@ struct ContentView: View {
             "Line Check on this file: \(findings)",
             "Reviewer: \(reviewer)",
             "QCpie \(AppVersionInfo.version) on macOS \(ProcessInfo.processInfo.operatingSystemVersionString)"
-        ]
+        ].compactMap { $0 }
         isSendingMissedLine = true
         showToast("Sending frame \(timecode)…")
         Task { @MainActor in
@@ -2161,6 +2189,7 @@ struct ContentView: View {
             }
             do {
                 try await MissedLineReporter.send(image: image, subject: "[QCpie] Missed line: \(fileName) @ \(timecode)", details: details)
+                missedLineComment = ""
                 showToast("Sent: thanks, this helps improve Line Check")
             } catch {
                 showToast("Report not sent: \(error.localizedDescription)")

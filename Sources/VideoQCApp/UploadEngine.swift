@@ -107,7 +107,7 @@ final class UploadEngine: Sendable {
     func run(_ work: [UploadWork], account: String, folder root: String,
              onStart: @escaping @Sendable (UUID) async -> Void,
              onFinish: @escaping @Sendable (UUID, UploadOutcome) async -> Void) async {
-        let gate = TransferGate(limit: limits.initialStreams, byteBudget: limits.memoryBudget)
+        let gate = TransferGate(limit: UploadThrottle.cap(limits.initialStreams), byteBudget: limits.memoryBudget)
         let resolver = FolderResolver(api: RetryingAPI(engine: self), account: account, root: root)
         let tracker = JobTracker(work)
         drainDeletes()
@@ -435,12 +435,32 @@ final class UploadEngine: Sendable {
             } else {
                 best = max(best, rate)
             }
-            await gate.setLimit(limit)
+            await gate.setLimit(UploadThrottle.cap(limit))
         }
     }
 }
 
 // MARK: - Supporting types
+
+/// User Settings → Frame.io: a stream cap, and 2 streams while the Player plays (so a busy network drive or link
+/// doesn't make playback stutter). Applied at the next tuning step (≤ 5 s).
+enum UploadThrottle {
+    static let maxStreamsKey = "prefUploadMaxStreams"       // 0 = automatic (up to 16)
+    static let gentleKey = "prefUploadGentleWhilePlaying"
+    nonisolated(unsafe) private static var playing = false
+    private static let lock = NSLock()
+
+    static func setPlaying(_ value: Bool) { lock.withLock { playing = value } }
+
+    static func cap(_ limit: Int) -> Int {
+        let defaults = UserDefaults.standard
+        var limit = limit
+        let maximum = defaults.integer(forKey: maxStreamsKey)
+        if maximum > 0 { limit = min(limit, maximum) }
+        if defaults.bool(forKey: gentleKey), lock.withLock({ playing }) { limit = min(limit, 2) }
+        return limit
+    }
+}
 
 enum RetryExpired: Error { case expired }
 

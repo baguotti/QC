@@ -52,7 +52,7 @@ If two existing styles conflict and neither is clearly the standard, ask the use
 - **Note colours mean something:** red = Line Check finding, purple = came from a Frame.io comment. Neither is ever offered when writing or editing a note (`QCNoteTheme.availableColors` = cyan, yellow, green; `userTag` guards); filters may show them.
 - **Selection:** the accent fill or the 3pt accent bar marks selection, and `alertRed` marks a mismatch. Click, Shift-click (range) and ⌘-click as in Finder. Double-click opens or plays.
 - **Copy:** Title Case for buttons, tabs and section titles; sentence case for help, toasts and alerts. Be plain and specific ("Delete 2 items from Frame.io?"); never "Are you sure?". No exclamation marks.
-- **System notifications** (`Notifier`): every new kind gets a switch in Settings → Notifications and its wording in `NotificationText` (title = what happened, subtitle = where, body = specifics, the copy rules above). No sound, grouped by kind, silent while QCpie is in front unless the user opts in; clicking one opens its tab.
+- **System notifications** (`Notifier`): every new kind gets a switch in Settings → Notifications and its wording in `NotificationText` (title = what happened, subtitle = where, body = specifics, the copy rules above). Silent by default (an optional chime, `Resources/Chime.caf`, is a setting), grouped by kind, silent while QCpie is in front unless the user opts in; clicking one opens its tab.
 - **Performance is part of the design:** a view that shows high-frequency state (progress, playhead, download %) is its own small view observing only that, so the rest doesn't redraw (see `DrawerTabs`, `UploadSideDrawer`).
 
 ## When adding UI, check

@@ -537,7 +537,11 @@ public final class PlayerEngine: ObservableObject {
     
     @Published public var rate: Float = 0.0
     @Published public var isPlaying: Bool = false {
-        didSet { if isPlaying != oldValue { updateDisplaySleepAssertion() } }
+        didSet {
+            guard isPlaying != oldValue else { return }
+            updateDisplaySleepAssertion()
+            UploadThrottle.setPlaying(isPlaying)
+        }
     }
     /// Held while playing so the display doesn't sleep mid-review (released on pause).
     private var displaySleepActivity: NSObjectProtocol?
@@ -550,7 +554,7 @@ public final class PlayerEngine: ObservableObject {
             displaySleepActivity = nil
         }
     }
-    @Published public var isLooping: Bool = true
+    @Published public var isLooping: Bool = UserPreferences.loop
     
     // Zoom & Pan
     @Published public var zoomScale: CGFloat = 1.0
@@ -559,7 +563,11 @@ public final class PlayerEngine: ObservableObject {
     
     // Crosshair & Guides
     @Published public var showCenterCrosshair: Bool = false
-    @Published public var safeAreaMode: SafeAreaMode = .off
+    @Published public var safeAreaMode: SafeAreaMode = UserPreferences.safeArea
+    /// Behind the picture (User Settings); the viewport applies it on change only.
+    @Published var viewerBackground: ViewerBackground = .current {
+        didSet { UserDefaults.standard.set(viewerBackground.rawValue, forKey: UserPreferences.viewerBackgroundKey) }
+    }
     
     // Legal-range zebra on paused frames; the preset is shared with Frame Check.
     @Published public var showLegalZebra: Bool = false
@@ -1042,12 +1050,28 @@ public final class PlayerEngine: ObservableObject {
             return
         }
         
-        self.pendingInitialSeekFrame = initialSeekFrame
+        // Resume where you left off: remember the clip being left, pick up the new one's last frame (not when
+        // autoplaying from the start or jumping to a frame).
+        let resume = UserPreferences.resumePosition
+        if resume, let previous = slotA.url, hasTimeline {
+            let frame = currentFrame
+            UserPreferences.saveFrame(frame > 0 && frame < totalFrames - 1 ? frame : nil, for: previous)
+        }
+        self.pendingInitialSeekFrame = initialSeekFrame ?? (resume && !autoplay ? UserPreferences.savedFrame(for: stdURL) : nil)
         self.pendingAutoplay = autoplay
         self.pendingAutoplayB = false
         pause()
         
         self.objectWillChange.send()
+        switch UserPreferences.defaultZoom {
+        case "100":
+            isFitZoom = false
+            zoomScale = 1
+        case "fit":
+            isFitZoom = true
+        default:
+            break
+        }
         slotA.url = stdURL
         slotA.fileName = stdURL.lastPathComponent
         slotA.formattedFileSize = "--"
@@ -1188,7 +1212,7 @@ public final class PlayerEngine: ObservableObject {
         pendingSeekTimeB = nil
         
         if !wasInABMode {
-            self.compareMode = .single
+            self.compareMode = UserPreferences.defaultCompare
             self.isBlinkCompareB = false
         }
         

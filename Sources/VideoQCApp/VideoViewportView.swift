@@ -155,6 +155,7 @@ public final class PlayerContainerNSView: NSView {
     private var lastSlotAURL: URL? = nil
     private var lastSlotBURL: URL? = nil
     private var lastIsLightMode: Bool? = nil
+    private var lastViewerBackground: ViewerBackground?
     private var lastCanvasBoundsSize: CGSize = CGSize(width: -1, height: -1)
     private var lastAspectA: CGFloat = -1
     private var lastAspectB: CGFloat = -1
@@ -495,6 +496,15 @@ public final class PlayerContainerNSView: NSView {
             updateResolutionLabels()
         }
         
+        if lastViewerBackground != engine.viewerBackground {
+            lastViewerBackground = engine.viewerBackground
+            // On the still layers (the exact picture rect in every compare mode; side by side lays slots outside the
+            // canvas bounds). Only transparent pixels show it.
+            let fill = engine.viewerBackground.canvasColor ?? NSColor.clear.cgColor
+            stillFrameLayerA.backgroundColor = fill
+            stillFrameLayerB.backgroundColor = fill
+        }
+
         if lastIsLightMode != isLightMode {
             lastIsLightMode = isLightMode
             layer?.backgroundColor = isLightMode ? NSColor(white: 0.88, alpha: 1.0).cgColor : NSColor(red: 0.08, green: 0.08, blue: 0.08, alpha: 1.0).cgColor

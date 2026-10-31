@@ -97,6 +97,10 @@ struct QCpieApp: App {
         .windowToolbarStyle(.unified)
         .commands {
             SidebarCommands()
+            CommandGroup(replacing: .appSettings) {
+                Button("Settings…") { NotificationCenter.default.post(name: UserSettingsModalView.toggle, object: nil) }
+                    .keyboardShortcut(",", modifiers: .command)
+            }
             CommandGroup(after: .appInfo) {
                 Button("Check for Updates...") {
                     UpdateManager.shared.checkForUpdates(userInitiated: true)

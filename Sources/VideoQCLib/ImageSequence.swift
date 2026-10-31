@@ -57,12 +57,15 @@ public struct ImageSequence: Sendable, Hashable {
 }
 
 public enum ImageSequenceDetector {
-    /// Fewer numbered stills than this are treated as separate images.
-    public static let minimumFrames = 6
+    /// Fewer numbered stills than this are treated as separate images (User Settings → Queue; 0 = detection off).
+    public static let minimumFramesKey = "prefSequenceMinFrames"
+    public static var minimumFrames: Int { UserDefaults.standard.object(forKey: minimumFramesKey) as? Int ?? 6 }
 
     /// Groups numbered stills by folder, prefix and extension. File names only: no disk access.
     public static func detect(_ urls: [URL]) -> [ImageSequence] {
         struct GroupKey: Hashable { let dir: String; let prefix: String; let ext: String }
+        let minimumFrames = Self.minimumFrames
+        guard minimumFrames > 0 else { return [] }
         var groups: [GroupKey: (dir: URL, ext: String, padding: Int, frames: [(number: Int, url: URL)])] = [:]
         for url in urls where QCUtilities.supportedImageExtensions.contains(url.pathExtension.lowercased()) {
             let base = url.deletingPathExtension().lastPathComponent

@@ -10,6 +10,10 @@ import VideoQCLib
 /// isn't brought back by the next import). Links come from QCpie's own uploads and downloads, and from Import Comments
 /// in the Frame.io browser (queue clips matched by name and size). Kept in `Application Support/QCpie/FrameIO/frameio-links.json`.
 actor FrameIOLinks {
+    /// Link clips to Frame.io files with the same name and size automatically (User Settings → Frame.io).
+    nonisolated static let autoLinkKey = "prefFrameioAutoLink"
+    nonisolated static var autoLink: Bool { UserDefaults.standard.object(forKey: autoLinkKey) as? Bool ?? true }
+
     static let shared = FrameIOLinks(directory: FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
         .appendingPathComponent("QCpie/FrameIO", isDirectory: true))
 
@@ -83,6 +87,12 @@ actor FrameIOLinks {
         state.seen = seen
         state.imported[fileID] = nil
         state.sent?[fileID] = nil
+        save()
+    }
+
+    /// User Settings → Clear Caches: forgets the name/size index (links stay).
+    func clearIndex() {
+        state.seen = nil
         save()
     }
 
@@ -408,7 +418,7 @@ final class FrameIOCommentSync: ObservableObject {
             if isActive(url) { activeLinked = false }
             return
         }
-        if await FrameIOLinks.shared.link(for: url) == nil, let seen = await FrameIOLinks.shared.indexed(url) {
+        if FrameIOLinks.autoLink, await FrameIOLinks.shared.link(for: url) == nil, let seen = await FrameIOLinks.shared.indexed(url) {
             // Same name and size as a Frame.io file seen in the browser or the favourites crawl: link it.
             await FrameIOLinks.shared.link(url, account: seen.account, fileID: seen.fileID)
         }
@@ -467,6 +477,7 @@ final class FrameIOCommentSync: ObservableObject {
     /// the Player is checked at once when it gets linked.
     func linkQueueClips(to items: [FrameIO.Item], account: String) {
         Task { await FrameIOLinks.shared.remember(items, account: account) }
+        guard FrameIOLinks.autoLink else { return }
         var clips: [String: [URL]] = [:]
         for job in UploadQueue.shared.jobs where job.files.count == 1 {
             clips["\(job.url.lastPathComponent)|\(job.fileSizes.first ?? 0)", default: []].append(job.url)

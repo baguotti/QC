@@ -713,13 +713,20 @@ final class DownloadQueue: ObservableObject {
 
     // MARK: Choosing where
 
-    private static let folderKey = "frameioDownloadFolder"
-    private static let addToQueueKey = "frameioDownloadAddToQueue"
+    static let folderKey = "frameioDownloadFolder"
+    static let addToQueueKey = "frameioDownloadAddToQueue"
+    /// Off (User Settings → Frame.io): downloads go straight to the saved folder, without the Open panel.
+    static let askKey = "prefDownloadAsk"
 
     /// The folder to save into and whether to add the files to the queue: one Open panel with a checkbox, both remembered.
     /// Shown as a sheet, not `runModal`: a modal loop started from a drop blocked the drag from finishing, and its image
     /// stayed on screen until the panel closed.
     private static func chooseDestination(for items: [FrameIO.Item], then chosen: @escaping ((folder: URL, addToQueue: Bool)) -> Void) {
+        let defaults = UserDefaults.standard
+        if defaults.object(forKey: askKey) as? Bool == false, let saved = defaults.url(forKey: folderKey),
+           FileManager.default.fileExists(atPath: saved.path) {
+            return chosen((saved, defaults.bool(forKey: addToQueueKey)))
+        }
         let panel = NSOpenPanel()
         panel.canChooseFiles = false
         panel.canChooseDirectories = true
