@@ -1,6 +1,6 @@
 #!/bin/zsh
 # linecore parity with QCpie's Swift detector (Command Line Tools only).
-# Usage: premiere/linecore/tests/run.sh [footage folder, default _TEST] [--no-real] [--all (include files ≥ 500 MB)]
+# Usage: premiere/linecore/tests/run.sh [footage folder, default _TEST] [--no-real] [--all (include files ≥ 500 MB)] [--segments (print them)]
 set -e
 ROOT="$(cd "$(dirname "$0")/../../.." && pwd)"
 LC="$ROOT/premiere/linecore"

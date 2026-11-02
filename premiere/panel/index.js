@@ -68,19 +68,33 @@ showSensitivity();
 
 // MARK: Scan
 
+// While scanning, Scan becomes Cancel: it leaves a scan.cancel file that the exporter checks 4× a second.
 $("scan").addEventListener("click", () => {
-  if (scanning) return;
+  if (scanning) return requestCancel();
   scanning = true;
-  $("scan").setAttribute("disabled", "");
+  setScanButton("Cancel");
   logEl.textContent = "";
   scan().catch((e) => { status("Scan failed: " + e.message); log("ERROR: " + (e.stack || e)); })
     .finally(() => {
       scanning = false;
-      $("scan").removeAttribute("disabled");
+      setScanButton("Scan");
       $("progressRow").classList.add("hidden");
       writeLogFile();
     });
 });
+
+function setScanButton(label) {
+  $("scan").textContent = label;
+  $("scan").setAttribute("variant", label === "Scan" ? "cta" : "secondary");
+  $("scan").removeAttribute("disabled");
+}
+
+async function requestCancel() {
+  $("scan").setAttribute("disabled", "");
+  $("progressLabel").textContent = "Stopping…";
+  log("Cancel requested");
+  await (await fs.getDataFolder()).createFile(`${NAME}.cancel`, { overwrite: true }).then((f) => f.write("1"));
+}
 
 $("clear").addEventListener("click", async () => {
   const { project, sequence } = await active();
@@ -112,7 +126,7 @@ async function scan() {
   if (form.useInOut && !range) log("No In/Out set: scanning the whole sequence.");
 
   const data = await fs.getDataFolder();
-  for (const name of [`${NAME}.json`, `${NAME}.progress`]) {
+  for (const name of [`${NAME}.json`, `${NAME}.progress`, `${NAME}.cancel`]) {
     const stale = await data.getEntry(name).catch(() => null);
     if (stale) await stale.delete();
   }
@@ -163,6 +177,7 @@ async function scan() {
   summary(`${segments.length} line${segments.length === 1 ? "" : "s"} · ${result.frames} frames`);
   status(segments.length ? (result.aborted ? "Scan stopped early: later frames weren't checked." : "")
     : `No lines found in ${result.frames} frames (${where}).${result.aborted ? " Scan stopped early." : ""}`);
+  if (result.aborted) summary(`${segments.length} line${segments.length === 1 ? "" : "s"} · stopped at ${result.frames} frames`);
   if (removed) log(`Replaced ${removed} older LineFinder markers in this range.`);
 }
 

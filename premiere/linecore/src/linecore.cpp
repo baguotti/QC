@@ -388,6 +388,27 @@ struct lc_detector {
 			float innerAlpha = median(innerAlphas);
 			// Step at the line's inner boundary: a gradient fades out gradually, a line stops.
 			float edgeAlpha = median(edgeAlphas);
+			if (passCount > 0 && lineAlpha >= weakAlpha && innerAlpha > edgeAlpha * kMaxInnerAlphaRatio && hi + 2 < depthCount) {
+				// Chroma bleed: decoders that upsample 4:2:0 chroma without filtering (Premiere) smear the line's colour
+				// into the next row as saturated, darker target colour: a high alpha that fails the colour test. A
+				// gradient's rows still look like blends. One such row counts as part of the line for the step test.
+				int colourFails = 0, informative = 0;
+				for (int p = run.start; p <= run.end; ++p) {
+					size_t i = static_cast<size_t>(hi + 1) * n + p;
+					if (states[i] == kSkip) continue;
+					informative += 1;
+					if (states[i] == kFail && alphas[i] >= weakAlpha && alphas[i] <= kMaxAlpha) colourFails += 1;
+				}
+				if (informative > 0 && colourFails * 2 >= informative) {
+					innerAlphas.clear();
+					const ptrdiff_t nextOrigin = walk.origin + (hi + 2) * walk.depthStride;
+					for (int p = run.start; p <= run.end; ++p) {
+						Classified next = classify(color(ptr, nextOrigin + p * walk.positionStride), refs[p], t);
+						if (next.state != kSkip) innerAlphas.push_back(next.alpha);
+					}
+					innerAlpha = median(innerAlphas);
+				}
+			}
 			if (!(passCount > 0 && lineAlpha >= weakAlpha && innerAlpha <= edgeAlpha * kMaxInnerAlphaRatio)) continue;
 
 			lc_detection d{};

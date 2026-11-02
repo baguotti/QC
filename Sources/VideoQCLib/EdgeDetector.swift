@@ -389,9 +389,30 @@ private struct BlendLineModel {
                 if innerState != Self.skip { innerAlphas.append(innerAlpha) }
             }
             let lineAlpha = Self.median(&lineAlphas)
-            let innerAlpha = Self.median(&innerAlphas)
+            var innerAlpha = Self.median(&innerAlphas)
             // Step at the line's inner boundary: a gradient fades out gradually, a line stops.
             let edgeAlpha = Self.median(&edgeAlphas)
+            if passCount > 0, lineAlpha >= weakAlpha, innerAlpha > edgeAlpha * Self.maxInnerAlphaRatio, hi + 2 < depthCount {
+                // Chroma bleed: decoders that upsample 4:2:0 chroma without filtering (Premiere) smear the line's colour
+                // into the next row as saturated, darker target colour: a high α that fails the colour test. A gradient's
+                // rows still look like blends. One such row counts as part of the line for the step test.
+                var informative = 0, colourFails = 0
+                for p in run.start...run.end {
+                    let i = (hi + 1) * n + p
+                    guard states[i] != Self.skip else { continue }
+                    informative += 1
+                    if states[i] == Self.fail && alphas[i] >= weakAlpha && alphas[i] <= Self.maxAlpha { colourFails += 1 }
+                }
+                if informative > 0 && colourFails * 2 >= informative {
+                    var nextAlphas: [Float] = []
+                    let nextOrigin = walk.origin + (hi + 2) * walk.depthStride
+                    for p in run.start...run.end {
+                        let (nextState, nextAlpha) = classify(color(ptr, nextOrigin + p * walk.positionStride), ref: refs[p], target: t)
+                        if nextState != Self.skip { nextAlphas.append(nextAlpha) }
+                    }
+                    innerAlpha = Self.median(&nextAlphas)
+                }
+            }
             guard passCount > 0, lineAlpha >= weakAlpha, innerAlpha <= edgeAlpha * Self.maxInnerAlphaRatio else { continue }
             
             let avg = sum / passCount

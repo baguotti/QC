@@ -5,6 +5,7 @@
 //   <name>.settings.json  (panel → exporter) {"target": "#00FF00", "anyColor": false, "sensitivity": 0.5,
 //                                              "splits": false, "persistence": 6}
 //   <name>.progress       (exporter → panel) "<frames done> <total>", rewritten at most 4× a second
+//   <name>.cancel         (panel → exporter) exists = stop; checked with each progress write
 //   <name>.json           (exporter → panel) frames, timing, startTicks/ticksPerFrame and segments (frame numbers
 //                                              from the export start, end inclusive)
 
@@ -52,7 +53,9 @@ struct Scan {
 	Instance* instance;
 	lc_settings settings;
 	lc_segmenter* segmenter;
-	std::string progressPath;
+	std::string progressPath, cancelPath, base;
+	std::vector<long long> dumpFrames;  // debugging: frames saved as <name>.frame<N>.<w>x<h>.bgra, top row first
+	std::atomic<bool> cancelled{false};
 	csSDK_uint64 total = 0;
 
 	std::mutex lock;
@@ -120,6 +123,17 @@ FILE* openFile(const std::string& path, const char* mode) {
 #endif
 }
 
+void removeFile(const std::string& path) {
+#ifdef _WIN32
+	int n = MultiByteToWideChar(CP_UTF8, 0, path.c_str(), -1, nullptr, 0);
+	std::wstring wpath(n, L'\0');
+	MultiByteToWideChar(CP_UTF8, 0, path.c_str(), -1, wpath.data(), n);
+	_wremove(wpath.c_str());
+#else
+	std::remove(path.c_str());
+#endif
+}
+
 std::string readFile(const std::string& path) {
 	std::string text;
 	if (FILE* f = openFile(path, "rb")) {
@@ -163,6 +177,22 @@ lc_settings readSettings(const std::string& path) {
 	return s;
 }
 
+// "dumpFrames": [12, 60] in the settings: frames to save raw, for comparing Premiere's pixels with other decoders.
+std::vector<long long> readDumpFrames(const std::string& path) {
+	std::vector<long long> frames;
+	const std::string json = readFile(path);
+	const char* v = jsonValue(json, "dumpFrames");
+	if (!v || *v != '[') return frames;
+	for (const char* p = v + 1; *p && *p != ']';) {
+		char* end = nullptr;
+		long long n = std::strtoll(p, &end, 10);
+		if (end == p) { ++p; continue; }
+		frames.push_back(n);
+		p = end;
+	}
+	return frames;
+}
+
 const char* edgeName(lc_edge e) {
 	static const char* names[] = {"top", "bottom", "left", "right", "splitH", "splitV"};
 	return e >= 0 && e < LC_EDGE_COUNT ? names[e] : "unknown";
@@ -175,7 +205,7 @@ prMALError startup(exExporterInfoRec* rec) {
 	rec->classID = kFileType;
 	rec->exportReqIndex = 0;
 	rec->wantsNoProgressBar = kPrFalse;
-	rec->hideInUI = kPrFalse;
+	rec->hideInUI = kPrTrue;  // only the panel uses this format; it stays out of the Export menu
 	rec->doesNotSupportAudioOnly = kPrTrue;
 	rec->canExportVideo = kPrTrue;
 	rec->canExportAudio = kPrFalse;
@@ -336,6 +366,10 @@ void writeProgress(Scan* scan, bool force) {
 		             static_cast<unsigned long long>(scan->total));
 		std::fclose(f);
 	}
+	if (FILE* f = openFile(scan->cancelPath, "r")) {
+		std::fclose(f);
+		scan->cancelled = true;
+	}
 }
 
 prSuiteError onFrame(csSDK_uint32, csSDK_uint32 frameNumber, csSDK_uint32 repeatCount, PPixHand frame, void* data) {
@@ -359,6 +393,15 @@ prSuiteError onFrame(csSDK_uint32, csSDK_uint32 frameNumber, csSDK_uint32 repeat
 	if (pixels && format == PrPixelFormat_BGRA_4444_8u && width > 0 && height > 0) {
 		// Uncompressed PPix have a lower-left origin: start at the top row and walk the rows backwards.
 		const auto* top = reinterpret_cast<const uint8_t*>(pixels) + static_cast<ptrdiff_t>(height - 1) * rowBytes;
+		for (long long d : scan->dumpFrames) {
+			if (d < frameNumber || d >= int64_t(frameNumber) + repeatCount) continue;
+			char suffix[64];
+			std::snprintf(suffix, sizeof(suffix), ".frame%lld.%dx%d.bgra", d, width, height);
+			if (FILE* f = openFile(scan->base + suffix, "wb")) {
+				for (int y = 0; y < height; ++y) std::fwrite(top - static_cast<ptrdiff_t>(y) * rowBytes, 4, size_t(width), f);
+				std::fclose(f);
+			}
+		}
 		lc_detection found[64];
 		lc_detector* detector = scan->take();
 		int n = lc_detector_scan(detector, top, width, height, -rowBytes, found, 64);
@@ -372,7 +415,7 @@ prSuiteError onFrame(csSDK_uint32, csSDK_uint32 frameNumber, csSDK_uint32 repeat
 	}
 	scan->frames += repeatCount;
 	writeProgress(scan, false);
-	return suiteError_NoError;
+	return scan->cancelled ? exportReturn_Abort : suiteError_NoError;
 }
 
 prMALError exportFile(exDoExportRec* rec) {
@@ -397,6 +440,10 @@ prMALError exportFile(exDoExportRec* rec) {
 	scan.settings = readSettings(base + ".settings.json");
 	scan.segmenter = lc_segmenter_create(scan.settings.persistence_frames);
 	scan.progressPath = base + ".progress";
+	scan.cancelPath = base + ".cancel";
+	scan.base = base;
+	scan.dumpFrames = readDumpFrames(base + ".settings.json");
+	removeFile(scan.cancelPath);
 	scan.total = ticksPerFrame > 0 ? static_cast<csSDK_uint64>((rec->endTime - rec->startTime) / ticksPerFrame) : 0;
 	writeProgress(&scan, true);
 
@@ -420,7 +467,7 @@ prMALError exportFile(exDoExportRec* rec) {
 
 	FILE* f = openFile(out, "w");
 	if (!f) return exportReturn_ErrOpenErr;
-	const bool aborted = result == exportReturn_Abort || result == suiteError_CompilerCompileAbort;
+	const bool aborted = scan.cancelled || result == exportReturn_Abort || result == suiteError_CompilerCompileAbort;
 	char format[5] = {char(scan.format), char(scan.format >> 8), char(scan.format >> 16), char(scan.format >> 24), 0};
 	std::fprintf(f,
 		"{\"version\": 1, \"frames\": %llu, \"rendered\": %llu, \"width\": %d, \"height\": %d, \"pixelFormat\": \"%s\", "
@@ -440,8 +487,10 @@ prMALError exportFile(exDoExportRec* rec) {
 	}
 	std::fprintf(f, "%s]}\n", segments.empty() ? "" : "\n");
 	std::fclose(f);
-	std::remove(scan.progressPath.c_str());
-	return result == suiteError_NoError ? malNoError : static_cast<prMALError>(result);
+	removeFile(scan.progressPath);
+	removeFile(scan.cancelPath);
+	// A cancelled scan still reports what it found so far: the panel shows it as stopped early.
+	return scan.cancelled || result == suiteError_NoError ? malNoError : static_cast<prMALError>(result);
 }
 
 }  // namespace

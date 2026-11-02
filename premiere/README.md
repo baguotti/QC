@@ -42,6 +42,26 @@ to false by hand so no `.xmp` sidecar is written). The exporter ignores its size
   any change to either detector. 2026-11-02: 35,089 comparisons, 37 segments, ALL PASSED.
 - 1080p cost (M-series, one thread): edges 0.21 ms (Swift 0.33), edges + seams 1.90 ms (2.08), any colour 0.29 ms (1.34).
 
+## Test clips (`testclips/make.sh`)
+
+Renders `LineFinder_Test_1080p.mp4` (60 s) and `LineFinder_Test_4K.mp4` (20 s), 23.976 fps H.264 4:2:0 (git-ignored),
+green lines at known frames: top 48–95 (1 px), bottom 144–191 (2 px), left 240–287 (1 px), right 336–383 (3 px),
+seam H 432–479 (row 540), seam V 528–575 (column 960); 4K doubles positions and thicknesses. QCpie's detector and
+linecore agree on them (`linecore/tests/run.sh premiere/testclips --segments`):
+
+- 1080p: top, bottom, left, seam H (row 540), seam V (col 959) exact. **Right 3 px: only 342–375, 379–381, 383**
+  (~10 of 48 frames missed; 4:2:0 chroma at an odd column).
+- 4K: top, bottom, left, right, seam H exact. **Seam V (4 px at col 1920) not found.**
+- Black target: the green lines come back as off-colour only (correct).
+
+Both misses are QCpie detector behaviour, not the port: fix in `EdgeDetector.swift` first (LineFinderBench), then port.
+
+In Premiere (26.5.2) the 1080p top line was missed at first: Premiere upsamples 4:2:0 chroma without filtering, so the
+row under a 1 px line is dark saturated green (`0,129,1`; ffmpeg/AVFoundation give `0,195,0`) and the step test read
+the line as a gradient. Fixed in both detectors with the chroma-bleed rule (AGENTS.md §8d); bench, parity and the
+37 `_TEST` segments unchanged. The exporter can save raw frames for such comparisons: `"dumpFrames": [60]` in
+`scan.settings.json` writes `scan.frame60.<w>x<h>.bgra` (top row first) next to it.
+
 ## Status: resume here
 
 - 2026-11-02: spike panel written, never loaded.
@@ -72,6 +92,12 @@ to false by hand so no `.xmp` sidecar is written). The exporter ignores its size
   markers, Clear). First real scan (CK_HOME26 16x9 E3.0, 25 fps clip in a 23.976 sequence, whole 720 frames, green):
   right edge 157–205 (6.5–8.6 s, 4 px) and left edge 340–380 (14.2–15.8 s, 1 px): both known lines, nothing else.
   0.41 s in the render loop = 1765 fps at 1080p.
+- 2026-11-02: exporter `hideInUI` (LineFinder Analysis out of the Export menu) and Cancel (Scan → Cancel writes
+  `scan.cancel`; the exporter stops and reports what it found so far). Not yet checked: progress bar live updates,
+  Cancel, the format being gone from the Export menu (parked for now).
+- 2026-11-02 Premiere scan of `LineFinder_Test_1080p` with seams: bottom, left, seam H (row 540), seam V (col 959)
+  exact; top missed → chroma-bleed fix (above). With seams on 458 fps (≈ the 2.2 ms seam cost: frames arrive one at a
+  time); edges only ~1840 fps.
 - Old next: exporter reads settings (colour, sensitivity, splits) and runs linecore in `onFrame` → results.json (segments in
   frames from the export start) → panel turns segments into markers. Then the pre-v1 fixes above.
 - Old next step: restart Premiere → LineFinder Analysis appears in Export formats → save `panel/presets/LineFinderSpike.epr` → Scan on

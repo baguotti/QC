@@ -1,6 +1,6 @@
 // linecore parity: runs QCpie's Swift EdgeDetector and linecore (C++) on the same frames and requires identical
 // detections and segments. Synthetic cases from Tests/LineFinderScenes.swift, then every frame of the clips in the
-// footage folder. premiere/linecore/tests/run.sh [footage folder, default _TEST] [--no-real] [--all]
+// footage folder. premiere/linecore/tests/run.sh [footage folder, default _TEST] [--no-real] [--all] [--segments]
 import Foundation
 @preconcurrency import AVFoundation
 import CoreVideo
@@ -188,6 +188,12 @@ func checkClip(_ url: URL) async {
         let n = Int(lc_segmenter_finish(segmenters[i], &out, Int32(out.count)))
         let cSegments = Array(out.prefix(n))
         segmentCount += n
+        if args.contains("--segments") {
+            for c in cSegments {
+                print("    \(config.targetHex)\(config.scanFullScreen ? " +splits" : "") \(edge(c.edge).rawValue) \(c.start_frame)–\(c.end_frame) " +
+                      "t=\(c.avg_thickness) \(RGBColor(r: c.r, g: c.g, b: c.b).hexString)\(c.is_off_color != 0 ? " off" : "")\(c.position >= 0 ? " pos=\(c.position)" : "")")
+            }
+        }
         let match = swiftSegments.count == n && zip(swiftSegments, cSegments).allSatisfy { s, c in
             s.startFrame == Int(c.start_frame) && s.endFrame == Int(c.end_frame) && s.edge == edge(c.edge)
                 && s.avgThickness == Int(c.avg_thickness) && s.detectedColor == RGBColor(r: c.r, g: c.g, b: c.b)
