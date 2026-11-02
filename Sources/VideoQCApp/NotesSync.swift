@@ -45,6 +45,8 @@ actor NotesSync {
     private enum SyncError: Error {
         case server(Int)
         case unreadable
+        /// The clip's own sidecar on this Mac couldn't be read.
+        case localUnreadable
         case conflict
     }
 
@@ -163,6 +165,9 @@ actor NotesSync {
                 await MainActor.run { NotesSyncStatus.shared.update(.upToDate) }
             } catch is CancellationError {
                 return
+            } catch SyncError.localUnreadable {
+                pending.insert(url)
+                await MainActor.run { NotesSyncStatus.shared.update(.failed("This clip's notes file can't be read")) }
             } catch SyncError.unreadable {
                 await MainActor.run { NotesSyncStatus.shared.update(.failed("Server notes can't be read with this password")) }
             } catch SyncError.server(let code) where code != 0 {
@@ -211,6 +216,8 @@ actor NotesSync {
         guard let clip = Self.clipID(for: url, key: keys.clipKey) else { return }
         for _ in 0..<3 {
             let local = await QCNotesManager.shared.loadNotes(for: url)
+            // An unreadable sidecar loads as no notes: merging that would delete every note for the whole project.
+            if await QCNotesManager.shared.hasUnreadableNotes(for: url) { throw SyncError.localUnreadable }
             let base = loadBase(clip: clip, room: keys.room)
             let remote: Base
             switch try await fetch(room: keys.room, clip: clip, since: base?.version) {

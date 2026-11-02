@@ -1992,12 +1992,18 @@ public final class PlayerContainerNSView: NSView {
             guard let self = self, let engine = self.engine else { return }
             // captureCurrentFrame returns the frame display-ready (exposure applied once).
             let ev = engine.exposureEV
+            let url = (slot == .slotA ? engine.slotA : engine.slotB).url
             let image = await engine.captureCurrentFrame(for: slot, at: time)
             if slot == .slotA { self.stillEVA = ev } else { self.stillEVB = ev }
             if slot == .slotA {
                 self.isCapturingStillA = false
             } else {
                 self.isCapturingStillB = false
+            }
+            // The slot loaded another file meanwhile: the frame belongs to the old one.
+            guard (slot == .slotA ? engine.slotA : engine.slotB).url == url else {
+                self.checkStillFrameDisplay()
+                return
             }
             if let image = image {
                 self.setStillContents(image, slot: slot, time: time, buffer: nil)

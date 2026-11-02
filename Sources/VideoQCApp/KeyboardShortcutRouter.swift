@@ -136,8 +136,12 @@ final class KeyboardShortcutRouter {
         if let app = NSApp,
            let window = app.keyWindow,
            let firstResponder = window.firstResponder,
-           firstResponder is NSTextView {
+           let textView = firstResponder as? NSTextView {
             if event.keyCode == 53 || event.keyCode == 36 { // ESC or Return
+                // Return in a text field submits first (its action → SwiftUI `.onSubmit`), then unfocuses.
+                if event.keyCode == 36, textView.isFieldEditor {
+                    textView.doCommand(by: #selector(NSResponder.insertNewline(_:)))
+                }
                 window.makeFirstResponder(nil)
                 return nil
             }

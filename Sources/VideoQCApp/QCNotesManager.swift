@@ -17,6 +17,10 @@ public actor QCNotesManager {
         dec.dateDecodingStrategy = .iso8601
         return dec
     }()
+
+    /// Sidecars that existed but couldn't be read at load (sync conflict, cloud placeholder, newer format). Their notes
+    /// never reached the caller, so a save must not overwrite them.
+    private var unreadableSidecars = Set<URL>()
     
     /// Returns the primary hidden companion `.<filename>.<ext>.qcnotes` sidecar URL in the same directory.
     public nonisolated static func sidecarURL(for mediaURL: URL) -> URL {
@@ -106,9 +110,11 @@ public actor QCNotesManager {
             let data = try Data(contentsOf: url)
             let doc = try decoder.decode(QCNotesDocument.self, from: data)
             let notes = doc.notes.sorted { $0.frameIndex < $1.frameIndex }
+            unreadableSidecars.remove(url)
             QCNotesManager.updateCachedCount(notes.count, for: mediaURL)
             return notes
         } catch {
+            unreadableSidecars.insert(url)
             QCNotesManager.updateCachedCount(0, for: mediaURL)
             return []
         }
@@ -129,6 +135,7 @@ public actor QCNotesManager {
         let hiddenURL = QCNotesManager.sidecarURL(for: mediaURL)
         let visibleURL = QCNotesManager.visibleSidecarURL(for: mediaURL)
         let sortedNotes = notes.sorted { $0.frameIndex < $1.frameIndex }
+        guard !hasUnreadableNotes(for: mediaURL) else { return false }
         
         // If notes are completely empty, clean up both hidden and visible sidecar files
         if sortedNotes.isEmpty {
@@ -171,6 +178,16 @@ public actor QCNotesManager {
         }
     }
     
+    /// True when the clip's sidecar couldn't be read at the last load or can't be decoded now: the notes the caller
+    /// holds don't include it, so saving (or syncing) them would erase notes the app never showed.
+    public func hasUnreadableNotes(for mediaURL: URL) -> Bool {
+        [QCNotesManager.sidecarURL(for: mediaURL), QCNotesManager.visibleSidecarURL(for: mediaURL)].contains { sidecar in
+            guard FileManager.default.fileExists(atPath: sidecar.path) else { return false }
+            if unreadableSidecars.contains(sidecar) { return true }
+            return (try? Data(contentsOf: sidecar)).flatMap { try? decoder.decode(QCNotesDocument.self, from: $0) } == nil
+        }
+    }
+
     // MARK: - Portable .qcnotes Export / Import
 
     /// Writes a visible, portable `.qcnotes` document (same format as the hidden sidecar) to a user-chosen location.

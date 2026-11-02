@@ -2842,6 +2842,8 @@ public final class PlayerEngine: ObservableObject {
             guard let decoded = await Task.detached(priority: .userInitiated, operation: { source.displayImage(at: index) }).value else {
                 return cachedFrame()
             }
+            // Another file was loaded while decoding: never hand back (or cache) the old file's frame.
+            guard currentSlot.url == url else { return nil }
             guard applyingExposure else { return decoded }
             let image = ExposureAdjuster.shared.applyExposure(to: decoded, ev: exposureEV)
             currentSlot.lastDecodedFrame = image
@@ -2849,7 +2851,9 @@ public final class PlayerEngine: ObservableObject {
         }
         
         // 1. Try frame extractor (decodes without the exposure composition, so apply it here)
-        if let extracted = await currentSlot.frameExtractor.capture(at: centerTime, fallbackURL: url) {
+        let extracted = await currentSlot.frameExtractor.capture(at: centerTime, fallbackURL: url)
+        guard currentSlot.url == url else { return nil }
+        if let extracted {
             guard applyingExposure else { return extracted }
             let image = ExposureAdjuster.shared.applyExposure(to: extracted, ev: exposureEV)
             currentSlot.lastDecodedFrame = image
