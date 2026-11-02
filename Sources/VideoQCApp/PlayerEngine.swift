@@ -1803,7 +1803,11 @@ public final class PlayerEngine: ObservableObject {
         }
         if isSeekingB {
             pendingSeekTimeB = time
-            pendingSeekCompletionB = completion
+            // Kept, not replaced: a queued completion can be "start both players" (Play during a B seek).
+            if let completion {
+                let earlier = pendingSeekCompletionB
+                pendingSeekCompletionB = { earlier?(); completion() }
+            }
             return
         }
         isSeekingB = true
@@ -2665,8 +2669,10 @@ public final class PlayerEngine: ObservableObject {
         if isSeeking {
             pendingSeekTime = time
             pendingSeekTolerance = tolerance
+            // Chained, not replaced: an earlier caller's completion (resume playback after a loop wrap) must still run.
             if let completion = completion {
-                pendingSeekCompletion = completion
+                let earlier = pendingSeekCompletion
+                pendingSeekCompletion = { earlier?(); completion() }
             }
             return
         }
@@ -2798,11 +2804,11 @@ public final class PlayerEngine: ObservableObject {
         let sorted = activeNotes.sorted { $0.frameIndex < $1.frameIndex }
         let cur = currentFrame
         if let prev = sorted.last(where: { $0.frameIndex < cur }) {
+            pause()   // first: pausing re-reads the player's position, which would undo a seek still in flight
             seek(toFrame: prev.frameIndex)
-            pause()
         } else if let last = sorted.last {
+            pause()   // first: pausing re-reads the player's position, which would undo a seek still in flight
             seek(toFrame: last.frameIndex)
-            pause()
         }
     }
     
@@ -2811,11 +2817,11 @@ public final class PlayerEngine: ObservableObject {
         let sorted = activeNotes.sorted { $0.frameIndex < $1.frameIndex }
         let cur = currentFrame
         if let next = sorted.first(where: { $0.frameIndex > cur }) {
+            pause()   // first: pausing re-reads the player's position, which would undo a seek still in flight
             seek(toFrame: next.frameIndex)
-            pause()
         } else if let first = sorted.first {
+            pause()   // first: pausing re-reads the player's position, which would undo a seek still in flight
             seek(toFrame: first.frameIndex)
-            pause()
         }
     }
     
@@ -2833,7 +2839,7 @@ public final class PlayerEngine: ObservableObject {
                 )
                 fileMarkers.append(marker)
             }
-            map[res.fileURL] = fileMarkers
+            map[res.fileURL.standardizedFileURL] = fileMarkers   // Player URLs are standardized
         }
         self.markersMap = map
         if let active = activeURL {

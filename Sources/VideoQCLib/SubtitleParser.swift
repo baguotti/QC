@@ -106,10 +106,9 @@ public enum SubtitleParser {
                 textLines.append(next)
                 lines = lines.dropFirst()
             }
-            let cue = SubtitleCue(start: start, end: end, text: textLines.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines))
-            if !cue.displayText.isEmpty && end > start {
-                cues.append(cue)
-            }
+            // Every timed cue is kept, blank or zero-length ones too: saving writes back what was loaded, so dropping
+            // them here deleted them from the file on the next save. Only the overlay skips them.
+            cues.append(SubtitleCue(start: start, end: end, text: textLines.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)))
         }
         return cues.sorted { $0.start < $1.start }
     }
@@ -134,7 +133,7 @@ public enum SubtitleParser {
         // thousands of cues.
         var i = index
         while i >= 0 {
-            if time < cues[i].end { return i }
+            if time < cues[i].end, !cues[i].text.isEmpty { return i }
             i -= 1
         }
         return nil

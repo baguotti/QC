@@ -57,9 +57,16 @@ actor FrameIOLinks {
     private var state: State {
         get {
             if let loadedState { return loadedState }
-            let loaded = file.flatMap { try? Data(contentsOf: $0) }.flatMap { try? JSONDecoder().decode(State.self, from: $0) } ?? State()
+            let data = file.flatMap { try? Data(contentsOf: $0) }
+            var loaded = data.flatMap { try? JSONDecoder().decode(State.self, from: $0) }
+            if loaded == nil, data != nil, let file {
+                // Unreadable (damaged, or written by a newer QCpie): set it aside rather than overwrite it on the next
+                // save. Losing the "sent" records would post every note to Frame.io again.
+                try? FileManager.default.moveItem(at: file, to: file.appendingPathExtension("unreadable-\(Int(Date().timeIntervalSince1970))"))
+            }
+            if loaded == nil { loaded = State() }
             loadedState = loaded
-            return loaded
+            return loaded!
         }
         set { loadedState = newValue }
     }

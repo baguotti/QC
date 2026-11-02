@@ -1833,8 +1833,8 @@ struct ContentView: View {
         }
         revealPlayerFolderContaining(url: fileURL)
         queueScrollTarget = fileURL
+        playerEngine.pause()   // first: on a clip already open, pausing after the seek snapped the playhead back
         playerEngine.loadVideo(url: fileURL, initialSeekFrame: frameIndex)
-        playerEngine.pause()
         selectedTab = .player
     }
     
@@ -2243,8 +2243,8 @@ struct ContentView: View {
             let secsA = (Double(frame) + 0.5) / fpsB - Double(playerEngine.slotB.slipOffsetFrames) / fpsB
             target = max(0, Int(floor(secsA * fpsA)))
         }
+        playerEngine.pause()   // first: pausing re-reads the player's position, which would undo the seek in flight
         playerEngine.seek(toFrame: target)
-        playerEngine.pause()
     }
     
     func addNote(_ note: QCFileNote) {

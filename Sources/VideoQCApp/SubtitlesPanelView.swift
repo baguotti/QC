@@ -549,9 +549,12 @@ struct SubtitlesPanelView: View {
         selectionToken &+= 1
     }
 
-    private func replaceCurrent(_ currentMatches: [SubtitleSearch.Match]) {
-        guard !currentMatches.isEmpty else { return }
+    private func replaceCurrent(_ matchesBeforeCommit: [SubtitleSearch.Match]) {
+        guard !matchesBeforeCommit.isEmpty else { return }
         commitDraft()
+        // Found again after the commit: an edit in progress in the matched line moves (or removes) the match.
+        let currentMatches = SubtitleSearch.matches(in: cues, query: query, matchCase: matchCase)
+        guard !currentMatches.isEmpty else { return }
         let match = currentMatches[min(currentMatch, currentMatches.count - 1)]
         let raw = cues[match.cueIndex].text
         let plain = SubtitleParser.editableText(raw) as NSString

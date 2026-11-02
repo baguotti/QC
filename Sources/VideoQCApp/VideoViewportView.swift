@@ -579,7 +579,7 @@ public final class PlayerContainerNSView: NSView {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         defer { CATransaction.commit() }
-        guard let string else {
+        guard let string, !string.isEmpty else {
             layer.isHidden = true
             return
         }

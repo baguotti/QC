@@ -1008,7 +1008,8 @@ struct FrameIOBrowserView: View {
     /// How favourites show in their row under the header: "bar" (chips) or "list" (a button opening a vertical list).
     /// Both use the same fixed row, switched by the two icons at its right end. (An old "hidden" setting reads as the bar.)
     @AppStorage("frameioFavouritesLayout") private var favouritesLayout = "bar"
-    @State private var showFavouritesList = false
+    /// List layout: the page whose favourites list is open under its tab (nil: closed).
+    @State private var listOpenPage: Int?
     /// The favourite being dragged to reorder (drops elsewhere ignore it).
     @State private var draggingFavourite: String?
     @AppStorage("frameioThumbnails") private var showThumbnails = false
@@ -1261,7 +1262,10 @@ struct FrameIOBrowserView: View {
             favouritePageTabs
             Rectangle().fill(palette.borderLine).frame(width: 1, height: StudioTheme.scale(20))
             if isListLayout {
-                favouritesListButton
+                Text("Click a page to list its favourites")
+                    .font(.ui(size: 11))
+                    .foregroundColor(palette.textSubtle)
+                    .lineLimit(1)
                 Spacer(minLength: 0)
             } else if browser.pageFavourites.isEmpty {
                 Text(browser.favourites.isEmpty ? "Star a project, folder or stack (☆ in the toolbar or right-click) to pin it here."
@@ -1296,7 +1300,7 @@ struct FrameIOBrowserView: View {
                       isDragging: draggingFavourite == favourite.id, pages: browser.favouritePages,
                       onMoveToPage: { browser.moveFavourite(favourite.id, toPage: $0) },
                       onOpen: {
-                          showFavouritesList = false
+                          listOpenPage = nil
                           browser.open(favourite)
                       },
                       onRemove: { browser.removeFavourite(favourite) })
@@ -1316,38 +1320,13 @@ struct FrameIOBrowserView: View {
 
     private var isListLayout: Bool { favouritesLayout == "list" }
 
-    /// List layout: the page's favourites behind one button in the row; the list drops down over the content.
-    private var favouritesListButton: some View {
-        Button { showFavouritesList.toggle() } label: {
-            HStack(spacing: 5) {
-                Image(systemName: "list.bullet")
-                    .font(.system(size: StudioTheme.scaleFont(10), weight: .medium))
-                    .foregroundColor(palette.accentBlue)
-                Text(browser.pageFavourites.isEmpty ? "No favourites on this page" : "\(browser.pageFavourites.count) favourites")
-                    .font(.ui(size: 12))
-                    .monospacedDigit()
-                    .foregroundColor(palette.textMain)
-                Image(systemName: "chevron.down")
-                    .font(.system(size: StudioTheme.scaleFont(8), weight: .semibold))
-                    .foregroundColor(palette.textMuted)
-            }
-            .padding(.horizontal, 8)
-            .frame(height: StudioTheme.scale(24))
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .modifier(ToolHover(fill: palette.bgSubtle, isOn: showFavouritesList))
-        .help("Show this page's favourites")
-        .popover(isPresented: $showFavouritesList, arrowEdge: .bottom) { favouritesList }
-    }
-
     /// Bar / List, two quiet icons at the row's end (the row keeps its height either way, so nothing below moves).
     private var favouritesLayoutSwitch: some View {
         HStack(spacing: 1) {
             ForEach(Self.favouritesLayouts, id: \.id) { layout in
                 let isOn = (isListLayout ? "list" : "bar") == layout.id
                 Button {
-                    showFavouritesList = false
+                    listOpenPage = nil
                     withAnimation(Motion.fade) { favouritesLayout = layout.id }
                 } label: {
                     Image(systemName: layout.icon)
@@ -1364,7 +1343,7 @@ struct FrameIOBrowserView: View {
         .fixedSize()
     }
 
-    /// The List layout: the page's chips, stacked, dropping down from the row's list button (page tabs stay in the row).
+    /// The List layout: the page's chips, stacked, dropping down under the page's tab (page tabs stay in the row).
     private var favouritesList: some View {
         VStack(alignment: .leading, spacing: 8) {
             if browser.pageFavourites.count > 1 {
@@ -1407,10 +1386,17 @@ struct FrameIOBrowserView: View {
                 FavouritePageTab(name: name, count: browser.favouriteCount(onPage: index),
                                  isSelected: index == browser.currentFavouritePage, canDelete: browser.favouritePages.count > 1,
                                  isLightMode: isLightMode, dragging: $draggingFavourite,
-                                 onSelect: { browser.favouritePage = index },
+                                 onSelect: {
+                                     browser.favouritePage = index
+                                     // List layout: the page's favourites drop down under its tab (click again to close).
+                                     if isListLayout { listOpenPage = listOpenPage == index ? nil : index }
+                                 },
                                  onRename: { browser.renameFavouritePage(index, to: $0) },
                                  onDelete: { browser.deleteFavouritePage(index) },
                                  onDropFavourite: { browser.moveFavourite($0, toPage: index) })
+                .popover(isPresented: Binding(get: { isListLayout && listOpenPage == index },
+                                              set: { if !$0, listOpenPage == index { listOpenPage = nil } }),
+                         arrowEdge: .bottom) { favouritesList }
             }
             if browser.favouritePages.count < FrameIOBrowser.maxFavouritePages {
                 Button(action: browser.addFavouritePage) {
