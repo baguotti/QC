@@ -6,8 +6,9 @@
 //                                              "splits": false, "persistence": 6}
 //   <name>.progress       (exporter → panel) "<frames done> <total>", rewritten at most 4× a second
 //   <name>.cancel         (panel → exporter) exists = stop; checked with each progress write
-//   <name>.json           (exporter → panel) frames, timing, startTicks/ticksPerFrame and segments (frame numbers
-//                                              from the export start, end inclusive)
+//   <name>.json           (exporter → panel) frames (skipped = not 8-bit BGRA, not analysed), timing in ms,
+//                                              startTicks/ticksPerFrame and segments (frame numbers from the export
+//                                              start, end inclusive). Numbers are written locale-independently.
 
 #include <PrSDKExport.h>
 #include <PrSDKExportFileSuite.h>
@@ -61,7 +62,8 @@ struct Scan {
 	std::mutex lock;
 	std::vector<lc_detector*> idle;
 	std::vector<lc_detector*> all;
-	std::atomic<csSDK_uint64> frames{0}, rendered{0};
+	std::atomic<csSDK_uint64> frames{0}, rendered{0}, skipped{0};
+	std::atomic<long long> firstFrame{-1};  // lowest inFrameNumber delivered
 	csSDK_int32 width = 0, height = 0;
 	PrPixelFormat format = PrPixelFormat_Invalid;
 	Clock::time_point lastProgress = Clock::now();
@@ -157,6 +159,15 @@ const char* jsonValue(const std::string& json, const char* key) {
 	return p;
 }
 
+// Locale-independent: Premiere may run with a comma-decimal C locale, where strtod("0.5") reads 0.
+double parseNumber(const char* p) {
+	double sign = 1, value = 0, scale = 1;
+	if (*p == '-') { sign = -1; ++p; }
+	for (; *p >= '0' && *p <= '9'; ++p) value = value * 10 + (*p - '0');
+	if (*p == '.') for (++p; *p >= '0' && *p <= '9'; ++p) value += (*p - '0') * (scale /= 10);
+	return sign * value;
+}
+
 lc_settings readSettings(const std::string& path) {
 	lc_settings s = lc_settings_default();
 	const std::string json = readFile(path);
@@ -172,7 +183,7 @@ lc_settings readSettings(const std::string& path) {
 	}
 	if (const char* v = jsonValue(json, "anyColor")) s.any_color = std::strncmp(v, "true", 4) == 0;
 	if (const char* v = jsonValue(json, "splits")) s.scan_splits = std::strncmp(v, "true", 4) == 0;
-	if (const char* v = jsonValue(json, "sensitivity")) s.sensitivity = std::strtod(v, nullptr);
+	if (const char* v = jsonValue(json, "sensitivity")) s.sensitivity = parseNumber(v);
 	if (const char* v = jsonValue(json, "persistence")) s.persistence_frames = int(std::strtol(v, nullptr, 10));
 	return s;
 }
@@ -385,6 +396,9 @@ prSuiteError onFrame(csSDK_uint32, csSDK_uint32 frameNumber, csSDK_uint32 repeat
 	in->ppix->GetPixels(frame, PrPPixBufferAccess_ReadOnly, &pixels);
 	const int width = bounds.right - bounds.left, height = bounds.bottom - bounds.top;
 
+	long long first = scan->firstFrame.load();
+	while ((first < 0 || static_cast<long long>(frameNumber) < first) &&
+	       !scan->firstFrame.compare_exchange_weak(first, static_cast<long long>(frameNumber))) {}
 	if (scan->rendered.fetch_add(1) == 0) {
 		scan->width = width;
 		scan->height = height;
@@ -412,10 +426,12 @@ prSuiteError onFrame(csSDK_uint32, csSDK_uint32 frameNumber, csSDK_uint32 repeat
 			std::lock_guard<std::mutex> g(scan->lock);
 			for (csSDK_uint32 r = 0; r < repeatCount; ++r) lc_segmenter_add(scan->segmenter, int64_t(frameNumber) + r, found, n);
 		}
+	} else {
+		scan->skipped += repeatCount;
 	}
 	scan->frames += repeatCount;
 	writeProgress(scan, false);
-	return scan->cancelled ? exportReturn_Abort : suiteError_NoError;
+	return scan->cancelled ? suiteError_CompilerCompileAbort : suiteError_NoError;
 }
 
 prMALError exportFile(exDoExportRec* rec) {
@@ -443,7 +459,6 @@ prMALError exportFile(exDoExportRec* rec) {
 	scan.cancelPath = base + ".cancel";
 	scan.base = base;
 	scan.dumpFrames = readDumpFrames(base + ".settings.json");
-	removeFile(scan.cancelPath);
 	scan.total = ticksPerFrame > 0 ? static_cast<csSDK_uint64>((rec->endTime - rec->startTime) / ticksPerFrame) : 0;
 	writeProgress(&scan, true);
 
@@ -459,22 +474,29 @@ prMALError exportFile(exDoExportRec* rec) {
 		result = in->utility->DoMultiPassExportLoop(rec->exporterPluginID, &render, 1, onFrame, &scan);
 	}
 	writeProgress(&scan, true);
-	const double seconds = std::chrono::duration<double>(Clock::now() - t0).count();
 
 	std::vector<lc_segment> segments(static_cast<size_t>(lc_segmenter_finish(scan.segmenter, nullptr, 0)));
 	lc_segmenter_finish(scan.segmenter, segments.data(), static_cast<int>(segments.size()));
 	lc_segmenter_destroy(scan.segmenter);
+	// inFrameNumber counts from the sequence start (Premiere 26.5: In at 13 s → first frame 312). The SDK doesn't say so,
+	// so export-relative numbering (first frame 0) is still handled.
+	const long long startFrame = ticksPerFrame > 0 ? static_cast<long long>((rec->startTime + ticksPerFrame / 2) / ticksPerFrame) : 0;
+	const long long offset = scan.firstFrame.load() >= startFrame ? startFrame : 0;
+	for (auto& seg : segments) { seg.start_frame -= offset; seg.end_frame -= offset; }
+	const long long ms = static_cast<long long>(std::chrono::duration_cast<std::chrono::milliseconds>(Clock::now() - t0).count());
 
 	FILE* f = openFile(out, "w");
 	if (!f) return exportReturn_ErrOpenErr;
 	const bool aborted = scan.cancelled || result == exportReturn_Abort || result == suiteError_CompilerCompileAbort;
 	char format[5] = {char(scan.format), char(scan.format >> 8), char(scan.format >> 16), char(scan.format >> 24), 0};
 	std::fprintf(f,
-		"{\"version\": 1, \"frames\": %llu, \"rendered\": %llu, \"width\": %d, \"height\": %d, \"pixelFormat\": \"%s\", "
-		"\"seconds\": %.3f, \"aborted\": %s, \"result\": %d, \"startTicks\": \"%lld\", \"endTicks\": \"%lld\", "
+		"{\"version\": 1, \"frames\": %llu, \"rendered\": %llu, \"skipped\": %llu, \"firstFrameNumber\": %lld, "
+		"\"width\": %d, \"height\": %d, \"pixelFormat\": \"%s\", "
+		"\"milliseconds\": %lld, \"aborted\": %s, \"result\": %d, \"startTicks\": \"%lld\", \"endTicks\": \"%lld\", "
 		"\"ticksPerFrame\": \"%lld\", \"target\": \"#%02X%02X%02X\", \"anyColor\": %s, \"splits\": %s, \"segments\": [",
 		static_cast<unsigned long long>(scan.frames.load()), static_cast<unsigned long long>(scan.rendered.load()),
-		scan.width, scan.height, format, seconds, aborted ? "true" : "false", static_cast<int>(result),
+		static_cast<unsigned long long>(scan.skipped.load()), scan.firstFrame.load(),
+		scan.width, scan.height, format, ms, aborted ? "true" : "false", static_cast<int>(result),
 		static_cast<long long>(rec->startTime), static_cast<long long>(rec->endTime), static_cast<long long>(ticksPerFrame),
 		scan.settings.target_r, scan.settings.target_g, scan.settings.target_b,
 		scan.settings.any_color ? "true" : "false", scan.settings.scan_splits ? "true" : "false");
@@ -489,8 +511,9 @@ prMALError exportFile(exDoExportRec* rec) {
 	std::fclose(f);
 	removeFile(scan.progressPath);
 	removeFile(scan.cancelPath);
-	// A cancelled scan still reports what it found so far: the panel shows it as stopped early.
-	return scan.cancelled || result == suiteError_NoError ? malNoError : static_cast<prMALError>(result);
+	// A scan cancelled from the panel or Premiere's progress dialog still reports what it found so far: the panel
+	// shows it as stopped early.
+	return aborted || result == suiteError_NoError ? malNoError : static_cast<prMALError>(result);
 }
 
 }  // namespace

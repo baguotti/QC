@@ -96,6 +96,23 @@ the line as a gradient. Fixed in both detectors with the chroma-bleed rule (AGEN
 - 2026-11-02 Premiere scan of `LineFinder_Test_1080p` with seams: bottom, left, seam H (row 540), seam V (col 959)
   exact; top missed → chroma-bleed fix (above). With seams on 458 fps (≈ the 2.2 ms seam cost: frames arrive one at a
   time); edges only ~1840 fps.
+- 2026-11-02 bug pass. Exporter: segment frames now count from the lowest `inFrameNumber` delivered (the SDK doesn't
+  say whether it is export- or sequence-relative; every scan so far started at 0, so In/Out scans away from 0 were
+  unverified), locale-independent number parsing and output (`milliseconds` replaces `seconds`), an early Cancel is no
+  longer deleted at start, abort returns `suiteError_CompilerCompileAbort`, a cancel from Premiere's own dialog also
+  reports partial results, frames that aren't 8-bit BGRA are counted as `skipped`. Panel: drop-frame timecode (29.97 /
+  59.94 DF, from `getSequenceVideoTimeDisplayFormat().type` 102 / 106, assumed to match ExtendScript: logged),
+  markers replaced in one undo step (+ one for colours), at most 500 markers, Clear disabled while scanning, NaN-safe
+  progress, "nothing was rendered" for empty ranges, custom colours accepted without `#`.
+  Verified in Premiere 26.5.2: `inFrameNumber` is **sequence-relative** (In at 00:00:13:00 → first frame number 312);
+  the right-edge line came back at 00:00:14:00, 48 frames (it would have been 13 s late before). Whole-sequence scan of
+  the 1080p test clip with seams: all 6 lines exact, 462 fps. A 23.976 sequence reports display format 110, ExtendScript's
+  code for 23.976 timecode, so the DF codes 102 / 106 are likely right (no DF sequence tried yet).
+- 2026-11-02 second bug pass. linecore under ASan + UBSan: 4,000 random frames (1×1 to 300×200, padded rows,
+  both row directions, all settings) clean. Exporter: segment offset from the export start time (frame numbers are
+  sequence-relative), not the first frame delivered. Panel: results capped at 500 rows (+N more), clicking a result
+  from another sequence brings that sequence to the front, Clear only empties the list when it shows the active
+  sequence, rejected marker transactions are reported, exporter/panel version mismatch is detected.
 - Old next: exporter reads settings (colour, sensitivity, splits) and runs linecore in `onFrame` → results.json (segments in
   frames from the export start) → panel turns segments into markers. Then the pre-v1 fixes above.
 - Old next step: restart Premiere → LineFinder Analysis appears in Export formats → save `panel/presets/LineFinderSpike.epr` → Scan on
