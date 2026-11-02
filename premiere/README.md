@@ -13,6 +13,21 @@ Plan: [docs/premiere_linefinder_plan.md](../docs/premiere_linefinder_plan.md). T
 `panel/presets/LineFinder.epr` was saved once from Export Settings with the LineFinder Analysis format (`DoMetadata` set
 to false by hand so no `.xmp` sidecar is written). The exporter ignores its size/rate and renders at the sequence's own.
 
+## Mac installer (`package/build_mac.sh`)
+
+Builds `package/dist/LineFinder-<panel version>.pkg` (git-ignored). The .pkg installs the exporter into
+`/Library/Application Support/Adobe/Common/Plug-ins/7.0/MediaCore/` and `LineFinder.ccx` plus `uninstall.sh` into
+`/Library/Application Support/LineFinder/`; its postinstall installs the .ccx for the logged-in user with Adobe's
+Unified Plugin Installer Agent (UXP plugins are per user: `~/Library/Application Support/Adobe/UXP/Plugins/External/`).
+Without Creative Cloud's agent, double-clicking the .ccx installs the panel. Remove with
+`sudo "/Library/Application Support/LineFinder/uninstall.sh"`.
+
+- The .ccx manifest needs `host` as an object: as an array the agent fails with status -267 ("failed to generate mxi").
+- Unsigned unless `DEVELOPER_ID_APP`, `DEVELOPER_ID_INSTALLER` and `NOTARY_PROFILE` are set (Apple Developer ID,
+  $99/yr): other Macs then need right-click → Open or System Settings → Privacy & Security → Open Anyway.
+- The panel id is `com.qcpie.linefinder` (development used `com.qcpie.linefinder.spike`): unload the UXP Developer
+  Tool copy so Premiere doesn't show two LineFinder panels.
+
 ## Panel ↔ exporter
 
 - The panel writes `scan.settings.json` (target, anyColor, sensitivity, splits) in its data folder and calls

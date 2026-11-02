@@ -1,22 +1,20 @@
 {
   "manifestVersion": 5,
-  "id": "com.qcpie.linefinder.spike",
+  "id": "com.qcpie.linefinder",
   "name": "LineFinder",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "main": "index.html",
-  "host": [
-    {
-      "app": "premierepro",
-      "minVersion": "25.6.0"
-    }
-  ],
+  "host": {
+    "app": "premierepro",
+    "minVersion": "25.6.0"
+  },
   "requiredPermissions": {
     "localFileSystem": "request"
   },
   "entrypoints": [
     {
       "type": "panel",
-      "id": "linefinderSpike",
+      "id": "linefinder",
       "label": {
         "default": "LineFinder"
       },

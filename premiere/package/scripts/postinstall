@@ -1,0 +1,17 @@
+#!/bin/zsh
+# Runs as root after the files are in place: installs the UXP panel for the logged-in user (UXP plugins are per user).
+CCX="/Library/Application Support/LineFinder/LineFinder.ccx"
+UPIA="/Library/Application Support/Adobe/Adobe Desktop Common/RemoteComponents/UPI/UnifiedPluginInstallerAgent/UnifiedPluginInstallerAgent.app/Contents/MacOS/UnifiedPluginInstallerAgent"
+USER_NAME="$(stat -f %Su /dev/console)"
+if [[ ! -x "$UPIA" ]]; then
+  echo "LineFinder: Adobe's plugin installer wasn't found (is Creative Cloud installed?). Double-click $CCX to install the panel."
+  exit 0
+fi
+if [[ -z "$USER_NAME" || "$USER_NAME" == "root" ]]; then
+  echo "LineFinder: no logged-in user; double-click $CCX to install the panel."
+  exit 0
+fi
+USER_ID="$(id -u "$USER_NAME")"
+launchctl asuser "$USER_ID" sudo -u "$USER_NAME" "$UPIA" --install "$CCX" || \
+  echo "LineFinder: the panel didn't install; double-click $CCX to install it."
+exit 0
