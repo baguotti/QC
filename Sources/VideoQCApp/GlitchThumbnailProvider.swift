@@ -11,7 +11,7 @@ public actor GlitchThumbnailProvider {
     
     private var cache: [String: CGImage] = [:]
     private var cacheOrder: [String] = []
-    private var generators: [URL: AVAssetImageGenerator] = [:]
+    private var generators: [URL: (generator: AVAssetImageGenerator, modified: Date?)] = [:]
     private var generatorOrder: [URL] = [] // least recently used first
     private let maxCacheItems = 300
     
@@ -23,7 +23,10 @@ public actor GlitchThumbnailProvider {
         fps: Double,
         targetSize: CGSize = CGSize(width: 200, height: 112)
     ) -> CGImage? {
-        let key = "\(url.standardizedFileURL.path)_\(frameIndex)_\(Int(targetSize.width))x\(Int(targetSize.height))"
+        // The modification date is in the key: a file re-exported under the same name gets new thumbnails (read from
+        // disk each time; URL resource values are cached per URL and would hide the change).
+        let modified = (try? FileManager.default.attributesOfItem(atPath: url.path))?[.modificationDate] as? Date
+        let key = "\(url.standardizedFileURL.path)_\(modified?.timeIntervalSince1970 ?? 0)_\(frameIndex)_\(Int(targetSize.width))x\(Int(targetSize.height))"
         if let cached = cache[key] {
             return cached
         }
@@ -47,20 +50,22 @@ public actor GlitchThumbnailProvider {
         
         let gen: AVAssetImageGenerator
         let stdURL = url.standardizedFileURL
-        if let existing = generators[stdURL] {
-            gen = existing
+        if let existing = generators[stdURL], existing.modified == modified {
+            gen = existing.generator
             if let index = generatorOrder.firstIndex(of: stdURL) {
                 generatorOrder.remove(at: index)
             }
             generatorOrder.append(stdURL)
         } else {
-            if generators.count >= 16, !generatorOrder.isEmpty {
+            if generators[stdURL] != nil {
+                generatorOrder.removeAll { $0 == stdURL }
+            } else if generators.count >= 16, !generatorOrder.isEmpty {
                 generators.removeValue(forKey: generatorOrder.removeFirst())
             }
             let asset = AVURLAsset(url: stdURL, options: [AVURLAssetPreferPreciseDurationAndTimingKey: false])
             let newGen = AVAssetImageGenerator(asset: asset)
             newGen.appliesPreferredTrackTransform = true
-            generators[stdURL] = newGen
+            generators[stdURL] = (newGen, modified)
             generatorOrder.append(stdURL)
             gen = newGen
         }

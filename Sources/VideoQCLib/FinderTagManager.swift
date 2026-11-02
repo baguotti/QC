@@ -84,11 +84,10 @@ public struct FinderTagManager: Sendable {
         let nsURL = url as NSURL
         var val: AnyObject?
         try? nsURL.getResourceValue(&val, forKey: .tagNamesKey)
-        if let names = val as? [String], let first = names.first {
-            let clean = first.components(separatedBy: "\n").first ?? first
-            if let matched = FinderTagColor(rawValue: clean) {
-                return matched
-            }
+        // The first colour tag, wherever it is among the file's tags (custom tags may come first).
+        if let names = val as? [String],
+           let matched = names.lazy.compactMap({ FinderTagColor(rawValue: $0.components(separatedBy: "\n").first ?? $0) }).first {
+            return matched
         }
         
         // Fallback to legacy labelNumber
@@ -103,15 +102,19 @@ public struct FinderTagManager: Sendable {
     /// Applies or removes the Finder tag on disk and updates Finder UI
     public static func setTag(_ tag: FinderTagColor?, for url: URL) {
         let nsURL = url as NSURL
+        // Only the colour tags are replaced: the file's other tags ("Approved", client names…) are kept.
+        var val: AnyObject?
+        try? nsURL.getResourceValue(&val, forKey: .tagNamesKey)
+        let kept = ((val as? [String]) ?? []).filter { FinderTagColor(rawValue: $0.components(separatedBy: "\n").first ?? $0) == nil }
         if let tag = tag {
             let tagString = "\(tag.rawValue)\n\(tag.labelNumber)"
-            try? nsURL.setResourceValue([tagString] as NSArray, forKey: .tagNamesKey)
+            try? nsURL.setResourceValue((kept + [tagString]) as NSArray, forKey: .tagNamesKey)
             var mut = url
             var res = URLResourceValues()
             res.labelNumber = tag.labelNumber
             try? mut.setResourceValues(res)
         } else {
-            try? nsURL.setResourceValue([] as NSArray, forKey: .tagNamesKey)
+            try? nsURL.setResourceValue(kept as NSArray, forKey: .tagNamesKey)
             var mut = url
             var res = URLResourceValues()
             res.labelNumber = 0

@@ -17,7 +17,7 @@ public struct IngestInspector: Sendable {
             // 1. Dimensions & Transform
             let naturalSize = (try? await videoTrack.load(.naturalSize)) ?? .zero
             let transform = (try? await videoTrack.load(.preferredTransform)) ?? .identity
-            let isTransposed = abs(transform.b) == 1.0 && abs(transform.c) == 1.0
+            let isTransposed = abs(transform.b) > abs(transform.a)
             
             let rawW = (naturalSize.width.isFinite && naturalSize.width > 0) ? Int(naturalSize.width) : 0
             let rawH = (naturalSize.height.isFinite && naturalSize.height > 0) ? Int(naturalSize.height) : 0

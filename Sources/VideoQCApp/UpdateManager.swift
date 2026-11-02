@@ -350,15 +350,12 @@ public final class UpdateManager: NSObject, ObservableObject {
             fi
         done
 
-        # 2. Atomically swap the new app into place
-        SWAP_SUCCESS=0
-        if rm -rf "$TARGET_APP" 2>/dev/null && /usr/bin/ditto "$STAGED_APP" "$TARGET_APP" 2>/dev/null; then
-            SWAP_SUCCESS=1
-        else
-            osascript -e "do shell script \\"rm -rf '$TARGET_APP' && /usr/bin/ditto '$STAGED_APP' '$TARGET_APP'\\" with administrator privileges" 2>/dev/null
-            if [ $? -eq 0 ]; then
-                SWAP_SUCCESS=1
-            fi
+        # 2. Swap the new app into place (swap.sh keeps the old app until the new one is in place); with admin rights
+        #    when /Applications isn't writable. A failure or a cancelled prompt leaves the old QCpie, relaunched below.
+        if ! /bin/sh "$WORK_DIR/swap.sh" "$STAGED_APP" "$TARGET_APP" 2>/dev/null; then
+            osascript -e 'on run argv' \
+                -e 'do shell script "/bin/sh " & quoted form of (item 1 of argv) & " " & quoted form of (item 2 of argv) & " " & quoted form of (item 3 of argv) with administrator privileges' \
+                -e 'end run' "$WORK_DIR/swap.sh" "$STAGED_APP" "$TARGET_APP" >/dev/null 2>&1 || true
         fi
 
         # 3. Strip quarantine attribute if present
@@ -367,13 +364,34 @@ public final class UpdateManager: NSObject, ObservableObject {
         # 4. Clean up temporary staging
         rm -rf "$WORK_DIR" 2>/dev/null || true
 
-        # 5. Launch the updated application
-        if [ $SWAP_SUCCESS -eq 1 ]; then
-            /usr/bin/open "$TARGET_APP"
-        fi
+        # 5. Launch the updated application (or the untouched old one when the swap failed)
+        /usr/bin/open "$TARGET_APP"
         """
         
+        // The new copy is complete beside the old app before the old one moves, and the old one is deleted only once the
+        // new one is in place (put back if that fails): an update never leaves /Applications without QCpie.
+        let swapContent = """
+        #!/bin/sh
+        STAGED="$1"
+        TARGET="$2"
+        NEW="$TARGET.new"
+        OLD="$TARGET.old"
+        rm -rf "$NEW" "$OLD"
+        /usr/bin/ditto "$STAGED" "$NEW" || { rm -rf "$NEW"; exit 1; }
+        if [ -e "$TARGET" ]; then
+            mv "$TARGET" "$OLD" || { rm -rf "$NEW"; exit 1; }
+        fi
+        if ! mv "$NEW" "$TARGET"; then
+            [ -e "$OLD" ] && mv "$OLD" "$TARGET"
+            rm -rf "$NEW"
+            exit 1
+        fi
+        rm -rf "$OLD"
+        exit 0
+        """
+
         do {
+            try swapContent.write(to: workDir.appendingPathComponent("swap.sh"), atomically: true, encoding: .utf8)
             try scriptContent.write(to: scriptURL, atomically: true, encoding: .utf8)
             try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: scriptURL.path)
         } catch {
@@ -445,6 +463,8 @@ extension UpdateManager: URLSessionDownloadDelegate {
             : 0.0
         
         Task { @MainActor in
+            // A progress report delivered after the download finished must not undo "installing" / "ready".
+            guard case .downloading = self.state else { return }
             self.state = .downloading(
                 progress: progress,
                 bytesWritten: totalBytesWritten,

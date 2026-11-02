@@ -379,8 +379,10 @@ public actor QCNotesManager {
         }
     }
     
+    /// Also drops control characters XML 1.0 forbids (one pasted into a note would make Premiere reject the whole file).
     private nonisolated static func xmlEscape(_ s: String) -> String {
-        s.replacingOccurrences(of: "&", with: "&amp;")
+        String(String.UnicodeScalarView(s.unicodeScalars.filter { $0.value >= 0x20 || $0 == "\t" || $0 == "\n" || $0 == "\r" }))
+            .replacingOccurrences(of: "&", with: "&amp;")
             .replacingOccurrences(of: "<", with: "&lt;")
             .replacingOccurrences(of: ">", with: "&gt;")
             .replacingOccurrences(of: "\"", with: "&quot;")
@@ -400,7 +402,9 @@ public actor QCNotesManager {
             let color = note.colorTag.capitalized
             lines.append("\(eventNum)  AX       V     C        \(tc) \(tc) \(tc) \(tc)")
             lines.append("* FROM CLIP NAME: \(mediaName)")
-            lines.append("* LOC: \(tc) \(color) \(note.author): \(note.text)")
+            // One line: an EDL comment can't continue onto the next line (a line break would end the marker there).
+            let text = note.text.components(separatedBy: .newlines).filter { !$0.isEmpty }.joined(separator: " / ")
+            lines.append("* LOC: \(tc) \(color) \(note.author): \(text)")
             lines.append("")
         }
         return lines.joined(separator: "\n")

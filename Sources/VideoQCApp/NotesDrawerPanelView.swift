@@ -932,7 +932,7 @@ struct NotesDrawerPanelView: View {
                 size = CGSize(width: abs(rect.width), height: abs(rect.height))
             }
         }
-        if let duration = try? await asset.load(.duration) { seconds = CMTimeGetSeconds(duration) }
+        if let duration = try? await asset.load(.duration), CMTimeGetSeconds(duration).isFinite { seconds = CMTimeGetSeconds(duration) }
         var audioChannels = 0
         var audioSampleRate = 48000
         if let track = try? await asset.loadTracks(withMediaType: .audio).first,

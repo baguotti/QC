@@ -1068,25 +1068,26 @@ struct ContentView: View {
     func handleDrop(providers: [NSItemProvider], forTab: AppTab, targetSlot: SlotTarget? = nil) -> Bool {
         guard !providers.isEmpty else { return false }
         
+        /// Keeps the drag's order: the loads finish in any order, and the first file is the one that goes to the slot.
         final class URLCollector: @unchecked Sendable {
             private let lock = NSLock()
-            private(set) var urls: [URL] = []
-            
-            func append(_ url: URL) {
-                lock.lock()
-                defer { lock.unlock() }
-                urls.append(url)
+            private var slots: [URL?]
+            init(count: Int) { slots = Array(repeating: nil, count: count) }
+            var urls: [URL] { lock.withLock { slots.compactMap { $0 } } }
+
+            func set(_ url: URL, at index: Int) {
+                lock.withLock { slots[index] = url }
             }
         }
         
-        let collector = URLCollector()
+        let collector = URLCollector(count: providers.count)
         let group = DispatchGroup()
         
-        for provider in providers {
+        for (index, provider) in providers.enumerated() {
             group.enter()
             _ = provider.loadObject(ofClass: URL.self) { url, _ in
                 if let url = url {
-                    collector.append(url)
+                    collector.set(url, at: index)
                 }
                 group.leave()
             }

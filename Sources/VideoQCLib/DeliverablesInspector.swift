@@ -33,7 +33,8 @@ public struct DeliverablesInspector: Sendable {
             if let videoTrack {
                 let naturalSize = (try? await videoTrack.load(.naturalSize)) ?? .zero
                 let transform = (try? await videoTrack.load(.preferredTransform)) ?? .identity
-                let isTransposed = abs(transform.b) == 1.0 && abs(transform.c) == 1.0
+                // A quarter turn (portrait phone clips): not an exact ±1 test, encoders write 0.99999994 or scaled values.
+                let isTransposed = abs(transform.b) > abs(transform.a)
                 
                 let rawWidth = (naturalSize.width.isFinite && naturalSize.width > 0) ? Int(naturalSize.width) : 0
                 let rawHeight = (naturalSize.height.isFinite && naturalSize.height > 0) ? Int(naturalSize.height) : 0
@@ -578,6 +579,11 @@ public struct DeliverablesInspector: Sendable {
     /// or true peak under −60 dBTP) is reported as mute.
     public static func extractAudioLevels(asset: AVAsset, tracks: [AVAssetTrack]) async -> AudioLevels {
         guard let audioTrack = tracks.first else { return .noAudio }
+        // Split-mono deliverables (L on track 1, R on track 2, or 5.1 / 8 mono tracks): one programme, measured together.
+        // Tracks with several channels each are alternate mixes (stereo + M&E): the first one is the programme.
+        if tracks.count > 1, await allMono(tracks) {
+            return await extractSplitMonoLevels(asset: asset, tracks: tracks)
+        }
         guard let reader = try? AVAssetReader(asset: asset) else { return .unread }
         let outputSettings: [String: Any] = [
             AVFormatIDKey: kAudioFormatLinearPCM,
@@ -626,6 +632,81 @@ public struct DeliverablesInspector: Sendable {
                 scratch.withUnsafeMutableBytes { _ = CMBlockBufferCopyDataBytes(blockBuffer, atOffset: 0, dataLength: frames * channels * 4, destination: $0.baseAddress!) }
                 scratch.withUnsafeBufferPointer { meter!.process($0.baseAddress!, frames: frames) }
             }
+        }
+        if reader.status == .failed { return .unread }
+        guard let result = meter?.finish() else {
+            return AudioLevels(peakDB: nil, isMute: true, levelString: "Silent", loudness: nil)
+        }
+        return AudioLevels(peakDB: result.truePeak.isFinite ? result.truePeak : nil, isMute: result.isSilent,
+                           levelString: result.summary, loudness: result)
+    }
+
+    private static func allMono(_ tracks: [AVAssetTrack]) async -> Bool {
+        for track in tracks {
+            guard let format = try? await track.load(.formatDescriptions).first,
+                  let asbd = CMAudioFormatDescriptionGetStreamBasicDescription(format)?.pointee,
+                  asbd.mChannelsPerFrame == 1 else { return false }
+        }
+        return true
+    }
+
+    /// Mono tracks read in lockstep and interleaved into one N-channel stream for `LoudnessMeter` (track order = channel
+    /// order: L R, or SMPTE L R C LFE Ls Rs). Each track's samples queue until every track has some, so buffers of
+    /// different sizes line up; memory stays at about one buffer per track.
+    private static func extractSplitMonoLevels(asset: AVAsset, tracks: [AVAssetTrack]) async -> AudioLevels {
+        guard let reader = try? AVAssetReader(asset: asset) else { return .unread }
+        let settings: [String: Any] = [
+            AVFormatIDKey: kAudioFormatLinearPCM, AVLinearPCMBitDepthKey: 32, AVLinearPCMIsFloatKey: true,
+            AVLinearPCMIsBigEndianKey: false, AVLinearPCMIsNonInterleaved: false, AVNumberOfChannelsKey: 1
+        ]
+        let outputs = tracks.map { AVAssetReaderTrackOutput(track: $0, outputSettings: settings) }
+        for output in outputs {
+            output.alwaysCopiesSampleData = false
+            guard reader.canAdd(output) else { return .unread }
+            reader.add(output)
+        }
+        guard reader.startReading() else { return .unread }
+
+        let channels = tracks.count
+        var queues = [[Float]](repeating: [], count: channels)
+        var finished = [Bool](repeating: false, count: channels)
+        var meter: LoudnessMeter? = nil
+        var interleaved: [Float] = []
+        defer { meter?.destroy() }
+
+        func pull(_ c: Int) -> Bool {
+            guard let buffer = outputs[c].copyNextSampleBuffer() else { finished[c] = true; return false }
+            if meter == nil, let format = CMSampleBufferGetFormatDescription(buffer),
+               let asbd = CMAudioFormatDescriptionGetStreamBasicDescription(format)?.pointee {
+                meter = LoudnessMeter(channels: channels, sampleRate: asbd.mSampleRate)
+            }
+            guard let block = CMSampleBufferGetDataBuffer(buffer) else { return true }
+            let count = CMBlockBufferGetDataLength(block) / MemoryLayout<Float>.size
+            guard count > 0 else { return true }
+            let start = queues[c].count
+            queues[c].append(contentsOf: repeatElement(0, count: count))
+            queues[c].withUnsafeMutableBytes { raw in
+                _ = CMBlockBufferCopyDataBytes(block, atOffset: 0, dataLength: count * MemoryLayout<Float>.size,
+                                               destination: raw.baseAddress! + start * MemoryLayout<Float>.size)
+            }
+            return true
+        }
+
+        while reader.status == .reading {
+            if Task.isCancelled { reader.cancelReading(); return .unread }
+            // Fill the shortest queue; when every track has samples, meter the frames they all have.
+            guard let shortest = (0..<channels).filter({ !finished[$0] }).min(by: { queues[$0].count < queues[$1].count }) else { break }
+            // A track that ended: nothing past it can be interleaved, so the programme ends there.
+            if !pull(shortest) && queues[shortest].isEmpty { reader.cancelReading(); break }
+            let ready = queues.map(\.count).min() ?? 0
+            guard ready > 0, meter != nil else { continue }
+            if interleaved.count < ready * channels { interleaved = [Float](repeating: 0, count: ready * channels) }
+            for c in 0..<channels {
+                for i in 0..<ready { interleaved[i * channels + c] = queues[c][i] }
+                queues[c].removeFirst(ready)
+            }
+            // In place (`meter!`): a copy would duplicate the meter's growing block history on every buffer.
+            interleaved.withUnsafeBufferPointer { meter!.process($0.baseAddress!, frames: ready) }
         }
         if reader.status == .failed { return .unread }
         guard let result = meter?.finish() else {
@@ -997,7 +1078,7 @@ public struct DeliverablesInspector: Sendable {
         <head>
             <meta charset="UTF-8">
             <meta name="viewport" content="width=device-width, initial-scale=1.0">
-            <title>DELIVERABLES SPECS // \(folderName.uppercased())</title>
+            <title>DELIVERABLES SPECS // \(QCUtilities.escapeHTML(folderName.uppercased()))</title>
             <style>
                 @import url('https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@400;600;700;800;900&family=JetBrains+Mono:wght@400;500;700&display=swap');
 
@@ -1254,7 +1335,7 @@ public struct DeliverablesInspector: Sendable {
                 <div class="masthead">
                     <div class="title-block">
                         <h1>DELIVERABLES SPECS</h1>
-                        <div class="subtitle">ASSET SPECIFICATION AUDIT // \(folderName.uppercased())</div>
+                        <div class="subtitle">ASSET SPECIFICATION AUDIT // \(QCUtilities.escapeHTML(folderName.uppercased()))</div>
                     </div>
                     <div class="header-actions">
                         <button class="action-btn action-btn-primary" onclick="openGoogleSheets()">[ OPEN GOOGLE SHEETS ]</button>
@@ -1327,7 +1408,7 @@ public struct DeliverablesInspector: Sendable {
             
             let rowClass = a.validation.hasAnyMismatch ? "class='mismatch-row'" : ""
             let statusTag = a.validation.hasAnyMismatch ? "<span class='tag tag-mismatch'>MISMATCH</span>" : "<span class='tag tag-ok'>OK</span>"
-            let subTag = a.hasSubtitles ? "<span class='tag tag-ok'>\(a.subtitlesInfo)</span>" : "<span style='color:var(--text-muted); font-family:var(--font-mono); font-size:11px'>NONE</span>"
+            let subTag = a.hasSubtitles ? "<span class='tag tag-ok'>\(QCUtilities.escapeHTML(a.subtitlesInfo))</span>" : "<span style='color:var(--text-muted); font-family:var(--font-mono); font-size:11px'>NONE</span>"
             
             let audioDisplay: String
             if !a.hasAudio {
@@ -1346,7 +1427,7 @@ public struct DeliverablesInspector: Sendable {
                 if let m = a.loudness {
                     let result = target.evaluate(m)
                     let colour = ["PASS": "", "WARN": " color:#f5a623;", "FAIL": " color:#e5484d;"][result.verdict.rawValue] ?? ""
-                    levelTag = "<span class='tag\(result.verdict == .pass ? " tag-ok" : "")' style='margin-left:4px;\(colour)' title='\(result.issues.joined(separator: "; "))'>\(result.verdict.rawValue) · \(m.summary)</span>"
+                    levelTag = "<span class='tag\(result.verdict == .pass ? " tag-ok" : "")' style='margin-left:4px;\(colour)' title='\(QCUtilities.escapeHTML(result.issues.joined(separator: "; ")))'>\(result.verdict.rawValue) · \(m.summary)</span>"
                 }
                 let subLine = !a.audioFormatDetail.isEmpty ? "<div class='audio-detail-sub'>\(a.audioFormatDetail)</div>" : ""
                 audioDisplay = """
@@ -1359,8 +1440,8 @@ public struct DeliverablesInspector: Sendable {
             html += """
                             <tr \(rowClass)>
                                 <td style="color:var(--text-muted); font-family:var(--font-mono)">\(String(format: "%02d", idx + 1))</td>
-                                <td class="fn-cell" title="\(a.fileName.uppercased())">
-                                    \(a.fileName.uppercased())
+                                <td class="fn-cell" title="\(QCUtilities.escapeHTML(a.fileName.uppercased()))">
+                                    \(QCUtilities.escapeHTML(a.fileName.uppercased()))
                                 </td>
                                 <td>
                                     \(statusTag)
@@ -1378,9 +1459,9 @@ public struct DeliverablesInspector: Sendable {
                                 <td class="mono-cell">\(a.formattedFileSize)</td>
                                 <td class="mono-cell" style="font-size:11px">\(a.formattedCreationDate)</td>
                                 <td>\(subTag)</td>
-                                <td>\(a.videoCodec)</td>
+                                <td>\(QCUtilities.escapeHTML(a.videoCodec))</td>
                                 <td>\(audioDisplay)</td>
-                                <td class="mono-cell" style="font-size:11px; max-width:280px; overflow:hidden; text-overflow:ellipsis;" title="\(a.fileURL.path)">\(a.fileURL.path)</td>
+                                <td class="mono-cell" style="font-size:11px; max-width:280px; overflow:hidden; text-overflow:ellipsis;" title="\(QCUtilities.escapeHTML(a.fileURL.path))">\(QCUtilities.escapeHTML(a.fileURL.path))</td>
                             </tr>
             """
         }
@@ -1399,8 +1480,8 @@ public struct DeliverablesInspector: Sendable {
             <div id="toast"></div>
 
             <script>
-                const csvData = `\(rawCSV.replacingOccurrences(of: "`", with: "\\`").replacingOccurrences(of: "${", with: "\\${"))`;
-                const tsvData = `\(rawTSV.replacingOccurrences(of: "`", with: "\\`").replacingOccurrences(of: "${", with: "\\${"))`;
+                const csvData = `\(QCUtilities.escapeJSTemplate(rawCSV))`;
+                const tsvData = `\(QCUtilities.escapeJSTemplate(rawTSV))`;
 
                 function toggleTheme() {
                     const current = document.documentElement.getAttribute('data-theme') || 'dark';

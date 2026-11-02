@@ -2373,6 +2373,8 @@ public final class PlayerContainerNSView: NSView {
         }
         
         let wasDragging = isDraggingSplit || (dragStartLocation != nil)
+        // Pan and split aren't published per mouse event: one change at the end keeps another viewport (fullscreen) in step.
+        if wasDragging { engine?.objectWillChange.send() }
         isDraggingSplit = false
         if dragStartLocation != nil {
             dragStartLocation = nil

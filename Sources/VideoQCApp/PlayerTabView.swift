@@ -1220,7 +1220,8 @@ extension ContentView {
             if slotName == "Slot B" {
                 let offsetSecs = Double(playerEngine.slotB.slipOffsetFrames) / max(1.0, playerEngine.slotB.fps)
                 let secsB = playerEngine.isLinked ? max(0.0, CMTimeGetSeconds(playerEngine.slotA.currentTime) + offsetSecs) : CMTimeGetSeconds(playerEngine.slotB.currentTime)
-                frameNum = Int(round(secsB * max(1.0, playerEngine.slotB.fps)))
+                // Times sit at frame centres ((n + 0.5) / fps): floor, as the Player numbers frames (round gave n + 1).
+                frameNum = secsB.isFinite ? max(0, Int(floor(secsB * max(1.0, playerEngine.slotB.fps) + 1e-4))) : 0
             } else {
                 frameNum = frameA
             }

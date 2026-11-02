@@ -182,7 +182,8 @@ public actor VideoScanner {
         let nominalFps = (try? await videoTrack.load(.nominalFrameRate)) ?? 25.0
         let fps = Double(nominalFps > 0 ? nominalFps : 25.0)
         let duration = (try? await asset.load(.duration)) ?? .zero
-        let durationSeconds = CMTimeGetSeconds(duration)
+        // Indefinite / invalid durations (files still being written, broken headers) read as NaN: treat as unknown.
+        let durationSeconds = CMTimeGetSeconds(duration).isFinite ? CMTimeGetSeconds(duration) : 0
         let totalEstimatedFrames = Int(round(durationSeconds * fps))
         let resolutionStr = "\(Int(size.width))x\(Int(size.height))"
         

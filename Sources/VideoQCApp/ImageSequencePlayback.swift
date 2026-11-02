@@ -1,4 +1,4 @@
-import AVFoundation
+@preconcurrency import AVFoundation
 import AppKit
 import CoreImage
 import ImageIO
@@ -134,7 +134,11 @@ final class SequenceFrameSource: @unchecked Sendable {
     private var order: [Int] = []
     private var inFlight = Set<Int>()
     private var lastRequested = -1
-    private let capacity: Int
+    /// Decoded bytes held (frames are kept at their decoded depth: 16-bit / float sequences are 2–4× an 8-bit frame).
+    private var cachedBytes = 0
+    private static let byteBudget = 256_000_000
+    private static let maxFrames = 60
+    private var frameBytes = 0
     private let decodeQueue = DispatchQueue(label: "qcpie.sequence.decode", qos: .userInitiated, attributes: .concurrent)
     private let ciContext = CIContext(options: [.useSoftwareRenderer: false])
     private static let readAhead = 8
@@ -144,9 +148,6 @@ final class SequenceFrameSource: @unchecked Sendable {
         self.fps = fps
         self.renderSize = renderSize
         self.exposure = exposure
-        // ~256 MB of decoded frames (8–60 of them depending on resolution).
-        let frameBytes = max(1, Int(renderSize.width * renderSize.height) * 4)
-        capacity = min(60, max(8, 256_000_000 / frameBytes))
     }
 
     func frameIndex(at time: CMTime) -> Int {
@@ -173,7 +174,9 @@ final class SequenceFrameSource: @unchecked Sendable {
         let step = forward ? 1 : -1
         var targets: [Int] = []
         lock.lock()
-        for offset in 1...Self.readAhead {
+        // Read ahead only what the budget can hold beside the current frame (huge float frames would be evicted unseen).
+        let ahead = frameBytes > 0 ? min(Self.readAhead, max(1, Self.byteBudget / frameBytes - 1)) : Self.readAhead
+        for offset in 1...ahead {
             let i = index + offset * step
             guard i >= 0, i < sequence.length, cache[i] == nil, !inFlight.contains(i) else { continue }
             inFlight.insert(i)
@@ -195,13 +198,15 @@ final class SequenceFrameSource: @unchecked Sendable {
     private func store(_ image: CGImage, at index: Int) {
         lock.lock()
         defer { lock.unlock() }
-        if cache[index] == nil { order.append(index) }
+        if let old = cache[index] { cachedBytes -= old.bytesPerRow * old.height } else { order.append(index) }
         cache[index] = image
-        // Evict the frames farthest from the playhead.
-        while order.count > capacity {
+        frameBytes = image.bytesPerRow * image.height
+        cachedBytes += frameBytes
+        // Evict the frames farthest from the playhead: ~256 MB of decoded frames, at most 60, never below 2.
+        while order.count > Self.maxFrames || (cachedBytes > Self.byteBudget && order.count > 2) {
             let anchor = lastRequested
             guard let farthest = order.enumerated().max(by: { abs($0.element - anchor) < abs($1.element - anchor) }) else { break }
-            cache.removeValue(forKey: farthest.element)
+            if let evicted = cache.removeValue(forKey: farthest.element) { cachedBytes -= evicted.bytesPerRow * evicted.height }
             order.remove(at: farthest.offset)
         }
     }

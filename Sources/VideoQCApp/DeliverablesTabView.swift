@@ -815,18 +815,7 @@ extension ContentView {
     var specsKindMask: Int { MediaKindFilter.effectiveMask(mediaKindFilter, present: specsPresentKinds) }
     
     var filteredDeliverableAssets: [DeliverableAsset] {
-        let q = specsState.specsFilterText.trimmingCharacters(in: .whitespacesAndNewlines)
-        let mask = specsKindMask
-        let base: [DeliverableAsset]
-        if q.isEmpty && mask == MediaKindFilter.all {
-            base = specsState.deliverableAssets
-        } else {
-            base = specsState.deliverableAssets.filter {
-                MediaKindFilter.allows($0.fileURL, mask: mask) &&
-                (q.isEmpty || $0.fileName.localizedCaseInsensitiveContains(q) || $0.fileURL.path.localizedCaseInsensitiveContains(q))
-            }
-        }
-        return sortDeliverableAssets(base)
+        specsState.displayedAssets(filter: specsState.specsFilterText.trimmingCharacters(in: .whitespacesAndNewlines), mask: specsKindMask)
     }
     
     var deliverablesTree: [FileSystemTreeNode] {

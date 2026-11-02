@@ -8,6 +8,7 @@ import VideoQCLib
 public final class SpecsState: ObservableObject {
     @Published public var deliverableAssets: [DeliverableAsset] = [] {
         didSet {
+            assetsVersion &+= 1
             if deliverableAssets.isEmpty {
                 selectedDeliverableURLs = []
                 selectionAnchorURL = nil
@@ -293,6 +294,32 @@ public final class SpecsState: ObservableObject {
         }
     }
     
+    /// Bumped on every change to `deliverableAssets` (cheap key for `displayedAssets`).
+    private var assetsVersion = 0
+    private struct DisplayKey: Equatable {
+        let version: Int, filter: String, mask: Int, column: String, ascending: Bool
+    }
+    private var displayCache: (key: DisplayKey, assets: [DeliverableAsset])?
+
+    /// The Specs table's rows: filtered by name / path and media kind, then sorted. Memoized: the table reads it several
+    /// times per render, and audio analysis re-renders once per finished file (re-sorting 500 rows each time).
+    public func displayedAssets(filter: String, mask: Int) -> [DeliverableAsset] {
+        let key = DisplayKey(version: assetsVersion, filter: filter, mask: mask, column: specsSortColumnRaw, ascending: specsSortAscending)
+        if let cache = displayCache, cache.key == key { return cache.assets }
+        let base: [DeliverableAsset]
+        if filter.isEmpty && mask == MediaKindFilter.all {
+            base = deliverableAssets
+        } else {
+            base = deliverableAssets.filter {
+                MediaKindFilter.allows($0.fileURL, mask: mask) &&
+                (filter.isEmpty || $0.fileName.localizedCaseInsensitiveContains(filter) || $0.fileURL.path.localizedCaseInsensitiveContains(filter))
+            }
+        }
+        let assets = sortDeliverableAssets(base)
+        displayCache = (key, assets)
+        return assets
+    }
+
     public func sortDeliverableAssets(_ assets: [DeliverableAsset]) -> [DeliverableAsset] {
         assets.sorted { a, b in
             let order: ComparisonResult

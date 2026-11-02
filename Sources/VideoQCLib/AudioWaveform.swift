@@ -36,16 +36,25 @@ public enum AudioWaveform {
             }
             guard let block = CMSampleBufferGetDataBuffer(buffer) else { continue }
             var length = 0
+            var total = 0
             var pointer: UnsafeMutablePointer<CChar>? = nil
-            guard CMBlockBufferGetDataPointer(block, atOffset: 0, lengthAtOffsetOut: &length, totalLengthOut: nil, dataPointerOut: &pointer) == kCMBlockBufferNoErr,
+            guard CMBlockBufferGetDataPointer(block, atOffset: 0, lengthAtOffsetOut: &length, totalLengthOut: &total, dataPointerOut: &pointer) == kCMBlockBufferNoErr,
                   let pointer else { continue }
-            let count = length / MemoryLayout<Float>.size
-            pointer.withMemoryRebound(to: Float.self, capacity: count) { samples in
+            let count = total / MemoryLayout<Float>.size
+            func accumulate(_ samples: UnsafePointer<Float>) {
                 for i in 0..<count {
                     let bin = min(bins - 1, Int(Double(sampleIndex + i) / samplesPerBin))
                     let value = abs(samples[i])
                     if value > peaks[bin] { peaks[bin] = value }
                 }
+            }
+            if length >= total {
+                pointer.withMemoryRebound(to: Float.self, capacity: count) { accumulate($0) }
+            } else {
+                // A block buffer in several pieces: the first piece alone would drop samples and drift the waveform.
+                var contiguous = [Float](repeating: 0, count: count)
+                guard contiguous.withUnsafeMutableBytes({ CMBlockBufferCopyDataBytes(block, atOffset: 0, dataLength: count * MemoryLayout<Float>.size, destination: $0.baseAddress!) }) == kCMBlockBufferNoErr else { continue }
+                contiguous.withUnsafeBufferPointer { accumulate($0.baseAddress!) }
             }
             sampleIndex += count
         }

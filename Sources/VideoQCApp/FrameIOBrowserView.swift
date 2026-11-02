@@ -105,7 +105,10 @@ final class FrameIOBrowser: ObservableObject {
     @Published private(set) var lastUndo: Toast?
     /// Filters the open listing by name (cleared when navigating).
     @Published var filter = ""
-    @Published private(set) var favourites: [Favourite] = FrameIOBrowser.loadFavourites()
+    @Published private(set) var favourites: [Favourite] = FrameIOBrowser.loadFavourites() {
+        // The last favourite project gone: an empty Favourites list would hide every project.
+        didSet { if favouriteProjectsOnly && !Self.hasProjectFavourites(favourites) { favouriteProjectsOnly = false } }
+    }
     /// Favourites pages (tabs), 1…5, named by the user ("MISSONI", "AD Germany"…).
     @Published private(set) var favouritePages: [String] = UserDefaults.standard.stringArray(forKey: FrameIOBrowser.favouritePagesKey) ?? ["Page 1"]
     /// The page shown (and the one new stars go to).
@@ -129,10 +132,9 @@ final class FrameIOBrowser: ObservableObject {
     @Published var projectStatus = ProjectStatusFilter(rawValue: UserDefaults.standard.string(forKey: FrameIOBrowser.projectStatusKey) ?? "") ?? .active {
         didSet { UserDefaults.standard.set(projectStatus.rawValue, forKey: Self.projectStatusKey) }
     }
-    /// The project list shows favourite projects only (default: a company workspace can hold dozens of projects).
-    @Published var favouriteProjectsOnly = UserDefaults.standard.object(forKey: FrameIOBrowser.favouriteProjectsOnlyKey) as? Bool ?? true {
-        didSet { UserDefaults.standard.set(favouriteProjectsOnly, forKey: Self.favouriteProjectsOnlyKey) }
-    }
+    /// The project list shows favourite projects only. Opens on Favourites when there are favourite projects, else on
+    /// All Projects.
+    @Published var favouriteProjectsOnly = FrameIOBrowser.hasProjectFavourites(FrameIOBrowser.loadFavourites())
     /// The open project's share links (newest first), for "Add to Share Link".
     @Published private(set) var projectShares: [FrameIO.Share] = []
     private var sharesProject: String?
@@ -313,8 +315,11 @@ final class FrameIOBrowser: ObservableObject {
     private static let favouritesKey = "frameioFavourites"
     private static let favouritePagesKey = "frameioFavouritePages"
     private static let favouritePageKey = "frameioFavouritePage"
-    private static let favouriteProjectsOnlyKey = "frameioFavouriteProjectsOnly"
     private static let projectStatusKey = "frameioProjectStatus"
+
+    private static func hasProjectFavourites(_ favourites: [Favourite]) -> Bool {
+        favourites.contains { $0.path.last?.level == .project }
+    }
 
     private static func loadFavourites() -> [Favourite] {
         guard let data = UserDefaults.standard.data(forKey: favouritesKey) else { return [] }
@@ -1000,8 +1005,8 @@ struct FrameIOBrowserView: View {
     @State private var showNewProject = false
     /// The breadcrumbs' "…" (folded start of a long path) is open.
     @State private var hiddenCrumbsOpen = false
-    /// How favourites show: "bar" (chips under the breadcrumbs) or "list" (a vertical list from the Favourites button).
-    /// Clicking Favourites switches; right-click picks one. (An old "hidden" setting reads as the bar.)
+    /// How favourites show in their row under the header: "bar" (chips) or "list" (a button opening a vertical list).
+    /// Both use the same fixed row, switched by the two icons at its right end. (An old "hidden" setting reads as the bar.)
     @AppStorage("frameioFavouritesLayout") private var favouritesLayout = "bar"
     @State private var showFavouritesList = false
     /// The favourite being dragged to reorder (drops elsewhere ignore it).
@@ -1035,7 +1040,7 @@ struct FrameIOBrowserView: View {
                 signInPrompt
             case true?:
                 if !benchHides("header") { header }
-                if !isListLayout && !benchHides("favbar") {
+                if !benchHides("favbar") {
                     favouritesBar
                     Rectangle().fill(palette.borderLine).frame(height: 1)
                 }
@@ -1148,8 +1153,7 @@ struct FrameIOBrowserView: View {
         .headerBand(palette)
     }
 
-    /// Filter, then what applies to the open place: Favourites / All (project list), view, undo, share, its star,
-    /// and the Favourites menu.
+    /// Filter, then what applies to the open place: Favourites / All (project list), view, undo, share and its star.
     private var toolbar: some View {
         let canFavourite = browser.path.last.map { [.project, .folder, .stack].contains($0.level) } == true
         let canShare = browser.projectID != nil && (browser.currentFolderID != nil || browser.inStack)
@@ -1178,8 +1182,8 @@ struct FrameIOBrowserView: View {
                 .modifier(ToolHover(fill: palette.bgSubtle))
                 .tip("Show active, inactive or all projects")
                 Picker("", selection: $browser.favouriteProjectsOnly) {
-                    Text("Favourites").tag(true)
                     Text("All Projects").tag(false)
+                    Text("Favourites").tag(true)
                 }
                 .labelsHidden()
                 .pickerStyle(.segmented)
@@ -1213,7 +1217,6 @@ struct FrameIOBrowserView: View {
                            help: browser.isCurrentFavourite ? "Remove from Favourites" : "Add this place to Favourites",
                            tint: browser.isCurrentFavourite ? palette.accentBlue : nil, action: browser.toggleCurrentFavourite)
             }
-            favouritesButton
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 6)
@@ -1257,7 +1260,10 @@ struct FrameIOBrowserView: View {
         HStack(spacing: 10) {
             favouritePageTabs
             Rectangle().fill(palette.borderLine).frame(width: 1, height: StudioTheme.scale(20))
-            if browser.pageFavourites.isEmpty {
+            if isListLayout {
+                favouritesListButton
+                Spacer(minLength: 0)
+            } else if browser.pageFavourites.isEmpty {
                 Text(browser.favourites.isEmpty ? "Star a project, folder or stack (☆ in the toolbar or right-click) to pin it here."
                      : "Nothing on this page yet: star a place while it's open, or drag a favourite onto this tab.")
                     .font(.ui(size: 11))
@@ -1276,6 +1282,7 @@ struct FrameIOBrowserView: View {
                     .padding(.vertical, 6)
                 }
             }
+            favouritesLayoutSwitch
         }
         .padding(.horizontal, 14)
         // Fixed: a chip row's height, empty or not, so switching pages doesn't move the list below.
@@ -1304,68 +1311,62 @@ struct FrameIOBrowserView: View {
     }
 
     private static let favouritesLayouts: [(id: String, title: String, icon: String)] = [
-        ("bar", "Bar", "rectangle.split.3x1"), ("list", "List", "list.bullet.rectangle")
+        ("bar", "Bar", "rectangle.split.3x1"), ("list", "List", "list.bullet")
     ]
 
     private var isListLayout: Bool { favouritesLayout == "list" }
 
-    /// Switches the layout: Bar → List (opens it); in List, a click while closed opens it and while open goes back to Bar.
-    private var favouritesButton: some View {
-        let help = isListLayout
-            ? (showFavouritesList ? "Click to show favourites as a bar instead (right-click for layouts)"
-                                  : "Show favourites (click again while open for the bar; right-click for layouts)")
-            : "Click to show favourites as a list instead (right-click for layouts)"
-        return Button {
-            if !isListLayout {
-                favouritesLayout = "list"
-                showFavouritesList = true
-            } else if !showFavouritesList {
-                showFavouritesList = true
-            } else {
-                showFavouritesList = false
-                favouritesLayout = "bar"
-            }
-        } label: {
+    /// List layout: the page's favourites behind one button in the row; the list drops down over the content.
+    private var favouritesListButton: some View {
+        Button { showFavouritesList.toggle() } label: {
             HStack(spacing: 5) {
-                Image(systemName: "star.square.on.square")
-                    .font(.system(size: StudioTheme.scaleFont(11), weight: .medium))
+                Image(systemName: "list.bullet")
+                    .font(.system(size: StudioTheme.scaleFont(10), weight: .medium))
                     .foregroundColor(palette.accentBlue)
-                Text("Favourites")
+                Text(browser.pageFavourites.isEmpty ? "No favourites on this page" : "\(browser.pageFavourites.count) favourites")
                     .font(.ui(size: 12))
+                    .monospacedDigit()
                     .foregroundColor(palette.textMain)
-                if !browser.favourites.isEmpty {
-                    Text("\(browser.favouritePages.count > 1 ? browser.pageFavourites.count : browser.favourites.count)")
-                        .font(.ui(size: 11, weight: .semibold))
-                        .monospacedDigit()
-                        .foregroundColor(palette.textMuted)
-                        .padding(.horizontal, 5)
-                        .background(Capsule().fill(palette.bgSubtle))
-                }
+                Image(systemName: "chevron.down")
+                    .font(.system(size: StudioTheme.scaleFont(8), weight: .semibold))
+                    .foregroundColor(palette.textMuted)
             }
-            .padding(.horizontal, 7)
+            .padding(.horizontal, 8)
             .frame(height: StudioTheme.scale(24))
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .modifier(ToolHover(fill: palette.bgSubtle, isOn: isListLayout && showFavouritesList))
-        .help(help)
-        .contextMenu {
-            ForEach(Self.favouritesLayouts, id: \.id) { layout in
-                Button {
-                    favouritesLayout = layout.id
-                    showFavouritesList = layout.id == "list"
-                } label: {
-                    Label(layout.title, systemImage: (isListLayout ? "list" : "bar") == layout.id ? "checkmark" : layout.icon)
-                }
-            }
-        }
+        .modifier(ToolHover(fill: palette.bgSubtle, isOn: showFavouritesList))
+        .help("Show this page's favourites")
         .popover(isPresented: $showFavouritesList, arrowEdge: .bottom) { favouritesList }
     }
 
-    /// The List layout: the same chips, stacked, in a popover from the Favourites button.
+    /// Bar / List, two quiet icons at the row's end (the row keeps its height either way, so nothing below moves).
+    private var favouritesLayoutSwitch: some View {
+        HStack(spacing: 1) {
+            ForEach(Self.favouritesLayouts, id: \.id) { layout in
+                let isOn = (isListLayout ? "list" : "bar") == layout.id
+                Button {
+                    showFavouritesList = false
+                    withAnimation(Motion.fade) { favouritesLayout = layout.id }
+                } label: {
+                    Image(systemName: layout.icon)
+                        .font(.system(size: StudioTheme.scaleFont(10), weight: .medium))
+                        .foregroundColor(isOn ? palette.textMain : palette.textSubtle)
+                        .frame(width: StudioTheme.scale(22), height: StudioTheme.scale(20))
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .modifier(ToolHover(fill: palette.bgSubtle, isOn: isOn))
+                .help("Show favourites as a \(layout.title.lowercased())")
+            }
+        }
+        .fixedSize()
+    }
+
+    /// The List layout: the page's chips, stacked, dropping down from the row's list button (page tabs stay in the row).
     private var favouritesList: some View {
         VStack(alignment: .leading, spacing: 8) {
-            ScrollView(.horizontal, showsIndicators: false) { favouritePageTabs }
             if browser.pageFavourites.count > 1 {
                 Text("Drag to reorder, or onto a tab to move")
                     .font(.ui(size: 11))

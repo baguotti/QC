@@ -124,7 +124,7 @@ public struct ReportWriter: Sendable {
         <head>
             <meta charset="UTF-8">
             <meta name="viewport" content="width=device-width, initial-scale=1.0">
-            <title>QCpie // \(folderURL.lastPathComponent.uppercased())</title>
+            <title>QCpie // \(QCUtilities.escapeHTML(folderURL.lastPathComponent.uppercased()))</title>
             <style>
                 @import url('https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@400;600;700;800;900&family=JetBrains+Mono:wght@400;500;700&display=swap');
 
@@ -512,7 +512,7 @@ public struct ReportWriter: Sendable {
                 <div class="masthead">
                     <div class="title-block">
                         <h1>QCpie</h1>
-                        <div class="subtitle">DELIVERY QC AUDIT // \(folderURL.lastPathComponent.uppercased())</div>
+                        <div class="subtitle">DELIVERY QC AUDIT // \(QCUtilities.escapeHTML(folderURL.lastPathComponent.uppercased()))</div>
                     </div>
                     <div class="header-actions">
                         <button class="action-btn action-btn-primary" onclick="openGoogleSheets()">[ OPEN GOOGLE SHEETS ]</button>
@@ -526,7 +526,7 @@ public struct ReportWriter: Sendable {
                 <div class="meta-strip">
                     <div class="meta-cell">
                         <div class="meta-label">TARGET FOLDER</div>
-                        <div class="meta-value">\(folderURL.lastPathComponent.uppercased())</div>
+                        <div class="meta-value">\(QCUtilities.escapeHTML(folderURL.lastPathComponent.uppercased()))</div>
                     </div>
                     <div class="meta-cell">
                         <div class="meta-label">TARGET COLOR</div>
@@ -581,7 +581,7 @@ public struct ReportWriter: Sendable {
                 <div class="card flagged">
                     <div class="card-header">
                         <div>
-                            <div class="title">\(video.fileName.uppercased())</div>
+                            <div class="title">\(QCUtilities.escapeHTML(video.fileName.uppercased()))</div>
                             <div class="meta">\(video.resolution) // \(String(format: "%.2f", video.fps)) FPS // \(video.totalFrames) FRAMES</div>
                         </div>
                         <div class="finder-tag">FINDER RED TAG APPLIED</div>

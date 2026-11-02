@@ -428,7 +428,8 @@ public actor FrameCheckScanner {
         let natural = (try? await track.load(.naturalSize)) ?? CGSize(width: 1920, height: 1080)
         let nominal = Double((try? await track.load(.nominalFrameRate)) ?? 25)
         let fps = nominal > 0 ? nominal : 25
-        let duration = CMTimeGetSeconds((try? await asset.load(.duration)) ?? .zero)
+        let loadedDuration = CMTimeGetSeconds((try? await asset.load(.duration)) ?? .zero)
+        let duration = loadedDuration.isFinite ? loadedDuration : 0
         let estimatedFrames = max(1, Int((duration * fps).rounded()))
 
         let longSide = max(natural.width, natural.height, 1)

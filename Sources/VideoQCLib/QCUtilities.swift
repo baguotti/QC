@@ -72,6 +72,19 @@ public enum QCUtilities: Sendable {
     }
     
     /// Escapes a string for TSV formatting (tabs and newlines replaced/escaped)
+    /// Text from file names and paths placed in an HTML report (element content and quoted attributes).
+    public static func escapeHTML(_ str: String) -> String {
+        str.replacingOccurrences(of: "&", with: "&amp;").replacingOccurrences(of: "<", with: "&lt;")
+            .replacingOccurrences(of: ">", with: "&gt;").replacingOccurrences(of: "\"", with: "&quot;")
+            .replacingOccurrences(of: "'", with: "&#39;")
+    }
+
+    /// Text placed inside a JavaScript template literal in an HTML <script>: backslashes, backticks, `${` and `</`.
+    public static func escapeJSTemplate(_ str: String) -> String {
+        str.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "`", with: "\\`")
+            .replacingOccurrences(of: "${", with: "\\${").replacingOccurrences(of: "</", with: "<\\/")
+    }
+
     public static func escapeTSV(_ str: String) -> String {
         var s = str.replacingOccurrences(of: "\t", with: " ")
         s = s.replacingOccurrences(of: "\r\n", with: " ")

@@ -70,8 +70,12 @@ enum UploadPreflight {
             guard let attributes = try? FileManager.default.attributesOfItem(atPath: url.path) else { return nil }
             return ((attributes[.size] as? NSNumber)?.int64Value ?? 0, attributes[.modificationDate] as? Date ?? .distantPast)
         }
-        // A sequence's last frames are the ones still arriving.
-        let watched = rows.map { row in (row, row.files.suffix(3).map { ($0, stamp($0)) }) }
+        // A sequence's last frames are the ones still arriving, and its folder changes as each new frame is added (a render
+        // still running leaves the frames already written untouched).
+        let watched = rows.map { row -> (Row, [(URL, (Int64, Date)?)]) in
+            let folder = row.files.count > 1 ? row.files.last.map { [$0.deletingLastPathComponent()] } ?? [] : []
+            return (row, (row.files.suffix(3) + folder).map { ($0, stamp($0)) })
+        }
         try? await Task.sleep(for: wait)
         return watched.filter { row, files in
             row.files.contains { isPartial($0.lastPathComponent) }

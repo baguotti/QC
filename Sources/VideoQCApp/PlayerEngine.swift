@@ -195,6 +195,11 @@ public final class PlayerSlot: ObservableObject {
     /// Images and the audio info card: shown on the still frame layer instead of decoded video frames.
     public var stillImage: CGImage? = nil
     public var lastDecodedFrame: CGImage? = nil
+    /// The file's modification date when it was loaded: the same path re-exported since is loaded again.
+    var loadedModificationDate: Date? = nil
+    /// The video track has a rotation / flip (portrait phone clips). Its frames only reach the video output upright
+    /// through a video composition, so one stays installed at EV 0 too (pass-through).
+    var isRotated = false
     
     public let frameExtractor = FrameExtractor()
     public let player = AVPlayer()
@@ -418,7 +423,8 @@ public final class PlayerEngine: ObservableObject {
             }
         }
     }
-    @Published public var splitPosition: CGFloat = 0.5
+    // Not @Published: only the viewport reads it (imperatively), and a drag writes it per mouse event.
+    public var splitPosition: CGFloat = 0.5
     @Published public var lastScreenshotPreset: ScreenshotPreset = .jpgMedium
     
     public var hasMatchingAspectRatios: Bool {
@@ -567,7 +573,8 @@ public final class PlayerEngine: ObservableObject {
     // Zoom & Pan
     @Published public var zoomScale: CGFloat = 1.0
     @Published public var isFitZoom: Bool = true
-    @Published public var panOffset: CGSize = .zero
+    // Not @Published: only the viewport reads it (imperatively), and panning writes it per mouse event.
+    public var panOffset: CGSize = .zero
     
     // Crosshair & Guides
     @Published public var showCenterCrosshair: Bool = false
@@ -826,20 +833,22 @@ public final class PlayerEngine: ObservableObject {
             return
         }
         // A sequence's composition is its compositor (it applies EV itself): never remove it.
-        let tearA = slotA.sequence == nil ? slotA.player.currentItem : nil
-        let tearB = slotB.sequence == nil ? slotB.player.currentItem : nil
+        // Nor a rotated clip's (it keeps the frames upright).
+        let tearA = slotA.sequence == nil && !slotA.isRotated ? slotA.player.currentItem : nil
+        let tearB = slotB.sequence == nil && !slotB.isRotated ? slotB.player.currentItem : nil
         guard tearA?.videoComposition != nil || tearB?.videoComposition != nil else { return }
         // Debounced so dragging EV through 0 doesn't rebuild the render pipeline twice.
         exposureTeardownTask = Task { @MainActor [weak self] in
             try? await Task.sleep(for: .milliseconds(400))
             guard let self, !Task.isCancelled, abs(self.exposureEV) < 0.001 else { return }
-            if self.slotA.sequence == nil { self.slotA.player.currentItem?.videoComposition = nil }
-            if self.slotB.sequence == nil { self.slotB.player.currentItem?.videoComposition = nil }
+            if self.slotA.sequence == nil && !self.slotA.isRotated { self.slotA.player.currentItem?.videoComposition = nil }
+            if self.slotB.sequence == nil && !self.slotB.isRotated { self.slotB.player.currentItem?.videoComposition = nil }
         }
     }
     
     private func installExposureComposition(for slot: PlayerSlot) {
-        guard abs(exposureEV) >= 0.001, slot.mediaKind == .video, slot.sequence == nil, let item = slot.player.currentItem, item.videoComposition == nil else { return }
+        guard abs(exposureEV) >= 0.001 || slot.isRotated, slot.mediaKind == .video, slot.sequence == nil,
+              let item = slot.player.currentItem, item.videoComposition == nil else { return }
         let box = exposureBox
         item.videoComposition = AVVideoComposition(asset: item.asset, applyingCIFiltersWithHandler: { @Sendable request in
             let ev = box.value
@@ -1047,7 +1056,8 @@ public final class PlayerEngine: ObservableObject {
         let stdURL = url.standardizedFileURL
         self.activeMarkers = markersMap[stdURL] ?? markersMap[url] ?? []
         
-        if let currentA = slotA.url, currentA.standardizedFileURL.path == stdURL.path {
+        let modified = Self.modificationDate(of: stdURL)
+        if let currentA = slotA.url, currentA.standardizedFileURL.path == stdURL.path, slotA.loadedModificationDate == modified {
             if let frame = initialSeekFrame {
                 seek(toFrame: frame)
             } else if autoplay {
@@ -1081,6 +1091,8 @@ public final class PlayerEngine: ObservableObject {
             break
         }
         slotA.url = stdURL
+        slotA.loadedModificationDate = modified
+        slotA.isRotated = false
         slotA.fileName = stdURL.lastPathComponent
         slotA.formattedFileSize = "--"
         autoLoadSubtitles(for: stdURL)
@@ -1120,6 +1132,11 @@ public final class PlayerEngine: ObservableObject {
         }
     }
     
+    /// Read from disk each time (URL resource values are cached per URL and would hide a re-export).
+    private static func modificationDate(of url: URL) -> Date? {
+        (try? FileManager.default.attributesOfItem(atPath: url.path))?[.modificationDate] as? Date
+    }
+
     /// Load-time observers: the presentation size, and preroll / autoplay (slot B also re-syncs to A) once ready.
     private func observeItem(_ item: AVPlayerItem, for target: SlotTarget) {
         let slot = (target == .slotA) ? slotA : slotB
@@ -1207,7 +1224,8 @@ public final class PlayerEngine: ObservableObject {
     private func loadVideoIntoSlotB(url: URL, autoplay: Bool = false) {
         let stdURL = url.standardizedFileURL
         let wasInABMode = (slotB.url != nil)
-        if let currentB = slotB.url, currentB.standardizedFileURL.path == stdURL.path {
+        let modified = Self.modificationDate(of: stdURL)
+        if let currentB = slotB.url, currentB.standardizedFileURL.path == stdURL.path, slotB.loadedModificationDate == modified {
             if autoplay {
                 seek(toTime: .zero) { [weak self] in
                     self?.play()
@@ -1230,6 +1248,8 @@ public final class PlayerEngine: ObservableObject {
         
         self.objectWillChange.send()
         slotB.url = stdURL
+        slotB.loadedModificationDate = modified
+        slotB.isRotated = false
         slotB.fileName = stdURL.lastPathComponent
         slotB.formattedFileSize = "--"
         slotB.slipOffsetFrames = 0
@@ -1309,6 +1329,11 @@ public final class PlayerEngine: ObservableObject {
             if kind == .video, let vTrack = tracks.first {
                 let naturalSize = try await vTrack.load(.naturalSize)
                 let transform = try await vTrack.load(.preferredTransform)
+                if !transform.isIdentity, slot.url?.path == fileURL.standardizedFileURL.path {
+                    slot.isRotated = true
+                    installExposureComposition(for: slot)
+                    refreshPausedFramesForExposure()
+                }
                 let transformedSize = naturalSize.applying(transform)
                 let w = Int(abs(transformedSize.width))
                 let h = Int(abs(transformedSize.height))
@@ -1356,7 +1381,8 @@ public final class PlayerEngine: ObservableObject {
                     self.seek(toFrame: frame)
                 }
                 if !self.isPlaying {
-                    self.currentTimecode = TimecodeFormatter.format(time: self.currentTime, fps: detectedFps)
+                    // From the frame number: `currentTime` is a frame centre, which `format(time:)` rounds up a frame.
+                    self.currentTimecode = TimecodeFormatter.format(frameIndex: self.currentFrame, fps: detectedFps)
                 }
                 self.enforceCompatibleCompareMode()
             } else {
@@ -1430,6 +1456,8 @@ public final class PlayerEngine: ObservableObject {
         let mediaKind: MediaKind
         let stillImage: CGImage?
         let sequence: ImageSequence?
+        let loadedModificationDate: Date?
+        let isRotated: Bool
         
         init(from slot: PlayerSlot) {
             self.url = slot.url
@@ -1446,6 +1474,8 @@ public final class PlayerEngine: ObservableObject {
             self.mediaKind = slot.mediaKind
             self.stillImage = slot.stillImage
             self.sequence = slot.sequence
+            self.loadedModificationDate = slot.loadedModificationDate
+            self.isRotated = slot.isRotated
         }
         
         func apply(to slot: PlayerSlot) {
@@ -1462,6 +1492,8 @@ public final class PlayerEngine: ObservableObject {
             slot.mediaKind = mediaKind
             slot.stillImage = stillImage
             slot.sequence = sequence
+            slot.loadedModificationDate = loadedModificationDate
+            slot.isRotated = isRotated
         }
     }
     
@@ -1920,10 +1952,11 @@ public final class PlayerEngine: ObservableObject {
             }
         }
         
-        // Reverse playback loop handling (between In and Out when set)
-        if self.rate < 0, self.isLooping, let inFrame, let outFrame,
-           currSecs <= Double(inFrame) / max(1, activeFps) + 0.05 {
-            self.seek(toFrame: outFrame) { [weak self] in
+        // Reverse playback loop handling (between In and Out when set). `isSeeking`: the observer keeps firing near In
+        // until the wrap seek lands; one wrap only.
+        if self.rate < 0, self.isLooping, !self.isSeeking, let range = loopRange,
+           currSecs <= Double(range.start) / max(1, activeFps) + 0.05 {
+            self.seek(toFrame: range.end) { [weak self] in
                 guard let self = self else { return }
                 self.setPlaybackRate(self.rate)
             }
@@ -1964,7 +1997,7 @@ public final class PlayerEngine: ObservableObject {
     private func handlePlaybackEnded() {
         if isLooping {
             let savedRate = self.rate
-            let start = outFrame != nil ? (inFrame ?? 0) : 0
+            let start = loopRange?.start ?? 0
             seek(toFrame: start) { [weak self] in
                 guard let self = self else { return }
                 let resumeRate = savedRate > 0 ? savedRate : 1.0
@@ -1984,7 +2017,11 @@ public final class PlayerEngine: ObservableObject {
             return
         }
         
-        if CMTimeGetSeconds(currentTime) >= CMTimeGetSeconds(duration) - 0.05 {
+        // At the end: restart from the top. Not for clips too short to leave the end zone (a 1-frame slate) or whose
+        // duration hasn't loaded yet: from 0 they'd seek to 0 and land here again, forever.
+        let durSecs = CMTimeGetSeconds(duration)
+        let currSecs = CMTimeGetSeconds(currentTime)
+        if durSecs.isFinite, durSecs > 0.1, currSecs > 0.05, currSecs >= durSecs - 0.05 {
             seek(toTime: .zero) { [weak self] in
                 self?.pressL()
             }
@@ -2138,9 +2175,8 @@ public final class PlayerEngine: ObservableObject {
     private func executeSingleFrameStep(forward: Bool) {
         guard slotA.player.currentItem != nil else { return }
         // Looping inside In–Out: wrap at the range ends.
-        if isLooping, let outFrame {
-            let inFrame = self.inFrame ?? 0
-            let wrap: Int? = forward ? (currentFrame >= outFrame ? inFrame : nil) : (currentFrame <= inFrame ? outFrame : nil)
+        if isLooping, let range = loopRange {
+            let wrap: Int? = forward ? (currentFrame >= range.end ? range.start : nil) : (currentFrame <= range.start ? range.end : nil)
             if let wrap {
                 currentFrame = wrap
                 currentTimecode = TimecodeFormatter.format(frameIndex: wrap, fps: activeFps)
@@ -2379,6 +2415,12 @@ public final class PlayerEngine: ObservableObject {
             return
         }
         item.forwardPlaybackEndTime = CMTime(seconds: Double(outFrame + 1) / max(1, activeFps), preferredTimescale: 60000)
+    }
+
+    /// Frames looped between with loop on: In (or the first frame) to Out (or the last); nil without In / Out.
+    private var loopRange: (start: Int, end: Int)? {
+        guard inFrame != nil || outFrame != nil else { return nil }
+        return (inFrame ?? 0, outFrame ?? max(0, totalFrames - 1))
     }
 
     /// The In–Out range of slot A's file as a time range (whole clip ends where a point isn't set).
@@ -2950,6 +2992,13 @@ public final class PlayerEngine: ObservableObject {
         
         let colorSpace = expA.colorSpace ?? expB.colorSpace ?? CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB()
         let bitmapInfo = CGImageAlphaInfo.premultipliedLast.rawValue
+        // A's colour space can't always back an 8-bit RGBA canvas (a greyscale still, some HDR spaces): fall back to sRGB
+        // rather than returning A alone.
+        let srgb = CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB()
+        func canvas(_ width: Int, _ height: Int) -> CGContext? {
+            CGContext(data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0, space: colorSpace, bitmapInfo: bitmapInfo)
+                ?? CGContext(data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0, space: srgb, bitmapInfo: bitmapInfo)
+        }
         
         switch compareMode {
         case .single:
@@ -2958,7 +3007,7 @@ public final class PlayerEngine: ObservableObject {
         case .splitVertical:
             let outW = max(expA.width, expB.width)
             let outH = max(expA.height, expB.height)
-            guard let ctx = CGContext(data: nil, width: outW, height: outH, bitsPerComponent: 8, bytesPerRow: 0, space: colorSpace, bitmapInfo: bitmapInfo) else {
+            guard let ctx = canvas(outW, outH) else {
                 return expA
             }
             // Base: Slot B across entire frame
@@ -2983,7 +3032,7 @@ public final class PlayerEngine: ObservableObject {
         case .splitHorizontal:
             let outW = max(expA.width, expB.width)
             let outH = max(expA.height, expB.height)
-            guard let ctx = CGContext(data: nil, width: outW, height: outH, bitsPerComponent: 8, bytesPerRow: 0, space: colorSpace, bitmapInfo: bitmapInfo) else {
+            guard let ctx = canvas(outW, outH) else {
                 return expA
             }
             // Base: Slot B across entire frame (bottom)
@@ -3008,7 +3057,7 @@ public final class PlayerEngine: ObservableObject {
         case .sideBySide:
             let outW = expA.width + expB.width
             let outH = max(expA.height, expB.height)
-            guard let ctx = CGContext(data: nil, width: outW, height: outH, bitsPerComponent: 8, bytesPerRow: 0, space: colorSpace, bitmapInfo: bitmapInfo) else {
+            guard let ctx = canvas(outW, outH) else {
                 return expA
             }
             ctx.setFillColor(red: 0, green: 0, blue: 0, alpha: 1.0)
@@ -3024,7 +3073,7 @@ public final class PlayerEngine: ObservableObject {
         case .sideBySideVertical:
             let outW = max(expA.width, expB.width)
             let outH = expA.height + expB.height
-            guard let ctx = CGContext(data: nil, width: outW, height: outH, bitsPerComponent: 8, bytesPerRow: 0, space: colorSpace, bitmapInfo: bitmapInfo) else {
+            guard let ctx = canvas(outW, outH) else {
                 return expA
             }
             ctx.setFillColor(red: 0, green: 0, blue: 0, alpha: 1.0)
@@ -3041,7 +3090,7 @@ public final class PlayerEngine: ObservableObject {
         case .difference:
             let outW = max(expA.width, expB.width)
             let outH = max(expA.height, expB.height)
-            guard let ctx = CGContext(data: nil, width: outW, height: outH, bitsPerComponent: 8, bytesPerRow: 0, space: colorSpace, bitmapInfo: bitmapInfo) else {
+            guard let ctx = canvas(outW, outH) else {
                 return expA
             }
             ctx.draw(expA, in: CGRect(x: 0, y: 0, width: outW, height: outH))
@@ -3054,7 +3103,7 @@ public final class PlayerEngine: ObservableObject {
         case .overlay:
             let outW = max(expA.width, expB.width)
             let outH = max(expA.height, expB.height)
-            guard let ctx = CGContext(data: nil, width: outW, height: outH, bitsPerComponent: 8, bytesPerRow: 0, space: colorSpace, bitmapInfo: bitmapInfo) else {
+            guard let ctx = canvas(outW, outH) else {
                 return expA
             }
             ctx.draw(expA, in: CGRect(x: 0, y: 0, width: outW, height: outH))

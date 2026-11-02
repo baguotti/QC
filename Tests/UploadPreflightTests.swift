@@ -35,15 +35,20 @@ struct UploadPreflightTests {
         try Data(count: 10).write(to: quiet)
         try Data(count: 10).write(to: busy)
         let rows = [row("Quiet.mov", files: [quiet]), row("Busy.mov", files: [busy])]
-        let grower = Task {
-            try await Task.sleep(for: .milliseconds(100))
-            let handle = try FileHandle(forWritingTo: busy)
-            try handle.seekToEnd()
-            try handle.write(contentsOf: Data(count: 1000))
-            try handle.close()
+        // On a GCD thread: the parallel test run keeps Swift's task pool busy, which delayed a Task-based write past the check.
+        let grown = DispatchSemaphore(value: 0)
+        DispatchQueue.global(qos: .userInitiated).asyncAfter(deadline: .now() + .milliseconds(300)) {
+            if let handle = try? FileHandle(forWritingTo: busy) {
+                _ = try? handle.seekToEnd()
+                try? handle.write(contentsOf: Data(count: 1000))
+                try? handle.close()
+            }
+            grown.signal()
         }
-        let writing = await UploadPreflight.stillWriting(rows, wait: .milliseconds(400))
-        try await grower.value
+        let writing = await UploadPreflight.stillWriting(rows, wait: .milliseconds(900))
+        await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in
+            DispatchQueue.global().async { grown.wait(); done.resume() }
+        }
         #expect(writing == ["/tmp/Busy.mov"])
     }
 
