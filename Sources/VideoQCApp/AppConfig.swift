@@ -25,4 +25,9 @@ public struct AppConfig {
     public static var githubReleasesWebURL: URL {
         URL(string: "https://github.com/\(githubRepoOwner)/\(githubRepoName)/releases") ?? URL(fileURLWithPath: "/")
     }
+
+    /// The one visible release page: the latest QCpie with the LineFinder for Premiere Pro installer attached.
+    public static var latestReleaseWebURL: URL {
+        URL(string: "https://github.com/\(githubRepoOwner)/\(githubRepoName)/releases/latest") ?? githubReleasesWebURL
+    }
 }

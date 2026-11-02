@@ -22,6 +22,11 @@ Unified Plugin Installer Agent (UXP plugins are per user: `~/Library/Application
 Without Creative Cloud's agent, double-clicking the .ccx installs the panel. Remove with
 `sudo "/Library/Application Support/LineFinder/uninstall.sh"`.
 
+- **Releasing:** there is one visible release page, the latest QCpie release, with `LineFinder-<version>.pkg` attached
+  next to `QCpie.dmg`; older releases are drafts. A new plugin version: bump `panel/manifest.json`, run
+  `build_mac.sh`, `gh release upload <latest QCpie tag> package/dist/LineFinder-<version>.pkg`, delete the old .pkg
+  asset. A new QCpie release attaches the current .pkg too. QCpie's gear menu → LineFinder for Premiere Pro opens
+  `releases/latest` (`AppConfig.latestReleaseWebURL`).
 - The .ccx manifest needs `host` as an object: as an array the agent fails with status -267 ("failed to generate mxi").
 - Unsigned unless `DEVELOPER_ID_APP`, `DEVELOPER_ID_INSTALLER` and `NOTARY_PROFILE` are set (Apple Developer ID,
   $99/yr): other Macs then need right-click → Open or System Settings → Privacy & Security → Open Anyway.

@@ -566,7 +566,7 @@ struct ContentView: View {
                 }
             }
             .buttonStyle(TransportIconButtonStyle())
-            .explain("Settings: Software Update, User Settings, Theme, Synced Projects, Info & Guide, and Feedback.")
+            .explain("Settings: Software Update, LineFinder for Premiere Pro, User Settings, Theme, Synced Projects, Info & Guide, and Feedback.")
             .popover(isPresented: $showSettingsPopover, arrowEdge: .bottom) {
                 VStack(alignment: .leading, spacing: 4) {
                     Button(action: {
@@ -583,6 +583,26 @@ struct ContentView: View {
                             Text(updateManager.hasUpdate ? "Software Update (v\(updateManager.latestVersion) available)" : "Software Update (v\(AppVersionInfo.version))")
                                 .font(.ui(size: 11, weight: .semibold))
                                 .foregroundColor(updateManager.hasUpdate ? accentPositive : textMain)
+                        }
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 7)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+
+                    Button(action: {
+                        showSettingsPopover = false
+                        NSWorkspace.shared.open(AppConfig.latestReleaseWebURL)
+                    }) {
+                        HStack(spacing: 8) {
+                            Image(systemName: "puzzlepiece.extension")
+                                .font(.system(size: StudioTheme.scaleFont(11), weight: .bold))
+                                .foregroundColor(textMain)
+                                .frame(width: 16)
+                            Text("LineFinder for Premiere Pro")
+                                .font(.ui(size: 11, weight: .semibold))
+                                .foregroundColor(textMain)
                         }
                         .padding(.horizontal, 10)
                         .padding(.vertical, 7)
