@@ -44,17 +44,15 @@ to false by hand so no `.xmp` sidecar is written). The exporter ignores its size
 
 ## Test clips (`testclips/make.sh`)
 
-Renders `LineFinder_Test_1080p.mp4` (60 s) and `LineFinder_Test_4K.mp4` (20 s), 23.976 fps H.264 4:2:0 (git-ignored),
+Renders `LineFinder_Test_1080p.mp4` (60 s) and `LineFinder_Test_4K.mp4` (26 s), 23.976 fps H.264 4:2:0 (git-ignored),
 green lines at known frames: top 48–95 (1 px), bottom 144–191 (2 px), left 240–287 (1 px), right 336–383 (3 px),
 seam H 432–479 (row 540), seam V 528–575 (column 960); 4K doubles positions and thicknesses. QCpie's detector and
-linecore agree on them (`linecore/tests/run.sh premiere/testclips --segments`):
+linecore find every one on exactly those frames (`linecore/tests/run.sh premiere/testclips --segments`); the black
+target reports the green lines as off-colour only.
 
-- 1080p: top, bottom, left, seam H (row 540), seam V (col 959) exact. **Right 3 px: only 342–375, 379–381, 383**
-  (~10 of 48 frames missed; 4:2:0 chroma at an odd column).
-- 4K: top, bottom, left, right, seam H exact. **Seam V (4 px at col 1920) not found.**
-- Black target: the green lines come back as off-colour only (correct).
-
-Both misses are QCpie detector behaviour, not the port: fix in `EdgeDetector.swift` first (LineFinderBench), then port.
+History: the 1080p right line was first found only on 342–375, 379–381 and 383. AVFoundation smears a 3 px line at an
+odd column into a 4th, half off-colour column, which the step test read as a gradient; fixed by counting off-colour
+pixels in the chroma-bleed rule. The 4K seam V "miss" was the clip ending at frame 479 (now 26 s).
 
 In Premiere (26.5.2) the 1080p top line was missed at first: Premiere upsamples 4:2:0 chroma without filtering, so the
 row under a 1 px line is dark saturated green (`0,129,1`; ffmpeg/AVFoundation give `0,195,0`) and the step test read

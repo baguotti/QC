@@ -22,4 +22,4 @@ render() {  # name width height seconds scale
   echo "$1"
 }
 render LineFinder_Test_1080p.mp4 1920 1080 60 1
-render LineFinder_Test_4K.mp4 3840 2160 20 2
+render LineFinder_Test_4K.mp4 3840 2160 26 2

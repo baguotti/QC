@@ -393,15 +393,18 @@ private struct BlendLineModel {
             // Step at the line's inner boundary: a gradient fades out gradually, a line stops.
             let edgeAlpha = Self.median(&edgeAlphas)
             if passCount > 0, lineAlpha >= weakAlpha, innerAlpha > edgeAlpha * Self.maxInnerAlphaRatio, hi + 2 < depthCount {
-                // Chroma bleed: decoders that upsample 4:2:0 chroma without filtering (Premiere) smear the line's colour
-                // into the next row as saturated, darker target colour: a high α that fails the colour test. A gradient's
-                // rows still look like blends. One such row counts as part of the line for the step test.
+                // Chroma bleed: 4:2:0 chroma smeared into the next row (Premiere: saturated, darker target colour;
+                // AVFoundation: a 2nd column inside a 3 px line at an odd offset). The row has the line's strength but
+                // fails the strict colour test (fail with α in range, or off-colour). A gradient's rows still look like
+                // blends. One such row counts as part of the line for the step test.
                 var informative = 0, colourFails = 0
                 for p in run.start...run.end {
                     let i = (hi + 1) * n + p
                     guard states[i] != Self.skip else { continue }
                     informative += 1
-                    if states[i] == Self.fail && alphas[i] >= weakAlpha && alphas[i] <= Self.maxAlpha { colourFails += 1 }
+                    if states[i] == Self.offColor || (states[i] == Self.fail && alphas[i] >= weakAlpha && alphas[i] <= Self.maxAlpha) {
+                        colourFails += 1
+                    }
                 }
                 if informative > 0 && colourFails * 2 >= informative {
                     var nextAlphas: [Float] = []

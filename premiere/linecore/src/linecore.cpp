@@ -389,15 +389,16 @@ struct lc_detector {
 			// Step at the line's inner boundary: a gradient fades out gradually, a line stops.
 			float edgeAlpha = median(edgeAlphas);
 			if (passCount > 0 && lineAlpha >= weakAlpha && innerAlpha > edgeAlpha * kMaxInnerAlphaRatio && hi + 2 < depthCount) {
-				// Chroma bleed: decoders that upsample 4:2:0 chroma without filtering (Premiere) smear the line's colour
-				// into the next row as saturated, darker target colour: a high alpha that fails the colour test. A
-				// gradient's rows still look like blends. One such row counts as part of the line for the step test.
+				// Chroma bleed: 4:2:0 chroma smeared into the next row (Premiere: saturated, darker target colour;
+				// AVFoundation: a 2nd column inside a 3 px line at an odd offset). The row has the line's strength but
+				// fails the strict colour test (fail with alpha in range, or off-colour). A gradient's rows still look
+				// like blends. One such row counts as part of the line for the step test.
 				int colourFails = 0, informative = 0;
 				for (int p = run.start; p <= run.end; ++p) {
 					size_t i = static_cast<size_t>(hi + 1) * n + p;
 					if (states[i] == kSkip) continue;
 					informative += 1;
-					if (states[i] == kFail && alphas[i] >= weakAlpha && alphas[i] <= kMaxAlpha) colourFails += 1;
+					if (states[i] == kOffColor || (states[i] == kFail && alphas[i] >= weakAlpha && alphas[i] <= kMaxAlpha)) colourFails += 1;
 				}
 				if (informative > 0 && colourFails * 2 >= informative) {
 					innerAlphas.clear();

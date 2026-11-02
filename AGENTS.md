@@ -210,8 +210,9 @@
 - A file that can't be opened or stops decoding early is never clean: `VideoQCResult.readError` / `FrameCheckResult.readError` flag it (lines found before the failure are kept) and the results and reports show it as Unreadable.
 - **Chroma bleed**: a line must step back to the picture one row inside it (inner α ≤ 0.6 × the innermost line row's α,
   so gradients are rejected). When that row mostly fails only on colour (α in range, residual too large), it is the line's
-  4:2:0 chroma smeared by a decoder that doesn't filter it (Premiere renders a 1 px top line's next row as `0,129,1`, not
-  a blend) and the step is checked one row further in. Gradient rows still pass as blends, so they're unaffected.
+  4:2:0 chroma smeared by the decoder (Premiere renders a 1 px top line's next row as `0,129,1`, not a blend; AVFoundation
+  smears a 3 px line at an odd column into a half off-colour 4th column) and the step is checked one row further in.
+  Off-colour pixels count as colour failures here. Gradient rows still pass as blends, so they're unaffected.
   `premiere/linecore` mirrors `EdgeDetector.swift` exactly: change both and run `premiere/linecore/tests/run.sh`.
 - Edge lines must start within `edgeDepth`; when a band fills the whole scan depth it is followed `thickLineMargin` (16) px further to find where it stops, so lines as thick as the edge depth are caught. That second pass runs only in that case.
 - **Throughput is hardware-decode bound** (measured, M4 Max 1080p H.264: one decode stream ~950 fps, two ~1,780, more add nothing; detection ~0.1–1.3 ms/frame overlaps fully). Files run two at a time and a file ≥ 20 s is read as **two segments in parallel** (`VideoScanner.splitMinimumSeconds`): each segment reads 3 frames past the split and keeps only its side, frame numbers count from the first segment's first sample, so results are identical to one pass (verified on `_TEST`: all 204 flagged frames). Machines with two decode engines (M1/M2 Ultra) scan roughly twice as fast.
