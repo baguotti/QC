@@ -146,8 +146,13 @@ struct NotesSyncModalView: View {
                     syncField("Type a password or paste one", text: $syncPasswordDraft)
                         .onSubmit { addSyncProject(password: syncPasswordDraft) }
                     syncButton("Add", primary: true) { addSyncProject(password: syncPasswordDraft) }
-                        .disabled(NotesSync.deriveKeys(password: syncPasswordDraft) == nil)
+                        .disabled(NotesSync.deriveKeys(password: syncPasswordDraft) == nil || existingProject(for: syncPasswordDraft) != nil)
                     syncButton("Generate") { addSyncProject(password: NotesSync.generatePassword(), copy: true) }
+                }
+                if let existing = existingProject(for: syncPasswordDraft) {
+                    Text("Already added as \(existing.displayName).")
+                        .font(.ui(size: 10))
+                        .foregroundColor(palette.textSubtle)
                 }
                 
                 Text("Each project has its own password; everyone using it shares that project's notes. Passwords are 8+ characters, not case-sensitive (longer is safer: anyone who guesses one can read its notes). A clip joins the project that already has notes for it, otherwise the DEFAULT project when it gets notes; change it from the Notes panel. Notes are encrypted on this Mac before upload. Clips match by file name and size, so each person can keep files in any folder.")
@@ -236,9 +241,17 @@ struct NotesSyncModalView: View {
         .buttonStyle(.plain)
     }
     
+    /// The project already using this password (passwords aren't case-sensitive): adding it twice would sync the same
+    /// notes twice and make the two copies race each other's writes.
+    private func existingProject(for password: String) -> NotesSyncProject? {
+        let normalized = password.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
+        guard !normalized.isEmpty else { return nil }
+        return syncProjects.first { $0.password.trimmingCharacters(in: .whitespacesAndNewlines).uppercased() == normalized }
+    }
+
     private func addSyncProject(password: String, copy: Bool = false) {
         let password = password.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard NotesSync.deriveKeys(password: password) != nil else { return }
+        guard NotesSync.deriveKeys(password: password) != nil, existingProject(for: password) == nil else { return }
         let name = newProjectName.trimmingCharacters(in: .whitespacesAndNewlines)
         let project = NotesSyncProject(name: name.isEmpty ? "Project \(syncProjects.count + 1)" : name, password: password)
         syncProjects.append(project)

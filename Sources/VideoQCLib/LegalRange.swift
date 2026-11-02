@@ -208,11 +208,12 @@ public enum LegalRange {
     // MARK: - Zebra (Player overlay)
 
     /// Decodes the frame shown at `time` (frame centre) in narrow-range 4:2:0, hardware-scaled to at most `maxSide`.
-    static func decodeFrame(url: URL, time: CMTime, fps: Double, maxSide: Int) async -> (luma: [UInt8], chroma: [UInt8], width: Int, height: Int, matrix: LegalRangeMatrix)? {
+    static func decodeFrame(url: URL, time: CMTime, fps: Double, maxSide: Int) async -> (luma: [UInt8], chroma: [UInt8], width: Int, height: Int, matrix: LegalRangeMatrix, transform: CGAffineTransform)? {
         let asset = AVURLAsset(url: url)
         guard let track = try? await asset.loadTracks(withMediaType: .video).first,
               let natural = try? await track.load(.naturalSize), natural.width > 0, natural.height > 0,
               let reader = try? AVAssetReader(asset: asset) else { return nil }
+        let transform = (try? await track.load(.preferredTransform)) ?? .identity
         let scale = min(1, CGFloat(maxSide) / max(natural.width, natural.height))
         let w = max(2, Int(natural.width * scale) & ~1), h = max(2, Int(natural.height * scale) & ~1)
         let frameDuration = CMTime(seconds: 1 / max(1, fps), preferredTimescale: 600_000)
@@ -238,7 +239,7 @@ public enum LegalRange {
         }
         guard let buffer = chosen else { return nil }
         let (luma, chroma) = FrameCheckScanner.planes(buffer, width: w, height: h)
-        return (luma, chroma, w, h, LegalRangeMatrix.of(buffer, sourceHeight: Int(natural.height)))
+        return (luma, chroma, w, h, LegalRangeMatrix.of(buffer, sourceHeight: Int(natural.height)), transform)
     }
 
     /// Diagonal stripes over the out-of-range areas of the frame at `time` (the blocks the scan counts): red above the
@@ -263,11 +264,32 @@ public enum LegalRange {
         }
         guard any else { return emptyImage }
         let data = pixels.withUnsafeBytes { Data($0) }
-        guard let provider = CGDataProvider(data: data as CFData) else { return nil }
-        return CGImage(width: w, height: h, bitsPerComponent: 8, bitsPerPixel: 32, bytesPerRow: w * 4,
-                       space: CGColorSpaceCreateDeviceRGB(),
-                       bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedLast.rawValue | CGBitmapInfo.byteOrder32Little.rawValue),
-                       provider: provider, decode: nil, shouldInterpolate: false, intent: .defaultIntent)
+        guard let provider = CGDataProvider(data: data as CFData),
+              let image = CGImage(width: w, height: h, bitsPerComponent: 8, bitsPerPixel: 32, bytesPerRow: w * 4,
+                                  space: CGColorSpaceCreateDeviceRGB(),
+                                  bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedLast.rawValue | CGBitmapInfo.byteOrder32Little.rawValue),
+                                  provider: provider, decode: nil, shouldInterpolate: false, intent: .defaultIntent) else { return nil }
+        return frame.transform.isIdentity ? image : oriented(image, by: frame.transform)
+    }
+
+    /// The overlay drawn as the clip is shown (decoded frames are stored unrotated; portrait phone clips carry a turn).
+    private static func oriented(_ image: CGImage, by transform: CGAffineTransform) -> CGImage? {
+        // Only the rotation / flip part, in pixel units of this (scaled) image, moved back to the origin.
+        let t = CGAffineTransform(a: transform.a, b: transform.b, c: transform.c, d: transform.d, tx: 0, ty: 0)
+        let box = CGRect(x: 0, y: 0, width: image.width, height: image.height).applying(t)
+        let outW = Int(box.width.rounded()), outH = Int(box.height.rounded())
+        guard outW > 0, outH > 0, let ctx = CGContext(data: nil, width: outW, height: outH, bitsPerComponent: 8, bytesPerRow: 0,
+                                                      space: CGColorSpaceCreateDeviceRGB(),
+                                                      bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil }
+        ctx.interpolationQuality = .none
+        // CG's origin is bottom-left and the video transform is top-left: flip, apply, flip back.
+        ctx.translateBy(x: 0, y: CGFloat(outH))
+        ctx.scaleBy(x: 1, y: -1)
+        ctx.concatenate(t.concatenating(CGAffineTransform(translationX: -box.minX, y: -box.minY)))
+        ctx.translateBy(x: 0, y: CGFloat(image.height))
+        ctx.scaleBy(x: 1, y: -1)
+        ctx.draw(image, in: CGRect(x: 0, y: 0, width: image.width, height: image.height))
+        return ctx.makeImage()
     }
 
     /// A fully legal frame: one transparent pixel.
