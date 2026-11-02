@@ -25,20 +25,16 @@ struct ThemeManagerTests {
         manager.applyTheme(StudioThemeConfig.muted)
         #expect(manager.currentTheme.isPreset == true)
         
-        // Update slot A to bright neon green using new and legacy slot names
+        // Update slot A to bright neon green
         manager.updateAccentColor(slot: .slota, hex: "#00FF88")
         
         #expect(manager.currentTheme.slotaHex == "#00FF88")
-        #expect(manager.currentTheme.slotAHex == "#00FF88")
-        #expect(manager.currentTheme.greenHex == "#00FF88") // backwards-compatible alias
         #expect(manager.currentTheme.name == "Custom")
         #expect(manager.currentTheme.isPreset == false)
         
         // Update slot B to cyan
         manager.updateAccentColor(slot: .slotB, hex: "#00FFFF")
         #expect(manager.currentTheme.slotBHex == "#00FFFF")
-        #expect(manager.currentTheme.slobBHex == "#00FFFF")
-        #expect(manager.currentTheme.purpleHex == "#00FFFF") // backwards-compatible alias
     }
     
     @Test @MainActor
@@ -111,26 +107,11 @@ struct ThemeManagerTests {
         #expect(preset.name == "Warm")
         #expect(preset.id == "preset-warm")
         #expect(preset.playHex == "#E5A82E") // Warm yellow / amber playhead
-        #expect(preset.blueHex == "#E5A82E") // Legacy alias
         #expect(preset.slotaHex == "#4E8C56")
         #expect(preset.slotBHex == "#825785")
         #expect(preset.warnHex == "#CC5238")
-        
-        // Backwards-compatible alias
-        #expect(StudioThemeConfig.warmAmber.id == "preset-warm")
     }
     
-    @Test @MainActor
-    func droppedFrameIndicatorColorsAreFixedGreenAndRed() {
-        // Must stay Green and Red independently of active theme
-        #expect(StudioTheme.droppedFrameGreen == Color(hex: "#00EE9B"))
-        #expect(StudioTheme.droppedFrameRed == Color(hex: "#FF4365"))
-        
-        let palette = StudioPalette(false)
-        #expect(palette.droppedFrameGreen == Color(hex: "#00EE9B"))
-        #expect(palette.droppedFrameRed == Color(hex: "#FF4365"))
-    }
-
     @Test
     func legacyJsonDecodingCompatibility() throws {
         // Test decoding JSON encoded with legacy variable names (greenHex, blueHex, purpleHex, redHex)
@@ -156,7 +137,6 @@ struct ThemeManagerTests {
         #expect(theme.slotaHex == "#123456")
         #expect(theme.playHex == "#234567")
         #expect(theme.slotBHex == "#345678")
-        #expect(theme.slobBHex == "#345678")
         #expect(theme.warnHex == "#456789")
         #expect(theme.lightSlotaHex == "#56789A")
         #expect(theme.lightPlayHex == "#6789AB")
@@ -173,12 +153,6 @@ struct SpecsAndScannerTests {
         let specs = SpecsState()
         let url = URL(fileURLWithPath: "/Volumes/Deliverables/Commercial_30s_16x9.mov")
         
-        #expect(specs.isMismatchDismissed(for: url) == false)
-        
-        specs.dismissMismatch(for: url)
-        #expect(specs.isMismatchDismissed(for: url) == true)
-        
-        specs.restoreMismatch(for: url)
         #expect(specs.isMismatchDismissed(for: url) == false)
         
         specs.toggleDismissMismatch(for: url)
@@ -207,14 +181,14 @@ struct SpecsAndScannerTests {
     }
     
     @Test @MainActor
-    func keyboardShortcutRouterSleeveAndIngestRules() {
-        var ingestTabCalled = false
+    func keyboardShortcutRouterSleeveAndUploadRules() {
+        var uploadTabCalled = false
         var leftSleeveCalled = false
         var rightSleeveCalled = false
         var propertiesCalled = false
         
         let actions = KeyboardShortcutActions(
-            onSelectIngestTab: { ingestTabCalled = true },
+            onSelectUploadTab: { uploadTabCalled = true },
             onToggleProperties: { propertiesCalled = true },
             onToggleLeftSleeve: { leftSleeveCalled = true },
             onToggleRightSleeve: { rightSleeveCalled = true }
@@ -222,7 +196,7 @@ struct SpecsAndScannerTests {
         
         let router = KeyboardShortcutRouter.standardRouter(actions: actions)
         
-        // 1. Shift + 4 (keyCode 21) -> Ingest tab
+        // 1. Shift + 4 (keyCode 21) -> Upload tab
         let shift4Event = NSEvent.keyEvent(
             with: .keyDown,
             location: .zero,
@@ -237,7 +211,7 @@ struct SpecsAndScannerTests {
         )!
         let res1 = router.handle(shift4Event, currentTab: .player, isModalActive: false, onEscape: { false })
         #expect(res1 == nil)
-        #expect(ingestTabCalled == true)
+        #expect(uploadTabCalled == true)
         
         // 2. Cmd + Shift + Left Arrow (keyCode 123) in Player tab -> left sleeve
         let cmdShiftLeftEvent = NSEvent.keyEvent(

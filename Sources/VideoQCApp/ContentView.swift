@@ -1254,6 +1254,7 @@ struct ContentView: View {
         let rootFolder = folderURL
         let treeFolders = playerTreeNodes.filter { $0.isDirectory }.map { $0.url }
         let currentFiles = videoFiles
+        let includeSubfolders = UserPreferences.includeSubfolders
         let activeURL = playerEngine.activeURL
         let slotBURL = playerEngine.slotB.url
         
@@ -1263,7 +1264,7 @@ struct ContentView: View {
             
             // 1. If we have a root folderURL, re-scan it
             if let folder = rootFolder, FileManager.default.fileExists(atPath: folder.path) {
-                for v in VideoScanner.findMediaFiles(in: folder) {
+                for v in VideoScanner.findMediaFiles(in: folder, includeSubfolders: includeSubfolders) {
                     let std = v.standardizedFileURL.path
                     if !seen.contains(std) {
                         seen.insert(std)
@@ -1274,7 +1275,7 @@ struct ContentView: View {
             
             // 2. Also check any root folders in playerTreeNodes (handles multiple dropped/added folders)
             for folder in treeFolders where FileManager.default.fileExists(atPath: folder.path) {
-                for v in VideoScanner.findMediaFiles(in: folder) {
+                for v in VideoScanner.findMediaFiles(in: folder, includeSubfolders: includeSubfolders) {
                     let std = v.standardizedFileURL.path
                     if !seen.contains(std) {
                         seen.insert(std)

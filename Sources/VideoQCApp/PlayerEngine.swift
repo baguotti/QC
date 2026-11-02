@@ -137,7 +137,9 @@ public actor FrameExtractor {
     }
     
     public func capture(at time: CMTime, fallbackURL: URL? = nil) -> CGImage? {
-        if generator == nil, let url = fallbackURL ?? currentURL {
+        // A capture can arrive before the load's `setURL` (separate tasks): never read the previous file's generator.
+        let isStale = fallbackURL.map { $0.standardizedFileURL != currentURL?.standardizedFileURL } ?? false
+        if generator == nil || isStale, let url = fallbackURL ?? currentURL {
             let asset = AVURLAsset(url: url)
             let gen = AVAssetImageGenerator(asset: asset)
             gen.appliesPreferredTrackTransform = true
@@ -1324,6 +1326,8 @@ public final class PlayerEngine: ObservableObject {
                 }
             }
             
+            // Checked again: the track loads above suspend, and a newer file must not get this one's fps / duration.
+            guard slot.url?.path == fileURL.standardizedFileURL.path, slot.sequence == sequence else { return }
             let durSecs = CMTimeGetSeconds(dur)
             let roundedFps = max(1.0, detectedFps)
             let totFrames: Int
@@ -1573,6 +1577,8 @@ public final class PlayerEngine: ObservableObject {
             enforceCompatibleCompareMode()
         }
         
+        // The observer's rate is slot A's fps, and an image in A has none: rebuild it for the clip now in A.
+        setupTimeObserver()
         updateCurrentTime(time: hasTimeline ? slotA.player.currentTime() : .zero)
         updateAudioVolumes()
         autoLoadSubtitles(for: slotA.url)

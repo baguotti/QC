@@ -83,8 +83,8 @@ public enum SubtitleParser {
         return blocks.joined(separator: "\n\n") + "\n"
     }
 
-    /// Parses SubRip text. Tolerates a BOM, CRLF/CR line endings, missing index lines, `,` or `.` millisecond
-    /// separators, extra blank lines and position suffixes after the timing (`X1:… Y1:…`).
+    /// Parses SubRip text. Tolerates a BOM, CRLF/CR line endings, missing index lines, missing blank lines between
+    /// cues, `,` or `.` millisecond separators, extra blank lines and position suffixes after the timing (`X1:… Y1:…`).
     public static func parseSRT(_ raw: String) -> [SubtitleCue] {
         let normalized = raw
             .replacingOccurrences(of: "\u{FEFF}", with: "")
@@ -98,6 +98,11 @@ public enum SubtitleParser {
             guard line.contains("-->"), let (start, end) = parseTiming(line) else { continue }
             var textLines: [String] = []
             while let next = lines.first, !next.trimmingCharacters(in: .whitespaces).isEmpty {
+                // The next cue's timing with no blank line before it: its index line isn't this cue's text.
+                if next.contains("-->"), parseTiming(next) != nil {
+                    if let last = textLines.last, Int(last.trimmingCharacters(in: .whitespaces)) != nil { textLines.removeLast() }
+                    break
+                }
                 textLines.append(next)
                 lines = lines.dropFirst()
             }
@@ -124,9 +129,11 @@ public enum SubtitleParser {
             }
         }
         guard let index = candidate else { return nil }
-        // Overlapping cues: prefer the latest-starting one still on screen.
+        // Overlapping cues: prefer the latest-starting one still on screen. Usually that's `index` itself; between cues
+        // this walks back to the start (a long cue that began much earlier may still be showing), cheap even for
+        // thousands of cues.
         var i = index
-        while i >= 0 && cues[i].start > time - 30 {
+        while i >= 0 {
             if time < cues[i].end { return i }
             i -= 1
         }

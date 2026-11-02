@@ -189,8 +189,8 @@ struct TimelineMarks: View, Equatable {
     }
 }
 
-/// The In–Out range (I / O): a tinted band across the ruler and track with bracket ends. Redrawn only when the points
-/// or geometry change.
+/// The In–Out range (I / O): the timeline outside it is dimmed. Drawn above the track and waveform, below the playhead;
+/// redrawn only when the points or geometry change.
 struct TimelineInOutRange: View, Equatable {
     let inFrame: Int?
     let outFrame: Int?
@@ -198,7 +198,7 @@ struct TimelineInOutRange: View, Equatable {
     let trackWidth: CGFloat
     let trackInset: CGFloat
     let height: CGFloat
-    let color: Color
+    let dim: Color
 
     var body: some View {
         if totalFrames > 0, inFrame != nil || outFrame != nil {
@@ -207,26 +207,16 @@ struct TimelineInOutRange: View, Equatable {
             let x0 = trackInset + trackWidth * start, x1 = trackInset + trackWidth * min(1, end)
             ZStack(alignment: .topLeading) {
                 Rectangle()
-                    .fill(color.opacity(0.14))
-                    .frame(width: max(1, x1 - x0), height: height)
-                    .offset(x: x0)
-                if inFrame != nil { bracket(at: x0, opening: true) }
-                if outFrame != nil { bracket(at: x1 - 2, opening: false) }
+                    .fill(dim)
+                    .frame(width: max(0, x0 - trackInset), height: height)
+                    .offset(x: trackInset)
+                Rectangle()
+                    .fill(dim)
+                    .frame(width: max(0, trackInset + trackWidth - x1), height: height)
+                    .offset(x: x1)
             }
             .allowsHitTesting(false)
         }
-    }
-
-    private func bracket(at x: CGFloat, opening: Bool) -> some View {
-        Path { path in
-            path.move(to: CGPoint(x: opening ? 5 : 0, y: 0))
-            path.addLine(to: CGPoint(x: opening ? 0 : 5, y: 0))
-            path.addLine(to: CGPoint(x: opening ? 0 : 5, y: height))
-            path.addLine(to: CGPoint(x: opening ? 5 : 0, y: height))
-        }
-        .stroke(color, lineWidth: 1.5)
-        .frame(width: 5, height: height)
-        .offset(x: opening ? x : x - 3)
     }
 }
 
@@ -317,10 +307,6 @@ public struct TimelineScrubberView: View {
                     .frame(height: 0.75)
                     .offset(y: 22)
                 
-                TimelineInOutRange(inFrame: engine.inFrame, outFrame: engine.outFrame, totalFrames: engine.totalFrames,
-                                   trackWidth: trackWidth, trackInset: trackInset, height: 41, color: playheadAccent)
-                    .equatable()
-
                 // MARK: - Time Ruler (Top 22px)
                 ZStack(alignment: .topLeading) {
                     RulerTicksCanvasView(
@@ -389,6 +375,12 @@ public struct TimelineScrubberView: View {
                         .allowsHitTesting(false)
                 }
                 
+                TimelineInOutRange(inFrame: engine.inFrame, outFrame: engine.outFrame, totalFrames: engine.totalFrames,
+                                   trackWidth: trackWidth, trackInset: trackInset,
+                                   height: hasWaveform ? 46 + waveformLaneHeight : 41,
+                                   dim: Color.black.opacity(isLightMode ? 0.16 : 0.45)) // design-ok: dims timeline pixels
+                    .equatable()
+
                 // MARK: - Hover Ghost Needle
                 if let hX = hoverX, isHovering && !isDragging && durSecs > 0 {
                     let clampedHX = max(trackInset, min(hX, width - trackInset))
@@ -506,6 +498,10 @@ public struct TimelineScrubberView: View {
                         isGrabbingPlayhead = false
                         dragProgress = nil
                         engine.endScrubbing(at: progress)
+                        // Double-click: back to the whole clip (clears In / Out).
+                        if NSApp.currentEvent?.clickCount == 2, engine.inFrame != nil || engine.outFrame != nil {
+                            engine.clearInOut()
+                        }
                     }
             )
         }
