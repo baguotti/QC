@@ -15,7 +15,9 @@ const EDGE_LABELS = { top: "Top", bottom: "Bottom", left: "Left", right: "Right"
 const $ = (id) => document.getElementById(id);
 const logEl = $("log");
 const log = (msg) => { logEl.textContent += msg + "\n"; console.log(msg); };
-const status = (msg) => { $("status").textContent = msg; };
+// The status line doubles as the results list's empty state.
+const status = (msg) => { $("status").textContent = msg; $("status").classList.toggle("hidden", !msg); };
+const summary = (msg) => { $("summary").textContent = msg; };
 let scanning = false;
 
 // MARK: Settings
@@ -58,7 +60,11 @@ function updateHexField() {
 
 $("target").addEventListener("change", () => { updateHexField(); saveForm(); });
 for (const id of ["hex", "sensitivity", "splits", "useInOut"]) $(id).addEventListener("change", saveForm);
+const showSensitivity = () => { $("sensitivityValue").textContent = String(Math.round(Number($("sensitivity").value))); };
+$("sensitivity").addEventListener("input", showSensitivity);
+$("sensitivity").addEventListener("change", showSensitivity);
 restoreForm();
+showSensitivity();
 
 // MARK: Scan
 
@@ -71,7 +77,7 @@ $("scan").addEventListener("click", () => {
     .finally(() => {
       scanning = false;
       $("scan").removeAttribute("disabled");
-      $("progress").classList.add("hidden");
+      $("progressRow").classList.add("hidden");
       writeLogFile();
     });
 });
@@ -80,7 +86,9 @@ $("clear").addEventListener("click", async () => {
   const { project, sequence } = await active();
   if (!sequence) return;
   const n = await removeMarkers(project, sequence, null);
-  status(`Removed ${n} LineFinder marker${n === 1 ? "" : "s"}.`);
+  $("results").textContent = "";
+  summary("");
+  status(n ? `Removed ${n} LineFinder marker${n === 1 ? "" : "s"}.` : "No LineFinder markers on this sequence.");
 });
 
 async function active() {
@@ -114,9 +122,11 @@ async function scan() {
   }));
   const outPath = joinPath(data.nativePath, `${NAME}.json`);
 
-  status("Scanning…");
+  status("");
+  summary("");
+  $("progressLabel").textContent = "Scanning";
   $("progress").value = 0;
-  $("progress").classList.remove("hidden");
+  $("progressRow").classList.remove("hidden");
   $("results").textContent = "";
   const poll = setInterval(() => readProgress(data), 250);
   const t0 = Date.now();
@@ -149,11 +159,10 @@ async function scan() {
   await addMarkers(project, sequence, segments, tpf, zero);
   showResults(sequence, segments, tpf, zero);
 
-  const where = range ? "In/Out" : "sequence";
-  const aborted = result.aborted ? " Stopped early." : "";
-  status(segments.length
-    ? `${segments.length} line${segments.length === 1 ? "" : "s"} found in ${result.frames} frames (${where}).${aborted}`
-    : `No lines in ${result.frames} frames (${where}).${aborted}`);
+  const where = range ? "In/Out" : "whole sequence";
+  summary(`${segments.length} line${segments.length === 1 ? "" : "s"} · ${result.frames} frames`);
+  status(segments.length ? (result.aborted ? "Scan stopped early: later frames weren't checked." : "")
+    : `No lines found in ${result.frames} frames (${where}).${result.aborted ? " Scan stopped early." : ""}`);
   if (removed) log(`Replaced ${removed} older LineFinder markers in this range.`);
 }
 
@@ -163,7 +172,7 @@ async function readProgress(folder) {
     const [done, total] = (await entry.read()).trim().split(/\s+/).map(Number);
     if (total > 0) {
       $("progress").value = Math.min(100, Math.round((done / total) * 100));
-      status(`Scanning… ${done} / ${total} frames`);
+      $("progressLabel").textContent = `Scanning ${done} / ${total} frames`;
     }
   } catch { /* not written yet */ }
 }
@@ -237,23 +246,26 @@ function showResults(sequence, segments, tpf, zero) {
   list.textContent = "";
   for (const s of segments) {
     const row = document.createElement("div");
-    row.className = "result" + (s.offColor ? " off" : "");
-    const what = document.createElement("div");
-    what.className = "what";
-    const swatch = document.createElement("span");
+    row.className = "result";
+    const swatch = document.createElement("div");
     swatch.className = "swatch";
     swatch.style.backgroundColor = s.color;
-    what.appendChild(swatch);
-    what.appendChild(document.createTextNode(describe(s)));
-    const when = document.createElement("div");
-    when.className = "when";
-    const frames = s.end - s.start + 1;
-    when.textContent = `${timecode(s.startTicks + zero, tpf)}  ${frames} fr  ${s.color}`;
-    row.appendChild(what);
-    row.appendChild(when);
+    const name = document.createElement("div");
+    name.className = "name";
+    name.textContent = describe(s).replace(/(\d+)px$/, "$1 px");
+    const tc = document.createElement("div");
+    tc.className = "tc muted";
+    tc.textContent = timecode(s.startTicks + zero, tpf);
+    const frames = document.createElement("div");
+    frames.className = "frames muted";
+    frames.textContent = `${s.end - s.start + 1} fr`;
+    for (const el of [swatch, name, tc, frames]) row.appendChild(el);
     row.title = detail(s, tpf, zero);
-    row.addEventListener("click", () =>
-      sequence.setPlayerPosition(ppro.TickTime.createWithTicks(String(s.startTicks))).catch((e) => log("Jump failed: " + e.message)));
+    row.addEventListener("click", () => {
+      for (const r of list.querySelectorAll(".result.selected")) r.classList.remove("selected");
+      row.classList.add("selected");
+      sequence.setPlayerPosition(ppro.TickTime.createWithTicks(String(s.startTicks))).catch((e) => log("Jump failed: " + e.message));
+    });
     list.appendChild(row);
   }
 }
@@ -274,6 +286,6 @@ function joinPath(dir, name) {
 async function writeLogFile() {
   try {
     const file = await (await fs.getDataFolder()).createFile("panel-log.txt", { overwrite: true });
-    await file.write(`${$("status").textContent}\n${logEl.textContent}`);
+    await file.write(`${$("summary").textContent}\n${$("status").textContent}\n${logEl.textContent}`);
   } catch { /* debugging aid only */ }
 }

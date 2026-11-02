@@ -3,54 +3,87 @@
 <head>
   <meta charset="utf-8">
   <style>
-    body { padding: 10px 12px; font-size: 12px; color: var(--uxp-host-text-color); }
-    .row { display: flex; align-items: center; margin-bottom: 6px; }
-    .row > label { width: 76px; flex-shrink: 0; }
-    #hex { width: 90px; margin-left: 6px; }
-    #sensitivity { flex: 1; }
-    .buttons { display: flex; margin: 8px 0; }
-    .buttons sp-button { margin-right: 6px; }
-    #progress { width: 100%; margin-bottom: 4px; }
-    #status { min-height: 16px; margin-bottom: 6px; }
-    #results { border-top: 1px solid rgba(128, 128, 128, 0.35); }
-    .result { padding: 5px 2px; border-bottom: 1px solid rgba(128, 128, 128, 0.2); cursor: pointer; }
-    .result:hover { background-color: rgba(128, 128, 128, 0.18); }
-    .result .what { font-weight: bold; }
-    .result.off .what { color: #e0a040; }
-    .result .when { opacity: 0.75; font-family: monospace; font-size: 11px; }
-    .swatch { display: inline-block; width: 9px; height: 9px; margin-right: 5px; border: 1px solid rgba(128, 128, 128, 0.6); }
-    #log { margin-top: 10px; white-space: pre-wrap; font-family: monospace; font-size: 10px; opacity: 0.7; }
+    /* Native Premiere look: Spectrum controls on the host theme. Text is plain HTML with explicit sizes and colours:
+       sp-body / sp-detail / sp-field-label render too large or too dim, and --uxp-host-text-color is unset in
+       Premiere 26 (plain text came out black on the dark panel). */
+    :root { --text: #d8d8d8; --text-muted: #a0a0a0; --rule: #3a3a3a; --hover: rgba(255, 255, 255, 0.08); }
+    @media (prefers-color-scheme: light), (prefers-color-scheme: lightest) {
+      :root { --text: #1f1f1f; --text-muted: #5c5c5c; --rule: #c8c8c8; --hover: rgba(0, 0, 0, 0.07); }
+    }
+    body {
+      margin: 0;
+      padding: 10px 12px;
+      color: var(--text);
+      font-size: 12px;
+      line-height: 16px;
+    }
+    .muted { color: var(--text-muted); }
+    .field { display: flex; flex-direction: row; align-items: center; height: 28px; }
+    .field > .label { width: 76px; flex-shrink: 0; }
+    .field > .control { flex: 1; }
+    #hex { width: 84px; margin-left: 8px; }
+    #sensitivityValue { width: 28px; text-align: right; flex-shrink: 0; }
+    .check { height: 24px; display: flex; align-items: center; }
+    .actions { display: flex; flex-direction: row; align-items: center; margin: 10px 0; }
+    .actions sp-button { margin-right: 8px; }
+    #progressRow { margin-bottom: 10px; }
+    #progress { width: 100%; }
+    #progressLabel { margin-top: 2px; }
+    .rule { height: 1px; background-color: var(--rule); margin: 2px 0 8px; }
+    .heading { display: flex; flex-direction: row; justify-content: space-between; align-items: center; height: 20px; margin-bottom: 4px; }
+    .heading .title { font-size: 11px; font-weight: bold; letter-spacing: 0.5px; }
+    .heading #summary { font-size: 11px; }
+    #status { padding: 4px 0; }
+    .result { display: flex; flex-direction: row; align-items: center; height: 24px; padding: 0 4px; border-radius: 3px; }
+    .result:hover, .result.selected { background-color: var(--hover); }
+    .swatch { width: 10px; height: 10px; margin-right: 8px; border-radius: 2px; flex-shrink: 0; }
+    .result .name { flex: 1; }
+    .result .tc { font-family: monospace; font-size: 11px; margin-left: 8px; }
+    .result .frames { width: 44px; text-align: right; font-size: 11px; flex-shrink: 0; }
     .hidden { display: none; }
+    #log { display: none; }
   </style>
 </head>
 <body>
-  <div class="row">
-    <label>Colour</label>
-    <sp-picker id="target" size="s">
+  <div class="field">
+    <div class="label muted">Colour</div>
+    <sp-picker id="target" class="control" size="s">
       <sp-menu slot="options">
         <sp-menu-item value="#00FF00">Green</sp-menu-item>
         <sp-menu-item value="#0000FF">Blue</sp-menu-item>
         <sp-menu-item value="#FF00FF">Magenta</sp-menu-item>
         <sp-menu-item value="#000000">Black</sp-menu-item>
         <sp-menu-item value="#FFFFFF">White</sp-menu-item>
+        <sp-menu-divider></sp-menu-divider>
         <sp-menu-item value="any">Any colour</sp-menu-item>
         <sp-menu-item value="custom">Custom…</sp-menu-item>
       </sp-menu>
     </sp-picker>
     <sp-textfield id="hex" size="s" placeholder="#RRGGBB" class="hidden"></sp-textfield>
   </div>
-  <div class="row">
-    <label>Sensitivity</label>
-    <sp-slider id="sensitivity" min="0" max="100" step="5" value="50"></sp-slider>
+  <div class="field">
+    <div class="label muted">Sensitivity</div>
+    <sp-slider id="sensitivity" class="control" min="0" max="100" step="5" value="50"></sp-slider>
+    <div id="sensitivityValue" class="muted">50</div>
   </div>
-  <sp-checkbox id="splits">Split-screen seams</sp-checkbox>
-  <sp-checkbox id="useInOut" checked>In/Out only</sp-checkbox>
-  <div class="buttons">
-    <sp-button id="scan" variant="cta">Scan</sp-button>
-    <sp-button id="clear" variant="secondary" quiet>Clear markers</sp-button>
+  <div class="check"><sp-checkbox id="splits" size="s">Split-screen seams</sp-checkbox></div>
+  <div class="check"><sp-checkbox id="useInOut" size="s" checked>In/Out only</sp-checkbox></div>
+
+  <div class="actions">
+    <sp-button id="scan" variant="cta" size="s">Scan</sp-button>
+    <sp-action-button id="clear" size="s" quiet>Clear Markers</sp-action-button>
   </div>
-  <sp-progressbar id="progress" max="100" value="0" class="hidden"></sp-progressbar>
-  <div id="status"></div>
+  <div id="progressRow" class="hidden">
+    <sp-progressbar id="progress" size="s" max="100" value="0"></sp-progressbar>
+    <div id="progressLabel" class="muted">Scanning</div>
+  </div>
+
+  <div class="rule"></div>
+  <div class="heading">
+    <div class="title muted">RESULTS</div>
+    <div id="summary" class="muted"></div>
+  </div>
+  <div id="status" class="muted">Set In/Out on the sequence and press Scan.</div>
   <div id="results"></div>
   <div id="log"></div>
   <script src="index.js"></script>
