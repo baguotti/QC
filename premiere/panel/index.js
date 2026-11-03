@@ -60,11 +60,19 @@ function saveForm() {
   try { localStorage.setItem("linefinder", JSON.stringify(readForm())); } catch { /* not essential */ }
 }
 
+// Shows the hex field for Custom and paints the swatch next to the picker (dashed while a custom hex is incomplete).
 function updateHexField() {
-  $("hex").classList.toggle("hidden", readForm().targetChoice !== "custom");
+  const form = readForm();
+  $("hex").classList.toggle("hidden", form.targetChoice !== "custom");
+  const swatch = $("targetSwatch");
+  const valid = /^#[0-9A-F]{6}$/.test(form.target);
+  swatch.classList.toggle("any", form.anyColor);
+  swatch.classList.toggle("unset", !form.anyColor && !valid);
+  swatch.style.backgroundColor = !form.anyColor && valid ? form.target : "";
 }
 
 $("target").addEventListener("change", () => { updateHexField(); saveForm(); });
+$("hex").addEventListener("input", updateHexField);
 for (const id of ["hex", "sensitivity", "splits", "useInOut"]) $(id).addEventListener("change", saveForm);
 const showSensitivity = () => { $("sensitivityValue").textContent = String(Math.round(Number($("sensitivity").value))); };
 $("sensitivity").addEventListener("input", showSensitivity);
@@ -115,7 +123,7 @@ $("clear").addEventListener("click", async () => {
     return status("Premiere refused to remove the markers.");
   }
   if (shownSequence === String(sequence.guid)) {
-    $("results").textContent = "";
+    clearResults();
     summary("");
     shownSequence = null;
   }
@@ -158,7 +166,7 @@ async function scan() {
   $("progressLabel").textContent = "Scanning";
   $("progress").value = 0;
   $("progressRow").classList.remove("hidden");
-  $("results").textContent = "";
+  clearResults();
   const poll = setInterval(() => readProgress(data), 250);
   const t0 = Date.now();
   let ok;
@@ -307,26 +315,39 @@ async function replaceMarkers(project, sequence, range, segments, clock) {
 
 // Rows for the first MAX_ROWS segments (UXP lays out thousands of rows slowly); clicking one moves the playhead there,
 // bringing the scanned sequence to the front if another one is active.
+function clearResults() {
+  $("results").textContent = "";
+  $("columns").classList.add("hidden");
+}
+
+function cell(className, text) {
+  const el = document.createElement("div");
+  el.className = className;
+  el.textContent = text;
+  return el;
+}
+
 function showResults(project, sequence, segments, clock) {
   const list = $("results");
-  list.textContent = "";
+  clearResults();
   shownSequence = String(sequence.guid);
+  $("columns").classList.toggle("hidden", !segments.length);
   for (const s of segments.slice(0, MAX_ROWS)) {
     const row = document.createElement("div");
-    row.className = "result";
-    const swatch = document.createElement("div");
-    swatch.className = "swatch";
+    row.className = "row result";
+    const swatch = cell(s.offColor ? "swatch off" : "swatch", "");
     swatch.style.backgroundColor = s.color;
-    const name = document.createElement("div");
-    name.className = "name";
-    name.textContent = describe(s).replace(/(\d+)px$/, "$1 px");
-    const tc = document.createElement("div");
-    tc.className = "tc muted";
-    tc.textContent = timecode(s.startTicks, clock);
-    const frames = document.createElement("div");
-    frames.className = "frames muted";
-    frames.textContent = `${s.end - s.start + 1} fr`;
-    for (const el of [swatch, name, tc, frames]) row.appendChild(el);
+    const edge = cell("edge", EDGE_LABELS[s.edge] ?? s.edge);
+    if (s.offColor) {
+      const tag = document.createElement("span");
+      tag.className = "tag muted";
+      tag.textContent = "off-colour";
+      edge.appendChild(tag);
+    }
+    const frames = s.end - s.start + 1;
+    const cells = [swatch, edge, cell("size muted", `${s.thickness} px`), cell("tc", timecode(s.startTicks, clock)),
+                   cell("frames muted", `${frames} fr`)];
+    for (const el of cells) row.appendChild(el);
     row.title = detail(s, clock);
     row.addEventListener("click", () => {
       for (const r of list.querySelectorAll(".result.selected")) r.classList.remove("selected");
@@ -337,7 +358,7 @@ function showResults(project, sequence, segments, clock) {
   }
   if (segments.length > MAX_ROWS) {
     const more = document.createElement("div");
-    more.className = "muted";
+    more.className = "more muted";
     more.textContent = `+ ${segments.length - MAX_ROWS} more (see the markers)`;
     list.appendChild(more);
   }

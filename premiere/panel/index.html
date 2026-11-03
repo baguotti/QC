@@ -10,18 +10,26 @@
     @media (prefers-color-scheme: light), (prefers-color-scheme: lightest) {
       :root { --text: #1f1f1f; --text-muted: #5c5c5c; --rule: #c8c8c8; --hover: rgba(0, 0, 0, 0.07); }
     }
+    /* The page fills the panel and only the results list scrolls, so long result lists stay inside the panel. */
+    html, body { height: 100%; margin: 0; overflow: hidden; }
     body {
-      margin: 0;
-      padding: 10px 12px;
+      display: flex;
+      flex-direction: column;
+      box-sizing: border-box;
+      padding: 10px 12px 0;
       color: var(--text);
       font-size: 12px;
       line-height: 16px;
     }
+    body > * { flex-shrink: 0; }
     .muted { color: var(--text-muted); }
     .field { display: flex; flex-direction: row; align-items: center; height: 28px; }
     .field > .label { width: 76px; flex-shrink: 0; }
     .field > .control { flex: 1; }
     #hex { width: 84px; margin-left: 8px; }
+    #targetSwatch { width: 14px; height: 14px; margin-right: 8px; border-radius: 3px; flex-shrink: 0; border: 1px solid var(--rule); }
+    #targetSwatch.any { background-image: linear-gradient(135deg, #00ff00 0%, #00ff00 33%, #ff00ff 33%, #ff00ff 66%, #0000ff 66%); }
+    #targetSwatch.unset { background-color: transparent; border-style: dashed; border-color: var(--text-muted); }
     #sensitivityValue { width: 28px; text-align: right; flex-shrink: 0; }
     .check { height: 24px; display: flex; align-items: center; }
     .actions { display: flex; flex-direction: row; align-items: center; margin: 10px 0; }
@@ -34,12 +42,22 @@
     .heading .title { font-size: 11px; font-weight: bold; letter-spacing: 0.5px; }
     .heading #summary { font-size: 11px; }
     #status { padding: 4px 0; }
-    .result { display: flex; flex-direction: row; align-items: center; height: 24px; padding: 0 4px; border-radius: 3px; }
+    #results { flex-grow: 1; flex-shrink: 1; flex-basis: 0; min-height: 0; overflow-y: auto; padding-bottom: 10px; }
+    /* Columns: swatch | edge (takes the slack) | size | start | length, shared by the header and the rows. */
+    .row { display: flex; flex-direction: row; align-items: center; padding: 0 6px; }
+    .row > .edge { flex-grow: 1; flex-shrink: 1; flex-basis: 0; min-width: 0; overflow: hidden; white-space: nowrap; }
+    .row > .size { width: 40px; text-align: right; flex-shrink: 0; }
+    .row > .tc { width: 92px; text-align: right; flex-shrink: 0; font-family: monospace; font-size: 11px; }
+    .row > .frames { width: 44px; text-align: right; flex-shrink: 0; }
+    .columns { height: 18px; font-size: 10px; letter-spacing: 0.4px; border-bottom: 1px solid var(--rule); margin-bottom: 2px; }
+    .columns > .tc { font-family: inherit; font-size: 10px; }
+    .columns > .spacer { width: 10px; margin-right: 8px; flex-shrink: 0; }
+    .result { height: 24px; border-radius: 3px; }
     .result:hover, .result.selected { background-color: var(--hover); }
     .swatch { width: 10px; height: 10px; margin-right: 8px; border-radius: 2px; flex-shrink: 0; }
-    .result .name { flex: 1; }
-    .result .tc { font-family: monospace; font-size: 11px; margin-left: 8px; }
-    .result .frames { width: 44px; text-align: right; font-size: 11px; flex-shrink: 0; }
+    .swatch.off { width: 8px; height: 8px; border: 1px dashed var(--text-muted); }
+    .result .tag { font-size: 10px; margin-left: 6px; }
+    .more { padding: 6px; }
     .hidden { display: none; }
     #log { display: none; }
   </style>
@@ -47,6 +65,7 @@
 <body>
   <div class="field">
     <div class="label muted">Colour</div>
+    <div id="targetSwatch"></div>
     <sp-picker id="target" class="control" size="s">
       <sp-menu slot="options">
         <sp-menu-item value="#00FF00">Green</sp-menu-item>
@@ -84,6 +103,9 @@
     <div id="summary" class="muted"></div>
   </div>
   <div id="status" class="muted">Set In/Out on the sequence and press Scan.</div>
+  <div id="columns" class="row columns muted hidden">
+    <div class="spacer"></div><div class="edge">EDGE</div><div class="size">SIZE</div><div class="tc">START</div><div class="frames">LENGTH</div>
+  </div>
   <div id="results"></div>
   <div id="log"></div>
   <script src="index.js"></script>
