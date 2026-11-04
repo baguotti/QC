@@ -131,6 +131,8 @@ final class KeyboardShortcutRouter {
         // SwiftUI sheets (Move to, Share, New Project…) own the keyboard too: Esc and Return reach their buttons, and
         // ⌘Z / ⌘A / ⌘V don't act on the window behind them.
         if NSApp?.keyWindow?.sheetParent != nil { return event }
+        // The popped-out Delivery Plan window: its keys are its own (Space mustn't start playback behind it).
+        if NSApp?.keyWindow?.identifier?.rawValue.hasPrefix(DeliveryPlanWindow.id) == true { return event }
 
         // 1. Text Field Responder Check (ESC or Return unfocuses)
         if let app = NSApp,
@@ -832,7 +834,7 @@ extension KeyboardShortcutRouter {
             Rule(
                 id: "toggleRightSleeve",
                 trigger: ShortcutTrigger(keyCodes: [124], modifiers: [.command, .shift]),
-                scope: .playerOrUpload
+                scope: .playerSpecsOrUpload
             ) {
                 actions.onToggleRightSleeve()
                 return true

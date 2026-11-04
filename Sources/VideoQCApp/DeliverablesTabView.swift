@@ -50,6 +50,13 @@ extension ContentView {
                         .foregroundColor(textMuted)
                     
                     Spacer()
+
+                    if !showInspectPlan {
+                        SleeveToggle(side: .trailing, isOpen: false, isLightMode: isLightMode,
+                                     help: "Reveal the Delivery Plan (⌘⇧→).") {
+                            showInspectPlan = true
+                        }
+                    }
                 }
                 .headerBand(palette)
                 
@@ -86,8 +93,18 @@ extension ContentView {
                     )
                 }
             }
+
+            // Right drawer: the Delivery Plan (it can also pop out into its own window).
+            if showInspectPlan {
+                DeliveryPlanPanel(placement: .drawer, isLightMode: isLightMode, onClose: { showInspectPlan = false })
+                    .frame(width: ContentView.inspectPlanWidth)
+                    .overlay(Rectangle().fill(borderLine).frame(width: 1), alignment: .leading)
+                    .transition(.move(edge: .trailing).combined(with: .opacity))
+            }
         }
     }
+
+    static let inspectPlanWidth: CGFloat = 400
     
     /// Opens a cross-check result: load the file in the player at that line with the Subtitles panel open.
     func openSubtitleDifference(video: URL, seconds: Double) {

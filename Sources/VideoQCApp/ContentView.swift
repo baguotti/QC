@@ -25,6 +25,8 @@ struct ContentView: View {
     @State var unseenSyncedNoteIDs: Set<UUID> = []
     @State var showPlayerQueue: Bool = UserPreferences.showQueue
     @State var showSpecsControlPanel: Bool = true
+    /// Inspect's right drawer: the Delivery Plan.
+    @AppStorage("inspectPlanOpen") var showInspectPlan: Bool = false
     @AppStorage("reviewerName") var reviewerName: String = ""
     @AppStorage("queueDisplayMode") var queueDisplayMode: String = "inline"
     @AppStorage("playerThumbnailSize") var playerThumbnailSize: Double = 52.0
@@ -203,6 +205,7 @@ struct ContentView: View {
             .animation(Motion.sleeve, value: showNotesDrawer)
             .animation(Motion.sleeve, value: showPlayerQueue)
             .animation(Motion.sleeve, value: showSpecsControlPanel)
+            .animation(Motion.sleeve, value: showInspectPlan)
             .animation(Motion.fade, value: fullscreenMode)
             .animation(Motion.toast, value: toastMessage)
     }
@@ -275,6 +278,20 @@ struct ContentView: View {
             }
             .onReceive(NotificationCenter.default.publisher(for: NotesSync.didMergeRemoteNotes)) { notification in
                 if let change = notification.object as? NotesSync.Change { applySyncedNotes(change) }
+            }
+            // The Delivery Plan matches rows against Inspect's measured files (its own matching runs off the main thread).
+            .task(id: specsState.assetsVersion) { DeliveryPlanStore.shared.setAssets(specsState.deliverableAssets) }
+            .onReceive(NotificationCenter.default.publisher(for: DeliveryPlanStore.revealFile)) { notification in
+                guard let url = notification.object as? URL else { return }
+                NSApp.windows.first { $0.identifier?.rawValue.hasPrefix("main") == true }?.makeKeyAndOrderFront(nil)
+                withAnimation(Motion.snap) { selectedTab = .specs }
+                specsState.selectedDeliverableURL = url
+            }
+            .onReceive(NotificationCenter.default.publisher(for: DeliveryPlanStore.playFile)) { notification in
+                guard let url = notification.object as? URL else { return }
+                NSApp.windows.first { $0.identifier?.rawValue.hasPrefix("main") == true }?.makeKeyAndOrderFront(nil)
+                withAnimation(Motion.snap) { selectedTab = .player }
+                playerEngine.loadVideo(url: url, into: .slotA, autoplay: false)
             }
             .onReceive(NotificationCenter.default.publisher(for: DownloadQueue.addToQueue)) { notification in
                 if let urls = notification.object as? [URL], !urls.isEmpty { loadAssets(urls, append: true) }
@@ -1737,6 +1754,8 @@ struct ContentView: View {
                         }
                         self.showNotesDrawer.toggle()
                     }
+                } else if self.selectedTab == .specs {
+                    self.showInspectPlan.toggle()
                 } else if self.selectedTab == .upload {
                     // The Upload tab's drawer (Media Info, Downloads, Log), as its header chevron does.
                     withAnimation(Motion.sleeve) {

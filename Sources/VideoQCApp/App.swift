@@ -107,6 +107,8 @@ struct QCpieApp: App {
                 }
             }
             CommandMenu("View") {
+                OpenDeliveryPlanButton()
+                Divider()
                 Button("Increase Button Size") {
                     _ = ThemeManager.shared.increaseButtonZoom()
                 }
@@ -118,5 +120,21 @@ struct QCpieApp: App {
                 .keyboardShortcut("-", modifiers: .command)
             }
         }
+
+        // Popped-out Delivery Plan (Inspect drawer ⇄ its own window, any screen; SwiftUI remembers its frame).
+        // Declared after the main window: SwiftUI opens the first `Window` scene at launch.
+        Window("Delivery Plan", id: DeliveryPlanWindow.id) {
+            DeliveryPlanWindow()
+        }
+        .defaultSize(width: 560, height: 780)
+    }
+}
+
+/// View → Delivery Plan Window.
+private struct OpenDeliveryPlanButton: View {
+    @Environment(\.openWindow) private var openWindow
+    var body: some View {
+        Button("Delivery Plan Window") { openWindow(id: DeliveryPlanWindow.id) }
+            .keyboardShortcut("d", modifiers: [.command, .option])
     }
 }

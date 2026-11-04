@@ -295,7 +295,7 @@ public final class SpecsState: ObservableObject {
     }
     
     /// Bumped on every change to `deliverableAssets` (cheap key for `displayedAssets`).
-    private var assetsVersion = 0
+    private(set) var assetsVersion = 0
     private struct DisplayKey: Equatable {
         let version: Int, filter: String, mask: Int, column: String, ascending: Bool
     }

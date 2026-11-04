@@ -86,6 +86,7 @@ struct UserGuideView: View {
             GuideShortcut(["Esc"], "Exit full screen / close a window"),
             GuideShortcut(["⌘⇧←", "⌘⇧→"], "Show / hide the left and right panels"),
             GuideShortcut(["⇧1", "⇧2", "⇧3", "⇧4"], "Play · Inspect · Scan · Upload"),
+            GuideShortcut(["⌥⌘D"], "Delivery Plan window"),
             GuideShortcut(["⌘,"], "User Settings"),
             GuideShortcut(["⌘+", "⌘−"], "Button size"),
             GuideShortcut(["T"], "Light / dark mode"),
@@ -128,6 +129,7 @@ struct UserGuideView: View {
             GuideTopic(title: "Media Info (⌘I)", body: "Opens the full technical breakdown of the selected file: tracks, codecs, bitrates and audio channels."),
             GuideTopic(title: "Export", body: "Sheets copies the table for Google Sheets (paste with ⌘V), Save CSV writes a spreadsheet, Open HTML builds a printable specs sheet. Reveal in Finder shows the selected file."),
             GuideTopic(title: "Hide Panel (⌘⇧←)", body: "Shows or hides the Specs actions panel to give the table the full width."),
+            GuideTopic(title: "Delivery Plan (⌘⇧→)", body: "Link the Google Sheet that lists every deliverable (shared as Anyone with the link). QCpie re-reads it every minute while the plan is open, highlights rows that changed since you last looked, and matches each row to the Inspect file whose name contains the row's file name, checking resolution, length, frame rate, format, file size and sound. Rows show Missing, Delivered, Wrong Spec or Check; files no row names are listed as Not in the Plan. Click a row to select its file in Inspect, double-click to play it. The window button opens the plan in its own window, for a second screen (⌥⌘D)."),
         ]),
         GuideChapter(title: "Scan", icon: "viewfinder", topics: [
             GuideTopic(title: "Line Check", body: "Scans every frame's edges for thin coloured lines left by a bad crop, reframe or matte. Results list each line with its edge, thickness, timecode range and a thumbnail; click one to open it in the Player."),
