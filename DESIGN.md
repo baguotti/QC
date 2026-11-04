@@ -20,6 +20,7 @@ If two existing styles conflict and neither is clearly the standard, ask the use
 | Icon / SF Symbol | `.font(.system(size: StudioTheme.scaleFont(N), weight:))` | unscaled sizes |
 | Control frame | `StudioTheme.scale(N)` | raw points for hit areas |
 | Colour | `StudioPalette(isLightMode)`: `bgMain`, `bgPanel`, `bgSubtle`, `bgCardHeader`, `bgCardSubtle`, `borderLine`, `borderStrong`, `textMain`, `textMuted`, `textSubtle`, `accentBlue` (the user's accent), `positive`, `negative`/`alertRed`, `accentSlotB`, `primaryBtnBg`/`primaryBtnFg` | `Color(red:…)`, `.blue`, `.gray` |
+| Status tag colour (plan states only) | `TagTone` (Theme.swift) via `PlanRowView.color` | accents, raw colours |
 | Corner radius | `Radius.control` (4: buttons, fields, rows, boxes), `Radius.segment` (6: segment in a pill), `Radius.container` (8: pill, card, floating panel) | other numbers |
 | Animation | `Motion.sleeve` (side panel in/out), `.page` (switching a drawer's tab), `.snap` (main tab switch, drop into place), `.list` (rows added/removed, expand, scroll-to, notices), `.fade` (modal/popover), `.hover`, `.toast`, `.press` | `.easeInOut(…)`, `.spring(…)`, bare `withAnimation {` |
 
@@ -42,6 +43,7 @@ If two existing styles conflict and neither is clearly the standard, ask the use
 - `SleeveToggle(side:isOpen:isLightMode:help:action:)`: the only chevron for showing and hiding a side panel. It is placed in the header band (leading for the left panel, trailing for the drawer) and animates with `Motion.sleeve`.
 - `DrawerCloseButton`: the ✕ next to a drawer's tab pill.
 - `TransportIconButtonStyle`: icon buttons in headers and transport bars. `ToolHover` (`FrameIOBrowserView.swift`): Finder-style toolbar buttons inside the Frame.io browser.
+- `PlanFilterChip` (`DeliveryPlanPanel.swift`): status-dot filter chips with counts (Delivery Plan and Inspect).
 - `PanelResizeHandle`, `.headerBand`, `.studioBox`, `sectionHeader`, `statBox`, `MediaInfoPanel`, `SidebarModalShell` (settings-style modals).
 - Feedback: `showToast` / `onToast` for results ("Copied link", "3 files queued"). An `NSAlert` sheet for anything destructive, where Return cancels and the destructive button names the action. Empty states have a title and one sentence saying what to do (see `MediaInfoPanel`'s `emptyTitle`/`emptyMessage`).
 

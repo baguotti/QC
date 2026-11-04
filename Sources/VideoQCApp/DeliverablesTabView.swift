@@ -96,15 +96,16 @@ extension ContentView {
 
             // Right drawer: the Delivery Plan (it can also pop out into its own window).
             if showInspectPlan {
-                DeliveryPlanPanel(placement: .drawer, isLightMode: isLightMode, onClose: { showInspectPlan = false })
-                    .frame(width: ContentView.inspectPlanWidth)
-                    .overlay(Rectangle().fill(borderLine).frame(width: 1), alignment: .leading)
+                InspectPlanDrawer(isLightMode: isLightMode, onClose: { showInspectPlan = false })
                     .transition(.move(edge: .trailing).combined(with: .opacity))
             }
         }
+        // Inspect shows plan status per file, so the plan is kept current while this tab is open (cheap: a change
+        // check every 10 s with the script, see DeliveryPlanStore).
+        .onAppear { DeliveryPlanStore.shared.panelAppeared() }
+        .onDisappear { DeliveryPlanStore.shared.panelDisappeared() }
     }
 
-    static let inspectPlanWidth: CGFloat = 400
     
     /// Opens a cross-check result: load the file in the player at that line with the Subtitles panel open.
     func openSubtitleDifference(video: URL, seconds: Double) {
@@ -158,6 +159,127 @@ extension ContentView {
         .studioBox(background: bgSubtle, border: borderLine)
     }
     
+    /// Search above the table (the same text as the left panel's), like the plan's: names, paths and plan rows.
+    var inspectSearchBar: some View {
+        HStack(spacing: 6) {
+            Image(systemName: "magnifyingglass")
+                .font(.system(size: StudioTheme.scaleFont(10)))
+                .foregroundColor(textMuted)
+            ZStack(alignment: .leading) {
+                if specsState.specsFilterText.isEmpty {
+                    Text(planFiles.isEmpty ? "Filter files…" : "Filter files (name, code, channel, resolution…)")
+                        .font(.ui(size: 11, weight: .semibold))
+                        .foregroundColor(textMuted)
+                        .allowsHitTesting(false)
+                }
+                TextField("", text: $specsState.specsFilterText)
+                    .font(.ui(size: 11, weight: .medium))
+                    .textFieldStyle(.plain)
+                    .foregroundColor(textMain)
+                    .padding(.horizontal, 4)
+            }
+            if !specsState.specsFilterText.isEmpty {
+                Button(action: { specsState.specsFilterText = "" }) {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.system(size: StudioTheme.scaleFont(10)))
+                        .foregroundColor(textMuted)
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 6)
+        .studioBox(background: bgSubtle, border: borderLine)
+        .frame(maxWidth: 420)
+    }
+
+    /// The Delivery Plan's filter chips, as in the plan: % done, All, a chip per state with its file count, Not in Plan.
+    var inspectPlanChips: some View {
+        let counts = Dictionary(grouping: specsState.deliverableAssets.compactMap { planFiles[$0.fileURL] }, by: { $0.state })
+            .mapValues(\.count)
+        let total = specsState.deliverableAssets.count
+        let done = PlanState.allCases.filter(\.isDone).reduce(0) { $0 + (counts[$1] ?? 0) }
+        let live = total - (counts[.dropped] ?? 0) - (counts[nil] ?? 0)
+        let palette = StudioPalette(isLightMode)
+        return FlowChips(spacing: 4) {
+            if live > 0 {
+                Text("\(Int((Double(done) / Double(live) * 100).rounded(.down)))% done")
+                    .font(.ui(size: 10, weight: .semibold))
+                    .foregroundColor(palette.positive)
+                    .monospacedDigit()
+                    .padding(.vertical, 3)
+            }
+            PlanFilterChip(title: "All \(total)", selected: inspectPlanFilter == -1, color: palette.textMuted, isLightMode: isLightMode) {
+                inspectPlanFilter = -1
+            }
+            ForEach(PlanState.allCases, id: \.self) { state in
+                if let n = counts[state], n > 0 {
+                    PlanFilterChip(title: "\(state.title) \(n)", selected: inspectPlanFilter == state.rawValue,
+                                   color: PlanRowView.color(state, palette), isLightMode: isLightMode) {
+                        inspectPlanFilter = inspectPlanFilter == state.rawValue ? -1 : state.rawValue
+                    }
+                }
+            }
+            if let n = counts[nil], n > 0 {
+                PlanFilterChip(title: "Not in Plan \(n)", selected: inspectPlanFilter == -2, color: palette.textSubtle, isLightMode: isLightMode) {
+                    inspectPlanFilter = inspectPlanFilter == -2 ? -1 : -2
+                }
+            }
+            LinkFiltersButton(isLightMode: isLightMode) {
+                DeliveryPlanStore.SharedFilter(state: inspectPlanFilter, search: specsState.specsFilterText)
+            }
+        }
+    }
+
+    /// "Columns" in the table's header menu.
+    var columnsMenu: some View {
+        Menu("Columns") { columnsMenuItems }
+    }
+
+    @ViewBuilder
+    var columnsMenuItems: some View {
+        ForEach(SpecsSortColumn.allCases.filter { $0 != .name }, id: \.self) { column in
+            Toggle(column.displayName, isOn: Binding(get: { specsState.isColumnVisible(column) },
+                                                     set: { specsState.setColumnVisible(column, $0) }))
+        }
+        if !specsState.hiddenColumns.isEmpty {
+            Divider()
+            Button("Show All Columns") { specsState.hiddenColumns = [] }
+        }
+        Divider()
+        Menu("Templates") {
+            ForEach(SpecsState.builtInTemplates + specsState.columnTemplates) { template in
+                Button(template.name) { specsState.applyColumnTemplate(template) }
+            }
+            Divider()
+            Button("Save Current Columns as Template…") { saveColumnTemplate() }
+            if !specsState.columnTemplates.isEmpty {
+                Menu("Delete Template") {
+                    ForEach(specsState.columnTemplates) { template in
+                        Button(template.name) { specsState.deleteColumnTemplate(named: template.name) }
+                    }
+                }
+            }
+        }
+    }
+
+    /// Asks for a name and saves the visible columns and widths.
+    func saveColumnTemplate() {
+        let alert = NSAlert()
+        alert.messageText = "Save Column Template"
+        alert.informativeText = "Saves which columns are shown and their widths. A template with the same name is replaced."
+        let field = NSTextField(frame: NSRect(x: 0, y: 0, width: 240, height: 24))
+        field.placeholderString = "Template name"
+        alert.accessoryView = field
+        alert.addButton(withTitle: "Save")
+        alert.addButton(withTitle: "Cancel")
+        alert.window.initialFirstResponder = field
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+        let name = field.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty, !SpecsState.builtInTemplates.contains(where: { $0.name == name }) else { return }
+        specsState.saveColumnTemplate(named: name)
+    }
+
     // MARK: - Left Panel: 02 SPECS ACTIONS
     
     private var specsActionsSection: some View {
@@ -505,6 +627,23 @@ extension ContentView {
                     }
                     .explain(isFoldersHidden ? "Show all folder headers in asset lists." : "Hide folder headers and display assets in a flat list.")
                     
+                    // Columns: show / hide
+                    Menu { columnsMenuItems } label: {
+                        HStack(spacing: 4) {
+                            Image(systemName: "rectangle.split.3x1")
+                                .font(.system(size: StudioTheme.scaleFont(8.5), weight: .bold))
+                            Text("Columns")
+                                .font(.ui(size: 10, weight: .semibold))
+                        }
+                        .foregroundColor(specsState.hiddenColumns.isEmpty ? textMain : accentBlue)
+                    }
+                    .menuStyle(.borderlessButton)
+                    .menuIndicator(.hidden)
+                    .fixedSize()
+                    .padding(.horizontal, 8)
+                    .frame(height: 24)
+                    .explain("Show or hide Inspect's columns.")
+
                     // Button 3: List / Thumbs (Direct Toggle + Chevron Popover)
                     HStack(spacing: 0) {
                         Button(action: {
@@ -548,6 +687,14 @@ extension ContentView {
                 .padding(.bottom, 4)
             }
             
+            if !specsState.deliverableAssets.isEmpty {
+                VStack(alignment: .leading, spacing: 6) {
+                    inspectSearchBar
+                    if !planFiles.isEmpty { inspectPlanChips }
+                }
+                .padding(.bottom, 6)
+            }
+
             // Table
             GeometryReader { tableGeo in
                 let geoWidth = floor(tableGeo.size.width)
@@ -565,15 +712,17 @@ extension ContentView {
                             }
                             
                             sortableHeaderCell("File Name", column: .name, alignment: .leading)
-                            sortableHeaderCell("Timecode (TC)", column: .timecode)
-                            sortableHeaderCell("End Frame", column: .endFrame)
-                            sortableHeaderCell("Ratio & Size", column: .ratio)
-                            sortableHeaderCell("FPS", column: .fps)
-                            sortableHeaderCell("File Size", column: .size)
-                            sortableHeaderCell("Created", column: .date)
-                            sortableHeaderCell("Video", column: .videoCodec)
-                            sortableHeaderCell("Audio Spec", column: .audioCodec)
-                            sortableHeaderCell("Path", column: .path, customWidth: pathColWidth, alignment: .leading, isResizable: false)
+                            if specsState.isColumnVisible(.timecode) { sortableHeaderCell("Timecode (TC)", column: .timecode) }
+                            if specsState.isColumnVisible(.endFrame) { sortableHeaderCell("End Frame", column: .endFrame) }
+                            if specsState.isColumnVisible(.ratio) { sortableHeaderCell("Ratio & Size", column: .ratio) }
+                            if specsState.isColumnVisible(.fps) { sortableHeaderCell("FPS", column: .fps) }
+                            if specsState.isColumnVisible(.size) { sortableHeaderCell("File Size", column: .size) }
+                            if specsState.isColumnVisible(.date) { sortableHeaderCell("Created", column: .date) }
+                            if specsState.isColumnVisible(.videoCodec) { sortableHeaderCell("Video", column: .videoCodec) }
+                            if specsState.isColumnVisible(.audioCodec) { sortableHeaderCell("Audio Spec", column: .audioCodec) }
+                            if specsState.isColumnVisible(.path) {
+                                sortableHeaderCell("Path", column: .path, customWidth: pathColWidth, alignment: .leading, isResizable: false)
+                            }
                         }
                         .font(.ui(size: 10, weight: .semibold))
                         .foregroundColor(textMuted)
@@ -582,7 +731,13 @@ extension ContentView {
                         .frame(width: availableWidth, alignment: .leading)
                         .background(bgCardHeader)
                         .contextMenu {
+                            columnsMenu
                             Menu("Sort By") {
+                                if !planFiles.isEmpty {
+                                    Button("Plan Order") { inspectPlanSort = 1 }
+                                    Button("Plan Status") { inspectPlanSort = 2 }
+                                    Divider()
+                                }
                                 ForEach(SpecsSortColumn.allCases, id: \.self) { col in
                                     Button(action: {
                                         toggleSpecsSort(col)
@@ -605,6 +760,7 @@ extension ContentView {
                         Rectangle().fill(borderLine).frame(width: availableWidth, height: 1)
                         
                         // Table Rows
+                        ScrollViewReader { proxy in
                         ScrollView(.vertical) {
                             LazyVStack(spacing: 0) {
                                 let assetMap = deliverableAssetsMap
@@ -640,7 +796,7 @@ extension ContentView {
                                     let _ = { specsState.currentDisplayOrder = displayOrder }()
                                     // Rows re-render only when something they show changes (like the Player queue):
                                     // a click then updates the 1–2 rows whose selection flipped, not the whole table.
-                                    let columnWidths = SpecsSortColumn.allCases.map { specsState.columnWidth(for: $0) }
+                                    let columnWidths = SpecsSortColumn.allCases.map { specsState.isColumnVisible($0) ? specsState.columnWidth(for: $0) : -1 }
                                     let themeKey = "\(isLightMode)_\(themeManager.currentTheme.id)_\(themeManager.currentTheme.playHex)_\(themeManager.buttonZoom)"
                                     let multiSelectionKey = specsState.selectedDeliverableURLs.count > 1
                                         ? specsState.selectedDeliverableURLs.hashValue &+ tagsVersion &* 31 &+ specsState.subtitleURLs.count : 0
@@ -667,7 +823,8 @@ extension ContentView {
                                                 displayMode: specsDisplayMode,
                                                 thumbnailWidth: specsThumbnailWidth,
                                                 themeKey: themeKey,
-                                                menuContext: isSelected ? multiSelectionKey : 0
+                                                menuContext: isSelected ? multiSelectionKey : 0,
+                                                plan: planFiles[asset.fileURL]
                                             )) {
                                                 deliverablesAssetRow(idx: assetIndexMap[node.url] ?? idx, asset: asset, depth: node.depth, pathWidth: pathColWidth, rowWidth: availableWidth, displayOrder: displayOrder, isTreeLayout: isTreeLayout)
                                             }
@@ -682,6 +839,12 @@ extension ContentView {
                             }
                             // Rebuild rows when the display mode / thumbnail size changes.
                             .id("\(specsDisplayMode)_\(Int(specsThumbnailWidth))")
+                        }
+                        .onReceive(NotificationCenter.default.publisher(for: SpecsState.scrollToFile)) { notification in
+                            guard let url = notification.object as? URL,
+                                  let id = deliverableRows.first(where: { $0.url == url })?.id else { return }
+                            withAnimation(Motion.list) { proxy.scrollTo(id, anchor: .center) }
+                        }
                         }
                     }
                     .frame(width: availableWidth, alignment: .leading)
@@ -728,23 +891,18 @@ extension ContentView {
     
     var specsTableMinWidth: CGFloat {
         let previewWidth: CGFloat = CGFloat(specsThumbnailWidth)
+        // Visible columns only (each adds its width and the 8 pt row spacing).
+        let others = SpecsSortColumn.allCases.filter { $0 != .name && specsState.isColumnVisible($0) }
         let otherColumnsWidth: CGFloat = 25 + previewWidth +
-            CGFloat(specsState.columnWidth(for: .timecode)) +
-            CGFloat(specsState.columnWidth(for: .ratio)) +
-            CGFloat(specsState.columnWidth(for: .fps)) +
-            CGFloat(specsState.columnWidth(for: .size)) +
-            CGFloat(specsState.columnWidth(for: .date)) +
-            CGFloat(specsState.columnWidth(for: .videoCodec)) +
-            CGFloat(specsState.columnWidth(for: .audioCodec)) +
-            CGFloat(specsState.columnWidth(for: .endFrame)) +
-            CGFloat(specsState.columnWidth(for: .path)) +
-            (8 * 12) + 28
+            others.reduce(0) { $0 + CGFloat(specsState.columnWidth(for: $1)) } +
+            CGFloat(8 * (others.count + 3)) + 28
         return CGFloat(effectiveFileNameColumnWidth) + otherColumnsWidth
     }
     
     // MARK: - Finder-Style Column Sorting & Resizing Helpers
     
     func toggleSpecsSort(_ column: SpecsSortColumn) {
+        inspectPlanSort = 0
         withAnimation(Motion.fade) {
             specsState.toggleSpecsSort(column)
         }
@@ -831,7 +989,19 @@ extension ContentView {
     var specsKindMask: Int { MediaKindFilter.effectiveMask(mediaKindFilter, present: specsPresentKinds) }
     
     var filteredDeliverableAssets: [DeliverableAsset] {
-        specsState.displayedAssets(filter: specsState.specsFilterText.trimmingCharacters(in: .whitespacesAndNewlines), mask: specsKindMask)
+        let files = planFiles, filter = inspectPlanFilter
+        return specsState.displayedAssets(
+            filter: specsState.specsFilterText.trimmingCharacters(in: .whitespacesAndNewlines), mask: specsKindMask,
+            planKey: files.isEmpty ? "" : "\(filter)|\(planFilesVersion)|\(inspectPlanSort)",
+            planAllows: filter == -1 || files.isEmpty ? nil : { url in
+                guard let info = files[url] else { return filter == -2 }
+                return filter == -2 ? info.state == nil : info.state?.rawValue == filter
+            },
+            planText: files.isEmpty ? nil : { files[$0]?.text },
+            planSort: files.isEmpty || inspectPlanSort == 0 ? nil : { [sort = inspectPlanSort] url in
+                guard let info = files[url], let state = info.state else { return Int.max }   // not in the plan: last
+                return sort == 1 ? info.line : state.rawValue * 100_000 + info.line
+            })
     }
     
     var deliverablesTree: [FileSystemTreeNode] {
@@ -1026,6 +1196,78 @@ extension ContentView {
         }
     }
     
+    /// The Audio Spec cell (its own function: inline, the row was too much for the type checker).
+    @ViewBuilder
+    private func audioCell(_ asset: DeliverableAsset, isDismissed: Bool) -> some View {
+        if !asset.hasAudio {
+            Text("None")
+                .font(.ui(size: 10, weight: .semibold))
+                .foregroundColor(textMuted)
+                .frame(width: CGFloat(specsState.columnWidth(for: .audioCodec)), alignment: .center)
+        } else {
+            VStack(alignment: .center, spacing: 3) {
+                HStack(spacing: 4) {
+                    Text(asset.audioCodec)
+                        .font(.ui(size: 11, weight: .semibold))
+                        .foregroundColor(textMain)
+                    if asset.audioBitrate != "--" {
+                        Text(asset.audioBitrate)
+                            .font(.ui(size: 10, weight: .semibold))
+                            .padding(.horizontal, 4)
+                            .padding(.vertical, 1)
+                            .foregroundColor(textSubtle)
+                            .studioBox(background: bgSubtle, border: borderLine)
+                    }
+                }
+
+                if asset.validation.isAudioMute {
+                    HStack(spacing: 3) {
+                        Image(systemName: "speaker.slash.fill")
+                            .font(.system(size: StudioTheme.scaleFont(7), weight: .bold))
+                        Text(asset.validation.audioMuteDetail ?? "Mute")
+                            .font(.ui(size: 10, weight: .semibold))
+                    }
+                    .padding(.horizontal, 5)
+                    .padding(.vertical, 1.5)
+                    .foregroundColor(alertRed)
+                    .background(alertRed.opacity(0.12))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 3)
+                            .stroke(alertRed.opacity(0.35), lineWidth: 0.8)
+                    )
+                    .cornerRadius(3)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
+                    .help("Audio Track is Mute: \(asset.audioLevelString) (Codec: \(asset.audioCodec))")
+                } else if let loudness = asset.loudness {
+                    let result = loudnessTarget.evaluate(loudness)
+                    HStack(spacing: 3) {
+                        if result.verdict != .pass {
+                            Image(systemName: result.verdict == .fail ? "exclamationmark.triangle.fill" : "exclamationmark.circle")
+                                .font(.system(size: StudioTheme.scaleFont(7), weight: .bold))
+                        }
+                        Text(loudness.summary)
+                            .font(.ui(size: 10, weight: .semibold))
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.8)
+                    }
+                    .foregroundColor(loudnessColor(result.verdict))
+                } else {
+                    HStack(spacing: 4) {
+                        if !asset.audioFormatDetail.isEmpty {
+                            Text(asset.audioFormatDetail)
+                                .font(.ui(size: 10, weight: .medium))
+                                .foregroundColor(textMuted)
+                                .lineLimit(1)
+                        }
+                    }
+                }
+            }
+            .frame(width: CGFloat(specsState.columnWidth(for: .audioCodec)), alignment: .center)
+            .help(loudnessHelp(for: asset))
+        }
+    }
+
     private func deliverablesAssetRow(
         idx: Int,
         asset: DeliverableAsset,
@@ -1086,6 +1328,10 @@ extension ContentView {
                     .truncationMode(.middle)
                     .foregroundColor(isSelected ? textMain : (hasMismatch ? alertRed : textMain))
                     .help(asset.fileName)
+
+                if let plan = planFiles[asset.fileURL] {
+                    PlanPill(info: plan, isLightMode: isLightMode)
+                }
                 
                 Button(action: {
                     specsState.selectedDeliverableURL = asset.fileURL
@@ -1100,207 +1346,158 @@ extension ContentView {
             }
             .frame(width: CGFloat(effectiveFileNameColumnWidth), alignment: .leading)
             
-            // Timecode Cell with Warning
-            VStack(alignment: .center, spacing: 3) {
-                Text(asset.timecode)
-                    .foregroundColor((asset.validation.isDurationMismatch && !isDismissed) ? alertRed : textSubtle)
-                    .fontWeight((asset.validation.isDurationMismatch && !isDismissed) ? .bold : .regular)
-                
-                if let detail = asset.validation.durationMismatchDetail {
-                    HStack(spacing: 3) {
-                        Image(systemName: isDismissed ? "checkmark.circle" : "exclamationmark.triangle.fill")
-                            .font(.system(size: StudioTheme.scaleFont(7), weight: .bold))
-                        Text(isDismissed ? "\(detail) (dismissed)" : detail)
-                            .font(.ui(size: 10, weight: isDismissed ? .medium : .semibold))
-                        
-                        Button(action: {
-                            specsState.toggleDismissMismatch(for: asset.fileURL)
-                        }) {
-                            Image(systemName: isDismissed ? "arrow.uturn.backward" : "xmark")
-                                .font(.system(size: StudioTheme.scaleFont(7), weight: .heavy))
-                                .foregroundColor(isDismissed ? textMuted : alertRed)
-                                .padding(1)
-                        }
-                        .buttonStyle(.plain)
-                        .help(isDismissed ? "Restore Mismatch Flag" : "Dismiss Mismatch Flag")
-                    }
-                    .padding(.horizontal, 5)
-                    .padding(.vertical, 1.5)
-                    .foregroundColor(isDismissed ? textMuted : alertRed)
-                    .background(isDismissed ? bgSubtle : alertRed.opacity(0.12))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 3)
-                            .stroke(isDismissed ? borderLine : alertRed.opacity(0.35), lineWidth: 0.8)
-                    )
-                    .cornerRadius(3)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.8)
-                    .help("Duration Mismatch: \(detail) (Actual Timecode: \(asset.timecode))\(isDismissed ? " [Dismissed]" : "")")
-                }
-            }
-            .frame(width: CGFloat(specsState.columnWidth(for: .timecode)), alignment: .center)
-            
-            endFrameCell(asset.endFrame)
-                .frame(width: CGFloat(specsState.columnWidth(for: .endFrame)), alignment: .center)
-            
-            // Ratio Cell with Warning
-            VStack(alignment: .center, spacing: 3) {
-                HStack(spacing: 4) {
-                    Text(asset.aspectRatioString)
-                        .font(.ui(size: 10, weight: .semibold))
-                        .padding(.horizontal, 4)
-                        .padding(.vertical, 2)
-                        .foregroundColor((asset.validation.isRatioMismatch && !isDismissed) ? .white : textMain)
-                        .studioBox(
-                            background: (asset.validation.isRatioMismatch && !isDismissed) ? alertRed : bgSubtle,
-                            border: (asset.validation.isRatioMismatch && !isDismissed) ? alertRed : borderLine
-                        )
-                    
-                    Text(asset.resolutionString)
-                        .foregroundColor(textSubtle)
-                }
-                
-                if let detail = asset.validation.ratioMismatchDetail {
-                    HStack(spacing: 3) {
-                        Image(systemName: isDismissed ? "checkmark.circle" : "exclamationmark.triangle.fill")
-                            .font(.system(size: StudioTheme.scaleFont(7), weight: .bold))
-                        Text(isDismissed ? "\(detail) (dismissed)" : detail)
-                            .font(.ui(size: 10, weight: isDismissed ? .medium : .semibold))
-                        
-                        Button(action: {
-                            specsState.toggleDismissMismatch(for: asset.fileURL)
-                        }) {
-                            Image(systemName: isDismissed ? "arrow.uturn.backward" : "xmark")
-                                .font(.system(size: StudioTheme.scaleFont(7), weight: .heavy))
-                                .foregroundColor(isDismissed ? textMuted : alertRed)
-                                .padding(1)
-                        }
-                        .buttonStyle(.plain)
-                        .help(isDismissed ? "Restore Mismatch Flag" : "Dismiss Mismatch Flag")
-                    }
-                    .padding(.horizontal, 5)
-                    .padding(.vertical, 1.5)
-                    .foregroundColor(isDismissed ? textMuted : alertRed)
-                    .background(isDismissed ? bgSubtle : alertRed.opacity(0.12))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 3)
-                            .stroke(isDismissed ? borderLine : alertRed.opacity(0.35), lineWidth: 0.8)
-                    )
-                    .cornerRadius(3)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.8)
-                    .help("Aspect Ratio Mismatch: \(detail) (Actual Resolution: \(asset.resolutionString))\(isDismissed ? " [Dismissed]" : "")")
-                }
-            }
-            .frame(width: CGFloat(specsState.columnWidth(for: .ratio)), alignment: .center)
-            
-            Text(asset.fps > 0 ? String(format: "%.2f", asset.fps) : "--")
-                .frame(width: CGFloat(specsState.columnWidth(for: .fps)), alignment: .center)
-                .foregroundColor(textSubtle)
-            
-            Text(asset.formattedFileSize)
-                .frame(width: CGFloat(specsState.columnWidth(for: .size)), alignment: .center)
-                .fontWeight(.semibold)
-            
-            // Creation Date Column
-            Text(asset.formattedCreationDate)
-                .font(.ui(size: 10))
-                .foregroundColor(textSubtle)
-                .frame(width: CGFloat(specsState.columnWidth(for: .date)), alignment: .center)
-            
-            Text(asset.videoCodec)
-                .frame(width: CGFloat(specsState.columnWidth(for: .videoCodec)), alignment: .center)
-                .foregroundColor(textMuted)
-                .lineLimit(1)
-                .minimumScaleFactor(0.8)
-                .help(asset.videoCodec)
-            
-            // Audio Column
-            if !asset.hasAudio {
-                Text("None")
-                    .font(.ui(size: 10, weight: .semibold))
-                    .foregroundColor(textMuted)
-                    .frame(width: CGFloat(specsState.columnWidth(for: .audioCodec)), alignment: .center)
-            } else {
+            if specsState.isColumnVisible(.timecode) {
+                // Timecode Cell with Warning
                 VStack(alignment: .center, spacing: 3) {
-                    HStack(spacing: 4) {
-                        Text(asset.audioCodec)
-                            .font(.ui(size: 11, weight: .semibold))
-                            .foregroundColor(textMain)
-                        if asset.audioBitrate != "--" {
-                            Text(asset.audioBitrate)
-                                .font(.ui(size: 10, weight: .semibold))
-                                .padding(.horizontal, 4)
-                                .padding(.vertical, 1)
-                                .foregroundColor(textSubtle)
-                                .studioBox(background: bgSubtle, border: borderLine)
-                        }
-                    }
-                    
-                    if asset.validation.isAudioMute {
+                    Text(asset.timecode)
+                        .foregroundColor((asset.validation.isDurationMismatch && !isDismissed) ? alertRed : textSubtle)
+                        .fontWeight((asset.validation.isDurationMismatch && !isDismissed) ? .bold : .regular)
+                
+                    if let detail = asset.validation.durationMismatchDetail {
                         HStack(spacing: 3) {
-                            Image(systemName: "speaker.slash.fill")
+                            Image(systemName: isDismissed ? "checkmark.circle" : "exclamationmark.triangle.fill")
                                 .font(.system(size: StudioTheme.scaleFont(7), weight: .bold))
-                            Text(asset.validation.audioMuteDetail ?? "Mute")
-                                .font(.ui(size: 10, weight: .semibold))
+                            Text(isDismissed ? "\(detail) (dismissed)" : detail)
+                                .font(.ui(size: 10, weight: isDismissed ? .medium : .semibold))
+                        
+                            Button(action: {
+                                specsState.toggleDismissMismatch(for: asset.fileURL)
+                            }) {
+                                Image(systemName: isDismissed ? "arrow.uturn.backward" : "xmark")
+                                    .font(.system(size: StudioTheme.scaleFont(7), weight: .heavy))
+                                    .foregroundColor(isDismissed ? textMuted : alertRed)
+                                    .padding(1)
+                            }
+                            .buttonStyle(.plain)
+                            .help(isDismissed ? "Restore Mismatch Flag" : "Dismiss Mismatch Flag")
                         }
                         .padding(.horizontal, 5)
                         .padding(.vertical, 1.5)
-                        .foregroundColor(alertRed)
-                        .background(alertRed.opacity(0.12))
+                        .foregroundColor(isDismissed ? textMuted : alertRed)
+                        .background(isDismissed ? bgSubtle : alertRed.opacity(0.12))
                         .overlay(
                             RoundedRectangle(cornerRadius: 3)
-                                .stroke(alertRed.opacity(0.35), lineWidth: 0.8)
+                                .stroke(isDismissed ? borderLine : alertRed.opacity(0.35), lineWidth: 0.8)
                         )
                         .cornerRadius(3)
                         .lineLimit(1)
                         .minimumScaleFactor(0.8)
-                        .help("Audio Track is Mute: \(asset.audioLevelString) (Codec: \(asset.audioCodec))")
-                    } else if let loudness = asset.loudness {
-                        let result = loudnessTarget.evaluate(loudness)
-                        HStack(spacing: 3) {
-                            if result.verdict != .pass {
-                                Image(systemName: result.verdict == .fail ? "exclamationmark.triangle.fill" : "exclamationmark.circle")
-                                    .font(.system(size: StudioTheme.scaleFont(7), weight: .bold))
-                            }
-                            Text(loudness.summary)
-                                .font(.ui(size: 10, weight: .semibold))
-                                .lineLimit(1)
-                                .minimumScaleFactor(0.8)
-                        }
-                        .foregroundColor(loudnessColor(result.verdict))
-                    } else {
-                        HStack(spacing: 4) {
-                            if !asset.audioFormatDetail.isEmpty {
-                                Text(asset.audioFormatDetail)
-                                    .font(.ui(size: 10, weight: .medium))
-                                    .foregroundColor(textMuted)
-                                    .lineLimit(1)
-                            }
-                        }
+                        .help("Duration Mismatch: \(detail) (Actual Timecode: \(asset.timecode))\(isDismissed ? " [Dismissed]" : "")")
                     }
                 }
-                .frame(width: CGFloat(specsState.columnWidth(for: .audioCodec)), alignment: .center)
-                .help(loudnessHelp(for: asset))
+                .frame(width: CGFloat(specsState.columnWidth(for: .timecode)), alignment: .center)
             }
             
-            let effectivePathWidth = pathWidth > 0 ? pathWidth : CGFloat(specsState.columnWidth(for: .path))
-            // Start of the path only (less clutter); click reveals the file in Finder, full path on hover.
-            Button(action: { NSWorkspace.shared.activateFileViewerSelecting([asset.fileURL]) }) {
-                HStack(spacing: 4) {
-                    Image(systemName: "folder")
-                        .font(.system(size: StudioTheme.scaleFont(9)))
-                    Text(asset.fileURL.deletingLastPathComponent().path)
-                        .font(.ui(size: 11))
-                        .lineLimit(1)
-                        .truncationMode(.tail)
-                }
-                .foregroundColor(textSubtle)
-                .contentShape(Rectangle())
+            if specsState.isColumnVisible(.endFrame) {
+                endFrameCell(asset.endFrame)
+                    .frame(width: CGFloat(specsState.columnWidth(for: .endFrame)), alignment: .center)
             }
-            .buttonStyle(TransportIconButtonStyle())
-            .frame(width: effectivePathWidth, alignment: .leading)
-            .help("Reveal in Finder: \(asset.fileURL.path)")
+            
+            if specsState.isColumnVisible(.ratio) {
+                // Ratio Cell with Warning
+                VStack(alignment: .center, spacing: 3) {
+                    HStack(spacing: 4) {
+                        Text(asset.aspectRatioString)
+                            .font(.ui(size: 10, weight: .semibold))
+                            .padding(.horizontal, 4)
+                            .padding(.vertical, 2)
+                            .foregroundColor((asset.validation.isRatioMismatch && !isDismissed) ? .white : textMain)
+                            .studioBox(
+                                background: (asset.validation.isRatioMismatch && !isDismissed) ? alertRed : bgSubtle,
+                                border: (asset.validation.isRatioMismatch && !isDismissed) ? alertRed : borderLine
+                            )
+                    
+                        Text(asset.resolutionString)
+                            .foregroundColor(textSubtle)
+                    }
+                
+                    if let detail = asset.validation.ratioMismatchDetail {
+                        HStack(spacing: 3) {
+                            Image(systemName: isDismissed ? "checkmark.circle" : "exclamationmark.triangle.fill")
+                                .font(.system(size: StudioTheme.scaleFont(7), weight: .bold))
+                            Text(isDismissed ? "\(detail) (dismissed)" : detail)
+                                .font(.ui(size: 10, weight: isDismissed ? .medium : .semibold))
+                        
+                            Button(action: {
+                                specsState.toggleDismissMismatch(for: asset.fileURL)
+                            }) {
+                                Image(systemName: isDismissed ? "arrow.uturn.backward" : "xmark")
+                                    .font(.system(size: StudioTheme.scaleFont(7), weight: .heavy))
+                                    .foregroundColor(isDismissed ? textMuted : alertRed)
+                                    .padding(1)
+                            }
+                            .buttonStyle(.plain)
+                            .help(isDismissed ? "Restore Mismatch Flag" : "Dismiss Mismatch Flag")
+                        }
+                        .padding(.horizontal, 5)
+                        .padding(.vertical, 1.5)
+                        .foregroundColor(isDismissed ? textMuted : alertRed)
+                        .background(isDismissed ? bgSubtle : alertRed.opacity(0.12))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 3)
+                                .stroke(isDismissed ? borderLine : alertRed.opacity(0.35), lineWidth: 0.8)
+                        )
+                        .cornerRadius(3)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.8)
+                        .help("Aspect Ratio Mismatch: \(detail) (Actual Resolution: \(asset.resolutionString))\(isDismissed ? " [Dismissed]" : "")")
+                    }
+                }
+                .frame(width: CGFloat(specsState.columnWidth(for: .ratio)), alignment: .center)
+            }
+            
+            if specsState.isColumnVisible(.fps) {
+                Text(asset.fps > 0 ? String(format: "%.2f", asset.fps) : "--")
+                    .frame(width: CGFloat(specsState.columnWidth(for: .fps)), alignment: .center)
+                    .foregroundColor(textSubtle)
+            }
+            
+            if specsState.isColumnVisible(.size) {
+                Text(asset.formattedFileSize)
+                    .frame(width: CGFloat(specsState.columnWidth(for: .size)), alignment: .center)
+                    .fontWeight(.semibold)
+            }
+            
+            if specsState.isColumnVisible(.date) {
+                // Creation Date Column
+                Text(asset.formattedCreationDate)
+                    .font(.ui(size: 10))
+                    .foregroundColor(textSubtle)
+                    .frame(width: CGFloat(specsState.columnWidth(for: .date)), alignment: .center)
+            }
+            
+            if specsState.isColumnVisible(.videoCodec) {
+                Text(asset.videoCodec)
+                    .frame(width: CGFloat(specsState.columnWidth(for: .videoCodec)), alignment: .center)
+                    .foregroundColor(textMuted)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
+                    .help(asset.videoCodec)
+            }
+            
+            if specsState.isColumnVisible(.audioCodec) {
+                audioCell(asset, isDismissed: isDismissed)
+            }
+            
+            if specsState.isColumnVisible(.path) {
+                let effectivePathWidth = pathWidth > 0 ? pathWidth : CGFloat(specsState.columnWidth(for: .path))
+                // Start of the path only (less clutter); click reveals the file in Finder, full path on hover.
+                Button(action: { NSWorkspace.shared.activateFileViewerSelecting([asset.fileURL]) }) {
+                    HStack(spacing: 4) {
+                        Image(systemName: "folder")
+                            .font(.system(size: StudioTheme.scaleFont(9)))
+                        Text(asset.fileURL.deletingLastPathComponent().path)
+                            .font(.ui(size: 11))
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                    }
+                    .foregroundColor(textSubtle)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(TransportIconButtonStyle())
+                .frame(width: effectivePathWidth, alignment: .leading)
+                .help("Reveal in Finder: \(asset.fileURL.path)")
+            }
         }
         .font(.ui(size: 11))
         .padding(.horizontal, 14)
@@ -1332,6 +1529,26 @@ extension ContentView {
                 playDeliverableInPlayer(url: asset.fileURL)
             }) {
                 Label("Play in Player (Tab 1)", systemImage: "play.fill")
+            }
+            if planFiles[asset.fileURL]?.rowID != nil {
+                let files = specsState.isSelected(asset.fileURL) ? Array(specsState.selectedDeliverableURLs) : [asset.fileURL]
+                let rows = DeliveryPlanStore.shared.rowIDs(forFiles: files)
+                Menu(rows.count > 1 ? "Set Plan Status (\(rows.count) Rows)" : "Set Plan Status") {
+                    ForEach(PlanQCStatus.allCases, id: \.self) { status in
+                        Button("\(status.title)  \(status.shortcut)") { DeliveryPlanStore.shared.setStatus(status, rowIDs: rows) }
+                    }
+                    Divider()
+                    Button("Clear Status") { DeliveryPlanStore.shared.setStatus(nil, rowIDs: rows) }
+                }
+                Button("Run Plan Checks on \(files.count == 1 ? "This File" : "\(files.count) Files")") {
+                    let store = DeliveryPlanStore.shared, queue = PlanCheckQueue.shared
+                    queue.loadIfNeeded()
+                    let wanted = Set(files)
+                    var seen = Set<URL>()
+                    let stamps = store.rows.filter { rows.contains($0.id) }.flatMap { store.fileStamps($0) }
+                        .filter { wanted.contains($0.url) && seen.insert($0.url).inserted }
+                    queue.enqueue(stamps, kinds: queue.kinds)
+                }
             }
             Divider()
             Button(action: {
@@ -1553,6 +1770,8 @@ struct SpecsRowKey: Equatable {
     let themeKey: String
     /// Selection / tag / subtitle state used by a multi-file right-click menu (0 when the row is not part of one).
     let menuContext: Int
+    /// The file's Delivery Plan code and state (only rows whose plan info changed redraw).
+    let plan: PlanFileInfo?
 }
 
 /// Renders `content` only when `key` changes (use with `.equatable()`).

@@ -11,6 +11,8 @@ struct DeliveryPlanPanel: View {
     var onClose: (() -> Void)? = nil
 
     @ObservedObject private var store = DeliveryPlanStore.shared
+    /// Published once per checked file (progress has its own object, observed by the strip only).
+    @ObservedObject private var checks = PlanCheckQueue.shared
     @ObservedObject private var themeManager = ThemeManager.shared   // accent changes redraw
     @AppStorage(DeliveryPlanWindow.poppedOutKey) private var poppedOut = false
     @Environment(\.openWindow) private var openWindow
@@ -18,11 +20,19 @@ struct DeliveryPlanPanel: View {
 
     @State private var linkText = ""
     @State private var search = ""
-    @State private var statusFilter: PlanStatus? = nil
+    @State private var statusFilter: PlanState? = nil
+    @State private var noteDraft = ""
+    @FocusState private var noteFocused: Bool
     @State private var changedOnly = false
     @State private var showRemoved = false
     @State private var selectedRow: String? = nil
     @State private var relinking = false
+    /// "sheet" (the tab as Google Sheets draws it) or "list" (one card per deliverable).
+    @AppStorage("deliveryPlanView") private var viewMode = "sheet"
+    @AppStorage("deliveryPlanZoom") private var zoom = 1.0
+    /// The tab the Sheet view shows when more than one is read.
+    @State private var sheetTab: String? = nil
+    @State private var showEditSetup = false
 
     private var palette: StudioPalette { StudioPalette(isLightMode) }
 
@@ -35,11 +45,34 @@ struct DeliveryPlanPanel: View {
                 linkView
             } else {
                 planView
-                    .onAppear { store.panelAppeared() }
+                    .onAppear { store.panelAppeared(); checks.loadIfNeeded() }
                     .onDisappear { store.panelDisappeared() }
             }
         }
         .background(palette.bgPanel)
+        .onChange(of: store.scrollRequest) { _, _ in selectedRow = nil }   // Inspect chose: its rows lead
+        // Linked filters: this side's chip / search goes to Inspect, Inspect's comes here.
+        .onChange(of: currentFilter) { _, filter in store.publishFilter(filter, fromPlan: true) }
+        .onReceive(store.$sharedFilter) { filter in
+            guard store.linkFilters, filter != currentFilter else { return }
+            statusFilter = filter.state >= 0 ? PlanState(rawValue: filter.state) : nil
+            if filter.state >= 0 || filter.state == -1 { changedOnly = false }
+            search = filter.search
+        }
+        .background {
+            // The plan window gets every key itself (the router passes them through): ⌥1–⌥6 / ⌥0 here.
+            if placement == .window {
+                ForEach(0...PlanQCStatus.allCases.count, id: \.self) { n in
+                    Button("") { _ = store.setStatusForSelection(n == 0 ? nil : PlanQCStatus.allCases[n - 1]) }
+                        .keyboardShortcut(KeyEquivalent(Character("\(n)")), modifiers: .option)
+                        .opacity(0)
+                        .allowsHitTesting(false)
+                }
+            }
+        }
+        .sheet(isPresented: $showEditSetup) {
+            PlanEditSetupSheet(isLightMode: isLightMode) { showEditSetup = false }
+        }
     }
 
     // MARK: Header
@@ -61,13 +94,20 @@ struct DeliveryPlanPanel: View {
                 }
                 if let onClose { DrawerCloseButton(isLightMode: isLightMode, action: onClose) }
             } else {
-                Button("Dock in Inspect") { dismissWindow(id: DeliveryPlanWindow.id) }
+                Button("Dock in Inspect", action: dock)
                     .font(.ui(size: 11, weight: .medium))
                     .buttonStyle(.borderless)
                     .explain("Close this window and show the Delivery Plan in the Inspect tab's drawer again.")
             }
         }
         .headerBand(palette, horizontalPadding: 12)
+    }
+
+    /// Back into the drawer. Clears the flag itself: if the window isn't actually open (not restored after a relaunch),
+    /// dismissing it never runs its onDisappear and the drawer would keep showing this placeholder.
+    private func dock() {
+        poppedOut = false
+        dismissWindow(id: DeliveryPlanWindow.id)
     }
 
     private var poppedOutPlaceholder: some View {
@@ -84,7 +124,7 @@ struct DeliveryPlanPanel: View {
                 .foregroundColor(palette.textSubtle)
             HStack(spacing: 8) {
                 Button("Show Window") { openWindow(id: DeliveryPlanWindow.id) }
-                Button("Dock Here") { dismissWindow(id: DeliveryPlanWindow.id) }
+                Button("Dock Here", action: dock)
             }
             .font(.ui(size: 11))
             Spacer()
@@ -143,7 +183,7 @@ struct DeliveryPlanPanel: View {
     private var planView: some View {
         let rows = store.rows
         let match = store.match
-        let counts = Dictionary(grouping: rows, by: { match.result($0).status }).mapValues(\.count)
+        let counts = Dictionary(grouping: rows, by: { store.state($0).state }).mapValues(\.count)
         let shown = filtered(rows, match: match)
         return VStack(spacing: 0) {
             toolbar
@@ -156,9 +196,12 @@ struct DeliveryPlanPanel: View {
             Rectangle().fill(palette.borderLine).frame(height: 1)
             if rows.isEmpty {
                 emptyRows
+            } else if viewMode == "sheet" {
+                sheetArea(rows: rows, match: match)
             } else {
                 list(shown, match: match)
             }
+            if checks.isRunning { PlanCheckProgressStrip(isLightMode: isLightMode) }
             if !store.changes.isEmpty || !store.removed.isEmpty { changesFooter }
         }
     }
@@ -174,6 +217,8 @@ struct DeliveryPlanPanel: View {
                 statusLine
             }
             Spacer(minLength: 4)
+            runChecksMenu
+            viewPicker
             Button { Task { await store.refresh() } } label: {
                 Image(systemName: "arrow.clockwise")
                     .font(.system(size: StudioTheme.scaleFont(11), weight: .medium))
@@ -184,6 +229,14 @@ struct DeliveryPlanPanel: View {
             Menu {
                 if let config = store.config {
                     Button("Open Sheet in Browser") { NSWorkspace.shared.open(config.link.webURL) }
+                }
+                if store.scriptOutdated {
+                    Button("Update Script…") { showEditSetup = true }
+                }
+                if store.canEdit {
+                    Button("Turn Off Editing") { Task { try? await store.setWriter(nil) } }
+                } else {
+                    Button("Set Up Editing…") { showEditSetup = true }
                 }
                 Button("Link Another Sheet…") { relinking = true }
                 Divider()
@@ -225,6 +278,33 @@ struct DeliveryPlanPanel: View {
         }
     }
 
+    private var viewPicker: some View {
+        HStack(spacing: 2) {
+            if viewMode == "sheet" {
+                Menu {
+                    ForEach([0.75, 0.9, 1.0, 1.25, 1.5], id: \.self) { value in
+                        Button("\(Int(value * 100))%") { zoom = value }
+                    }
+                } label: {
+                    Text("\(Int(zoom * 100))%")
+                        .font(.ui(size: 10, weight: .medium))
+                        .monospacedDigit()
+                }
+                .menuStyle(.borderlessButton)
+                .fixedSize()
+                .tip("Zoom the sheet.")
+            }
+            Picker("", selection: $viewMode) {
+                Image(systemName: "tablecells").tag("sheet")
+                Image(systemName: "list.bullet").tag("list")
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+            .fixedSize()
+            .tip("Show the plan as the sheet looks in Google Sheets, or as a list of deliverables.")
+        }
+    }
+
     @ViewBuilder
     private var statusLine: some View {
         switch store.phase {
@@ -242,19 +322,42 @@ struct DeliveryPlanPanel: View {
                 Text("Not read yet").font(.ui(size: 10)).foregroundColor(palette.textSubtle)
             }
         }
+        if store.scriptOutdated {
+            Button("Update the sheet's script to set QC statuses…") { showEditSetup = true }
+                .buttonStyle(.borderless)
+                .font(.ui(size: 10, weight: .semibold))
+                .foregroundColor(palette.accentSlotB)
+        }
+        switch store.editState {
+        case .idle: EmptyView()
+        case .saving(let n):
+            Text(n == 1 ? "Saving to the sheet…" : "Saving \(n) edits to the sheet…").font(.ui(size: 10)).foregroundColor(palette.textSubtle)
+        case .saved:
+            Text("Saved to the sheet").font(.ui(size: 10)).foregroundColor(palette.positive)
+        case .failed(let message):
+            Text(message).font(.ui(size: 10)).foregroundColor(palette.negative).lineLimit(3)
+        }
         if !store.unreadTabs.isEmpty {
             Text("No header row found in: \(store.unreadTabs.joined(separator: ", "))")
                 .font(.ui(size: 10)).foregroundColor(palette.textSubtle).lineLimit(2)
         }
     }
 
-    private func chips(counts: [PlanStatus: Int], total: Int) -> some View {
+    /// The progress strip: % done (QC Passed, Approved, Delivered of everything not dropped), then a chip per state.
+    private func chips(counts: [PlanState: Int], total: Int) -> some View {
         let changed = store.changes.count
+        let done = PlanState.allCases.filter(\.isDone).reduce(0) { $0 + (counts[$1] ?? 0) }
+        let live = total - (counts[.dropped] ?? 0)
         return FlowChips(spacing: 4) {
+            Text(live > 0 ? "\(Int((Double(done) / Double(live) * 100).rounded(.down)))% done" : "")
+                .font(.ui(size: 10, weight: .semibold))
+                .foregroundColor(palette.positive)
+                .monospacedDigit()
+                .padding(.vertical, 3)
             chip("All \(total)", selected: statusFilter == nil && !changedOnly, color: palette.textMuted) {
                 statusFilter = nil; changedOnly = false
             }
-            ForEach(PlanStatus.allCases, id: \.self) { status in
+            ForEach(PlanState.allCases, id: \.self) { status in
                 let n = counts[status] ?? 0
                 if n > 0 || status == .missing {
                     chip("\(status.title) \(n)", selected: statusFilter == status, color: color(status)) {
@@ -268,25 +371,12 @@ struct DeliveryPlanPanel: View {
                     changedOnly.toggle(); statusFilter = nil
                 }
             }
+            LinkFiltersButton(isLightMode: isLightMode) { currentFilter }
         }
     }
 
     private func chip(_ title: String, selected: Bool, color: Color, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            HStack(spacing: 4) {
-                Circle().fill(color).frame(width: 6, height: 6)
-                Text(title)
-                    .font(.ui(size: 10, weight: selected ? .semibold : .medium))
-                    .monospacedDigit()
-                    .foregroundColor(selected ? palette.textMain : palette.textMuted)
-            }
-            .padding(.horizontal, 7)
-            .padding(.vertical, 3)
-            .background(RoundedRectangle(cornerRadius: Radius.control).fill(selected ? palette.bgSubtle : Color.clear))
-            .overlay(RoundedRectangle(cornerRadius: Radius.control).stroke(selected ? palette.borderStrong : palette.borderLine, lineWidth: 1))
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
+        PlanFilterChip(title: title, selected: selected, color: color, isLightMode: isLightMode, action: action)
     }
 
     private var searchBar: some View {
@@ -337,6 +427,309 @@ struct DeliveryPlanPanel: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
+    // MARK: Selection
+
+    /// Rows holding a file selected in Inspect (sheet order).
+    private func highlightedRows(_ rows: [PlanRow], match: PlanMatch) -> [PlanRow] {
+        let files = store.selectedFiles
+        guard !files.isEmpty else { return [] }
+        return rows.filter { !files.isDisjoint(with: match.result($0).files) }
+    }
+
+    /// A row clicked in the plan: Inspect selects its files (or nothing, for a row without one); double-click plays.
+    private func select(_ row: PlanRow, match: PlanMatch, play: Bool) {
+        selectedRow = row.id
+        store.focusedRowID = row.id
+        let files = match.result(row).files
+        DeliveryPlanStore.post(.reveal, files)
+        if play { DeliveryPlanStore.post(.play, files) }
+    }
+
+    private var currentFilter: DeliveryPlanStore.SharedFilter {
+        DeliveryPlanStore.SharedFilter(state: statusFilter?.rawValue ?? -1, search: search)
+    }
+
+    // MARK: Checks
+
+    private func checkSummary(_ row: PlanRow) -> PlanChecksSummary {
+        checks.summary(files: store.fileStamps(row), kinds: checks.kinds)
+    }
+
+    /// Run Checks: on the rows shown (filters apply) or the selection; which checks; Pass All Clean.
+    private var runChecksMenu: some View {
+        let rows = store.rows
+        let shown = rowsShownForChecks(rows)
+        let selection = selectedRowsForChecks(rows)
+        let clean = rows.filter { store.state($0).state == .toQC && checkSummary($0).result == .passed }
+        return Menu {
+            Button("Check \(fileCount(shown)) Files in Shown Rows") { runChecks(shown) }
+                .disabled(fileCount(shown) == 0 || checks.kinds.isEmpty)
+            Button("Check \(fileCount(selection)) Files in Selection") { runChecks(selection) }
+                .disabled(fileCount(selection) == 0 || checks.kinds.isEmpty)
+            Divider()
+            ForEach(PlanCheckKind.allCases, id: \.self) { kind in
+                Toggle(kind.title, isOn: Binding(get: { checks.kinds.contains(kind) },
+                                                 set: { on in if on { checks.kinds.insert(kind) } else { checks.kinds.remove(kind) } }))
+            }
+            Divider()
+            Button("Pass All Clean (\(clean.count))…") { passAllClean(clean) }
+                .disabled(clean.isEmpty)
+        } label: {
+            Image(systemName: "checkmark.shield")
+                .font(.system(size: StudioTheme.scaleFont(11), weight: .medium))
+        }
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .fixedSize()
+        .tip("Run loudness and Frame Check on plan files: one file at a time, never while the Player plays.")
+    }
+
+    private func rowsShownForChecks(_ rows: [PlanRow]) -> [PlanRow] {
+        let match = store.match
+        guard let lines = shownLines(rows, match: match) else { return rows }
+        return rows.filter { lines.contains($0.line) }
+    }
+
+    private func selectedRowsForChecks(_ rows: [PlanRow]) -> [PlanRow] {
+        let highlighted = highlightedRows(rows, match: store.match)
+        if !highlighted.isEmpty { return highlighted }
+        return rows.filter { $0.id == selectedRow }
+    }
+
+    private func fileCount(_ rows: [PlanRow]) -> Int { Set(rows.flatMap { store.match.result($0).files }).count }
+
+    private func runChecks(_ rows: [PlanRow]) {
+        var seen = Set<URL>()
+        let files = rows.flatMap { store.fileStamps($0) }.filter { seen.insert($0.url).inserted }
+        checks.enqueue(files, kinds: checks.kinds)
+    }
+
+    /// Marks every To QC row whose checks all passed as QC Passed, after asking.
+    private func passAllClean(_ rows: [PlanRow]) {
+        let alert = NSAlert()
+        alert.messageText = "Mark \(rows.count) row\(rows.count == 1 ? "" : "s") QC Passed?"
+        alert.informativeText = "Each has a file and every chosen check (\(PlanCheckKind.allCases.filter(checks.kinds.contains).map(\.title).joined(separator: ", "))) passed. The status is written to the sheet."
+        alert.addButton(withTitle: "Cancel")
+        alert.addButton(withTitle: "Mark QC Passed")
+        if alert.runModal() == .alertSecondButtonReturn {
+            store.setStatus(.passed, rowIDs: rows.map(\.id))
+        }
+    }
+
+    // MARK: Status
+
+    /// The rows a status applies to: every row highlighted from Inspect when this row is one of them, else this row.
+    private func statusTargets(_ row: PlanRow, match: PlanMatch) -> [String] {
+        let highlighted = highlightedRows(store.rows, match: match).map(\.id)
+        return highlighted.contains(row.id) ? highlighted : [row.id]
+    }
+
+    private func statusNSMenu(_ targets: [String]) -> NSMenu {
+        let menu = NSMenu()
+        for status in PlanQCStatus.allCases {
+            menu.addItem("\(status.title)  \(status.shortcut)") { [store] in store.setStatus(status, rowIDs: targets) }
+        }
+        menu.addItem(.separator())
+        menu.addItem("Clear Status") { [store] in store.setStatus(nil, rowIDs: targets) }
+        return menu
+    }
+
+    /// Status menu and QC note for the selected row(s), above its card.
+    private func statusBar(_ row: PlanRow, targets: [String]) -> some View {
+        let state = store.state(row).state
+        return HStack(spacing: 8) {
+            Menu {
+                ForEach(PlanQCStatus.allCases, id: \.self) { status in
+                    Button("\(status.title)  \(status.shortcut)") { store.setStatus(status, rowIDs: targets) }
+                }
+                Divider()
+                Button("Clear Status") { store.setStatus(nil, rowIDs: targets) }
+            } label: {
+                HStack(spacing: 4) {
+                    Circle().fill(color(state)).frame(width: 7, height: 7)
+                    Text(targets.count > 1 ? "\(state.title) · \(targets.count) rows" : state.title)
+                        .font(.ui(size: 11, weight: .semibold))
+                }
+            }
+            .menuStyle(.borderlessButton)
+            .fixedSize()
+            .tip("Set the QC status (⌥1–⌥6). It's written to the sheet's QC Status column.")
+            let summary = checkSummary(row)
+            if state == .toQC || state == .needsFix || state == .check {
+                if summary.result == .passed {
+                    Button("Pass") { store.setStatus(.passed, rowIDs: targets) }
+                        .tip("All checks passed: mark QC Passed (⌥2).")
+                } else if summary.result == .failed {
+                    Button("Needs Fix") {
+                        store.setStatus(.needsFix, rowIDs: targets)
+                        if targets.count == 1 { store.setNote(summary.failures.joined(separator: "; "), rowID: row.id) }
+                    }
+                    .tip("Mark Needs Fix with the failed checks as the QC note (⌥1).")
+                }
+            }
+            TextField("QC note", text: $noteDraft)
+                .textFieldStyle(.roundedBorder)
+                .font(.ui(size: 11))
+                .onAppear { noteDraft = store.note(row) }
+                .onChange(of: row.id) { _, _ in noteDraft = store.note(row) }
+                .onChange(of: store.note(row)) { _, new in noteDraft = new }
+                .focused($noteFocused)
+                .onSubmit { commitNote(row) }
+                // Clicking away saves; Esc (which the shortcut router turns into "unfocus") puts it back.
+                .onChange(of: noteFocused) { _, focused in
+                    guard !focused else { return }
+                    if NSApp.currentEvent?.type == .keyDown, NSApp.currentEvent?.keyCode == 53 { noteDraft = store.note(row) } else { commitNote(row) }
+                }
+        }
+        .padding(.horizontal, 12)
+        .padding(.top, 6)
+    }
+
+    private func commitNote(_ row: PlanRow) {
+        let text = noteDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard text != store.note(row) else { return }
+        store.setNote(text, rowID: row.id)
+    }
+
+    // MARK: Sheet
+
+    /// The tab the Sheet view shows: the chosen one if still read, else the first read tab.
+    private func shownTab() -> PlanTab? {
+        guard let config = store.config else { return nil }
+        let included = config.included
+        return included.first { $0.gid == sheetTab } ?? included.first
+    }
+
+    @ViewBuilder
+    private func sheetArea(rows: [PlanRow], match: PlanMatch) -> some View {
+        if let tab = shownTab(), let grid = store.grids[tab.gid] {
+            let tabRows = rows.filter { $0.tab == tab.name }
+            let byLine = Dictionary(tabRows.map { ($0.line, $0) }, uniquingKeysWith: { a, _ in a })
+            let marks = byLine.mapValues { PlanSheetMark(status: store.state($0).state, changed: store.changes[$0.id] != nil,
+                                                         checks: checkSummary($0).result) }
+            let highlighted = highlightedRows(tabRows, match: match)
+            let selected = selectedRow.flatMap { id in tabRows.first { $0.id == id } } ?? highlighted.first
+            VStack(spacing: 0) {
+                DeliveryPlanSheetView(
+                    grid: grid,
+                    shownLines: shownLines(tabRows, match: match),
+                    marks: marks,
+                    selectedLines: Set(highlighted.map(\.line) + (selected.map { [$0.line] } ?? [])),
+                    scrollToLine: highlighted.first?.line,
+                    scrollToken: store.scrollRequest,
+                    zoom: zoom,
+                    chrome: PlanSheetChrome(palette: palette),
+                    onSelect: { line, clicks in
+                        guard let row = byLine[line] else { selectedRow = nil; return }
+                        select(row, match: match, play: clicks >= 2)
+                    },
+                    menu: { line in byLine[line].map { sheetMenu($0, files: match.result($0).files, tab: tab) } },
+                    canEdit: store.canEdit,
+                    onEdit: { line, column, old, new in store.editCell(gid: tab.gid, line: line, column: column, old: old, new: new) },
+                    onEditUnavailable: { showEditSetup = true },
+                    statusColumn: store.statusColumn(gid: tab.gid),
+                    statusMenu: { line in byLine[line].map { statusNSMenu(statusTargets($0, match: match)) } })
+                if (store.config?.included.count ?? 0) > 1 { sheetTabs }
+                if let selected {
+                    Rectangle().fill(palette.borderLine).frame(height: 1)
+                    VStack(spacing: 0) {
+                        statusBar(selected, targets: statusTargets(selected, match: match))
+                        ScrollView {
+                            PlanRowView(row: selected, result: match.result(selected), state: store.state(selected),
+                                        note: store.note(selected), checkLines: checkSummary(selected).lines,
+                                        change: store.changes[selected.id],
+                                        selected: false, wide: true, isLightMode: isLightMode,
+                                        themeRevision: ThemeManager.shared.revision)
+                        }
+                        .frame(maxHeight: 150)
+                        .fixedSize(horizontal: false, vertical: true)
+                    }
+                    .background(palette.bgCardSubtle)
+                } else if !match.extras.isEmpty {
+                    Rectangle().fill(palette.borderLine).frame(height: 1)
+                    HStack {
+                        Text("\(match.extras.count) Inspect files aren't in the plan.")
+                            .font(.ui(size: 11))
+                            .foregroundColor(palette.textMuted)
+                        Spacer(minLength: 4)
+                        Button("Show in List") { viewMode = "list" }
+                            .buttonStyle(.borderless)
+                            .font(.ui(size: 11))
+                    }
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 6)
+                    .background(palette.bgCardSubtle)
+                }
+            }
+        } else {
+            emptyRows
+        }
+    }
+
+    /// Lines passing the chips and the filter field; nil when nothing filters (every row shows, as in the sheet).
+    private func shownLines(_ rows: [PlanRow], match: PlanMatch) -> Set<Int>? {
+        let terms = PlanMatcher.tokens(search)
+        guard statusFilter != nil || changedOnly || !terms.isEmpty else { return nil }
+        var lines = Set<Int>()
+        for row in rows {
+            if let statusFilter, store.state(row).state != statusFilter { continue }
+            if changedOnly, store.changes[row.id] == nil { continue }
+            if !terms.isEmpty {
+                let haystack = (row.values.values.joined(separator: " ") + " " + match.result(row).files.map(\.lastPathComponent).joined(separator: " ")).lowercased()
+                if !terms.allSatisfy(haystack.contains) { continue }
+            }
+            lines.insert(row.line)
+        }
+        return lines
+    }
+
+    /// Sheets-style tabs under the grid when more than one tab is read.
+    private var sheetTabs: some View {
+        HStack(spacing: 2) {
+            ForEach(store.config?.included ?? []) { tab in
+                let on = shownTab()?.gid == tab.gid
+                Button { sheetTab = tab.gid; selectedRow = nil } label: {
+                    Text(tab.name)
+                        .font(.ui(size: 11, weight: on ? .semibold : .medium))
+                        .foregroundColor(on ? palette.accentBlue : palette.textMuted)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 4)
+                        .background(RoundedRectangle(cornerRadius: Radius.control).fill(on ? palette.bgSubtle : Color.clear))
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 4)
+        .background(palette.bgCardHeader)
+        .overlay(alignment: .top) { Rectangle().fill(palette.borderLine).frame(height: 1) }
+    }
+
+    private func sheetMenu(_ row: PlanRow, files: [URL], tab: PlanTab) -> NSMenu {
+        let menu = NSMenu()
+        let targets = statusTargets(row, match: store.match)
+        let status = NSMenuItem(title: targets.count > 1 ? "Set Status (\(targets.count) Rows)" : "Set Status", action: nil, keyEquivalent: "")
+        status.submenu = statusNSMenu(targets)
+        menu.addItem(status)
+        menu.addItem(.separator())
+        for url in files {
+            menu.addItem("Show \(url.lastPathComponent) in Inspect") { DeliveryPlanStore.post(.reveal, url) }
+            menu.addItem("Play \(url.lastPathComponent)") { DeliveryPlanStore.post(.play, url) }
+            menu.addItem("Reveal in Finder") { NSWorkspace.shared.activateFileViewerSelecting([url]) }
+            menu.addItem(.separator())
+        }
+        menu.addItem("Copy File Name") {
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.setString(row.name, forType: .string)
+        }
+        if let config = store.config {
+            menu.addItem("Open Row in Google Sheets") { NSWorkspace.shared.open(config.link.webURL(tab: tab.gid, line: row.line)) }
+        }
+        return menu
+    }
+
     // MARK: List
 
     private enum Item: Identifiable {
@@ -357,7 +750,7 @@ struct DeliveryPlanPanel: View {
         var items: [Item] = []
         var lastHeading: String? = nil
         for row in rows {
-            if let statusFilter, match.result(row).status != statusFilter { continue }
+            if let statusFilter, store.state(row).state != statusFilter { continue }
             if changedOnly, store.changes[row.id] == nil { continue }
             if !terms.isEmpty {
                 let haystack = (row.values.values.joined(separator: " ") + " " + match.result(row).files.map(\.lastPathComponent).joined(separator: " ")).lowercased()
@@ -375,6 +768,8 @@ struct DeliveryPlanPanel: View {
     }
 
     private func list(_ items: [Item], match: PlanMatch) -> some View {
+        let highlighted = Set(highlightedRows(store.rows, match: match).map(\.id))
+        return ScrollViewReader { proxy in
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 0) {
                 ForEach(items) { item in
@@ -387,16 +782,14 @@ struct DeliveryPlanPanel: View {
                             .padding(.top, 12)
                             .padding(.bottom, 4)
                     case .row(let row):
-                        PlanRowView(row: row, result: match.result(row), change: store.changes[row.id],
-                                    selected: selectedRow == row.id, wide: placement == .window,
+                        PlanRowView(row: row, result: match.result(row), state: store.state(row), note: store.note(row),
+                                    checkLines: checkSummary(row).lines, change: store.changes[row.id],
+                                    selected: selectedRow == row.id || highlighted.contains(row.id), wide: placement == .window,
                                     isLightMode: isLightMode, themeRevision: ThemeManager.shared.revision)
                             .equatable()
                             .contentShape(Rectangle())
-                            .onTapGesture(count: 2) { if let url = match.result(row).files.first { DeliveryPlanStore.post(.play, url) } }
-                            .onTapGesture {
-                                selectedRow = row.id
-                                if let url = match.result(row).files.first { DeliveryPlanStore.post(.reveal, url) }
-                            }
+                            .onTapGesture(count: 2) { select(row, match: match, play: true) }
+                            .onTapGesture { select(row, match: match, play: false) }
                             .contextMenu { rowMenu(row, files: match.result(row).files) }
                     case .extras(let urls):
                         extrasView(urls)
@@ -405,10 +798,29 @@ struct DeliveryPlanPanel: View {
             }
             .padding(.bottom, 12)
         }
+        .onChange(of: store.scrollRequest) { _, _ in
+            let match = store.match
+            if let row = highlightedRows(store.rows, match: match).first {
+                withAnimation(Motion.list) { proxy.scrollTo(row.id, anchor: .center) }
+            } else if let url = store.selectedFiles.first(where: { match.extras.contains($0) }) {
+                withAnimation(Motion.list) { proxy.scrollTo("extras", anchor: .top) }
+                _ = url
+            }
+        }
+        }
     }
 
     @ViewBuilder
     private func rowMenu(_ row: PlanRow, files: [URL]) -> some View {
+        let targets = statusTargets(row, match: store.match)
+        Menu(targets.count > 1 ? "Set Status (\(targets.count) Rows)" : "Set Status") {
+            ForEach(PlanQCStatus.allCases, id: \.self) { status in
+                Button("\(status.title)  \(status.shortcut)") { store.setStatus(status, rowIDs: targets) }
+            }
+            Divider()
+            Button("Clear Status") { store.setStatus(nil, rowIDs: targets) }
+        }
+        Divider()
         ForEach(files, id: \.self) { url in
             Button("Show \(url.lastPathComponent) in Inspect") { DeliveryPlanStore.post(.reveal, url) }
             Button("Play \(url.lastPathComponent)") { DeliveryPlanStore.post(.play, url) }
@@ -437,8 +849,8 @@ struct DeliveryPlanPanel: View {
             ForEach(urls, id: \.self) { url in
                 VStack(alignment: .leading, spacing: 1) {
                     Text(url.lastPathComponent)
-                        .font(.ui(size: 11))
-                        .foregroundColor(palette.textMain)
+                        .font(.ui(size: 11, weight: store.selectedFiles.contains(url) ? .semibold : .regular))
+                        .foregroundColor(store.selectedFiles.contains(url) ? palette.accentBlue : palette.textMain)
                         .lineLimit(1)
                         .truncationMode(.middle)
                     if let note = store.match.extraNotes[url] {
@@ -502,13 +914,16 @@ struct DeliveryPlanPanel: View {
             .compactMap { $0 }.joined(separator: " · ") + " since you last looked"
     }
 
-    private func color(_ status: PlanStatus) -> Color { PlanRowView.color(status, palette) }
+    private func color(_ status: PlanState) -> Color { PlanRowView.color(status, palette) }
 }
 
 /// One deliverable: status dot, name, the specs the sheet asks for, the matched file and anything wrong.
 struct PlanRowView: View, Equatable {
     let row: PlanRow
     let result: PlanRowResult
+    var state = PlanRowState(state: .missing)
+    var note = ""
+    var checkLines: [String] = []
     let change: DeliveryPlanStore.Change?
     let selected: Bool
     let wide: Bool
@@ -517,13 +932,22 @@ struct PlanRowView: View, Equatable {
 
     private var palette: StudioPalette { StudioPalette(isLightMode) }
 
-    static func color(_ status: PlanStatus, _ palette: StudioPalette) -> Color {
-        switch status {
-        case .missing: return palette.textSubtle
-        case .delivered: return palette.positive
-        case .wrongSpec: return palette.negative
-        case .check: return palette.accentSlotB
+    /// Status tags use the tag palette (`TagTone`), never the accents: ten states need ten distinct colours.
+    static func color(_ state: PlanState, _ palette: StudioPalette) -> Color {
+        let tone: TagTone
+        switch state {
+        case .missing: tone = .grey
+        case .toQC: tone = .blue
+        case .wrongSpec: tone = .red
+        case .check: tone = .amber
+        case .needsFix: tone = .orange
+        case .passed: tone = .mint
+        case .approved: tone = .cyan
+        case .delivered: tone = .green
+        case .onHold: tone = .sand
+        case .dropped: tone = .slate
         }
+        return tone.color(palette.isLight)
     }
 
     private var specs: String {
@@ -552,7 +976,7 @@ struct PlanRowView: View, Equatable {
     var body: some View {
         HStack(alignment: .top, spacing: 8) {
             Circle()
-                .fill(Self.color(result.status, palette))
+                .fill(Self.color(state.state, palette))
                 .frame(width: 7, height: 7)
                 .padding(.top, 4)
             VStack(alignment: .leading, spacing: 2) {
@@ -569,6 +993,9 @@ struct PlanRowView: View, Equatable {
                         .foregroundColor(palette.textMain)
                         .lineLimit(wide ? 1 : 2)
                     Spacer(minLength: 4)
+                    Text(state.state.title)
+                        .font(.ui(size: 10, weight: .semibold))
+                        .foregroundColor(Self.color(state.state, palette))
                     Text("Row \(row.line)")
                         .font(.ui(size: 10))
                         .foregroundColor(palette.textSubtle)
@@ -583,6 +1010,24 @@ struct PlanRowView: View, Equatable {
                         .font(.ui(size: 10))
                         .foregroundColor(palette.textSubtle)
                         .lineLimit(wide ? 1 : 2)
+                }
+                ForEach(state.flags, id: \.self) { flag in
+                    Text(flag)
+                        .font(.ui(size: 10, weight: .medium))
+                        .foregroundColor(palette.accentSlotB)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                ForEach(checkLines, id: \.self) { line in
+                    Text(line)
+                        .font(.ui(size: 10))
+                        .foregroundColor(line.contains("✗") ? palette.negative : line.contains("✓") ? palette.positive : palette.textMuted)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                if !note.isEmpty {
+                    Text("Note: \(note)")
+                        .font(.ui(size: 10))
+                        .foregroundColor(palette.textMain)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
                 ForEach(result.files, id: \.self) { url in
                     HStack(spacing: 4) {
@@ -683,7 +1128,251 @@ extension DeliveryPlanStore {
     static let playFile = Notification.Name("QCpieDeliveryPlanPlayFile")
 
     /// Rows act on the main window through notifications: the plan never holds `ContentView` state.
-    static func post(_ request: Request, _ url: URL) {
-        NotificationCenter.default.post(name: request == .reveal ? revealFile : playFile, object: url)
+    @MainActor static func post(_ request: Request, _ url: URL) { post(request, [url]) }
+
+    /// Reveal selects these files in Inspect (none: clears its selection); play loads the first.
+    @MainActor static func post(_ request: Request, _ urls: [URL]) {
+        if request == .reveal {
+            shared.noteRevealFromPlan(urls)
+            NotificationCenter.default.post(name: revealFile, object: urls)
+        } else if let url = urls.first {
+            NotificationCenter.default.post(name: playFile, object: url)
+        }
+    }
+}
+
+/// One-time set-up for editing: paste QCpie's script into the sheet, deploy it as a web app, paste its link back.
+struct PlanEditSetupSheet: View {
+    let isLightMode: Bool
+    let onClose: () -> Void
+
+    @ObservedObject private var store = DeliveryPlanStore.shared
+    /// Updating keeps the key and link: paste the new code over the old and deploy a new version of the same deployment.
+    @State private var token = DeliveryPlanStore.shared.config?.writer?.token ?? AppsScriptWriter.newToken()
+    @State private var urlText = DeliveryPlanStore.shared.config?.writer?.url.absoluteString ?? ""
+    @State private var copied = false
+    @State private var connecting = false
+    @State private var error: String? = nil
+
+    private var palette: StudioPalette { StudioPalette(isLightMode) }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Text("Edit the Sheet from QCpie")
+                .font(.ui(size: 15, weight: .semibold))
+                .foregroundColor(palette.textMain)
+            Text("A shared link can only be read. To write cells, add QCpie's small script to the spreadsheet once. It runs as you and only accepts QCpie's secret key.")
+                .font(.ui(size: 11))
+                .foregroundColor(palette.textMuted)
+                .fixedSize(horizontal: false, vertical: true)
+            step(1, "Copy the script.") {
+                Button(copied ? "Copied" : "Copy Script") {
+                    NSPasteboard.general.clearContents()
+                    NSPasteboard.general.setString(AppsScriptWriter.script(token: token), forType: .string)
+                    copied = true
+                }
+            }
+            step(2, "In the spreadsheet: Extensions → Apps Script. Replace everything there with the script, then Save.") {
+                if let config = store.config {
+                    Button("Open Sheet") { NSWorkspace.shared.open(config.link.webURL) }
+                }
+            }
+            step(3, "Deploy → New deployment → Web app. Execute as: Me. Who has access: Anyone. Deploy, then allow access (if Google warns the app isn't verified: Advanced → Go to project).") { EmptyView() }
+            step(4, "Copy the web app URL (ends in /exec) and paste it here.") { EmptyView() }
+            if store.config?.writer != nil {
+                Text("Updating: paste the new script over the old one, Save, then Deploy → Manage deployments → Edit (pencil) → Version: New version → Deploy. The link stays the same: just press Connect.")
+                    .font(.ui(size: 11))
+                    .foregroundColor(palette.accentSlotB)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            TextField("https://script.google.com/macros/s/…/exec", text: $urlText)
+                .textFieldStyle(.roundedBorder)
+                .font(.ui(size: 11))
+            if let error {
+                Text(error)
+                    .font(.ui(size: 11))
+                    .foregroundColor(palette.negative)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            HStack {
+                Spacer()
+                Button("Cancel", action: onClose).keyboardShortcut(.cancelAction)
+                Button(connecting ? "Connecting…" : "Connect", action: connect)
+                    .keyboardShortcut(.defaultAction)
+                    .disabled(AppsScriptWriter.parseURL(urlText) == nil || connecting)
+            }
+            .font(.ui(size: 11))
+        }
+        .padding(20)
+        .frame(width: 460)
+        .background(palette.bgPanel)
+    }
+
+    private func step<Accessory: View>(_ n: Int, _ text: String, @ViewBuilder accessory: () -> Accessory) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            Text("\(n)")
+                .font(.ui(size: 11, weight: .semibold))
+                .foregroundColor(palette.accentBlue)
+                .frame(width: 14)
+            Text(text)
+                .font(.ui(size: 11))
+                .foregroundColor(palette.textMain)
+                .fixedSize(horizontal: false, vertical: true)
+            Spacer(minLength: 4)
+            accessory().font(.ui(size: 11))
+        }
+    }
+
+    private func connect() {
+        guard let url = AppsScriptWriter.parseURL(urlText) else { return }
+        connecting = true
+        error = nil
+        Task {
+            do {
+                try await store.setWriter(PlanWriteLink(url: url, token: token))
+                onClose()
+            } catch {
+                self.error = error.localizedDescription
+            }
+            connecting = false
+        }
+    }
+}
+
+/// Inspect's right drawer holding the plan, resizable from its left edge. It owns its width so dragging re-lays out
+/// the drawer and the table beside it, never re-runs `ContentView`.
+struct InspectPlanDrawer: View {
+    let isLightMode: Bool
+    let onClose: () -> Void
+    @AppStorage("inspectPlanWidth") private var width: Double = 400
+
+    var body: some View {
+        DeliveryPlanPanel(placement: .drawer, isLightMode: isLightMode, onClose: onClose)
+            .frame(width: width)
+            .overlay(Rectangle().fill(StudioPalette(isLightMode).borderLine).frame(width: 1), alignment: .leading)
+            .overlay(alignment: .leading) {
+                PanelResizeHandle(width: $width, range: 300...1100, defaultWidth: 400, isLightMode: isLightMode,
+                                  help: "Drag to resize the Delivery Plan. Double-click to reset (400 pt).", edge: .leading)
+            }
+    }
+}
+
+/// Inspect's per-file plan badge: the code and its state, or "Not in plan".
+struct PlanPill: View {
+    let info: PlanFileInfo
+    let isLightMode: Bool
+
+    var body: some View {
+        let palette = StudioPalette(isLightMode)
+        HStack(spacing: 4) {
+            if let state = info.state {
+                Circle().fill(PlanRowView.color(state, palette)).frame(width: 6, height: 6)
+                if !info.code.isEmpty {
+                    Text(info.code)
+                        .font(.ui(size: 10, weight: .semibold))
+                        .monospacedDigit()
+                        .foregroundColor(palette.textMain)
+                }
+                Text(state.title)
+                    .font(.ui(size: 10, weight: .medium))
+                    .foregroundColor(PlanRowView.color(state, palette))
+            } else {
+                Text("Not in plan")
+                    .font(.ui(size: 10, weight: .medium))
+                    .foregroundColor(palette.textSubtle)
+            }
+        }
+        .lineLimit(1)
+        .fixedSize()
+        .padding(.horizontal, 5)
+        .padding(.vertical, 1)
+        .background(RoundedRectangle(cornerRadius: Radius.control).fill(palette.bgSubtle))
+        .help(info.state == nil ? "Not in the Delivery Plan." : "Delivery Plan row \(info.line)\(info.code.isEmpty ? "" : " · \(info.code)") · \(info.state!.title)")
+    }
+}
+
+/// Progress of plan checks, with Pause / Resume and Stop. Observes only the progress object (≤ 5 updates a second).
+struct PlanCheckProgressStrip: View {
+    let isLightMode: Bool
+    @ObservedObject private var progress = PlanCheckQueue.shared.progress
+    @ObservedObject private var queue = PlanCheckQueue.shared
+
+    var body: some View {
+        let palette = StudioPalette(isLightMode)
+        VStack(alignment: .leading, spacing: 4) {
+            Rectangle().fill(palette.borderLine).frame(height: 1)
+            HStack(spacing: 8) {
+                Text(progress.waiting ?? progress.text)
+                    .font(.ui(size: 10))
+                    .foregroundColor(progress.waiting == nil ? palette.textMuted : palette.accentSlotB)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                Spacer(minLength: 4)
+                Button(queue.isPaused ? "Resume" : "Pause") { queue.isPaused ? queue.resume() : queue.pause() }
+                    .buttonStyle(.borderless)
+                Button("Stop") { queue.stop() }
+                    .buttonStyle(.borderless)
+            }
+            .font(.ui(size: 10))
+            .padding(.horizontal, 12)
+            ProgressView(value: progress.fraction)
+                .progressViewStyle(.linear)
+                .tint(palette.accentBlue)
+                .padding(.horizontal, 12)
+                .padding(.bottom, 6)
+        }
+        .background(palette.bgCardSubtle)
+    }
+}
+
+/// A filter chip (plan and Inspect): status dot, title with count; selected = filled.
+struct PlanFilterChip: View {
+    let title: String
+    let selected: Bool
+    let color: Color
+    let isLightMode: Bool
+    let action: () -> Void
+
+    var body: some View {
+        let palette = StudioPalette(isLightMode)
+        Button(action: action) {
+            HStack(spacing: 4) {
+                Circle().fill(color).frame(width: 6, height: 6)
+                Text(title)
+                    .font(.ui(size: 10, weight: selected ? .semibold : .medium))
+                    .monospacedDigit()
+                    .foregroundColor(selected ? palette.textMain : palette.textMuted)
+            }
+            .padding(.horizontal, 7)
+            .padding(.vertical, 3)
+            .background(RoundedRectangle(cornerRadius: Radius.control).fill(selected ? palette.bgSubtle : Color.clear))
+            .overlay(RoundedRectangle(cornerRadius: Radius.control).stroke(selected ? palette.borderStrong : palette.borderLine, lineWidth: 1))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+/// Links the plan's and Inspect's filters (status chip + search). Accent when on.
+struct LinkFiltersButton: View {
+    let isLightMode: Bool
+    let current: () -> DeliveryPlanStore.SharedFilter
+    @ObservedObject private var store = DeliveryPlanStore.shared
+
+    var body: some View {
+        let palette = StudioPalette(isLightMode)
+        Button { store.toggleLinkFilters(from: current()) } label: {
+            Image(systemName: "link")
+                .font(.system(size: StudioTheme.scaleFont(10), weight: store.linkFilters ? .bold : .regular))
+                .foregroundColor(store.linkFilters ? palette.accentBlue : palette.textMuted)
+                .padding(.horizontal, 6)
+                .padding(.vertical, 3)
+                .background(RoundedRectangle(cornerRadius: Radius.control).fill(store.linkFilters ? palette.accentBlue.opacity(0.15) : Color.clear))
+                .overlay(RoundedRectangle(cornerRadius: Radius.control).stroke(store.linkFilters ? palette.accentBlue : palette.borderLine, lineWidth: 1))
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .tip(store.linkFilters ? "Filters are linked: the plan and Inspect show the same status and search. Click to unlink."
+                               : "Link filters: choosing a status or searching in the plan or Inspect filters the other too.")
     }
 }

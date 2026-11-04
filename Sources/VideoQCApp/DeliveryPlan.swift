@@ -26,6 +26,10 @@ struct PlanSheetLink: Codable, Equatable, Sendable {
     }
 
     var webURL: URL { URL(string: "https://docs.google.com/spreadsheets/d/\(sheetID)/edit")! }
+    /// The sheet opened on one row.
+    func webURL(tab gid: String, line: Int) -> URL {
+        URL(string: "https://docs.google.com/spreadsheets/d/\(sheetID)/edit#gid=\(gid)&range=A\(line)")!
+    }
 }
 
 struct PlanTab: Codable, Equatable, Sendable, Identifiable, Hashable {
@@ -37,7 +41,10 @@ struct PlanTab: Codable, Equatable, Sendable, Identifiable, Hashable {
 /// The columns the plan understands, recognised by their header text (position and order don't matter).
 enum PlanField: String, CaseIterable, Codable, Sendable {
     case id, number, name, length, channel, placement, resolution, aspect, logos, graphics, cta, subs, translations,
-         sound, maxSize, frameRate, format
+         sound, maxSize, frameRate, format, qcStatus, qcNote, qcUpdated
+
+    /// QCpie's own columns (written by it, never part of a row's identity or "changed" highlights).
+    var isQC: Bool { self == .qcStatus || self == .qcNote || self == .qcUpdated }
 
     var title: String {
         switch self {
@@ -58,6 +65,9 @@ enum PlanField: String, CaseIterable, Codable, Sendable {
         case .maxSize: return "File Size"
         case .frameRate: return "Frame Rate"
         case .format: return "Format"
+        case .qcStatus: return "QC Status"
+        case .qcNote: return "QC Note"
+        case .qcUpdated: return "QC Updated"
         }
     }
 
@@ -70,6 +80,9 @@ enum PlanField: String, CaseIterable, Codable, Sendable {
         case "n.", "n", "no", "no.", "#", "nr", "nr.", "asset", "asset n.", "asset no": return .number
         case "name", "title", "deliverable": return .name
         case "cta": return .cta
+        case "qc status": return .qcStatus
+        case "qc note", "qc notes": return .qcNote
+        case "qc updated": return .qcUpdated
         default: break
         }
         if h.contains("file name") || h.contains("filename") || h.contains("file title") { return .name }
@@ -131,7 +144,13 @@ struct PlanRow: Identifiable, Sendable, Equatable {
     var number: String { values[.number] ?? "" }
     func value(_ field: PlanField) -> String { values[field] ?? "" }
     /// Every recognised value, for change detection.
-    var content: [String: String] { Dictionary(uniqueKeysWithValues: values.map { ($0.key.rawValue, $0.value) }) }
+    var content: [String: String] {
+        Dictionary(uniqueKeysWithValues: values.filter { !$0.key.isQC }.map { ($0.key.rawValue, $0.value) })
+    }
+    /// What matching depends on (QC columns excluded).
+    var matchSignature: [String: String] { content.merging(["#id": id], uniquingKeysWith: { a, _ in a }) }
+    /// The code (ID column), if the sheet has one.
+    var code: String? { values[.id] }
 }
 
 // MARK: - Parsing
@@ -211,10 +230,22 @@ enum PlanParser {
                 values[field] = cells[column]
             }
             guard let name = values[.name], !name.isEmpty else { continue }
+            // Totals ("Total", "Grand total" + a count) aren't deliverables. With an ID column, a row without an ID
+            // is a heading or a total: text makes it the section title.
+            if isTotal(name) { continue }
+            if columns[.id] != nil, values[.id] == nil {
+                if Double(name) == nil { section = name }
+                continue
+            }
             let row = build(values: values, tab: tab, line: index + 1, section: section, seen: &seen)
             result.append(row)
         }
         return result
+    }
+
+    static func isTotal(_ name: String) -> Bool {
+        let n = name.lowercased().trimmingCharacters(in: .punctuationCharacters.union(.whitespaces))
+        return ["total", "totals", "grand total", "subtotal", "sub total", "sub-total", "tot", "tot."].contains(n)
     }
 
     private static func build(values: [PlanField: String], tab: String, line: Int, section: String?,
@@ -350,10 +381,13 @@ struct PlanFile: Sendable, Equatable {
     let bytes: Int64
     let codec: String
     let hasAudio: Bool
+    /// Modification date (a file newer than its row's QC status is a new version).
+    var modified: Date? = nil
 
-    init(url: URL, width: Int, height: Int, seconds: Double, fps: Double, bytes: Int64, codec: String, hasAudio: Bool) {
+    init(url: URL, width: Int, height: Int, seconds: Double, fps: Double, bytes: Int64, codec: String, hasAudio: Bool,
+         modified: Date? = nil) {
         self.url = url; self.width = width; self.height = height; self.seconds = seconds
-        self.fps = fps; self.bytes = bytes; self.codec = codec; self.hasAudio = hasAudio
+        self.fps = fps; self.bytes = bytes; self.codec = codec; self.hasAudio = hasAudio; self.modified = modified
     }
 
     init(_ asset: DeliverableAsset) {
@@ -377,7 +411,7 @@ enum PlanStatus: Int, Sendable, CaseIterable {
     var title: String {
         switch self {
         case .missing: return "Missing"
-        case .delivered: return "Delivered"
+        case .delivered: return "Found"
         case .wrongSpec: return "Wrong Spec"
         case .check: return "Check"
         }
@@ -481,8 +515,20 @@ enum PlanMatcher {
         let idTokens = rows.map { $0.values[.id].map(tokens) ?? [] }
         // Rows by their whole name (tokens joined): a file looks up each run of its own tokens, longest first, so
         // 1,100 files × 1,100 rows costs a few hundred dictionary lookups per file.
+        var byID: [String: [Int]] = [:]
+        var multiTokenIDs: [Int] = []
+        for (index, id) in idTokens.enumerated() where !id.isEmpty {
+            if id.count == 1 { byID[id[0], default: []].append(index) } else { multiTokenIDs.append(index) }
+        }
         var byName: [String: [Int]] = [:]
-        for (index, t) in rowTokens.enumerated() where !t.isEmpty { byName[t.joined(separator: " "), default: []].append(index) }
+        for (index, t) in rowTokens.enumerated() where !t.isEmpty {
+            byName[t.joined(separator: " "), default: []].append(index)
+            // Names that carry their ID ("…_15s_KL0001") also match files named without it.
+            let id = idTokens[index]
+            if !id.isEmpty, t.count > id.count, Array(t.suffix(id.count)) == id {
+                byName[t.dropLast(id.count).joined(separator: " "), default: []].append(index)
+            }
+        }
         var taken: [Int: [URL]] = [:]
         var notes: [Int: [String]] = [:]
         var specProblems: [Int: [(url: URL, problems: [String])]] = [:]
@@ -491,18 +537,40 @@ enum PlanMatcher {
 
         typealias Scored = (index: Int, problems: [String], hint: Int)
         var plans: [(file: PlanFile, scored: [Scored])] = []
+        /// Files whose ID points at a row their name doesn't match: a wrong code, or a misnamed file.
+        var idNameNotes: [URL: String] = [:]
+        func rowsNamed(in ft: [String]) -> [Int] {
+            for length in stride(from: ft.count, through: 1, by: -1) {
+                var hits: [Int] = []
+                for start in 0...(ft.count - length) { hits += byName[ft[start..<(start + length)].joined(separator: " ")] ?? [] }
+                if !hits.isEmpty { return Array(Set(hits)).sorted() }
+            }
+            return []
+        }
         for file in files.sorted(by: { $0.url.lastPathComponent.localizedStandardCompare($1.url.lastPathComponent) == .orderedAscending }) {
             let ft = tokens(file.url.deletingPathExtension().lastPathComponent)
             // An ID in the name decides alone.
-            var candidates = idTokens.indices.filter { !idTokens[$0].isEmpty && contains(ft, idTokens[$0]) }
+            // Codes are one word: a dictionary lookup per file token, not a scan of every row (that was 1.1 M
+            // comparisons for 1,075 files, ~8 s on a MacBook Air's efficiency cores).
+            var candidates = Array(Set(ft.flatMap { byID[$0] ?? [] })).sorted()
+            if !multiTokenIDs.isEmpty {
+                candidates += multiTokenIDs.filter { contains(ft, idTokens[$0]) }
+            }
             if candidates.isEmpty {
-                search: for length in stride(from: ft.count, through: 1, by: -1) {
-                    for start in 0...(ft.count - length) {
-                        if let hit = byName[ft[start..<(start + length)].joined(separator: " ")] { candidates += hit }
-                    }
-                    if !candidates.isEmpty { break search }
+                candidates = rowsNamed(in: ft)
+            } else if candidates.count == 1 {
+                let index = candidates[0]
+                let id = idTokens[index]
+                var name = rowTokens[index]
+                if name.count > id.count, Array(name.suffix(id.count)) == id { name.removeLast(id.count) }
+                if !name.isEmpty, !contains(ft, name) {
+                    let withoutID = ft.filter { !id.contains($0) }
+                    let named = rowsNamed(in: withoutID).filter { $0 != index }.prefix(3).map { "\(rows[$0].line)" }
+                    let code = rows[index].values[.id] ?? ""
+                    idNameNotes[file.url] = "The file name doesn't match \(code)'s row" +
+                        (named.isEmpty ? "" : " (the name looks like row\(named.count == 1 ? "" : "s") \(named.joined(separator: ", ")))") +
+                        ": check the code."
                 }
-                candidates = Array(Set(candidates)).sorted()
             }
             guard !candidates.isEmpty else { match.extras.append(file.url); continue }
             plans.append((file, candidates.map { ($0, problems(rows[$0], file), logoScore(rows[$0], ft) + aspectScore(rows[$0], ft)) }))
@@ -528,6 +596,7 @@ enum PlanMatcher {
             let pick = free.first ?? best[0]
             if pick.problems.isEmpty { perfect.insert(pick.index) }
             taken[pick.index, default: []].append(file.url)
+            if let note = idNameNotes[file.url] { notes[pick.index, default: []].append(note) }
             alternatives[pick.index, default: []] += best.map(\.index).filter { $0 != pick.index }
             specProblems[pick.index, default: []].append((file.url, pick.problems))
         }
@@ -553,4 +622,130 @@ enum PlanMatcher {
         match.extras.sort { $0.lastPathComponent.localizedStandardCompare($1.lastPathComponent) == .orderedAscending }
         return match
     }
+}
+
+
+// MARK: - QC status
+
+/// Statuses people set (the sheet's QC Status column, a dropdown). Everything else is worked out from the files.
+enum PlanQCStatus: String, CaseIterable, Sendable, Codable {
+    case needsFix, passed, approved, delivered, onHold, dropped
+
+    var title: String {
+        switch self {
+        case .needsFix: return "Needs Fix"
+        case .passed: return "QC Passed"
+        case .approved: return "Approved"
+        case .delivered: return "Delivered"
+        case .onHold: return "On Hold"
+        case .dropped: return "Dropped"
+        }
+    }
+
+    /// The sheet's text, leniently ("passed", "QC passed", "approved ✓"…).
+    static func parse(_ text: String) -> PlanQCStatus? {
+        let t = text.lowercased().filter { $0.isLetter || $0 == " " }.trimmingCharacters(in: .whitespaces)
+        guard !t.isEmpty else { return nil }
+        if t.contains("fix") { return .needsFix }
+        if t.contains("pass") { return .passed }
+        if t.contains("approv") { return .approved }
+        if t.contains("deliver") { return .delivered }
+        if t.contains("hold") { return .onHold }
+        if t.contains("drop") || t.contains("cancel") || t.contains("omit") { return .dropped }
+        return nil
+    }
+
+    var state: PlanState {
+        switch self {
+        case .needsFix: return .needsFix
+        case .passed: return .passed
+        case .approved: return .approved
+        case .delivered: return .delivered
+        case .onHold: return .onHold
+        case .dropped: return .dropped
+        }
+    }
+
+    /// ⌥1…⌥6.
+    var shortcut: String { "⌥\((Self.allCases.firstIndex(of: self) ?? 0) + 1)" }
+}
+
+/// One status per row: the manual one when set, else what the files say.
+enum PlanState: Int, CaseIterable, Sendable, Hashable {
+    case missing, toQC, wrongSpec, check, needsFix, passed, approved, delivered, onHold, dropped
+
+    var title: String {
+        switch self {
+        case .missing: return "Missing"
+        case .toQC: return "To QC"
+        case .wrongSpec: return "Wrong Spec"
+        case .check: return "Check"
+        case .needsFix: return "Needs Fix"
+        case .passed: return "QC Passed"
+        case .approved: return "Approved"
+        case .delivered: return "Delivered"
+        case .onHold: return "On Hold"
+        case .dropped: return "Dropped"
+        }
+    }
+
+    /// Counts as done for the progress figure.
+    var isDone: Bool { self == .passed || self == .approved || self == .delivered }
+}
+
+/// A row's state and anything worth flagging about it.
+struct PlanRowState: Equatable, Sendable {
+    var state: PlanState
+    var flags: [String] = []
+}
+
+enum PlanStatusResolver {
+    /// "2026-11-04 14:02:31 · Ric": when and who, written to QC Updated with each status.
+    static func stamp(_ date: Date, by name: String) -> String {
+        formatter.string(from: date) + (name.isEmpty ? "" : " · \(name)")
+    }
+
+    static func date(fromStamp text: String) -> Date? {
+        guard text.count >= 19 else { return nil }
+        return formatter.date(from: String(text.prefix(19)))
+    }
+
+    private static let formatter: DateFormatter = {
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "en_US_POSIX")
+        f.dateFormat = "yyyy-MM-dd HH:mm:ss"
+        return f
+    }()
+
+    /// `fileDates`: modification dates of the row's files. A file newer than the status (QC Updated) means a new
+    /// version arrived since the review: the row goes back to To QC.
+    static func resolve(match: PlanStatus, hasFiles: Bool, qc: String, updated: String, fileDates: [Date]) -> PlanRowState {
+        guard let manual = PlanQCStatus.parse(qc) else {
+            switch match {
+            case .missing: return PlanRowState(state: .missing)
+            case .delivered: return PlanRowState(state: .toQC)
+            case .wrongSpec: return PlanRowState(state: .wrongSpec)
+            case .check: return PlanRowState(state: .check)
+            }
+        }
+        if manual == .onHold || manual == .dropped { return PlanRowState(state: manual.state) }
+        if let set = date(fromStamp: updated), let newest = fileDates.max(), newest > set.addingTimeInterval(2) {
+            return PlanRowState(state: match == .wrongSpec ? .wrongSpec : .toQC,
+                                flags: ["New file since “\(manual.title)” (\(updated))."])
+        }
+        var flags: [String] = []
+        if !hasFiles, manual != .needsFix { flags.append("No file found for a row marked “\(manual.title)”.") }
+        if hasFiles, match == .wrongSpec, manual != .needsFix { flags.append("Marked “\(manual.title)” but the specs don't match.") }
+        return PlanRowState(state: manual.state, flags: flags)
+    }
+}
+
+/// What Inspect shows for a file: its plan row and state (nil state: not in the plan).
+struct PlanFileInfo: Equatable, Sendable {
+    let code: String
+    let line: Int
+    let rowID: String?
+    let state: PlanState?
+    /// The row's values, lower-cased, for Inspect's search (channel, placement, resolution…).
+    var text: String = ""
 }

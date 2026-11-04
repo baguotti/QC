@@ -6,6 +6,9 @@ import VideoQCLib
 
 @MainActor
 public final class SpecsState: ObservableObject {
+    /// Posted with a URL: the Inspect table scrolls that file into view (plan row clicks).
+    public static let scrollToFile = Notification.Name("QCpieSpecsScrollToFile")
+
     @Published public var deliverableAssets: [DeliverableAsset] = [] {
         didSet {
             assetsVersion &+= 1
@@ -227,6 +230,66 @@ public final class SpecsState: ObservableObject {
             .sink { [weak self] _ in self?.refreshSubtitleSidecars() }
     }
     
+    /// Columns the user hid (File Name can't be). Remembered.
+    @Published public var hiddenColumns: Set<SpecsSortColumn> = Set(
+        (UserDefaults.standard.array(forKey: "specsHiddenColumns") as? [String] ?? []).compactMap(SpecsSortColumn.init(rawValue:))
+    ) {
+        didSet { UserDefaults.standard.set(hiddenColumns.map(\.rawValue), forKey: "specsHiddenColumns") }
+    }
+
+    // MARK: Column templates
+
+    /// A saved column layout: which columns show and their widths.
+    public struct ColumnTemplate: Codable, Equatable, Identifiable {
+        public var name: String
+        public var hidden: [String]
+        public var widths: [String: Double]
+        public var id: String { name }
+    }
+
+    /// Built in, always offered: everything, the columns delivery QC needs, and a narrow one.
+    public static let builtInTemplates: [ColumnTemplate] = [
+        ColumnTemplate(name: "All Columns", hidden: [], widths: [:]),
+        ColumnTemplate(name: "Delivery QC", hidden: [SpecsSortColumn.date, .endFrame, .path].map(\.rawValue), widths: [:]),
+        ColumnTemplate(name: "Compact", hidden: [SpecsSortColumn.date, .endFrame, .path, .fps, .videoCodec, .audioCodec].map(\.rawValue), widths: [:]),
+    ]
+
+    @Published public private(set) var columnTemplates: [ColumnTemplate] =
+        (UserDefaults.standard.data(forKey: "specsColumnTemplates")).flatMap { try? JSONDecoder().decode([ColumnTemplate].self, from: $0) } ?? []
+
+    /// Saves the current layout under a name (replacing one with the same name).
+    public func saveColumnTemplate(named name: String) {
+        let widths = Dictionary(uniqueKeysWithValues: SpecsSortColumn.allCases.map { ($0.rawValue, columnWidth(for: $0)) })
+        let template = ColumnTemplate(name: name, hidden: hiddenColumns.map(\.rawValue).sorted(), widths: widths)
+        columnTemplates.removeAll { $0.name == name }
+        columnTemplates.append(template)
+        persistTemplates()
+    }
+
+    public func deleteColumnTemplate(named name: String) {
+        columnTemplates.removeAll { $0.name == name }
+        persistTemplates()
+    }
+
+    /// Shows the template's columns; widths it saved are applied, others stay as they are.
+    public func applyColumnTemplate(_ template: ColumnTemplate) {
+        hiddenColumns = Set(template.hidden.compactMap(SpecsSortColumn.init(rawValue:)))
+        for (key, width) in template.widths {
+            if let column = SpecsSortColumn(rawValue: key) { setColumnWidth(width, for: column) }
+        }
+    }
+
+    private func persistTemplates() {
+        if let data = try? JSONEncoder().encode(columnTemplates) { UserDefaults.standard.set(data, forKey: "specsColumnTemplates") }
+    }
+
+    public func isColumnVisible(_ column: SpecsSortColumn) -> Bool { column == .name || !hiddenColumns.contains(column) }
+
+    public func setColumnVisible(_ column: SpecsSortColumn, _ visible: Bool) {
+        guard column != .name else { return }
+        if visible { hiddenColumns.remove(column) } else { hiddenColumns.insert(column) }
+    }
+
     public func columnWidth(for column: SpecsSortColumn) -> Double {
         if liveDraggingColumn == column {
             return liveDraggingWidth
@@ -297,27 +360,45 @@ public final class SpecsState: ObservableObject {
     /// Bumped on every change to `deliverableAssets` (cheap key for `displayedAssets`).
     private(set) var assetsVersion = 0
     private struct DisplayKey: Equatable {
-        let version: Int, filter: String, mask: Int, column: String, ascending: Bool
+        let version: Int, filter: String, mask: Int, column: String, ascending: Bool, plan: String
     }
     private var displayCache: (key: DisplayKey, assets: [DeliverableAsset])?
 
     /// The Specs table's rows: filtered by name / path and media kind, then sorted. Memoized: the table reads it several
     /// times per render, and audio analysis re-renders once per finished file (re-sorting 500 rows each time).
-    public func displayedAssets(filter: String, mask: Int) -> [DeliverableAsset] {
-        let key = DisplayKey(version: assetsVersion, filter: filter, mask: mask, column: specsSortColumnRaw, ascending: specsSortAscending)
+    /// `planKey` changes with the Delivery Plan filter and index; `planAllows` / `planText` are only called on a cache
+    /// miss. The search also finds files by their plan row (every word in the file name, path or row's values).
+    public func displayedAssets(filter: String, mask: Int, planKey: String = "", planAllows: ((URL) -> Bool)? = nil,
+                                planText: ((URL) -> String?)? = nil, planSort: ((URL) -> Int)? = nil) -> [DeliverableAsset] {
+        let key = DisplayKey(version: assetsVersion, filter: filter, mask: mask, column: specsSortColumnRaw, ascending: specsSortAscending, plan: planKey)
         if let cache = displayCache, cache.key == key { return cache.assets }
         let base: [DeliverableAsset]
-        if filter.isEmpty && mask == MediaKindFilter.all {
+        let words = filter.lowercased().split(whereSeparator: { $0.isWhitespace }).map(String.init)
+        if filter.isEmpty && mask == MediaKindFilter.all && planAllows == nil {
             base = deliverableAssets
         } else {
             base = deliverableAssets.filter {
-                MediaKindFilter.allows($0.fileURL, mask: mask) &&
-                (filter.isEmpty || $0.fileName.localizedCaseInsensitiveContains(filter) || $0.fileURL.path.localizedCaseInsensitiveContains(filter))
+                MediaKindFilter.allows($0.fileURL, mask: mask) && (planAllows?($0.fileURL) ?? true) &&
+                (filter.isEmpty || $0.fileName.localizedCaseInsensitiveContains(filter) || $0.fileURL.path.localizedCaseInsensitiveContains(filter)
+                    || Self.allWords(words, in: $0.fileName.lowercased() + " " + (planText?($0.fileURL) ?? "")))
             }
         }
-        let assets = sortDeliverableAssets(base)
+        var assets = sortDeliverableAssets(base)
+        if let planSort {
+            // Plan order / status, stable: the column sort breaks ties.
+            let keys = Dictionary(assets.map { ($0.fileURL, planSort($0.fileURL)) }, uniquingKeysWith: { a, _ in a })
+            let order = Dictionary(assets.enumerated().map { ($0.element.fileURL, $0.offset) }, uniquingKeysWith: { a, _ in a })
+            assets.sort { a, b in
+                let ka = keys[a.fileURL] ?? .max, kb = keys[b.fileURL] ?? .max
+                return ka != kb ? (specsSortAscending ? ka < kb : ka > kb) : order[a.fileURL]! < order[b.fileURL]!
+            }
+        }
         displayCache = (key, assets)
         return assets
+    }
+
+    private static func allWords(_ words: [String], in text: String) -> Bool {
+        !words.isEmpty && words.allSatisfy { text.contains($0) }
     }
 
     public func sortDeliverableAssets(_ assets: [DeliverableAsset]) -> [DeliverableAsset] {

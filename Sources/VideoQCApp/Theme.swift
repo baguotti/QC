@@ -437,3 +437,30 @@ public struct QCNoteTheme {
     }
 }
 
+
+// MARK: - Tag Palette
+
+/// Colours for status tags only (Delivery Plan states: chips, dots, pills). There are more states than accents, so
+/// tags get their own tones; everything else stays on the accents and core colours.
+enum TagTone: CaseIterable {
+    case grey, blue, red, amber, orange, mint, cyan, green, sand, slate
+
+    func color(_ isLight: Bool) -> Color {
+        let (dark, light): (UInt32, UInt32) = {
+            switch self {
+            case .grey: return (0x8E8E93, 0x8A8A8E)
+            case .blue: return (0x4C8DFF, 0x2F6FE0)
+            case .red: return (0xFF5A52, 0xD93A32)
+            case .amber: return (0xF5B83D, 0xB98208)
+            case .orange: return (0xFF8A3D, 0xD9661A)
+            case .mint: return (0x4CD9A0, 0x169E6A)
+            case .cyan: return (0x3FC2E0, 0x1590AD)
+            case .green: return (0x34C759, 0x248A3D)
+            case .sand: return (0xC2A878, 0x8F7744)
+            case .slate: return (0x5E5E62, 0xAEAEB2)
+            }
+        }()
+        let rgb = isLight ? light : dark
+        return Color(red: Double((rgb >> 16) & 0xFF) / 255, green: Double((rgb >> 8) & 0xFF) / 255, blue: Double(rgb & 0xFF) / 255)
+    }
+}

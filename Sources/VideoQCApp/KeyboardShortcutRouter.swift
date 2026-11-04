@@ -91,6 +91,7 @@ final class KeyboardShortcutRouter {
         /// The tabs with a left sleeve: Play, Inspect and Upload.
         case playerSpecsOrUpload
         case uploadOnly
+        case specsOnly
     }
     
     struct Rule {
@@ -191,6 +192,8 @@ final class KeyboardShortcutRouter {
                 isScopeActive = (currentTab == .player || currentTab == .specs || currentTab == .upload)
             case .uploadOnly:
                 isScopeActive = (currentTab == .upload)
+            case .specsOnly:
+                isScopeActive = (currentTab == .specs)
             }
             
             guard isScopeActive else { continue }
@@ -561,6 +564,15 @@ extension KeyboardShortcutRouter {
             ) {
                 actions.onSelectAllUploads()
                 return true
+            },
+            // Delivery Plan QC status of the selection (Inspect's files, else the plan's row): ⌥1–⌥6, ⌥0 clears.
+            Rule(
+                id: "planStatus",
+                trigger: ShortcutTrigger(keyCodes: [18, 19, 20, 21, 23, 22, 29], modifiers: [.option]),
+                scope: .specsOnly
+            ) {
+                guard let event = NSApp.currentEvent, let n = [18: 1, 19: 2, 20: 3, 21: 4, 23: 5, 22: 6, 29: 0][Int(event.keyCode)] else { return false }
+                return DeliveryPlanStore.shared.setStatusForSelection(n == 0 ? nil : PlanQCStatus.allCases[n - 1])
             },
             Rule(
                 id: "frameioDelete",

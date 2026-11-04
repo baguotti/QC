@@ -26,6 +26,13 @@ struct ContentView: View {
     @State var showPlayerQueue: Bool = UserPreferences.showQueue
     @State var showSpecsControlPanel: Bool = true
     /// Inspect's right drawer: the Delivery Plan.
+    /// Inspect's mirror of `DeliveryPlanStore.fileIndex` (code, row, state per file), updated only when it changes.
+    @State var planFiles: [URL: PlanFileInfo] = [:]
+    @State var planFilesVersion = 0
+    /// Inspect's Delivery Plan filter: -1 all, -2 not in the plan, else a `PlanState` raw value.
+    @State var inspectPlanFilter = -1
+    /// Inspect sorted by the plan: 0 off (column sort), 1 plan order (sheet rows), 2 plan status.
+    @State var inspectPlanSort = 0
     @AppStorage("inspectPlanOpen") var showInspectPlan: Bool = false
     @AppStorage("reviewerName") var reviewerName: String = ""
     @AppStorage("queueDisplayMode") var queueDisplayMode: String = "inline"
@@ -281,11 +288,38 @@ struct ContentView: View {
             }
             // The Delivery Plan matches rows against Inspect's measured files (its own matching runs off the main thread).
             .task(id: specsState.assetsVersion) { DeliveryPlanStore.shared.setAssets(specsState.deliverableAssets) }
+            // Plan checks never decode while the Player plays.
+            .onChange(of: playerEngine.isPlaying) { _, playing in PlanCheckQueue.shared.isPlayerPlaying = playing }
+            // Linked filters (Delivery Plan ⇄ Inspect): Inspect's status chip and search go out, the plan's come in.
+            .onChange(of: inspectPlanFilter) { _, state in
+                DeliveryPlanStore.shared.publishFilter(.init(state: state, search: specsState.specsFilterText))
+            }
+            .onChange(of: specsState.specsFilterText) { _, text in
+                DeliveryPlanStore.shared.publishFilter(.init(state: inspectPlanFilter, search: text))
+            }
+            .onReceive(DeliveryPlanStore.shared.$sharedFilter) { filter in
+                guard DeliveryPlanStore.shared.linkFilters else { return }
+                if inspectPlanFilter != filter.state { inspectPlanFilter = filter.state }
+                if specsState.specsFilterText != filter.search { specsState.specsFilterText = filter.search }
+            }
+            .onReceive(DeliveryPlanStore.shared.$fileIndex) { index in
+                guard index != planFiles else { return }
+                planFiles = index
+                planFilesVersion &+= 1
+            }
+            // Selection is shared both ways: Inspect's highlights the plan rows holding those files…
+            .onChange(of: specsState.selectedDeliverableURLs) { _, urls in DeliveryPlanStore.shared.inspectSelectionChanged(urls) }
+            // …and a plan row selects its files in Inspect (none: clears the selection) and scrolls the table to them.
             .onReceive(NotificationCenter.default.publisher(for: DeliveryPlanStore.revealFile)) { notification in
-                guard let url = notification.object as? URL else { return }
-                NSApp.windows.first { $0.identifier?.rawValue.hasPrefix("main") == true }?.makeKeyAndOrderFront(nil)
-                withAnimation(Motion.snap) { selectedTab = .specs }
-                specsState.selectedDeliverableURL = url
+                guard let urls = notification.object as? [URL] else { return }
+                specsState.selectedDeliverableURLs = Set(urls)
+                specsState.selectedDeliverableURL = urls.first
+                guard let first = urls.first else { return }
+                if selectedTab != .specs {
+                    NSApp.windows.first { $0.identifier?.rawValue.hasPrefix("main") == true }?.makeKeyAndOrderFront(nil)
+                    withAnimation(Motion.snap) { selectedTab = .specs }
+                }
+                DispatchQueue.main.async { NotificationCenter.default.post(name: SpecsState.scrollToFile, object: first) }
             }
             .onReceive(NotificationCenter.default.publisher(for: DeliveryPlanStore.playFile)) { notification in
                 guard let url = notification.object as? URL else { return }

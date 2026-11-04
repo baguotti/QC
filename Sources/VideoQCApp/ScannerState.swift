@@ -95,16 +95,9 @@ public final class ScannerState: ObservableObject {
         return Color(red: Double(rgb.r) / 255.0, green: Double(rgb.g) / 255.0, blue: Double(rgb.b) / 255.0)
     }
     
-    public func startScan(
-        videoFiles: [URL],
-        onComplete: @escaping @MainActor ([VideoQCResult], QCConfig) -> Void
-    ) {
-        guard !videoFiles.isEmpty else {
-            isFullCheck = false
-            return
-        }
-        
-        let config = QCConfig(
+    /// The Line Check settings as set in the Scan tab (Delivery Plan checks use them too).
+    public var currentConfig: QCConfig {
+        QCConfig(
             targetHex: hexCode,
             tolerance: (isTargetBlack || isTargetWhite) ? 0.03 : 0.25,
             edgeDepth: edgeDepth,
@@ -118,6 +111,18 @@ public final class ScannerState: ObservableObject {
             enableHighlightExpansion: enableHighlightExpansion,
             ignoreFullWhiteFrames: ignoreFullWhiteFrames
         )
+    }
+
+    public func startScan(
+        videoFiles: [URL],
+        onComplete: @escaping @MainActor ([VideoQCResult], QCConfig) -> Void
+    ) {
+        guard !videoFiles.isEmpty else {
+            isFullCheck = false
+            return
+        }
+        
+        let config = currentConfig
         
         isScanning = true
         isCancelling = false

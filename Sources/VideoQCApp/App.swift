@@ -66,6 +66,8 @@ struct QCpieApp: App {
     
     init() {
         ProVideoFormats.register()
+        // The plan window sets this again when it actually opens (restored or not); a stale true hid the drawer.
+        UserDefaults.standard.set(false, forKey: DeliveryPlanWindow.poppedOutKey)
         NSApplication.shared.setActivationPolicy(.regular)
         NSApplication.shared.activate(ignoringOtherApps: true)
 
