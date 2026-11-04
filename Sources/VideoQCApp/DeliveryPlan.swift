@@ -140,6 +140,9 @@ struct PlanRow: Identifiable, Sendable, Equatable {
     /// Contradictions inside the sheet (resolution vs aspect, name vs length…).
     var issues: [String]
 
+    /// Every value, lower-cased, for the filter field (built once with the row, not per keystroke).
+    let searchText: String
+
     var name: String { values[.name] ?? "" }
     var number: String { values[.number] ?? "" }
     func value(_ field: PlanField) -> String { values[field] ?? "" }
@@ -210,9 +213,17 @@ enum PlanParser {
 
     /// The rows of one tab. Blank rows and rows without a file name (subtotals) are skipped; a row whose only text
     /// is in one cell is a section title for the rows under it (unless it's a number: a subtotal).
-    static func rows(csv text: String, tab: String) -> [PlanRow] {
+    static func rows(csv text: String, tab: String) -> [PlanRow] { parse(csv: text, tab: tab).rows }
+
+    /// Rows and the header (index, columns) from one CSV parse (the store needs both on every read).
+    static func parse(csv text: String, tab: String) -> (rows: [PlanRow], header: (index: Int, columns: [PlanField: Int])?) {
         let table = csv(text)
-        guard let (headerIndex, columns) = header(table) else { return [] }
+        guard let found = header(table) else { return ([], nil) }
+        let (headerIndex, columns) = found
+        return (buildRows(table, headerIndex: headerIndex, columns: columns, tab: tab), found)
+    }
+
+    private static func buildRows(_ table: [[String]], headerIndex: Int, columns: [PlanField: Int], tab: String) -> [PlanRow] {
         var result: [PlanRow] = []
         var section: String? = nil
         var seen: [String: Int] = [:]
@@ -233,7 +244,10 @@ enum PlanParser {
             // Totals ("Total", "Grand total" + a count) aren't deliverables. With an ID column, a row without an ID
             // is a heading or a total: text makes it the section title.
             if isTotal(name) { continue }
-            if columns[.id] != nil, values[.id] == nil {
+            // With an ID column, a row without an ID is a heading, unless it has specs: then it's a deliverable that
+            // hasn't been given its code yet (it must still show, as Missing at least).
+            if columns[.id] != nil, values[.id] == nil,
+               values[.resolution] == nil, values[.aspect] == nil, values[.maxSize] == nil, values[.format] == nil {
                 if Double(name) == nil { section = name }
                 continue
             }
@@ -283,7 +297,8 @@ enum PlanParser {
         seen[identity] = occurrence + 1
         return PlanRow(id: occurrence == 0 ? identity : "\(identity)#\(occurrence)", tab: tab, line: line, section: section,
                        values: values, width: size?.0, height: size?.1, aspect: ratio, seconds: length,
-                       maxBytes: maxBytes, format: format, fps: fps, issues: issues)
+                       maxBytes: maxBytes, format: format, fps: fps, issues: issues,
+                       searchText: values.values.joined(separator: " ").lowercased())
     }
 
     /// "1920x1080", "1200 x 1500", "1080×1920".
@@ -700,22 +715,28 @@ struct PlanRowState: Equatable, Sendable {
 }
 
 enum PlanStatusResolver {
-    /// "2026-11-04 14:02:31 · Ric": when and who, written to QC Updated with each status.
+    /// "2026-11-04 13:02:31 UTC · Ric": when and who, written to QC Updated with each status (QCpie and the sheet's
+    /// script both write UTC, so Macs and the sheet in other time zones agree).
     static func stamp(_ date: Date, by name: String) -> String {
-        formatter.string(from: date) + (name.isEmpty ? "" : " · \(name)")
+        utc.string(from: date) + " UTC" + (name.isEmpty ? "" : " · \(name)")
     }
 
+    /// Stamps without "UTC" (written before version 3) are local time.
     static func date(fromStamp text: String) -> Date? {
         guard text.count >= 19 else { return nil }
-        return formatter.date(from: String(text.prefix(19)))
+        let prefix = String(text.prefix(19))
+        return (text.dropFirst(19).hasPrefix(" UTC") ? utc : local).date(from: prefix)
     }
 
-    private static let formatter: DateFormatter = {
+    private static func formatter(_ zone: TimeZone) -> DateFormatter {
         let f = DateFormatter()
         f.locale = Locale(identifier: "en_US_POSIX")
+        f.timeZone = zone
         f.dateFormat = "yyyy-MM-dd HH:mm:ss"
         return f
-    }()
+    }
+    private static let utc = formatter(TimeZone(identifier: "UTC")!)
+    private static let local = formatter(.current)
 
     /// `fileDates`: modification dates of the row's files. A file newer than the status (QC Updated) means a new
     /// version arrived since the review: the row goes back to To QC.

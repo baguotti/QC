@@ -329,7 +329,7 @@
 
 - Inspect's right drawer (⌘⇧→, `inspectPlanOpen`) or its own window (`Window` scene `deliveryPlan`, ⌥⌘D, declared after the main window: SwiftUI opens the first `Window` at launch). `deliveryPlanPoppedOut` makes the drawer a placeholder while the window is open. The router passes every key through while the plan window is key (its identifier starts with `deliveryPlan`).
 - **Source**: `PlanSheetSource` (tabs + one tab's CSV). Today `PublicSheetSource`: `htmlview` lists tabs (`{name, pageUrl, gid}`), `export?format=csv&gid=` reads one; sheets must be "Anyone with the link" (sign-in redirect → `notShared`). Not `gviz/tq`: it types columns and blanks values that don't fit. Google sign-in (Sheets API, private/client sheets) is meant to be a second `PlanSheetSource`.
-- **Parsing** (`PlanParser`): header row = first of the top 15 naming a file-name column + 2 other known columns (`PlanField.detect`, by header text, any order). Rows without a name are skipped, a lone text cell is a section title, a lone number a subtotal, a row named Total / Grand total is skipped; with an ID column ("Code"), a row without an ID is a heading (text) or a total, never a deliverable. Values: resolution, aspect, length (`30s`, `2-3s`, `1:30`, `30s / 15s`), size cap (decimal MB), format (from Format, or a codec in the size column, `gif` in Length/name), fps. Sheet contradictions are `issues` (resolution vs aspect, `_6s` name vs 10s length, duplicates). Row identity: the ID column, else tab + name + channel + placement + resolution + aspect + logos + subs + translations + format (+ occurrence).
+- **Parsing** (`PlanParser`): header row = first of the top 15 naming a file-name column + 2 other known columns (`PlanField.detect`, by header text, any order). Rows without a name are skipped, a lone text cell is a section title, a lone number a subtotal, a row named Total / Grand total is skipped; with an ID column ("Code"), a row without an ID is a heading (text) or a total, unless it has specs (resolution, aspect, size or format): then it's a deliverable without a code yet and still shows. Values: resolution, aspect, length (`30s`, `2-3s`, `1:30`, `30s / 15s`), size cap (decimal MB), format (from Format, or a codec in the size column, `gif` in Length/name), fps. Sheet contradictions are `issues` (resolution vs aspect, `_6s` name vs 10s length, duplicates). Row identity: the ID column, else tab + name + channel + placement + resolution + aspect + logos + subs + translations + format (+ occurrence).
 - **Tabs**: linking turns on one tab (the link's gid, else the most rows: sheets list the same files twice, by placement and by edit); the picker under the title shows row counts.
 - **Live**: re-read every 60 s only while a plan panel is on screen (`panelAppeared`/`Disappeared`), and the tab list too. Changes are against a "seen" snapshot (`seen.json`, Application Support/QCpie/DeliveryPlan/<sheet id>, plus `tabs.json` CSV cache shown before the first read): new / changed (field: old → new) / removed until Mark Seen.
 - **Matching** (`PlanMatcher`, off the main thread, only when rows or files change): Inspect's measured assets (`setAssets` from `ContentView` on `specsState.assetsVersion`). A file's candidates are the rows whose whole name is the longest run of its name tokens (an ID column value wins alone; when the file's name doesn't contain that row's name, the row gets "The file name doesn't match KLnnnn's row (the name looks like row N): check the code."), looked up by name (`byName`; a name ending in its own ID is indexed without it too, so files named without the code still match). Mock deliveries for trying it: `_TEST/DeliveryPlanMock` (97 tiny files + `_ANSWER_KEY.csv`). Among them: fewest spec problems, then name hints (clean/logo, an aspect like `9x16`), then rows not yet taken. Perfect fits are placed first; a file whose best rows already hold perfect fits is an extra with its closest row. Look-alike rows left empty get "Could also be row N". 1,117 rows × 1,117 files: ~1 s in a debug build.
@@ -338,18 +338,23 @@
 - **QC statuses** (Phase 1A). One state per row (`PlanState`):
   - Automatic: Missing / To QC / Wrong Spec / Check, from the match.
   - Manual: `PlanQCStatus` (Needs Fix, QC Passed, Approved, Delivered, On Hold, Dropped), read from the sheet's QC Status column, which wins.
-  - `PlanStatusResolver.resolve`: a matched file modified after QC Updated ("yyyy-MM-dd HH:mm:ss · reviewer") sends the row back to To QC with a flag (works across machines: copies keep their modification date).
+  - `PlanStatusResolver.resolve`: a matched file modified after QC Updated ("yyyy-MM-dd HH:mm:ss UTC · reviewer"; stamps without "UTC" are older and local time) sends the row back to To QC with a flag (works across machines: copies keep their modification date).
   - QC Status / QC Note / QC Updated are `PlanField.isQC`: never part of row identity, "changed" highlights or `matchSignature`, so a status edit doesn't re-run matching.
-  - Writes go through script v2 (`AppsScriptWriter.scriptVersion` = 2; `ping` reports the deployed version and older scripts get "Update Script…", which keeps the key and URL). The script works by **Code and header name, never position**:
+  - Only status changes are stamped (a note edit must not hide a new version that arrived before it).
+  - Writes go through script v3 (`AppsScriptWriter.scriptVersion` = 3; statuses need ≥ 2; `ping` reports the deployed version and older scripts get "Update Script…", which keeps the key and URL). The script works by **Code and header name, never position**:
     - `status` writes the QC columns to every tab listing the code, one `RangeList.setValue` per distinct value.
     - `write` finds a moved row by its code and the column by its header, and refuses stale cells.
     - `columns` adds the three QC columns with the dropdown, once, when a tab lacks them.
-    - `onEdit` (simple trigger) bumps a change counter and copies only the edited QC columns to the other tabs.
+    - `onEdit` (simple trigger) bumps a change counter. A QC Status edited in Sheets is stamped in QC Updated (UTC, the editor's email or "Sheets"). It copies only the edited QC columns (plus that stamp) to the other tabs.
+    - Cell edits from the Sheet view send the row's code and the column's header text (`editCell`), so a sorted sheet can't take a write to a same-looking cell on another row.
+    - `columns` sets the dropdown only on columns it adds; the store asks for it at most once per read, and only when a tab with a Code column lacks a QC column (`columnsRequested`).
+    - The set-up key (`setupToken`, UserDefaults `planSetupToken`) is kept until Connect succeeds, so reopening the sheet after copying the script doesn't make a new one.
     - `changes` returns the counter.
   - Store:
     - `setStatus` / `setNote` show at once (`pendingQC` over rows and grids until a read shows them or 2 min pass) and are gathered for 0.3 s into one call.
-    - With the script, polling is `changes` every 10 s (a few bytes) and the full read (CSV + HTML) only when the counter moves or every 3 min. Without it, the full read every 60 s.
+    - With the script, polling is `changes` every 10 s (every 60 s while QCpie isn't the active app; a few bytes). The full read (CSV + HTML) only happens when the counter moves, or every 3 min. Each full read first records the counter (`counterAtRead`), so a save, already read after saving, doesn't trigger a second full read. Without the script, the full read runs every 60 s.
     - Inspect being open counts as a visible panel; a return within 60 s of the last read skips the full read.
+    - `setAssets` keeps the modification dates read for the same inspection (`assetIDs`: `DeliverableAsset.id` per file). Inspect's per-file loudness and end-frame updates stat only new or re-read files, not all 1,000+ each time. The plan's List items are built only in List view.
   - Status from: the row card's status menu, right-click Set Status (sheet and list; applies to every Inspect-highlighted row when the clicked row is one of them), double-clicking a QC Status cell (menu), Inspect's right-click Set Plan Status (selection), and ⌥1–⌥6 / ⌥0 clear: router rule `planStatus` (`.specsOnly`) on Inspect's selection else `focusedRowID`; hidden buttons in the plan window. Chips are states with a "% done" figure (QC Passed + Approved + Delivered of all not Dropped).
   - **Inspect:** `ContentView.planFiles` mirrors `DeliveryPlanStore.fileIndex` (code, row, state per file; changes only when it does). It feeds:
     - `PlanPill` in the name cell.
@@ -359,14 +364,49 @@
     - Code search.
 
     `inspectPlanFilter` and `inspectPlanSort` are part of `displayedAssets`' cache key; the closures only run on a cache miss.
-- **Inspect search** above the table (`inspectSearchBar`, the same `specsFilterText` as the left panel): every word must appear in the file name or its plan row (`PlanFileInfo.text`, the row's values lower-cased), else a plain name/path match.
+- **Inspect search** (the left panel's `specsFilterText`; no second field above the table): every word must appear in the file name or its plan row (`PlanFileInfo.text`, the row's values lower-cased), else a plain name/path match.
+- **Inspect keyboard** (router scope `.specsOnly`; text fields keep their keys):
+  - The keys:
+    - ↑↓ move the selection. ⇧↑↓ extend it from the anchor (Finder ranges; going back shrinks).
+    - ⌘↑↓ / Home / End go to the first or last file; Page Up / Down jump 10.
+    - ⌥↑↓ jump to the next or previous file needing attention (an undismissed mismatch, or plan state Wrong Spec / Check / Needs Fix; wraps).
+    - Return plays, Space plays or pauses the preview (Media Info when no preview is on screen; ⌘I always), ⌘A selects all, Esc clears.
+  - How it works: `InspectNav` → `ContentView.handleInspectNav` → `SpecsState.moveSelection` over `currentDisplayOrder` (the filtered order as shown). It posts `SpecsState.scrollToFile` with `minimal`: no animation, scrolls only as far as needed, so key repeat keeps up.
+  - The plan follows through the linked selection. The guide's "Inspect" shortcut topic feeds the ⌘-hold cheat sheet for this tab.
+- **Inspect preview** (`InspectPreview.swift`): the focused file at the bottom of the left panel, or in its own window (`Window` scene `inspectPreview`, `InspectPreviewWindow`, `inspectPreviewPoppedOut` reset at launch, Dock clears it).
+  - What it is: a separate `AVPlayer` + bare `PreviewPlayerView` (the Frame.io preview's layer view, clear background so the thumbnail shows until the first frame), as in the Frame.io preview. It never touches the Player's engine or still-frame layers: a glance, not a QC view.
+  - Playback:
+    - The player is reused and loads only after the selection rests 150 ms (`select`).
+    - It's emptied when no preview is on screen (`appeared` / `disappeared`) and never autoplays.
+    - Scrubbing is fast: 0.5 s tolerance, one seek in flight, the latest target pending.
+    - Sound is on unless muted (`inspectPreviewMuted`).
+  - The 10 Hz `PreviewClock` is observed only by the transport.
+  - Starting the preview pauses the Player and vice versa (`ContentView`). Plan checks treat either as playing.
+  - Double-clicking a file in Inspect opens the preview window (`openPreviewWindow`, centred when it wasn't open) and plays the file (`playNow`). The Player is Open in Player (right-click on the list or the preview) and Return.
+  - The docked preview folds away with its arrow (`inspectPreviewCollapsed`). A preview counts as on screen only while it shows a picture (`showsPicture`). When the count drops to 0 the player is emptied 100 ms later, so moving between panel and window carries playback over.
+  - A key pressed while the selection is still resting acts on the newly selected file (`loadPendingSelection`): Space and L load and play it, ← / → load it. Otherwise they'd act on the file still loaded.
+  - Keys (`.specsOnly`, `InspectNav.shuttle` / `.step`): J / K / L shuttle (×2 per press up to 8×; reverse only when `canPlayReverse`, else a step back), ← / → step a frame, ⇧ ten. They do nothing when no preview is on screen.
+  - The picture's right-click menu: Open in Player (`DeliveryPlanStore.post(.play)`), Media Info (`InspectPreview.showInfo` → `ContentView.openProperties`), Reveal in Finder, Copy Path, Set Plan Status, Run Plan Checks, Dock / Open in Its Own Window.
+- **Resizing:** `PanelResizeHandle` grabs 16 pt inside the panel, plus `reach` outside it (6 pt in Inspect and Upload). `reach` stays 0 next to the video viewport, which sets its own cursor on every mouse move. The panel sits above its neighbour so the outer part gets the clicks.
+  - `ResizableSidePanel` (widthKey, edge, range) owns a panel's width and handle, so dragging never re-runs `ContentView`. Used by Inspect's left panel (`inspectPanelWidth`, 300–640, default 380) and the plan drawer (`inspectPlanWidth`).
+- **Inspect thumbnails** go up to 220 pt (slider, + / −).
+  - `AssetThumbnailView` fetches at the drawn width ×2 rounded up to a step (`pixelBucket`: 160 / 240 / 320 / 480 / 640 / 960 / 1280 px, capped). Its task is keyed on the step, so dragging the size slider or resizing the preview window only re-fetches when a step is crossed. It used to re-fetch every visible thumbnail at every point.
+  - Skimming (`skimDuration` / `skimFPS`, Inspect video rows): 40 positions. After the mouse rests 120 ms (sweeping across the list fetches nothing), `startSkimming` fetches them all in the background, nearest to the mouse first, at the drawn size with `getThumbnail(fast: true)` (0.25 s keyframe tolerance). Positions already fetched show instantly from `skimFrames`, the accent line follows the mouse itself, and the frames are dropped when the mouse leaves (the poster stays). Skim frames bypass the provider's cache (`cache: false`): it's first-in-first-out, and 40 frames per hover pushed the posters out.
+  - Hover state is local to the thumbnail, so rows don't re-render.
+- **Clean List** (Inspect toolbar, `hidePlanTags`, UserDefaults `inspectHidePlanTags`): hides the plan chips and `PlanPill` badges; filters (including linked ones) still apply, and the button turns accent while a hidden plan filter is active.
+- **Plan search** matches against `PlanRow.searchText` (the row's values lower-cased, built once with the row) plus the matched files' names. Measured per keystroke at 1,075 rows (debug build): 3.1 → 2.4 ms normally, 11.9 → 7.8 ms on efficiency cores. The sheet painter reuses its six paragraph styles instead of making one per cell per draw.
 - **Linked filters** (`LinkFiltersButton` at the end of both chip rows, `DeliveryPlanStore.linkFilters`, UserDefaults `planLinkFilters`):
   - While on, the status chip and search are shared through `sharedFilter` (`SharedFilter`: state −1 all / −2 Not in Plan / `PlanState` raw, search).
   - The plan publishes from `onChange(currentFilter)`, Inspect from `ContentView`'s `onChange`s, and each side applies `$sharedFilter` when it differs, so there's no echo loop.
   - The plan has no Not in Plan chip, so its "All" doesn't overwrite Inspect's −2 (`publishFilter(fromPlan:)`).
-  - Turning the link on copies the clicking side's filter.
+  - Turning the link on copies the clicking side's filter. An incoming search alone keeps the plan's Changed filter; only a new state clears it.
 - **Status tag colours** come from `TagTone` (Theme.swift: grey, blue, red, amber, orange, mint, cyan, green, sand, slate; light and dark values). They're used only for `PlanState` tags (`PlanRowView.color`: chips, dots, pills, gutter). Everything else stays on the accents and core colours.
 - **Column templates** (Columns menu → Templates): built-in All Columns / Delivery QC / Compact, plus saved ones (`SpecsState.columnTemplates`, UserDefaults `specsColumnTemplates`: hidden columns + widths). Applying one sets the hidden columns and any widths it saved.
+- **Inspect table details:**
+  - With Path hidden, File Name takes the spare width Path had (header `customWidth`, row frame), so there's no blank strip.
+  - Under a plan sort, the header shows no column sort mark and the menu ticks the plan sort.
+  - Not in Plan counts files the plan hasn't indexed (unmeasured), as its filter does.
+  - Saving a template under a built-in name saves it as "Name 2".
 - **Inspect columns** can be hidden (all but File Name): the Columns menu by the table toolbar and the header's right-click menu. `SpecsState.hiddenColumns` is saved in UserDefaults `specsHiddenColumns`. Hidden columns aren't drawn, `specsTableMinWidth` adds up only visible ones, and their width reads -1 in `SpecsRowKey.columnWidths` so rows redraw. The Audio cell is its own function (`audioCell`): with every column optional, the inline row was too much for the type checker.
   - **Performance** (`Bench` in the scratch tests, debug build, 1,075 rows × files, normal / `taskpolicy -c background` ≈ MacBook Air efficiency cores):
     - Matching takes 56 / 264 ms. Codes are looked up in a dictionary per file token (`byID`); scanning every row's code was 1.8 / 7.7 s.
@@ -389,7 +429,13 @@
     - The gutter dot gets a ring (green all chosen checks passed, red one failed, grey partly checked).
     - The card lists each result. The status bar offers Pass (all passed) or Needs Fix (failures become the QC note).
     - Pass All Clean marks every To QC row whose chosen checks all passed, after an `NSAlert`.
-  - **Performance:** progress lives in `PlanCheckProgress`, observed only by `PlanCheckProgressStrip` (≤ 5 updates a second); the panel redraws once per finished file. A debug build runs Line Check ~50× slower than release (60 ms per 1080p frame, about twice that on solid black), so time it in release.
+  - **Performance:** the panel reads row summaries through `PlanChecksSummaryCache` (rebuilt when `PlanCheckQueue.revision` or `DeliveryPlanStore.matchRevision` changes), since it redraws on every Inspect selection. `enqueue` dedups with a set. Progress lives in `PlanCheckProgress`, observed only by `PlanCheckProgressStrip` (≤ 5 updates a second); the panel redraws once per finished file. A debug build runs Line Check ~50× slower than release (60 ms per 1080p frame, about twice that on solid black), so time it in release.
+- **Robustness notes (review rounds):**
+  - **Store:** each CSV is parsed once per read (`PlanParser.parse` returns rows and header). Linking or unlinking clears `scriptVersion` and `lastCounter`.
+  - **Check queue:** Stop also clears Pause. `checks.json` keeps the newest 3,000 results.
+  - **Cell editor:** it follows its cell across re-layouts (`repositionEditor`; it saves and closes if the row is no longer shown). It hands focus back to the sheet only when a key ended the edit.
+  - **QC note field:** text typed for one row is saved to that row when the selection moves (`noteRowID`).
+  - **Selection lookups:** the plan's highlighted rows come from the file → row index. Inspect's plan menu items look up the selection's rows only when chosen, through sets.
 - **Linked selection**: `ContentView` forwards `specsState.selectedDeliverableURLs` to `DeliveryPlanStore.inspectSelectionChanged`; rows holding those files are highlighted (sheet: every such line, list: those cards, extras: the file name) and scrolled to (`scrollRequest`). A plan click posts `revealFile` with the row's files (`[URL]`; none clears Inspect's selection), which selects them and scrolls the Inspect table (`SpecsState.scrollToFile` → its `ScrollViewReader`); `noteRevealFromPlan` keeps that echo from scrolling the plan. Double-click plays (sheet: on the row number). The drawer (`InspectPlanDrawer`) owns its width (`inspectPlanWidth`, 300–1100, `PanelResizeHandle` on its leading edge) so dragging never re-runs `ContentView`.
 - Observed only by the plan panels, never by `ContentView`; rows are `.equatable()`. Clicking a row posts `revealFile` / `playFile`, which `ContentView` handles. Tests: `Tests/DeliveryPlanTests.swift`.
 

@@ -249,7 +249,11 @@ extension DeliveryPlanTests {
         #expect(r(.missing, files: false, qc: "Delivered").flags.first?.contains("No file") == true)
         #expect(r(.missing, files: false, qc: "Dropped").state == .dropped)
         #expect(PlanQCStatus.parse("qc passed ✓") == .passed && PlanQCStatus.parse("Approved") == .approved && PlanQCStatus.parse("x") == nil)
-        #expect(PlanStatusResolver.stamp(set, by: "Ric") == "2026-11-04 14:00:00 · Ric")
+        // Old stamps (no "UTC") are local; new ones are UTC, so time zones agree.
+        let stamp = PlanStatusResolver.stamp(set, by: "Ric")
+        #expect(stamp.hasSuffix(" UTC · Ric") && PlanStatusResolver.date(fromStamp: stamp) == set)
+        #expect(PlanStatusResolver.date(fromStamp: "2026-11-04 13:00:00 UTC · Sheets")
+                == ISO8601DateFormatter().date(from: "2026-11-04T13:00:00Z"))
     }
 
     @Test("QC columns are read but never make a row changed or re-run matching")
@@ -263,5 +267,20 @@ extension DeliveryPlanTests {
         #expect(rows[0].content["qcStatus"] == nil)
         let plain = PlanParser.rows(csv: csv.replacingOccurrences(of: "QC Passed", with: "Needs Fix"), tab: "T")
         #expect(plain[0].matchSignature == rows[0].matchSignature && plain[0] != rows[0])
+    }
+}
+
+extension DeliveryPlanTests {
+    @Test("A row with specs but no code yet is still a deliverable; a lone title is a heading")
+    func uncodedRows() {
+        let csv = """
+        "Code","File Name","Length","Resolution"
+        "KL0001","A_15s_KL0001","15s","1920x1080"
+        "","NEW SECTION","15s",""
+        "","B_15s","15s","1080x1920"
+        """
+        let rows = PlanParser.rows(csv: csv, tab: "T")
+        #expect(rows.map(\.name) == ["A_15s_KL0001", "B_15s"])
+        #expect(rows[1].section == "NEW SECTION" && rows[1].code == nil)
     }
 }

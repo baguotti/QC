@@ -68,6 +68,7 @@ struct QCpieApp: App {
         ProVideoFormats.register()
         // The plan window sets this again when it actually opens (restored or not); a stale true hid the drawer.
         UserDefaults.standard.set(false, forKey: DeliveryPlanWindow.poppedOutKey)
+        UserDefaults.standard.set(false, forKey: InspectPreviewWindow.poppedOutKey)
         NSApplication.shared.setActivationPolicy(.regular)
         NSApplication.shared.activate(ignoringOtherApps: true)
 
@@ -129,6 +130,12 @@ struct QCpieApp: App {
             DeliveryPlanWindow()
         }
         .defaultSize(width: 560, height: 780)
+
+        // Popped-out Inspect preview.
+        Window("Preview", id: InspectPreviewWindow.id) {
+            InspectPreviewWindow()
+        }
+        .defaultSize(width: 640, height: 420)
     }
 }
 

@@ -22,6 +22,8 @@ struct DeliveryPlanPanel: View {
     @State private var search = ""
     @State private var statusFilter: PlanState? = nil
     @State private var noteDraft = ""
+    /// The row the note being typed belongs to (the field shows another row's note once the selection moves).
+    @State private var noteRowID: String? = nil
     @FocusState private var noteFocused: Bool
     @State private var changedOnly = false
     @State private var showRemoved = false
@@ -33,6 +35,7 @@ struct DeliveryPlanPanel: View {
     /// The tab the Sheet view shows when more than one is read.
     @State private var sheetTab: String? = nil
     @State private var showEditSetup = false
+    @State private var summaryCache = PlanChecksSummaryCache()
 
     private var palette: StudioPalette { StudioPalette(isLightMode) }
 
@@ -56,7 +59,7 @@ struct DeliveryPlanPanel: View {
         .onReceive(store.$sharedFilter) { filter in
             guard store.linkFilters, filter != currentFilter else { return }
             statusFilter = filter.state >= 0 ? PlanState(rawValue: filter.state) : nil
-            if filter.state >= 0 || filter.state == -1 { changedOnly = false }
+            if filter.state != currentFilter.state { changedOnly = false }   // a search alone keeps "Changed"
             search = filter.search
         }
         .background {
@@ -184,7 +187,6 @@ struct DeliveryPlanPanel: View {
         let rows = store.rows
         let match = store.match
         let counts = Dictionary(grouping: rows, by: { store.state($0).state }).mapValues(\.count)
-        let shown = filtered(rows, match: match)
         return VStack(spacing: 0) {
             toolbar
             VStack(alignment: .leading, spacing: 8) {
@@ -199,7 +201,7 @@ struct DeliveryPlanPanel: View {
             } else if viewMode == "sheet" {
                 sheetArea(rows: rows, match: match)
             } else {
-                list(shown, match: match)
+                list(filtered(rows, match: match), match: match)   // only built in List view
             }
             if checks.isRunning { PlanCheckProgressStrip(isLightMode: isLightMode) }
             if !store.changes.isEmpty || !store.removed.isEmpty { changesFooter }
@@ -431,9 +433,11 @@ struct DeliveryPlanPanel: View {
 
     /// Rows holding a file selected in Inspect (sheet order).
     private func highlightedRows(_ rows: [PlanRow], match: PlanMatch) -> [PlanRow] {
-        let files = store.selectedFiles
-        guard !files.isEmpty else { return [] }
-        return rows.filter { !files.isDisjoint(with: match.result($0).files) }
+        // Via the file → row index (O(selected files)), not each row's match result: this runs several times per
+        // redraw, and the plan redraws on every Inspect selection (each ↓ press).
+        let ids = Set(store.selectedFiles.compactMap { store.fileIndex[$0]?.rowID })
+        guard !ids.isEmpty else { return [] }
+        return rows.filter { ids.contains($0.id) }
     }
 
     /// A row clicked in the plan: Inspect selects its files (or nothing, for a row without one); double-click plays.
@@ -452,7 +456,7 @@ struct DeliveryPlanPanel: View {
     // MARK: Checks
 
     private func checkSummary(_ row: PlanRow) -> PlanChecksSummary {
-        checks.summary(files: store.fileStamps(row), kinds: checks.kinds)
+        summaryCache.summary(row, store: store, queue: checks)
     }
 
     /// Run Checks: on the rows shown (filters apply) or the selection; which checks; Pass All Clean.
@@ -570,8 +574,13 @@ struct DeliveryPlanPanel: View {
             TextField("QC note", text: $noteDraft)
                 .textFieldStyle(.roundedBorder)
                 .font(.ui(size: 11))
-                .onAppear { noteDraft = store.note(row) }
-                .onChange(of: row.id) { _, _ in noteDraft = store.note(row) }
+                .onAppear { noteDraft = store.note(row); noteRowID = row.id }
+                .onChange(of: row.id) { old, new in
+                    // Selecting another row while typing: the text goes to the row it was typed for, not lost.
+                    commitDraft(to: old)
+                    noteDraft = store.note(row)
+                    noteRowID = new
+                }
                 .onChange(of: store.note(row)) { _, new in noteDraft = new }
                 .focused($noteFocused)
                 .onSubmit { commitNote(row) }
@@ -585,10 +594,13 @@ struct DeliveryPlanPanel: View {
         .padding(.top, 6)
     }
 
-    private func commitNote(_ row: PlanRow) {
+    private func commitNote(_ row: PlanRow) { commitDraft(to: noteRowID ?? row.id) }
+
+    private func commitDraft(to id: String) {
+        guard let row = store.rows.first(where: { $0.id == id }) else { return }
         let text = noteDraft.trimmingCharacters(in: .whitespacesAndNewlines)
         guard text != store.note(row) else { return }
-        store.setNote(text, rowID: row.id)
+        store.setNote(text, rowID: id)
     }
 
     // MARK: Sheet
@@ -675,7 +687,7 @@ struct DeliveryPlanPanel: View {
             if let statusFilter, store.state(row).state != statusFilter { continue }
             if changedOnly, store.changes[row.id] == nil { continue }
             if !terms.isEmpty {
-                let haystack = (row.values.values.joined(separator: " ") + " " + match.result(row).files.map(\.lastPathComponent).joined(separator: " ")).lowercased()
+                let haystack = row.searchText + " " + match.result(row).files.map(\.lastPathComponent).joined(separator: " ").lowercased()
                 if !terms.allSatisfy(haystack.contains) { continue }
             }
             lines.insert(row.line)
@@ -753,7 +765,7 @@ struct DeliveryPlanPanel: View {
             if let statusFilter, store.state(row).state != statusFilter { continue }
             if changedOnly, store.changes[row.id] == nil { continue }
             if !terms.isEmpty {
-                let haystack = (row.values.values.joined(separator: " ") + " " + match.result(row).files.map(\.lastPathComponent).joined(separator: " ")).lowercased()
+                let haystack = row.searchText + " " + match.result(row).files.map(\.lastPathComponent).joined(separator: " ").lowercased()
                 if !terms.allSatisfy(haystack.contains) { continue }
             }
             let heading = [row.tab, row.section].compactMap { $0 }.joined(separator: " · ")
@@ -1148,7 +1160,7 @@ struct PlanEditSetupSheet: View {
 
     @ObservedObject private var store = DeliveryPlanStore.shared
     /// Updating keeps the key and link: paste the new code over the old and deploy a new version of the same deployment.
-    @State private var token = DeliveryPlanStore.shared.config?.writer?.token ?? AppsScriptWriter.newToken()
+    @State private var token = DeliveryPlanStore.shared.config?.writer?.token ?? DeliveryPlanStore.shared.setupToken
     @State private var urlText = DeliveryPlanStore.shared.config?.writer?.url.absoluteString ?? ""
     @State private var copied = false
     @State private var connecting = false
@@ -1244,16 +1256,13 @@ struct PlanEditSetupSheet: View {
 struct InspectPlanDrawer: View {
     let isLightMode: Bool
     let onClose: () -> Void
-    @AppStorage("inspectPlanWidth") private var width: Double = 400
 
     var body: some View {
-        DeliveryPlanPanel(placement: .drawer, isLightMode: isLightMode, onClose: onClose)
-            .frame(width: width)
-            .overlay(Rectangle().fill(StudioPalette(isLightMode).borderLine).frame(width: 1), alignment: .leading)
-            .overlay(alignment: .leading) {
-                PanelResizeHandle(width: $width, range: 300...1100, defaultWidth: 400, isLightMode: isLightMode,
-                                  help: "Drag to resize the Delivery Plan. Double-click to reset (400 pt).", edge: .leading)
-            }
+        ResizableSidePanel(widthKey: "inspectPlanWidth", edge: .leading, range: 300...1100, defaultWidth: 400,
+                           isLightMode: isLightMode, help: "Drag to resize the Delivery Plan. Double-click to reset (400 pt).") {
+            DeliveryPlanPanel(placement: .drawer, isLightMode: isLightMode, onClose: onClose)
+                .overlay(Rectangle().fill(StudioPalette(isLightMode).borderLine).frame(width: 1), alignment: .leading)
+        }
     }
 }
 

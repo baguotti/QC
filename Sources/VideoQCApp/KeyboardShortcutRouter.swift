@@ -273,6 +273,8 @@ struct KeyboardShortcutActions {
     var onSelectAllUploads: () -> Void
     var onUndoFrameIO: () -> Void
     var onDeleteFrameIO: () -> Void
+    /// Inspect's keyboard navigation; false when there's nothing to do (the key goes on).
+    var onInspectNav: (InspectNav) -> Bool
     /// Space in the Upload tab: open or close the Frame.io preview (false: nothing to preview, the key goes on).
     var onPreviewFrameIO: () -> Bool
     /// Arrow keys while the preview is open: previous (−1) or next (+1) item (false when it's closed).
@@ -334,6 +336,7 @@ struct KeyboardShortcutActions {
         onSelectAllUploads: @escaping () -> Void = {},
         onUndoFrameIO: @escaping () -> Void = {},
         onDeleteFrameIO: @escaping () -> Void = {},
+        onInspectNav: @escaping (InspectNav) -> Bool = { _ in false },
         onPreviewFrameIO: @escaping () -> Bool = { false },
         onStepPreview: @escaping (Int) -> Bool = { _ in false },
         onPasteFrameIOLink: @escaping () -> Bool = { false },
@@ -385,6 +388,7 @@ struct KeyboardShortcutActions {
         self.onSelectAllUploads = onSelectAllUploads
         self.onUndoFrameIO = onUndoFrameIO
         self.onDeleteFrameIO = onDeleteFrameIO
+        self.onInspectNav = onInspectNav
         self.onPreviewFrameIO = onPreviewFrameIO
         self.onStepPreview = onStepPreview
         self.onPasteFrameIOLink = onPasteFrameIOLink
@@ -565,6 +569,31 @@ extension KeyboardShortcutRouter {
                 actions.onSelectAllUploads()
                 return true
             },
+            // Inspect: keyboard navigation of the file table (Finder-like).
+            Rule(id: "inspectUp", trigger: ShortcutTrigger(keyCodes: [126], modifiers: []), scope: .specsOnly) { actions.onInspectNav(.move(-1)) },
+            Rule(id: "inspectDown", trigger: ShortcutTrigger(keyCodes: [125], modifiers: []), scope: .specsOnly) { actions.onInspectNav(.move(1)) },
+            Rule(id: "inspectExtendUp", trigger: ShortcutTrigger(keyCodes: [126], modifiers: [.shift]), scope: .specsOnly) { actions.onInspectNav(.extend(-1)) },
+            Rule(id: "inspectExtendDown", trigger: ShortcutTrigger(keyCodes: [125], modifiers: [.shift]), scope: .specsOnly) { actions.onInspectNav(.extend(1)) },
+            Rule(id: "inspectFirst", trigger: ShortcutTrigger(keyCodes: [126, 115], modifiers: [.command]), scope: .specsOnly) { actions.onInspectNav(.first) },
+            Rule(id: "inspectLast", trigger: ShortcutTrigger(keyCodes: [125, 119], modifiers: [.command]), scope: .specsOnly) { actions.onInspectNav(.last) },
+            Rule(id: "inspectHome", trigger: ShortcutTrigger(keyCodes: [115], modifiers: []), scope: .specsOnly) { actions.onInspectNav(.first) },
+            Rule(id: "inspectEnd", trigger: ShortcutTrigger(keyCodes: [119], modifiers: []), scope: .specsOnly) { actions.onInspectNav(.last) },
+            Rule(id: "inspectPageUp", trigger: ShortcutTrigger(keyCodes: [116], modifiers: []), scope: .specsOnly) { actions.onInspectNav(.move(-10)) },
+            Rule(id: "inspectPageDown", trigger: ShortcutTrigger(keyCodes: [121], modifiers: []), scope: .specsOnly) { actions.onInspectNav(.move(10)) },
+            Rule(id: "inspectPrevAttention", trigger: ShortcutTrigger(keyCodes: [126], modifiers: [.option]), scope: .specsOnly) { actions.onInspectNav(.attention(-1)) },
+            Rule(id: "inspectNextAttention", trigger: ShortcutTrigger(keyCodes: [125], modifiers: [.option]), scope: .specsOnly) { actions.onInspectNav(.attention(1)) },
+            Rule(id: "inspectPlay", trigger: ShortcutTrigger(keyCodes: [36, 76], modifiers: []), scope: .specsOnly) { actions.onInspectNav(.play) },
+            Rule(id: "inspectInfo", trigger: ShortcutTrigger(keyCodes: [49], characters: [" "], modifiers: []), scope: .specsOnly) { actions.onInspectNav(.preview) },
+            Rule(id: "inspectPreviewJ", trigger: ShortcutTrigger(characters: ["j"], modifiers: []), scope: .specsOnly) { actions.onInspectNav(.shuttle(-1)) },
+            Rule(id: "inspectPreviewK", trigger: ShortcutTrigger(characters: ["k"], modifiers: []), scope: .specsOnly) { actions.onInspectNav(.shuttle(0)) },
+            Rule(id: "inspectPreviewL", trigger: ShortcutTrigger(characters: ["l"], modifiers: []), scope: .specsOnly) { actions.onInspectNav(.shuttle(1)) },
+            Rule(id: "inspectPreviewBack", trigger: ShortcutTrigger(keyCodes: [123], modifiers: []), scope: .specsOnly) { actions.onInspectNav(.step(-1)) },
+            Rule(id: "inspectPreviewForward", trigger: ShortcutTrigger(keyCodes: [124], modifiers: []), scope: .specsOnly) { actions.onInspectNav(.step(1)) },
+            Rule(id: "inspectPreviewBack10", trigger: ShortcutTrigger(keyCodes: [123], modifiers: [.shift]), scope: .specsOnly) { actions.onInspectNav(.step(-10)) },
+            Rule(id: "inspectPreviewForward10", trigger: ShortcutTrigger(keyCodes: [124], modifiers: [.shift]), scope: .specsOnly) { actions.onInspectNav(.step(10)) },
+            Rule(id: "inspectSelectAll", trigger: ShortcutTrigger(characters: ["a"], modifiers: [.command]), scope: .specsOnly) { actions.onInspectNav(.selectAll) },
+            Rule(id: "inspectClear", trigger: ShortcutTrigger(keyCodes: [53], modifiers: []), scope: .specsOnly) { actions.onInspectNav(.clear) },
+
             // Delivery Plan QC status of the selection (Inspect's files, else the plan's row): ⌥1–⌥6, ⌥0 clears.
             Rule(
                 id: "planStatus",
@@ -955,4 +984,11 @@ extension KeyboardShortcutRouter {
         )
         return tagRules
     }
+}
+
+/// Inspect table navigation (see `ContentView.handleInspectNav`).
+enum InspectNav {
+    case move(Int), extend(Int), first, last, attention(Int), play, preview, selectAll, clear
+    /// The preview: J / K / L (−1 / 0 / 1) and ← / → frame steps.
+    case shuttle(Int), step(Int)
 }

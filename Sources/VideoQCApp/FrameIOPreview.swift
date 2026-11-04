@@ -431,16 +431,18 @@ private struct PreviewAudioView: View {
     }
 }
 
-/// The proxy's picture: a bare `AVPlayerLayer` (no system controls), letterboxed on black.
-private struct PreviewPlayerView: NSViewRepresentable {
+/// A preview's picture: a bare `AVPlayerLayer` (no system controls), letterboxed (Frame.io and Inspect previews; never
+/// the Player, whose stills have their own layers). `clearBackground`: a poster underneath shows until the first frame.
+struct PreviewPlayerView: NSViewRepresentable {
     let player: AVPlayer
+    var clearBackground = false
 
     func makeNSView(context: Context) -> NSView {
         let view = NSView()
         view.wantsLayer = true
         let layer = AVPlayerLayer(player: player)
         layer.videoGravity = .resizeAspect
-        layer.backgroundColor = NSColor.black.cgColor
+        layer.backgroundColor = clearBackground ? NSColor.clear.cgColor : NSColor.black.cgColor
         view.layer = layer
         return view
     }

@@ -198,6 +198,19 @@ final class DeliveryPlanStore: ObservableObject {
     /// Each tab's header (by gid): its line and the column of each field.
     private var headers: [String: (line: Int, columns: [PlanField: Int])] = [:]
     private var lastCounter: Int? = nil
+    /// The script was asked to add the QC columns; reset by each read (which shows whether they're there).
+    private var columnsRequested = false
+    /// Bumped when matching or files change (cache key for per-row check summaries).
+    private(set) var matchRevision = 0
+
+    /// The key a new script is made with, kept until editing is connected: reopening the set-up sheet after copying
+    /// the script must not make a different one.
+    var setupToken: String {
+        if let token = UserDefaults.standard.string(forKey: "planSetupToken") { return token }
+        let token = AppsScriptWriter.newToken()
+        UserDefaults.standard.set(token, forKey: "planSetupToken")
+        return token
+    }
 
     private var seen: [String: SeenRow] = [:]
     private var files: [PlanFile] = []
@@ -238,7 +251,7 @@ final class DeliveryPlanStore: ObservableObject {
             saveConfig()
             seen = [:]
             rows = []
-            grids = [:]; readGrids = [:]; pending = [:]; pendingQC = [:]; queuedQC = [:]; states = [:]; fileIndex = [:]; headers = [:]
+            grids = [:]; readGrids = [:]; pending = [:]; pendingQC = [:]; queuedQC = [:]; states = [:]; fileIndex = [:]; headers = [:]; scriptVersion = nil; lastCounter = nil
             changes = [:]
             removed = []
             await refresh(adoptAsSeen: true)
@@ -265,7 +278,7 @@ final class DeliveryPlanStore: ObservableObject {
         self.config = nil
         UserDefaults.standard.removeObject(forKey: Self.configKey)
         rows = []
-        grids = [:]; readGrids = [:]; pending = [:]; pendingQC = [:]; queuedQC = [:]; states = [:]; fileIndex = [:]; headers = [:]
+        grids = [:]; readGrids = [:]; pending = [:]; pendingQC = [:]; queuedQC = [:]; states = [:]; fileIndex = [:]; headers = [:]; scriptVersion = nil; lastCounter = nil
         match = .empty
         changes = [:]
         removed = []
@@ -306,9 +319,12 @@ final class DeliveryPlanStore: ObservableObject {
                 // With the script (v2): a few bytes every 10 s, the full read only when something changed (and every
                 // 3 min regardless). Without: the full read every minute.
                 if let writer = self?.config?.writer, (self?.scriptVersion ?? 0) >= 2 {
-                    try? await Task.sleep(for: .seconds(10))
+                    // Every 10 s while QCpie is in front, every minute behind other apps.
+                    try? await Task.sleep(for: .seconds(NSApp.isActive ? 10 : 60))
                     guard !Task.isCancelled, let self else { return }
                     let counter = try? await AppsScriptWriter.changeCounter(writer)
+                    // Each read records the counter it saw (`counterAtRead`), so our own saves, already read after
+                    // saving, don't cause a second full read (~1 MB) here.
                     let moved = counter != nil && lastCounter != nil && counter != lastCounter
                     if counter != nil { lastCounter = counter }
                     if moved || Date().timeIntervalSince(lastFull) > 180 {
@@ -335,6 +351,10 @@ final class DeliveryPlanStore: ObservableObject {
         guard let config, phase != .loading || adoptAsSeen else { return }
         phase = .loading
         let source = source
+        // The change counter as of this read: edits already in it (our own saves included) are in what we read, so
+        // the 10 s check only reads again for edits made after it.
+        var counterAtRead: Int? = nil
+        if let writer = config.writer, (scriptVersion ?? 0) >= 2 { counterAtRead = try? await AppsScriptWriter.changeCounter(writer) }
         do {
             // The tab list too: tabs added or renamed in the sheet show up without relinking.
             let (title, tabs) = try await source.describe(config.link)
@@ -365,6 +385,7 @@ final class DeliveryPlanStore: ObservableObject {
             let gridsChanged = await applyGrids(tabs: included, csvs: csvs, formatted: fetched.map(\.1))
             phase = .idle
             lastUpdated = Date()
+            if let counterAtRead { lastCounter = counterAtRead }
             guard gridsChanged || csvs != lastCachedCSVs else { return }   // nothing new to write
             lastCachedCSVs = csvs
             let dir = Self.directory(config.link.sheetID)
@@ -385,8 +406,8 @@ final class DeliveryPlanStore: ObservableObject {
             var unread: [String] = []
             var headers: [String: (line: Int, columns: [PlanField: Int])] = [:]
             for (tab, text) in zip(tabs, csvs) {
-                let rows = PlanParser.rows(csv: text, tab: tab.name)
-                if let header = PlanParser.header(PlanParser.csv(text)) {
+                let (rows, header) = PlanParser.parse(csv: text, tab: tab.name)   // one CSV parse for both
+                if let header {
                     headers[tab.gid] = (header.index + 1, header.columns)
                 } else if rows.isEmpty {
                     unread.append(tab.name)
@@ -402,6 +423,7 @@ final class DeliveryPlanStore: ObservableObject {
         }.value
         let (newRows, unread, newHeaders, rowsChanged, matchChanged) = parsed
         headers = newHeaders
+        columnsRequested = false
         var counts = tabCounts
         for tab in tabs { counts[tab.gid] = newRows.filter { $0.tab == tab.name }.count }
         if counts != tabCounts { tabCounts = counts }
@@ -474,7 +496,10 @@ final class DeliveryPlanStore: ObservableObject {
     /// Connects the script after checking it answers for this spreadsheet; nil turns editing off.
     func setWriter(_ link: PlanWriteLink?) async throws {
         guard var config else { return }
-        if let link { scriptVersion = try await AppsScriptWriter.ping(link, sheetID: config.link.sheetID) }
+        if let link {
+            scriptVersion = try await AppsScriptWriter.ping(link, sheetID: config.link.sheetID)
+            UserDefaults.standard.removeObject(forKey: "planSetupToken")
+        }
         guard self.config?.link == config.link else { return }
         config.writer = link
         self.config = config
@@ -490,11 +515,17 @@ final class DeliveryPlanStore: ObservableObject {
         publishGrids()
         savingCount += 1
         editState = .saving(savingCount)
+        // The row's code and the column's header let the script find the cell again if rows were sorted or columns
+        // inserted since QCpie read the sheet (by number alone, a same-looking cell on another row could be overwritten).
+        let tabName = config?.tabs.first { $0.gid == gid }?.name
+        let code = rows.first { $0.tab == tabName && $0.line == line }?.code
+        let header = headers[gid].flatMap { readGrids[gid]?.text(line: $0.line, column: column) }
+        let cell = PlanCellEdit(row: line, col: column + 1, code: code, header: header.flatMap { $0.isEmpty ? nil : $0 },
+                                value: new, expect: old)
         Task {
             var failure: String? = nil
             do {
-                let results = try await AppsScriptWriter.write(writer, gid: gid,
-                                                             cells: [PlanCellEdit(row: line, col: column + 1, value: new, expect: old)])
+                let results = try await AppsScriptWriter.write(writer, gid: gid, cells: [cell])
                 if let result = results.first, !result.ok {
                     failure = "Not saved: the cell was changed in the sheet meanwhile (now “\(result.current ?? "")”)."
                 }
@@ -591,17 +622,28 @@ final class DeliveryPlanStore: ObservableObject {
     /// The Inspect tab's measured files (called when its list changes; cheap when nothing changed).
     func setAssets(_ assets: [DeliverableAsset]) {
         let measured = assets.filter { $0.width > 0 || $0.durationSeconds > 0 }
+        // Inspect updates its list once per file during loudness / end-frame checks (same files, new measurements):
+        // dates already read for the same inspection of a file (`asset.id`) are kept, so only new or re-read files
+        // are stat'ed (it was 1,000+ stats per finished file, maybe on a server).
+        let known = Dictionary(measured.compactMap { asset in
+            assetIDs[asset.fileURL] == asset.id ? filesByURL[asset.fileURL].map { (asset.fileURL, $0.modified) } : nil
+        }, uniquingKeysWith: { a, _ in a })
         assetsTask?.cancel()
         assetsTask = Task {
-            // Modification dates (new versions since a status) off the main thread: a stat per file, maybe on a server.
             let newFiles = await Task.detached(priority: .utility) {
                 measured.map { asset -> PlanFile in
                     var file = PlanFile(asset)
-                    file.modified = (try? FileManager.default.attributesOfItem(atPath: asset.fileURL.path))?[.modificationDate] as? Date
+                    if let date = known[asset.fileURL] {
+                        file.modified = date
+                    } else {
+                        file.modified = (try? FileManager.default.attributesOfItem(atPath: asset.fileURL.path))?[.modificationDate] as? Date
+                    }
                     return file
                 }
             }.value
-            guard !Task.isCancelled, newFiles != files else { return }
+            guard !Task.isCancelled else { return }
+            assetIDs = Dictionary(measured.map { ($0.fileURL, $0.id) }, uniquingKeysWith: { a, _ in a })
+            guard newFiles != files else { return }
             files = newFiles
             filesByURL = Dictionary(newFiles.map { ($0.url, $0) }, uniquingKeysWith: { a, _ in a })
             if hasFiles != !files.isEmpty { hasFiles = !files.isEmpty }
@@ -610,6 +652,8 @@ final class DeliveryPlanStore: ObservableObject {
     }
     private var assetsTask: Task<Void, Never>?
     private var filesByURL: [URL: PlanFile] = [:]
+    /// The inspection each file's date was read for (a re-inspection gets a new id and a new stat).
+    private var assetIDs: [URL: UUID] = [:]
 
     /// A row's files with size and date (checks belong to a file version).
     func fileStamps(_ row: PlanRow) -> [(url: URL, size: Int64, modified: Date?)] {
@@ -623,6 +667,7 @@ final class DeliveryPlanStore: ObservableObject {
             let result = await Task.detached(priority: .userInitiated) { PlanMatcher.match(rows: rows, files: files) }.value
             guard !Task.isCancelled, let self else { return }
             if result != self.match { self.match = result }
+            self.matchRevision &+= 1
             self.recomputeStates()
         }
     }
@@ -728,12 +773,14 @@ final class DeliveryPlanStore: ObservableObject {
             let key = row.code!.lowercased()
             var item = queuedQC[key] ?? PlanStatusItem(code: row.code!)
             change(&item)
-            item.updated = stamp
+            // Only a status change is stamped: QC Updated dates the review, and a note edited later must not hide a
+            // new version that arrived before it.
+            if item.status != nil { item.updated = stamp }
             queuedQC[key] = item
             var p = pendingQC[key] ?? PendingQC(status: nil, note: nil, updated: nil, since: Date())
             if let s = item.status { p.status = s }
             if let n = item.note { p.note = n }
-            p.updated = stamp
+            if let u = item.updated { p.updated = u }
             p.since = Date()
             pendingQC[key] = p
         }
@@ -755,9 +802,15 @@ final class DeliveryPlanStore: ObservableObject {
         savingCount += 1
         do {
             // The QC columns are added (once) when an included tab lacks them.
+            // Only tabs with a Code column can hold statuses; asked once until a read shows the columns.
             let included = config?.included.map(\.gid) ?? []
-            if included.contains(where: { headers[$0]?.columns[.qcStatus] == nil || headers[$0]?.columns[.qcUpdated] == nil }) {
+            let lacking = included.contains { gid in
+                guard let columns = headers[gid]?.columns, columns[.id] != nil else { return false }
+                return columns[.qcStatus] == nil || columns[.qcNote] == nil || columns[.qcUpdated] == nil
+            }
+            if lacking, !columnsRequested {
                 try await AppsScriptWriter.ensureColumns(writer)
+                columnsRequested = true
             }
             let missing = try await AppsScriptWriter.setStatus(writer, items: items)
             savingCount -= 1

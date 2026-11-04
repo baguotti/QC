@@ -72,6 +72,21 @@ struct UserGuideView: View {
             GuideShortcut(["⌥I"], "Cycle the clip info overlay"),
             GuideShortcut(["⌘I"], "Media Info"),
         ]),
+        GuideTopic(title: "Inspect", body: "", shortcuts: [
+            GuideShortcut(["↑", "↓"], "Previous / next file"),
+            GuideShortcut(["⇧↑", "⇧↓"], "Extend the selection"),
+            GuideShortcut(["⌘↑", "⌘↓"], "First / last file (also Home / End)"),
+            GuideShortcut(["Page Up", "Page Down"], "Ten files up / down"),
+            GuideShortcut(["⌥↑", "⌥↓"], "Previous / next file that needs a look"),
+            GuideShortcut(["Return"], "Open in the Player"),
+            GuideShortcut(["Space"], "Play / pause the preview"),
+            GuideShortcut(["J", "K", "L"], "Preview: reverse · pause · forward (faster on each press)"),
+            GuideShortcut(["←", "→"], "Preview: step a frame (⇧: ten)"),
+            GuideShortcut(["⌘I"], "Media Info"),
+            GuideShortcut(["⌘A"], "Select all"),
+            GuideShortcut(["Esc"], "Clear the selection"),
+            GuideShortcut(["⌥1", "⌥6"], "Delivery Plan status (⌥0 clears)"),
+        ]),
         GuideTopic(title: "Upload", body: "", shortcuts: [
             GuideShortcut(["Space"], "Preview the selected Frame.io file"),
             GuideShortcut(["←", "→"], "Previous / next file in the preview"),
@@ -127,6 +142,9 @@ struct UserGuideView: View {
             GuideTopic(title: "Filter and Kinds", body: "The filter field narrows the table by name. When a folder mixes videos, images and audio, the kind icons show or hide each kind."),
             GuideTopic(title: "Fit Name, Hide and List", body: "Fit Name widens the name column to the longest name. Hide flattens folders. List / Thumbs switches the row style."),
             GuideTopic(title: "Media Info (⌘I)", body: "Opens the full technical breakdown of the selected file: tracks, codecs, bitrates and audio channels."),
+            GuideTopic(title: "Keyboard", body: "↑ / ↓ move through the files and ⇧↑ / ⇧↓ extend the selection; ⌘↑ / ⌘↓ (or Home / End) go to the first or last, Page Up / Down jump ten. ⌥↑ / ⌥↓ jump to the next file that needs a look (a mismatch, or Wrong Spec, Check or Needs Fix in the Delivery Plan). Return plays the file in the Player, Space plays or pauses the preview, Esc clears the selection. The Delivery Plan follows the selection."),
+            GuideTopic(title: "Preview", body: "The bottom of the left panel previews the selected file; its arrow folds it away. Double-clicking a file opens the preview in its own window, centred, and plays it. Space plays and pauses, J / K / L shuttle, ← / → step frames (Open in Player is in the right-click menu of the list and the preview, or Return), the bar scrubs (fast, to the nearest keyframe), the speaker mutes it. The window button opens it in its own window, any size, on any screen; Dock brings it back. It's a glance: QC in the Player (Return)."),
+            GuideTopic(title: "Thumbnails and Skimming", body: "List / Thumbs switches to thumbnails (size up to 220 pt in the view options, or + / −). Move the mouse across a video's thumbnail to skim through it. Drag the left panel's edge to resize it (double-click resets)."),
             GuideTopic(title: "Export", body: "Sheets copies the table for Google Sheets (paste with ⌘V), Save CSV writes a spreadsheet, Open HTML builds a printable specs sheet. Reveal in Finder shows the selected file."),
             GuideTopic(title: "Hide Panel (⌘⇧←)", body: "Shows or hides the Specs actions panel to give the table the full width."),
             GuideTopic(title: "Delivery Plan (⌘⇧→)", body: "Link the Google Sheet that lists every deliverable (shared as Anyone with the link). QCpie re-reads it every minute while the plan is open, highlights rows that changed since you last looked, and matches each row to the Inspect file whose name contains the row's file name, checking resolution, length, frame rate, format, file size and sound. Rows show Missing, Delivered, Wrong Spec or Check; files no row names are listed as Not in the Plan. Click a row to select its file in Inspect, double-click to play it. The window button opens the plan in its own window, for a second screen (⌥⌘D)."),
@@ -295,6 +313,7 @@ struct ShortcutCheatSheet: View {
         switch tab {
         case .player: names = ["Playback", "Queue", "Compare", "Review", "View"]
         case .upload: names = ["Upload", "View"]
+        case .specs: names = ["Inspect", "View"]
         default: names = ["View"]
         }
         return names.compactMap { name in UserGuideView.shortcutsChapter.topics.first { $0.title == name } }

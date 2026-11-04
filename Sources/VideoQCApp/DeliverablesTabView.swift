@@ -10,6 +10,9 @@ extension ContentView {
         HStack(spacing: 0) {
             // Left Control Panel
             if showSpecsControlPanel {
+                ResizableSidePanel(widthKey: "inspectPanelWidth", edge: .trailing, range: 300...640, defaultWidth: 380,
+                                   isLightMode: isLightMode,
+                                   help: "Drag to resize the panel. Double-click to reset (380 pt).") {
                 VStack(alignment: .leading, spacing: 18) {
                     // Unified Asset Picker
                     deliveryAssetsSection(forTab: .specs)
@@ -23,9 +26,14 @@ extension ContentView {
                     specsActionsSection
                     
                     Spacer(minLength: 0)
+
+                    // The selected file at a glance (play / scrub only; can pop out into its own window).
+                    if !specsState.deliverableAssets.isEmpty {
+                        InspectPreviewPanel(placement: .panel, isLightMode: isLightMode)
+                    }
                 }
                 .padding(22)
-                .frame(width: ContentView.specsPanelWidth)
+                .frame(maxWidth: .infinity, alignment: .leading)
                 .background(bgPanel)
                 .overlay(
                     Rectangle()
@@ -33,6 +41,7 @@ extension ContentView {
                         .frame(width: 1),
                     alignment: .trailing
                 )
+                }
                 .transition(.move(edge: .leading).combined(with: .opacity))
             }
             
@@ -159,44 +168,83 @@ extension ContentView {
         .studioBox(background: bgSubtle, border: borderLine)
     }
     
-    /// Search above the table (the same text as the left panel's), like the plan's: names, paths and plan rows.
-    var inspectSearchBar: some View {
-        HStack(spacing: 6) {
-            Image(systemName: "magnifyingglass")
-                .font(.system(size: StudioTheme.scaleFont(10)))
-                .foregroundColor(textMuted)
-            ZStack(alignment: .leading) {
-                if specsState.specsFilterText.isEmpty {
-                    Text(planFiles.isEmpty ? "Filter files…" : "Filter files (name, code, channel, resolution…)")
-                        .font(.ui(size: 11, weight: .semibold))
-                        .foregroundColor(textMuted)
-                        .allowsHitTesting(false)
-                }
-                TextField("", text: $specsState.specsFilterText)
-                    .font(.ui(size: 11, weight: .medium))
-                    .textFieldStyle(.plain)
-                    .foregroundColor(textMain)
-                    .padding(.horizontal, 4)
-            }
-            if !specsState.specsFilterText.isEmpty {
-                Button(action: { specsState.specsFilterText = "" }) {
-                    Image(systemName: "xmark.circle.fill")
-                        .font(.system(size: StudioTheme.scaleFont(10)))
-                        .foregroundColor(textMuted)
-                }
-                .buttonStyle(.plain)
-            }
+    /// Double-click: the preview in its own window, centred on the screen when it opens (an open one comes forward).
+    func openPreviewWindow() {
+        let wasOpen = UserDefaults.standard.bool(forKey: InspectPreviewWindow.poppedOutKey)
+        openWindow(id: InspectPreviewWindow.id)
+        guard !wasOpen else { return }
+        DispatchQueue.main.async {
+            NSApp.windows.first { $0.identifier?.rawValue.hasPrefix(InspectPreviewWindow.id) == true }?.center()
         }
-        .padding(.horizontal, 8)
-        .padding(.vertical, 6)
-        .studioBox(background: bgSubtle, border: borderLine)
-        .frame(maxWidth: 420)
+    }
+
+    // MARK: - Keyboard navigation
+
+    /// Inspect's keys (router scope `.specsOnly`; text fields keep their keys). False = nothing to do.
+    func handleInspectNav(_ nav: InspectNav) -> Bool {
+        let order = specsState.currentDisplayOrder
+        guard !order.isEmpty else { return false }
+        let focus = specsState.focusIndex(in: order)
+        func go(_ index: Int, extend: Bool = false) -> Bool {
+            guard let url = specsState.moveSelection(to: index, extend: extend, order: order) else { return false }
+            NotificationCenter.default.post(name: SpecsState.scrollToFile, object: url, userInfo: ["minimal": true])
+            return true
+        }
+        switch nav {
+        case .move(let step):
+            guard let focus else { return go(step > 0 ? 0 : order.count - 1) }
+            return go(focus + step)
+        case .extend(let step):
+            guard let focus else { return go(step > 0 ? 0 : order.count - 1) }
+            return go(focus + step, extend: true)
+        case .first: return go(0)
+        case .last: return go(order.count - 1)
+        case .attention(let step):
+            // Next file with a spec mismatch or a plan state that needs a look, wrapping around.
+            let start = focus ?? (step > 0 ? -1 : order.count)
+            let assets = deliverableAssetsMap   // built once (it's a computed dictionary)
+            for offset in 1...order.count {
+                let i = ((start + step * offset) % order.count + order.count) % order.count
+                if needsAttention(order[i], assets: assets) { return go(i) }
+            }
+            return false
+        case .play:
+            guard let url = specsState.selectedDeliverableURL else { return false }
+            playDeliverableInPlayer(url: url)
+            return true
+        case .shuttle(let direction):
+            return InspectPreview.shared.shuttle(direction)
+        case .step(let frames):
+            return InspectPreview.shared.step(frames)
+        case .preview:
+            // Space plays / pauses the preview; with no preview on screen it opens Media Info instead.
+            if InspectPreview.shared.togglePlay() { return true }
+            guard specsState.selectedDeliverableURL != nil else { return false }
+            togglePropertiesModalForActiveOrSelected()
+            return true
+        case .selectAll:
+            specsState.selectedDeliverableURLs = Set(order)
+            if specsState.selectedDeliverableURL == nil { specsState.selectedDeliverableURL = order.first }
+            return true
+        case .clear:
+            guard !specsState.selectedDeliverableURLs.isEmpty else { return false }
+            specsState.selectedDeliverableURLs = []
+            specsState.selectedDeliverableURL = nil
+            return true
+        }
+    }
+
+    /// A spec mismatch Inspect shows (not dismissed), or a plan state that needs a look.
+    private func needsAttention(_ url: URL, assets: [URL: DeliverableAsset]) -> Bool {
+        if let state = planFiles[url]?.state, [.wrongSpec, .check, .needsFix].contains(state) { return true }
+        guard let asset = assets[url] else { return false }
+        return (asset.validation.hasAnyMismatch || specsState.hasSubtitleMismatch(url)) && !specsState.isMismatchDismissed(for: url)
     }
 
     /// The Delivery Plan's filter chips, as in the plan: % done, All, a chip per state with its file count, Not in Plan.
     var inspectPlanChips: some View {
-        let counts = Dictionary(grouping: specsState.deliverableAssets.compactMap { planFiles[$0.fileURL] }, by: { $0.state })
-            .mapValues(\.count)
+        // Files the plan hasn't indexed (not measured) count as Not in Plan, as the filter treats them.
+        let counts = Dictionary(grouping: specsState.deliverableAssets, by: { planFiles[$0.fileURL]?.state }).mapValues(\.count)
         let total = specsState.deliverableAssets.count
         let done = PlanState.allCases.filter(\.isDone).reduce(0) { $0 + (counts[$1] ?? 0) }
         let live = total - (counts[.dropped] ?? 0) - (counts[nil] ?? 0)
@@ -275,8 +323,10 @@ extension ContentView {
         alert.addButton(withTitle: "Cancel")
         alert.window.initialFirstResponder = field
         guard alert.runModal() == .alertFirstButtonReturn else { return }
-        let name = field.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !name.isEmpty, !SpecsState.builtInTemplates.contains(where: { $0.name == name }) else { return }
+        var name = field.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty else { return }
+        // A built-in name can't be replaced: save it as "Name 2" instead of silently doing nothing.
+        if SpecsState.builtInTemplates.contains(where: { $0.name == name }) { name += " 2" }
         specsState.saveColumnTemplate(named: name)
     }
 
@@ -627,6 +677,28 @@ extension ContentView {
                     }
                     .explain(isFoldersHidden ? "Show all folder headers in asset lists." : "Hide folder headers and display assets in a flat list.")
                     
+                    // Clean list: hide the plan's chips and badges (filters keep working)
+                    if !planFiles.isEmpty {
+                        let filtered = inspectPlanFilter != -1
+                        Button(action: { withAnimation(Motion.fade) { hidePlanTags.toggle() } }) {
+                            HStack(spacing: 4) {
+                                Image(systemName: hidePlanTags ? "tag.slash" : "tag")
+                                    .font(.system(size: StudioTheme.scaleFont(8.5), weight: .bold))
+                                Text(hidePlanTags ? "Show Tags" : "Clean List")
+                                    .font(.ui(size: 10, weight: .semibold))
+                            }
+                            .padding(.horizontal, 8)
+                            .frame(height: 24)
+                            .contentShape(Rectangle())
+                            .foregroundColor(hidePlanTags && filtered ? accentBlue : textMain)
+                        }
+                        .buttonStyle(.plain)
+                        .fixedSize()
+                        .explain(hidePlanTags
+                            ? (filtered ? "Plan tags are hidden; the list is still filtered by plan status. Click to show the tags." : "Show the Delivery Plan chips and badges.")
+                            : "Hide the Delivery Plan chips and badges for a clean list (filters keep working).")
+                    }
+
                     // Columns: show / hide
                     Menu { columnsMenuItems } label: {
                         HStack(spacing: 4) {
@@ -687,13 +759,7 @@ extension ContentView {
                 .padding(.bottom, 4)
             }
             
-            if !specsState.deliverableAssets.isEmpty {
-                VStack(alignment: .leading, spacing: 6) {
-                    inspectSearchBar
-                    if !planFiles.isEmpty { inspectPlanChips }
-                }
-                .padding(.bottom, 6)
-            }
+            if !planFiles.isEmpty && !hidePlanTags { inspectPlanChips.padding(.bottom, 6) }
 
             // Table
             GeometryReader { tableGeo in
@@ -711,7 +777,10 @@ extension ContentView {
                                 Text("Preview").frame(width: CGFloat(specsThumbnailWidth), alignment: .center)
                             }
                             
-                            sortableHeaderCell("File Name", column: .name, alignment: .leading)
+                            // With Path hidden, File Name takes the spare width Path would have (no blank strip).
+                            sortableHeaderCell("File Name", column: .name,
+                                               customWidth: specsState.isColumnVisible(.path) ? nil : CGFloat(effectiveFileNameColumnWidth) + extraWidth,
+                                               alignment: .leading)
                             if specsState.isColumnVisible(.timecode) { sortableHeaderCell("Timecode (TC)", column: .timecode) }
                             if specsState.isColumnVisible(.endFrame) { sortableHeaderCell("End Frame", column: .endFrame) }
                             if specsState.isColumnVisible(.ratio) { sortableHeaderCell("Ratio & Size", column: .ratio) }
@@ -734,8 +803,8 @@ extension ContentView {
                             columnsMenu
                             Menu("Sort By") {
                                 if !planFiles.isEmpty {
-                                    Button("Plan Order") { inspectPlanSort = 1 }
-                                    Button("Plan Status") { inspectPlanSort = 2 }
+                                    Button(inspectPlanSort == 1 ? "✓ Plan Order" : "Plan Order") { inspectPlanSort = 1 }
+                                    Button(inspectPlanSort == 2 ? "✓ Plan Status" : "Plan Status") { inspectPlanSort = 2 }
                                     Divider()
                                 }
                                 ForEach(SpecsSortColumn.allCases, id: \.self) { col in
@@ -744,7 +813,7 @@ extension ContentView {
                                     }) {
                                         HStack {
                                             Text(col.displayName)
-                                            if specsState.specsSortColumn == col {
+                                            if specsState.specsSortColumn == col, inspectPlanSort == 0 {
                                                 Image(systemName: specsState.specsSortAscending ? "chevron.up" : "chevron.down")
                                             }
                                         }
@@ -824,7 +893,7 @@ extension ContentView {
                                                 thumbnailWidth: specsThumbnailWidth,
                                                 themeKey: themeKey,
                                                 menuContext: isSelected ? multiSelectionKey : 0,
-                                                plan: planFiles[asset.fileURL]
+                                                plan: hidePlanTags ? nil : planFiles[asset.fileURL]
                                             )) {
                                                 deliverablesAssetRow(idx: assetIndexMap[node.url] ?? idx, asset: asset, depth: node.depth, pathWidth: pathColWidth, rowWidth: availableWidth, displayOrder: displayOrder, isTreeLayout: isTreeLayout)
                                             }
@@ -843,7 +912,13 @@ extension ContentView {
                         .onReceive(NotificationCenter.default.publisher(for: SpecsState.scrollToFile)) { notification in
                             guard let url = notification.object as? URL,
                                   let id = deliverableRows.first(where: { $0.url == url })?.id else { return }
-                            withAnimation(Motion.list) { proxy.scrollTo(id, anchor: .center) }
+                            // Keyboard steps scroll only as far as needed (no animation: key repeat must keep up);
+                            // a plan click centres the file.
+                            if notification.userInfo?["minimal"] as? Bool == true {
+                                proxy.scrollTo(id)
+                            } else {
+                                withAnimation(Motion.list) { proxy.scrollTo(id, anchor: .center) }
+                            }
                         }
                         }
                     }
@@ -886,7 +961,7 @@ extension ContentView {
     }
     
     var specsThumbnailWidth: Double {
-        specsDisplayMode == "thumbnail" ? max(36.0, min(110.0, specsThumbnailSize)) : 0.0
+        specsDisplayMode == "thumbnail" ? max(36.0, min(220.0, specsThumbnailSize)) : 0.0
     }
     
     var specsTableMinWidth: CGFloat {
@@ -915,7 +990,7 @@ extension ContentView {
         alignment: Alignment = .center,
         isResizable: Bool = true
     ) -> some View {
-        let isCurrent = specsState.specsSortColumn == column
+        let isCurrent = specsState.specsSortColumn == column && inspectPlanSort == 0   // a plan sort replaces the column sort
         let colWidth = customWidth ?? CGFloat(specsState.columnWidth(for: column))
         let isDraggingThis = specsState.isDragging(column: column)
         
@@ -1292,7 +1367,9 @@ extension ContentView {
             if specsDisplayMode == "thumbnail" {
                 let thumbW = CGFloat(specsThumbnailWidth)
                 let thumbH = round(thumbW * 9.0 / 16.0)
-                AssetThumbnailView(fileURL: asset.fileURL, width: thumbW, height: thumbH, cornerRadius: 2.5)
+                AssetThumbnailView(fileURL: asset.fileURL, width: thumbW, height: thumbH, cornerRadius: 2.5,
+                                   skimDuration: QCUtilities.mediaKind(of: asset.fileURL) == .video ? asset.durationSeconds : 0,
+                                   skimFPS: asset.fps)
                     .frame(width: thumbW, alignment: .center)
             }
             
@@ -1329,7 +1406,7 @@ extension ContentView {
                     .foregroundColor(isSelected ? textMain : (hasMismatch ? alertRed : textMain))
                     .help(asset.fileName)
 
-                if let plan = planFiles[asset.fileURL] {
+                if !hidePlanTags, let plan = planFiles[asset.fileURL] {
                     PlanPill(info: plan, isLightMode: isLightMode)
                 }
                 
@@ -1344,7 +1421,9 @@ extension ContentView {
                 .buttonStyle(.plain)
                 .help("Media Info (⌘I)")
             }
-            .frame(width: CGFloat(effectiveFileNameColumnWidth), alignment: .leading)
+            .frame(width: specsState.isColumnVisible(.path) ? CGFloat(effectiveFileNameColumnWidth)
+                   : CGFloat(effectiveFileNameColumnWidth) + max(0, pathWidth - CGFloat(specsState.columnWidth(for: .path))),
+                   alignment: .leading)
             
             if specsState.isColumnVisible(.timecode) {
                 // Timecode Cell with Warning
@@ -1517,9 +1596,12 @@ extension ContentView {
             specsState.handleClick(on: asset.fileURL, modifiers: NSEvent.modifierFlags, displayOrder: specsState.currentDisplayOrder)
         })
         .simultaneousGesture(
+            // Double-click plays the file in Inspect's preview (opening the panel if needed); the Player is in the
+            // right-click menu (Open in Player) and on Return.
             TapGesture(count: 2).onEnded {
                 specsState.selectedDeliverableURL = asset.fileURL
-                playDeliverableInPlayer(url: asset.fileURL)
+                openPreviewWindow()
+                InspectPreview.shared.playNow(asset.fileURL)
             }
         )
         .explain(asset.fileURL.path)
@@ -1528,24 +1610,33 @@ extension ContentView {
                 specsState.selectedDeliverableURL = asset.fileURL
                 playDeliverableInPlayer(url: asset.fileURL)
             }) {
-                Label("Play in Player (Tab 1)", systemImage: "play.fill")
+                Label("Open in Player", systemImage: "play.fill")
             }
             if planFiles[asset.fileURL]?.rowID != nil {
-                let files = specsState.isSelected(asset.fileURL) ? Array(specsState.selectedDeliverableURLs) : [asset.fileURL]
-                let rows = DeliveryPlanStore.shared.rowIDs(forFiles: files)
-                Menu(rows.count > 1 ? "Set Plan Status (\(rows.count) Rows)" : "Set Plan Status") {
+                // The selection's rows are looked up only when an item is chosen, not while the menu is built (after ⌘A
+                // every selected row rebuilds its menu).
+                let isMulti = specsState.isSelected(asset.fileURL) && specsState.selectedDeliverableURLs.count > 1
+                let url = asset.fileURL
+                let targetFiles: () -> [URL] = { [specsState] in
+                    specsState.isSelected(url) ? Array(specsState.selectedDeliverableURLs) : [url]
+                }
+                Menu(isMulti ? "Set Plan Status (Selection)" : "Set Plan Status") {
                     ForEach(PlanQCStatus.allCases, id: \.self) { status in
-                        Button("\(status.title)  \(status.shortcut)") { DeliveryPlanStore.shared.setStatus(status, rowIDs: rows) }
+                        Button("\(status.title)  \(status.shortcut)") {
+                            DeliveryPlanStore.shared.setStatus(status, rowIDs: DeliveryPlanStore.shared.rowIDs(forFiles: targetFiles()))
+                        }
                     }
                     Divider()
-                    Button("Clear Status") { DeliveryPlanStore.shared.setStatus(nil, rowIDs: rows) }
+                    Button("Clear Status") { DeliveryPlanStore.shared.setStatus(nil, rowIDs: DeliveryPlanStore.shared.rowIDs(forFiles: targetFiles())) }
                 }
-                Button("Run Plan Checks on \(files.count == 1 ? "This File" : "\(files.count) Files")") {
+                Button(isMulti ? "Run Plan Checks on Selection" : "Run Plan Checks on This File") {
                     let store = DeliveryPlanStore.shared, queue = PlanCheckQueue.shared
                     queue.loadIfNeeded()
+                    let files = targetFiles()
                     let wanted = Set(files)
                     var seen = Set<URL>()
-                    let stamps = store.rows.filter { rows.contains($0.id) }.flatMap { store.fileStamps($0) }
+                    let ids = Set(store.rowIDs(forFiles: files))
+                    let stamps = store.rows.filter { ids.contains($0.id) }.flatMap { store.fileStamps($0) }
                         .filter { wanted.contains($0.url) && seen.insert($0.url).inserted }
                     queue.enqueue(stamps, kinds: queue.kinds)
                 }
@@ -1735,7 +1826,7 @@ extension ContentView {
                         }
                     }
                 ),
-                in: 36...110
+                in: 36...220
             )
             .controlSize(.small)
             .padding(.horizontal, 8)

@@ -33,6 +33,9 @@ struct ContentView: View {
     @State var inspectPlanFilter = -1
     /// Inspect sorted by the plan: 0 off (column sort), 1 plan order (sheet rows), 2 plan status.
     @State var inspectPlanSort = 0
+    @Environment(\.openWindow) var openWindow
+    /// Inspect's clean list: the plan's chips and badges hidden (filters still apply).
+    @AppStorage("inspectHidePlanTags") var hidePlanTags = false
     @AppStorage("inspectPlanOpen") var showInspectPlan: Bool = false
     @AppStorage("reviewerName") var reviewerName: String = ""
     @AppStorage("queueDisplayMode") var queueDisplayMode: String = "inline"
@@ -288,8 +291,22 @@ struct ContentView: View {
             }
             // The Delivery Plan matches rows against Inspect's measured files (its own matching runs off the main thread).
             .task(id: specsState.assetsVersion) { DeliveryPlanStore.shared.setAssets(specsState.deliverableAssets) }
-            // Plan checks never decode while the Player plays.
-            .onChange(of: playerEngine.isPlaying) { _, playing in PlanCheckQueue.shared.isPlayerPlaying = playing }
+            // Plan checks never decode while the Player or the Inspect preview plays, and only one of those two plays
+            // (and makes sound) at a time.
+            .onChange(of: playerEngine.isPlaying) { _, playing in
+                if playing { InspectPreview.shared.pause() }
+                PlanCheckQueue.shared.isPlayerPlaying = playing || InspectPreview.shared.clock.isPlaying
+            }
+            .onReceive(InspectPreview.shared.clock.$isPlaying) { playing in
+                if playing, playerEngine.isPlaying { playerEngine.pause() }
+                PlanCheckQueue.shared.isPlayerPlaying = playing || playerEngine.isPlaying
+            }
+            // The Inspect preview shows the focused file (it loads only after the selection rests).
+            .onChange(of: specsState.selectedDeliverableURL) { _, url in InspectPreview.shared.select(url) }
+            .onReceive(NotificationCenter.default.publisher(for: InspectPreview.showInfo)) { notification in
+                if let url = notification.object as? URL { openProperties(for: url) }
+            }
+            .onAppear { InspectPreview.shared.select(specsState.selectedDeliverableURL) }
             // Linked filters (Delivery Plan ⇄ Inspect): Inspect's status chip and search go out, the plan's come in.
             .onChange(of: inspectPlanFilter) { _, state in
                 DeliveryPlanStore.shared.publishFilter(.init(state: state, search: specsState.specsFilterText))
@@ -1697,6 +1714,7 @@ struct ContentView: View {
             onSelectAllUploads: { UploadQueue.shared.selectAll() },
             onUndoFrameIO: { FrameIOBrowser.shared.performUndo() },
             onDeleteFrameIO: { FrameIOBrowser.shared.deleteSelection() },
+            onInspectNav: { self.handleInspectNav($0) },
             onPreviewFrameIO: { FrameIOPreview.shared.toggle() },
             onStepPreview: { FrameIOPreview.shared.step($0) },
             onPasteFrameIOLink: { FrameIOBrowser.shared.openLinkOnClipboard() },
@@ -1809,7 +1827,7 @@ struct ContentView: View {
                 }
             } else {
                 withAnimation(Motion.fade) {
-                    specsThumbnailSize = min(110.0, specsThumbnailSize + 10.0)
+                    specsThumbnailSize = min(220.0, specsThumbnailSize + 10.0)
                 }
             }
         } else {

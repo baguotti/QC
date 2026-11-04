@@ -95,6 +95,29 @@ public final class SpecsState: ObservableObject {
         }
     }
     
+    /// Keyboard selection: `index` in `order` (clamped). Extending selects the range from the anchor to it (going back
+    /// shrinks it), as in Finder. Returns the newly focused file.
+    @discardableResult
+    public func moveSelection(to index: Int, extend: Bool, order: [URL]) -> URL? {
+        guard !order.isEmpty else { return nil }
+        let i = min(max(0, index), order.count - 1)
+        let url = order[i]
+        if extend, let anchor = selectionAnchorURL, let a = order.firstIndex(of: anchor) {
+            selectedDeliverableURLs = Set(order[min(a, i)...max(a, i)])
+            selectedDeliverableURL = url
+        } else {
+            selectedDeliverableURLs = [url]
+            selectedDeliverableURL = url
+            selectionAnchorURL = url
+        }
+        return url
+    }
+
+    /// The focused file's position in `order` (the last one moved to or clicked).
+    public func focusIndex(in order: [URL]) -> Int? {
+        selectedDeliverableURL.flatMap { order.firstIndex(of: $0) }
+    }
+
     /// The rows an action on `url` applies to: the whole selection if `url` is part of it, else just `url`.
     public func actionTargets(for url: URL, displayOrder: [URL]) -> [URL] {
         guard isSelected(url), selectedDeliverableURLs.count > 1 else { return [url] }

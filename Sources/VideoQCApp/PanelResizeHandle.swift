@@ -14,23 +14,33 @@ struct PanelResizeHandle: View {
     let help: String
     /// The panel edge the handle sits on: `.leading` for a panel on the right (dragging left widens it).
     var edge: HorizontalEdge = .trailing
+    /// Extra grab area outside the panel, across the edge. 0 next to the video viewport (it sets its own cursor on
+    /// every mouse move); elsewhere 6 makes the edge easy to catch. The panel must sit above its neighbour (zIndex).
+    var reach: CGFloat = 0
 
     @State private var isHovering = false
     @State private var isDragging = false
     @State private var startWidth = 0.0
 
-    static let hitWidth: CGFloat = 12
+    static let hitWidth: CGFloat = 16
     private var palette: StudioPalette { StudioPalette(isLightMode) }
 
     var body: some View {
-        ZStack(alignment: edge == .trailing ? .trailing : .leading) {
-            ResizeCursorArea()
-            Rectangle()
-                .fill(isDragging ? palette.accentBlue : (isHovering ? Self.hoverLine(isLightMode) : Color.clear))
-                .frame(width: isDragging ? 2 : 1)
-                .allowsHitTesting(false)
+        // [inside the panel | line at the edge | reach outside], laid out from the panel's edge outward.
+        HStack(spacing: 0) {
+            if edge == .leading { Color.clear.frame(width: reach) }
+            ZStack(alignment: edge == .trailing ? .trailing : .leading) {
+                Color.clear
+                Rectangle()
+                    .fill(isDragging ? palette.accentBlue : (isHovering ? Self.hoverLine(isLightMode) : Color.clear))
+                    .frame(width: isDragging ? 2 : 1)
+                    .allowsHitTesting(false)
+            }
+            .frame(width: Self.hitWidth)
+            if edge == .trailing { Color.clear.frame(width: reach) }
         }
-        .frame(width: Self.hitWidth)
+        .background(ResizeCursorArea())
+        .offset(x: edge == .trailing ? reach : -reach)
         .contentShape(Rectangle())
         .onHover { isHovering = $0 }
         .animation(Motion.hover, value: isHovering)
@@ -77,5 +87,38 @@ struct ResizeCursorArea: NSViewRepresentable {
             window?.invalidateCursorRects(for: self)
         }
         override func hitTest(_ point: NSPoint) -> NSView? { nil }   // gestures stay with SwiftUI
+    }
+}
+
+/// A side panel that owns its width (remembered under `widthKey`) and its resize handle: dragging re-lays out this panel
+/// and its neighbours, never re-runs the view that built it (`ContentView`, the whole window).
+struct ResizableSidePanel<Content: View>: View {
+    let edge: HorizontalEdge
+    let range: ClosedRange<Double>
+    let defaultWidth: Double
+    let isLightMode: Bool
+    let help: String
+    @ViewBuilder let content: () -> Content
+    @AppStorage private var width: Double
+
+    init(widthKey: String, edge: HorizontalEdge, range: ClosedRange<Double>, defaultWidth: Double, isLightMode: Bool,
+         help: String, @ViewBuilder content: @escaping () -> Content) {
+        self.edge = edge
+        self.range = range
+        self.defaultWidth = defaultWidth
+        self.isLightMode = isLightMode
+        self.help = help
+        self.content = content
+        _width = AppStorage(wrappedValue: defaultWidth, widthKey)
+    }
+
+    var body: some View {
+        content()
+            .frame(width: min(range.upperBound, max(range.lowerBound, width)))
+            .overlay(alignment: edge == .trailing ? .trailing : .leading) {
+                PanelResizeHandle(width: $width, range: range, defaultWidth: defaultWidth, isLightMode: isLightMode,
+                                  help: help, edge: edge == .trailing ? .trailing : .leading, reach: 6)
+            }
+            .zIndex(1)   // above the neighbour the handle reaches into
     }
 }

@@ -61,7 +61,7 @@ enum AppsScriptWriter {
     }
 
     /// The script version this QCpie expects (`ping` reports the deployed one).
-    static let scriptVersion = 2
+    static let scriptVersion = 3
 
     /// The script to paste into the sheet's Extensions → Apps Script.
     static func script(token: String) -> String {
@@ -110,6 +110,16 @@ enum AppsScriptWriter {
           const r0 = e.range.getRow(), c0 = e.range.getColumn(), nr = e.range.getNumRows(), nc = e.range.getNumColumns();
           if (!qcCols.some(c => c >= c0 && c < c0 + nc) || r0 + nr - 1 <= h.row || nr > 500) return;
           const first = Math.max(r0, h.row + 1);
+          // A status set here is dated (QCpie compares it with the files' dates to spot new versions), unless the edit
+          // also set QC Updated itself.
+          const statusCol = h.cols['qc status'], updatedCol = h.cols['qc updated'];
+          const statusEdited = statusCol && statusCol >= c0 && statusCol < c0 + nc;
+          const updatedEdited = updatedCol && updatedCol >= c0 && updatedCol < c0 + nc;
+          if (statusEdited && updatedCol && !updatedEdited) {
+            const who = (e.user && e.user.getEmail && e.user.getEmail()) || 'Sheets';
+            const stamp = Utilities.formatDate(new Date(), 'UTC', 'yyyy-MM-dd HH:mm:ss') + ' UTC · ' + who;
+            sheet.getRange(first, updatedCol, r0 + nr - first, 1).setValues(Array(r0 + nr - first).fill([stamp]));
+          }
           const rows = sheet.getRange(first, 1, r0 + nr - first, sheet.getLastColumn()).getDisplayValues();
           // Only the columns that were edited: copying the others would wipe what the other tabs hold.
           const edited = name => { const c = h.cols[name]; return c && c >= c0 && c < c0 + nc; };
@@ -117,7 +127,7 @@ enum AppsScriptWriter {
             code: v[h.code - 1],
             status: edited('qc status') ? v[h.cols['qc status'] - 1] : null,
             note: edited('qc note') ? v[h.cols['qc note'] - 1] : null,
-            updated: edited('qc updated') ? v[h.cols['qc updated'] - 1] : null
+            updated: (edited('qc updated') || edited('qc status')) && h.cols['qc updated'] ? v[h.cols['qc updated'] - 1] : null
           })).filter(i => String(i.code).trim() !== '');
           setStatus(SpreadsheetApp.getActiveSpreadsheet(), items, sheet.getSheetId());
         }

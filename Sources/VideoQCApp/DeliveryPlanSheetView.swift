@@ -160,6 +160,19 @@ final class PlanSheetPainter {
         return font
     }
 
+    private var paragraphs: [Int: NSParagraphStyle] = [:]
+
+    /// Six possible styles (alignment × wrap), made once instead of per cell per draw.
+    private func paragraphStyle(_ style: PlanGridStyle) -> NSParagraphStyle {
+        let key = style.align.rawValue * 2 + (style.wrap ? 1 : 0)
+        if let cached = paragraphs[key] { return cached }
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.alignment = style.align == .center ? .center : style.align == .right ? .right : .left
+        paragraph.lineBreakMode = style.wrap ? .byWordWrapping : .byClipping
+        paragraphs[key] = paragraph
+        return paragraph
+    }
+
     /// One sheet row with its top-left at `origin`; `clip` limits the columns worth drawing.
     func draw(_ grid: PlanGrid, row index: Int, origin: CGPoint, height: CGFloat, layout: PlanSheetLayout, clip: CGRect) {
         let row = grid.rows[index]
@@ -212,9 +225,7 @@ final class PlanSheetPainter {
                 if j == cells.count { rect.size.width = max(rect.width, origin.x + layout.width - rect.minX) }
             }
             guard rect.maxX >= clip.minX, rect.minX <= clip.maxX else { continue }
-            let paragraph = NSMutableParagraphStyle()
-            paragraph.alignment = style.align == .center ? .center : style.align == .right ? .right : .left
-            paragraph.lineBreakMode = style.wrap ? .byWordWrapping : .byClipping
+            let paragraph = paragraphStyle(style)
             var attributes: [NSAttributedString.Key: Any] = [
                 .font: font(style, zoom: zoom),
                 .foregroundColor: style.color.map(Self.color) ?? .black,   // design-ok: the sheet's own colours
@@ -319,6 +330,7 @@ final class PlanSheetContainer: NSView, NSTextFieldDelegate {
         if relayout {
             sheetLayout = PlanSheetLayout(grid: grid, shownLines: shownLines, zoom: zoom)
             needsLayout = true
+            repositionEditor()
         }
         if redraw { for view in [body, header, gutter, corner] as [NSView] { view.needsDisplay = true } }
     }
@@ -407,6 +419,21 @@ final class PlanSheetContainer: NSView, NSTextFieldDelegate {
         field.currentEditor()?.selectAll(nil)
     }
 
+    /// The sheet re-laid out while a cell is being edited (a background read, zoom, a filter): the editor follows its
+    /// cell, or saves and closes when the row is no longer shown.
+    private func repositionEditor() {
+        guard let field = editor, let editing, let layout = sheetLayout, let grid else { return }
+        guard let row = layout.body.firstIndex(where: { grid.rows[$0].line == editing.line }),
+              let (gridRow, index) = grid.cell(line: editing.line, column: editing.column) else {
+            endEditor(commit: true)
+            return
+        }
+        let cell = grid.rows[gridRow].cells[index]
+        let left = layout.columnX[cell.column], right = layout.columnX[min(cell.column + cell.span, layout.columnX.count - 1)]
+        field.frame = CGRect(x: left, y: layout.bodyY[row], width: max(right - left, 120),
+                             height: max(layout.bodyY[row + 1] - layout.bodyY[row], 24))
+    }
+
     private func endEditor(commit: Bool) {
         guard let field = editor, let editing else { return }
         self.editor = nil
@@ -432,7 +459,8 @@ final class PlanSheetContainer: NSView, NSTextFieldDelegate {
                 DispatchQueue.main.async { self.beginEdit(bodyRow: row, column: next) }
             }
         }
-        window?.makeFirstResponder(body)
+        // Back to the sheet only when a key ended the edit: a click elsewhere (the search or note field) keeps its focus.
+        if NSApp.currentEvent?.type == .keyDown { window?.makeFirstResponder(body) }
     }
 }
 

@@ -52,15 +52,17 @@ final class PlanCheckQueue: ObservableObject {
     static let shared = PlanCheckQueue()
 
     /// By file. Published once per finished file.
-    @Published private(set) var results: [URL: PlanFileChecks] = [:]
+    @Published private(set) var results: [URL: PlanFileChecks] = [:] { didSet { revision &+= 1 } }
     @Published private(set) var isRunning = false
     @Published private(set) var isPaused = false
-    @Published private(set) var running: Set<URL> = []
+    @Published private(set) var running: Set<URL> = [] { didSet { revision &+= 1 } }
+    /// Changes whenever a summary could (cache key for the plan's per-row summaries).
+    private(set) var revision = 0
     let progress = PlanCheckProgress()
 
     /// The checks Run Checks runs (remembered).
     @Published var kinds: Set<PlanCheckKind> {
-        didSet { UserDefaults.standard.set(kinds.map(\.rawValue), forKey: Self.kindsKey) }
+        didSet { UserDefaults.standard.set(kinds.map(\.rawValue), forKey: Self.kindsKey); revision &+= 1 }
     }
 
     /// Set by `ContentView`: checks never decode while the Player plays.
@@ -140,11 +142,13 @@ final class PlanCheckQueue: ObservableObject {
     func enqueue(_ files: [(url: URL, size: Int64, modified: Date?)], kinds: Set<PlanCheckKind>) {
         loadIfNeeded()
         var added = 0
+        var queued = Set(queue.map(\.url))   // a set: 1,000+ files would otherwise be ~500k comparisons on the main thread
         for file in files {
             let have = Set(checks(for: file.url, size: file.size, modified: file.modified)?.outcomes.keys.map { $0 } ?? [])
             let need = kinds.subtracting(have)
-            guard !need.isEmpty, !queue.contains(where: { $0.url == file.url }), !running.contains(file.url) else { continue }
+            guard !need.isEmpty, !queued.contains(file.url), !running.contains(file.url) else { continue }
             queue.append(Job(url: file.url, kinds: need))
+            queued.insert(file.url)
             added += 1
         }
         guard added > 0 else { return }
@@ -158,6 +162,7 @@ final class PlanCheckQueue: ObservableObject {
     /// Stops after cancelling the files being checked; their partial results are dropped.
     func stop() {
         queue.removeAll()
+        isPaused = false   // else the next Run Checks would sit at "Paused"
         for (_, scanner) in scanners { scanner.cancel() }
         workers?.cancel()
     }
@@ -288,6 +293,11 @@ final class PlanCheckQueue: ObservableObject {
 
     private func store(_ url: URL, _ checks: PlanFileChecks) {
         results[url] = checks
+        // Results of renamed, moved or deleted files would pile up across projects: keep the newest 3,000.
+        if results.count > 3_000 {
+            let drop = results.sorted { $0.value.modified < $1.value.modified }.prefix(results.count - 3_000).map(\.key)
+            for key in drop { results[key] = nil }
+        }
         saveTask?.cancel()
         let snapshot = Dictionary(uniqueKeysWithValues: results.map { ($0.key.path, $0.value) })
         saveTask = Task {
@@ -299,5 +309,22 @@ final class PlanCheckQueue: ObservableObject {
                 if let data = try? JSONEncoder().encode(snapshot) { try? data.write(to: url, options: .atomic) }
             }
         }
+    }
+}
+
+/// Per-row check summaries for the plan panel, rebuilt only when checks, matching or files change (the panel redraws on
+/// every Inspect selection; recomputing 1,000+ summaries each time was felt on a MacBook Air).
+@MainActor
+final class PlanChecksSummaryCache {
+    private var key: (Int, Int) = (-1, -1)
+    private var summaries: [String: PlanChecksSummary] = [:]
+
+    func summary(_ row: PlanRow, store: DeliveryPlanStore, queue: PlanCheckQueue) -> PlanChecksSummary {
+        let current = (queue.revision, store.matchRevision)
+        if current != key { key = current; summaries = [:] }
+        if let cached = summaries[row.id] { return cached }
+        let summary = queue.summary(files: store.fileStamps(row), kinds: queue.kinds)
+        summaries[row.id] = summary
+        return summary
     }
 }

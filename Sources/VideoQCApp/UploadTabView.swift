@@ -66,7 +66,7 @@ struct UploadTabView: View {
                 .overlay(alignment: .trailing) {
                     // The range is the widest the panel can be; `UploadColumns` narrows it to what the window allows.
                     PanelResizeHandle(width: $panelWidth, range: UploadColumns.panelRange, defaultWidth: 380, isLightMode: isLightMode,
-                                      help: "Drag to resize the Assets & Queue panel. Double-click to reset (380 pt).")
+                                      help: "Drag to resize the Assets & Queue panel. Double-click to reset (380 pt).", reach: 6)
                 }
                 .onDrop(of: [UTType.fileURL.identifier], isTargeted: nil, perform: onDrop)
                 .transition(.move(edge: .leading).combined(with: .opacity))
@@ -82,7 +82,7 @@ struct UploadTabView: View {
                     .overlay(alignment: .leading) {
                         PanelResizeHandle(width: $drawerWidth, range: UploadColumns.drawerRange, defaultWidth: 360, isLightMode: isLightMode,
                                           help: "Drag to resize the drawer. Double-click to reset (360 pt).",
-                                          edge: .leading)
+                                          edge: .leading, reach: 6)
                     }
                     .transition(.move(edge: .trailing).combined(with: .opacity))
                     .zIndex(1)

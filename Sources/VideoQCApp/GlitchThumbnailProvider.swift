@@ -14,6 +14,9 @@ public actor GlitchThumbnailProvider {
     private var generators: [URL: (generator: AVAssetImageGenerator, modified: Date?)] = [:]
     private var generatorOrder: [URL] = [] // least recently used first
     private let maxCacheItems = 300
+    /// Off for skim frames: the view keeps them for the hover, and 40 per thumbnail would push the posters out of this
+    /// first-in-first-out cache (they'd then decode again on every scroll back).
+    private var storing = true
     
     public init() {}
     
@@ -21,10 +24,14 @@ public actor GlitchThumbnailProvider {
         for url: URL,
         frameIndex: Int,
         fps: Double,
-        targetSize: CGSize = CGSize(width: 200, height: 112)
+        targetSize: CGSize = CGSize(width: 200, height: 112),
+        fast: Bool = false,
+        cache cacheResult: Bool = true
     ) -> CGImage? {
         // The modification date is in the key: a file re-exported under the same name gets new thumbnails (read from
         // disk each time; URL resource values are cached per URL and would hide the change).
+        storing = cacheResult
+        defer { storing = true }
         let modified = (try? FileManager.default.attributesOfItem(atPath: url.path))?[.modificationDate] as? Date
         let key = "\(url.standardizedFileURL.path)_\(modified?.timeIntervalSince1970 ?? 0)_\(frameIndex)_\(Int(targetSize.width))x\(Int(targetSize.height))"
         if let cached = cache[key] {
@@ -76,9 +83,9 @@ public actor GlitchThumbnailProvider {
         let seconds = (Double(frameIndex) + 0.5) / safeFps
         let time = CMTime(seconds: seconds, preferredTimescale: 60000)
         
-        // For general asset thumbnail (frame 0), allow keyframe tolerance for near-instant decoding
-        if frameIndex == 0 {
-            let keyframeTol = CMTime(seconds: 0.5, preferredTimescale: 60000)
+        // Frame 0 and skimming allow keyframe tolerance for near-instant decoding.
+        if frameIndex == 0 || fast {
+            let keyframeTol = CMTime(seconds: fast ? 0.25 : 0.5, preferredTimescale: 60000)
             gen.requestedTimeToleranceBefore = keyframeTol
             gen.requestedTimeToleranceAfter = keyframeTol
             if let cgImage = try? gen.copyCGImage(at: time, actualTime: nil) {
@@ -109,6 +116,7 @@ public actor GlitchThumbnailProvider {
     }
     
     private func storeInCache(key: String, image: CGImage) {
+        guard storing else { return }
         if cache[key] == nil {
             cacheOrder.append(key)
             if cacheOrder.count > maxCacheItems {
@@ -362,9 +370,21 @@ public struct AssetThumbnailView: View {
     public var cornerRadius: CGFloat = 2.5
     public var badgeText: String? = nil
     public var badgeColor: Color = Color.clear
+    /// Skimming (Inspect's thumbnails): the clip's length and rate; moving the mouse across scrubs it. 0 = off.
+    public var skimDuration: Double = 0
+    public var skimFPS: Double = 25
     
     @State private var image: CGImage? = nil
     @State private var isLoading: Bool = true
+    /// Frame 0, shown when the mouse leaves.
+    @State private var poster: CGImage? = nil
+    /// The skim position (one of `skimSteps`) and the mouse's x, nil while the mouse is elsewhere.
+    @State private var skimStep: Int? = nil
+    @State private var skimX: CGFloat = 0
+    /// Frames fetched for this hover (dropped when the mouse leaves) and the task fetching them.
+    @State private var skimFrames: [Int: CGImage] = [:]
+    @State private var skimTask: Task<Void, Never>? = nil
+    private static let skimSteps = 40
     
     public init(
         fileURL: URL,
@@ -372,7 +392,9 @@ public struct AssetThumbnailView: View {
         height: CGFloat = 29,
         cornerRadius: CGFloat = 2.5,
         badgeText: String? = nil,
-        badgeColor: Color = Color.clear
+        badgeColor: Color = Color.clear,
+        skimDuration: Double = 0,
+        skimFPS: Double = 25
     ) {
         self.fileURL = fileURL
         self.width = width
@@ -380,6 +402,8 @@ public struct AssetThumbnailView: View {
         self.cornerRadius = cornerRadius
         self.badgeText = badgeText
         self.badgeColor = badgeColor
+        self.skimDuration = skimDuration
+        self.skimFPS = skimFPS
     }
     
     public var body: some View {
@@ -436,18 +460,88 @@ public struct AssetThumbnailView: View {
             }
         }
         .frame(width: width, height: height, alignment: .center)
-        .task(id: fileURL.path) {
-            // Check cache synchronously if available to avoid loader flash
-            let targetSize = CGSize(width: 160, height: 90)
+        .overlay(alignment: .bottomLeading) {
+            if skimStep != nil {
+                Rectangle()
+                    .fill(StudioTheme.accentBlue)
+                    .frame(width: 2, height: height)
+                    .offset(x: min(max(0, skimX - 1), width - 2))   // follows the mouse, not the steps
+                    .allowsHitTesting(false)
+            }
+        }
+        .onContinuousHover { phase in
+            guard skimDuration > 0 else { return }
+            switch phase {
+            case .active(let point):
+                skimX = point.x
+                let step = min(Self.skimSteps - 1, max(0, Int(point.x / max(1, width) * CGFloat(Self.skimSteps))))
+                guard step != skimStep else { return }
+                skimStep = step
+                if let frame = skimFrames[step] { image = frame }
+                if skimTask == nil { startSkimming() }   // after a short dwell: sweeping across the list fetches nothing
+            case .ended:
+                skimTask?.cancel()
+                skimTask = nil
+                skimStep = nil
+                skimFrames = [:]
+                if let poster { image = poster }
+            }
+        }
+        .task(id: "\(fileURL.path)|\(Self.pixelBucket(width))") {
+            // Requested at about the drawn size (×2 for Retina) so big thumbnails stay sharp, in steps: dragging the
+            // size slider (or resizing the preview window) only fetches again when a step is crossed, not per point.
+            let targetSize = Self.targetSize(width: width, height: height)
             if let img = await GlitchThumbnailProvider.shared.getThumbnail(
                 for: fileURL,
                 frameIndex: 0,
-                fps: 25.0,
+                fps: skimFPS > 0 ? skimFPS : 25.0,
                 targetSize: targetSize
             ) {
-                self.image = img
+                guard !Task.isCancelled else { return }
+                poster = img
+                if skimStep == nil { image = img }
             }
             self.isLoading = false
         }
+    }
+}
+
+extension AssetThumbnailView {
+    /// Fetches every skim position while the mouse is over the thumbnail, nearest to the mouse first, so moving across
+    /// it shows frames already fetched (smooth) instead of waiting on each step. Frames are at the drawn size (not ×2:
+    /// they're glimpses) and dropped when the mouse leaves.
+    fileprivate func startSkimming() {
+        let url = fileURL, duration = skimDuration, fps = skimFPS > 0 ? skimFPS : 25
+        let size = CGSize(width: max(120, width.rounded()), height: max(68, height.rounded()))
+        skimTask = Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(120))
+            guard !Task.isCancelled else { return }
+            var missing = Set(0..<Self.skimSteps)
+            while !missing.isEmpty, !Task.isCancelled {
+                let target = skimStep ?? 0
+                let step = missing.min { abs($0 - target) < abs($1 - target) }!
+                missing.remove(step)
+                let frame = Int((Double(step) + 0.5) / Double(Self.skimSteps) * duration * fps)
+                guard let img = await GlitchThumbnailProvider.shared.getThumbnail(for: url, frameIndex: frame, fps: fps,
+                                                                                   targetSize: size, fast: true, cache: false),
+                      !Task.isCancelled else { continue }
+                skimFrames[step] = img
+                if skimStep == step { image = img }
+            }
+        }
+    }
+}
+
+extension AssetThumbnailView {
+    /// Pixel widths thumbnails are fetched at (≥ 2× the drawn width, capped: a big preview window needs no more).
+    private static let pixelSteps: [CGFloat] = [160, 240, 320, 480, 640, 960, 1280]
+
+    static func pixelBucket(_ width: CGFloat) -> CGFloat {
+        pixelSteps.first { $0 >= width * 2 } ?? pixelSteps.last!
+    }
+
+    static func targetSize(width: CGFloat, height: CGFloat) -> CGSize {
+        let w = pixelBucket(width)
+        return CGSize(width: w, height: max(90, (w * height / max(1, width)).rounded()))
     }
 }
