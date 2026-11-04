@@ -208,8 +208,10 @@ actor UploadResumeStore {
         let dropped = state.files.values.filter { !keeping.contains($0.path) }
         state.files = state.files.filter { keeping.contains($0.key) }
         state.run = nil
-        state.deletes += dropped.map { PendingDelete(account: $0.account, id: $0.placeholderID) }
+        let deletes = dropped.map { PendingDelete(account: $0.account, id: $0.placeholderID) }
+        state.deletes += deletes.filter { !state.deletes.contains($0) }
         changed(run: true)
+        changed(run: false)   // the files and deletes are in the parts file
     }
 
     func flush() {

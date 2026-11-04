@@ -171,8 +171,10 @@ final class UploadQueue: ObservableObject {
             let existing = Dictionary(jobs.map { ($0.url.standardizedFileURL, $0) }, uniquingKeysWith: { a, _ in a })
             var next: [Job] = resolved.map { job in
                 guard let old = existing[job.url.standardizedFileURL] else { return job }
-                // Jobs of the running upload keep their identity: the upload reports progress by job id.
-                if old.files == job.files && old.folders == job.folders || (isRunning && runIDs.contains(old.id)) { return old }
+                // Jobs of the running upload keep their identity: the upload reports progress by job id. A paused one
+                // too: replacing it (new subfolders after reloading the queue) left it listed twice, uploaded twice.
+                if old.files == job.files && old.folders == job.folders || (isRunning && runIDs.contains(old.id))
+                    || old.status == .paused { return old }
                 return job
             }
             let kept = Set(next.map(\.id))
@@ -285,6 +287,8 @@ final class UploadQueue: ObservableObject {
     }
     private var pendingShare: ShareRequest?
     private var runShare: ShareRequest?
+    /// Whether the current run recreates the queue's subfolders (where its files land, for the share).
+    private var runKeepsStructure = false
 
     /// Shares what the run put in the destination (the folder itself when that's everything in it), and copies the link.
     /// Never the whole folder when it holds other things: those weren't part of this upload.
@@ -359,6 +363,7 @@ final class UploadQueue: ObservableObject {
         guard !work.isEmpty else { return }
         runIDs = Set(work.map(\.id))
         runShare = pendingShare
+        runKeepsStructure = keep
         pendingShare = nil
         runDestination = destination.path
         currentRunID = TransferLog.shared.begin(.upload, destination: destination.path, keepStructure: keep)
@@ -453,7 +458,7 @@ final class UploadQueue: ObservableObject {
             if let share = runShare, uploaded + skipped > 0 {
                 // Top-level names in the destination: the file, or its first subfolder when keeping the structure.
                 let names = Set(finished.filter { $0.status == .done || $0.status == .skipped }.flatMap { job in
-                    job.folders.first.map { [$0] } ?? job.files.map(\.lastPathComponent)
+                    (runKeepsStructure ? job.folders.first : nil).map { [$0] } ?? job.files.map(\.lastPathComponent)
                 })
                 Task { await self.shareRun(share, names: names) }
             }

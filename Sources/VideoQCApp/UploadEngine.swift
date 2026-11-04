@@ -64,9 +64,13 @@ final class UploadEngine: Sendable {
         var tuneInterval: Double = 5
         /// Re-create a file's upload when its links expire within this many seconds.
         var expiryMargin: TimeInterval = 600
+        /// Least time between two "create upload" calls: Frame.io allows 5 a second per user. Hundreds of small
+        /// files otherwise start faster than that and spend the batch in 429 retries.
+        var createInterval: Duration = .milliseconds(210)
     }
 
     let api: UploadAPI
+    private let createPacer: CallPacer
     let session: URLSession
     let store: UploadResumeStore
     let progress: UploadProgress
@@ -84,6 +88,7 @@ final class UploadEngine: Sendable {
         self.network = network
         self.limits = limits
         self.onUploaded = onUploaded
+        createPacer = CallPacer(interval: limits.createInterval)
     }
 
     /// The session for part uploads: more connections per host than the system's 6 (all parts go to the same storage
@@ -92,7 +97,9 @@ final class UploadEngine: Sendable {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.httpMaximumConnectionsPerHost = 32
         configuration.timeoutIntervalForRequest = 120
-        configuration.timeoutIntervalForResource = 3600
+        // A part of a very large file can take more than an hour on a slower line: an hour's cap killed it and
+        // resent it from zero, forever. Idle connections still time out (`timeoutIntervalForRequest`).
+        configuration.timeoutIntervalForResource = 24 * 3600
         configuration.waitsForConnectivity = true
         configuration.urlCache = nil
         configuration.requestCachePolicy = .reloadIgnoringLocalCacheData
@@ -138,9 +145,13 @@ final class UploadEngine: Sendable {
 
     private func uploadFile(_ work: UploadWork, index: Int, account: String, resolver: FolderResolver, gate: TransferGate) async -> UploadOutcome {
         let file = work.files[index]
-        let size = work.sizes[index]
+        // The size now, not when the queue was read: a file re-exported since then is uploaded as it is (its listed
+        // size made it fail as "changed while uploading" before anything was sent).
+        let size = ((try? FileManager.default.attributesOfItem(atPath: file.path)[.size]) as? NSNumber)?.int64Value ?? work.sizes[index]
         let fileKey = "f\(index)"
-        guard size > 0 else { return .skipped }
+        // An empty file (a failed render frame in a sequence) fails visibly: skipping it left a frame missing on
+        // Frame.io under a row that read "uploaded".
+        guard size > 0 else { return .failed("“\(file.lastPathComponent)” is empty (0 bytes).") }
         guard !Task.isCancelled else { return .cancelled }
         do {
             let folder = try await resolver.folder(for: work.folders)
@@ -161,8 +172,10 @@ final class UploadEngine: Sendable {
                     record = try await createUpload(file, size: size, modified: modified, account: account, folder: folder)
                 }
                 do {
-                    try await sendParts(of: record, file: file, jobID: work.jobID, fileKey: fileKey, gate: gate)
-                    guard (try? Self.checkedModificationDate(of: file, size: size)) == modified else { throw UploadError.changed }
+                    try await sendParts(of: record, file: file, modified: modified, jobID: work.jobID, fileKey: fileKey, gate: gate)
+                    // Its drive gone for a moment is waited for (like the parts); a changed file drops the upload.
+                    let now = try await withRetries(classify: Self.classify) { try Self.checkedModificationDate(of: file, size: size) }
+                    guard now == modified else { throw UploadError.changed }
                     try await verify(record)
                     await store.removeFile(file.path)
                     progress.complete(work.jobID, key: fileKey, bytes: size)
@@ -188,6 +201,7 @@ final class UploadEngine: Sendable {
         let attempts = AttemptCounter()
         let upload = try await withRetries(classify: Self.classifyAPI) {
             attempts.increment()
+            try await self.createPacer.wait()
             return try await self.api.createLocalUpload(account: account, folder: folder, name: name, size: size)
         }
         if attempts.value > 1 {
@@ -250,7 +264,8 @@ final class UploadEngine: Sendable {
 
     // MARK: Parts
 
-    private func sendParts(of record: UploadResumeStore.SavedFile, file: URL, jobID: UUID, fileKey: String, gate: TransferGate) async throws {
+    private func sendParts(of record: UploadResumeStore.SavedFile, file: URL, modified: Date, jobID: UUID, fileKey: String,
+                           gate: TransferGate) async throws {
         var ranges: [(index: Int, url: URL, range: Range<Int64>)] = []
         var offset: Int64 = 0
         for (index, part) in record.parts.enumerated() {
@@ -262,6 +277,8 @@ final class UploadEngine: Sendable {
         guard offset == record.size else { throw UploadError.partsMismatch }
         let contentType = record.mediaType ?? UTType(filenameExtension: file.pathExtension)?.preferredMIMEType ?? "application/octet-stream"
         progress.complete(jobID, key: fileKey, bytes: ranges.filter { record.done.contains($0.index) }.reduce(0) { $0 + Int64($1.range.count) })
+        // Also on failure: a file that starts over (expired links) must not count its old parts on top of the new ones.
+        defer { progress.clearParts(jobID, prefix: "\(fileKey)-") }
 
         let failure = FirstError()
         try await withThrowingTaskGroup(of: Void.self) { group in
@@ -273,7 +290,8 @@ final class UploadEngine: Sendable {
                 group.addTask {
                     let partKey = "\(fileKey)-\(part.index)"
                     do {
-                        try await self.sendPart(part.range, of: file, to: part.url, contentType: contentType, gate: gate) { sent in
+                        try await self.sendPart(part.range, of: file, size: record.size, modified: modified, to: part.url,
+                                                contentType: contentType, gate: gate) { sent in
                             self.progress.set(jobID, key: partKey, bytes: sent)
                         }
                         await gate.release(cost: cost)
@@ -287,16 +305,18 @@ final class UploadEngine: Sendable {
             }
             try await group.waitForAll()
         }
-        progress.clearParts(jobID, prefix: "\(fileKey)-")
     }
 
     /// PUTs one part, reading it from disk for each attempt. Network failures wait for the network and back off; a
-    /// part's partial progress is reset before it's resent.
-    private func sendPart(_ range: Range<Int64>, of file: URL, to url: URL, contentType: String, gate: TransferGate,
-                          report: @escaping @Sendable (Int64) -> Void) async throws {
+    /// part's partial progress is reset before it's resent. So do read failures and a source drive that's gone for a
+    /// moment (a server or network drive reconnecting): each attempt first checks the file is still the one being
+    /// uploaded, and only a file that really changed fails (and drops its placeholder).
+    private func sendPart(_ range: Range<Int64>, of file: URL, size: Int64, modified: Date, to url: URL, contentType: String,
+                          gate: TransferGate, report: @escaping @Sendable (Int64) -> Void) async throws {
         do {
             try await withRetries(classify: Self.classify, onTransient: { await gate.noteTransientError() }) {
                 report(0)
+                guard try Self.checkedModificationDate(of: file, size: size) == modified else { throw UploadError.changed }
                 try await self.put(range, of: file, to: url, contentType: contentType, report: report)
                 report(Int64(range.count))
             }
@@ -366,6 +386,9 @@ final class UploadEngine: Sendable {
             case 403, 404: return .expired
             default: return .fatal
             }
+        }
+        if let error = error as? UploadError, error == .missing || error == .unreadable {
+            return .transient(retryAfter: nil)
         }
         if let error = error as? URLError {
             switch error.code {
@@ -556,6 +579,8 @@ struct PartFailure: LocalizedError {
 
 enum UploadError: LocalizedError {
     case changed, missing, partsMismatch, linksExpired, rejected
+    /// Reading the source failed (a server or network drive dropping for a moment): retried.
+    case unreadable
 
     var errorDescription: String? {
         switch self {
@@ -564,11 +589,28 @@ enum UploadError: LocalizedError {
         case .partsMismatch: return "Frame.io's upload parts don't match the file size."
         case .linksExpired: return "Frame.io's upload links expired."
         case .rejected: return "Frame.io reported the upload as failed."
+        case .unreadable: return "The file couldn't be read (is its drive still connected?)."
         }
     }
 
     /// The placeholder on Frame.io can't be completed: delete it rather than keep it for resuming.
-    var discardsUpload: Bool { self != .missing }
+    var discardsUpload: Bool { self != .missing && self != .unreadable }
+}
+
+/// Spaces calls at least `interval` apart (in the order they ask), for Frame.io's per-second limits.
+actor CallPacer {
+    private let interval: Duration
+    private var next = ContinuousClock.now
+
+    init(interval: Duration) { self.interval = interval }
+
+    func wait() async throws {
+        guard interval > .zero else { return }
+        let now = ContinuousClock.now
+        let slot = max(now, next)
+        next = slot + interval
+        if slot > now { try await Task.sleep(until: slot, clock: .continuous) }
+    }
 }
 
 /// Parts in flight, limited by count (the adaptive stream count) and by the bytes they hold in memory.
@@ -740,7 +782,7 @@ final class PartBodyStream: NSObject, URLSessionTaskDelegate, @unchecked Sendabl
 
     init(file: URL, range: Range<Int64>, report: @escaping @Sendable (Int64) -> Void) throws {
         guard FileManager.default.fileExists(atPath: file.path) else { throw UploadError.missing }
-        let handle = try FileHandle(forReadingFrom: file)
+        guard let handle = try? FileHandle(forReadingFrom: file) else { throw UploadError.unreadable }
         var input: InputStream?
         var output: OutputStream?
         Stream.getBoundStreams(withBufferSize: Int(Self.bufferSize), inputStream: &input, outputStream: &output)
@@ -762,11 +804,12 @@ final class PartBodyStream: NSObject, URLSessionTaskDelegate, @unchecked Sendabl
             try? handle.close()
         }
         do {
-            try handle.seek(toOffset: UInt64(range.lowerBound))
+            do { try handle.seek(toOffset: UInt64(range.lowerBound)) } catch { throw UploadError.unreadable }
             var sent: Int64 = 0
             while sent < Int64(range.count) && !isStopped {
                 let count = Int(min(Int64(Self.chunk), Int64(range.count) - sent))
-                guard let data = try handle.read(upToCount: count), data.count == count else { throw UploadError.changed }
+                // A short or failed read is retried; a file that really changed fails the next attempt's check.
+                guard let data = try? handle.read(upToCount: count), data.count == count else { throw UploadError.unreadable }
                 var offset = 0
                 var wait: UInt32 = 200
                 while offset < data.count {
@@ -837,11 +880,23 @@ actor FolderResolver {
     /// A finished file with this name and size is already in the folder (a re-run after a partial upload). Placeholders
     /// still waiting for their data (`status: created`) don't count.
     func contains(name: String, size: Int64, in folder: String) async throws -> Bool {
-        try await items(in: folder).contains { item in
-            if item.isVersionStack { return item.headVersion?.name == name && item.headVersion?.fileSize == size }
-            return !item.isFolder && item.title == name && item.fileSize == size && item.status != "created"
-        }
+        if let index = finished[folder] { return index.contains("\(name)|\(size)") }
+        // Indexed once per folder: scanning the listing for every file was quadratic (hundreds of files into a
+        // folder of thousands, or a 10,000-frame sequence uploaded again).
+        let index = Set(try await items(in: folder).compactMap { item -> String? in
+            if item.isVersionStack {
+                guard let head = item.headVersion, let headName = head.name, let headSize = head.fileSize else { return nil }
+                return "\(headName)|\(headSize)"
+            }
+            guard !item.isFolder, item.status != "created", let fileSize = item.fileSize else { return nil }
+            return "\(item.title)|\(fileSize)"
+        })
+        finished[folder] = index
+        return index.contains("\(name)|\(size)")
     }
+
+    /// Per folder: "name|size" of its finished files (stacks: their current version).
+    private var finished: [String: Set<String>] = [:]
 
     private func items(in folder: String) async throws -> [FrameIO.Item] {
         if let existing = contents[folder] { return try await existing.value }

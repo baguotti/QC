@@ -742,13 +742,35 @@ public struct DeliverablesInspector: Sendable {
         let nominal = Double((try? await track.load(.nominalFrameRate)) ?? 25)
         let fps = nominal > 0 ? nominal : 25
         let frameDuration = CMTime(seconds: 1 / fps, preferredTimescale: 600_000)
-        // Aim inside the last frame; allow up to one frame earlier for files whose duration overshoots the last PTS.
-        let target = CMTimeSubtract(duration, CMTimeMultiplyByFloat64(frameDuration, multiplier: 0.5))
+        var target = duration
+        var exact = false
+        // The last sample's own start, when the file can say. Aiming half a frame before the end returned the frame
+        // before the last on a 600 time base (measured: last frame at 1181/600, duration 1201/600, frame 58 of 0…59
+        // came back), and an audio track longer than the video moves the end past the last frame.
+        // Only without an edit offset: sample times are on the media timeline, and an edit list (a start offset in an
+        // export) moves playback time away from them.
+        let segments = (try? await track.load(.segments)) ?? []
+        let unshifted = segments.count == 1 && !segments[0].isEmpty
+            && CMTimeCompare(segments[0].timeMapping.source.start, segments[0].timeMapping.target.start) == 0
+            && CMTimeCompare(segments[0].timeMapping.source.duration, segments[0].timeMapping.target.duration) == 0
+        if unshifted, (try? await track.load(.canProvideSampleCursors)) == true,
+           let last = track.makeSampleCursor(presentationTimeStamp: duration)?.presentationTimeStamp, last.isNumeric,
+           CMTimeCompare(last, duration) <= 0 {
+            target = last
+            exact = true
+        }
         let generator = AVAssetImageGenerator(asset: asset)
         generator.appliesPreferredTrackTransform = true
-        generator.requestedTimeToleranceBefore = CMTimeMultiplyByFloat64(frameDuration, multiplier: 1.5)
+        // With the exact time, no tolerance: given 1.5 frames the generator returned the frame before (1161 for 1181).
+        // A file that refuses the exact time gets the tolerant request half a frame before the end.
         generator.requestedTimeToleranceAfter = .zero
-        guard let (image, actual) = try? await generator.image(at: target) else { return .unavailable }
+        generator.requestedTimeToleranceBefore = .zero
+        var attempt = exact ? try? await generator.image(at: target) : nil
+        if attempt == nil {
+            generator.requestedTimeToleranceBefore = CMTimeMultiplyByFloat64(frameDuration, multiplier: 1.5)
+            attempt = try? await generator.image(at: CMTimeSubtract(duration, CMTimeMultiplyByFloat64(frameDuration, multiplier: 0.5)))
+        }
+        guard let (image, actual) = attempt else { return .unavailable }
         let frameIndex = max(0, VideoScanner.frameIndex(seconds: actual.seconds, fps: fps))
         return classifyEndFrame(image, timecode: TimecodeFormatter.format(frameIndex: frameIndex, fps: fps))
     }
@@ -1017,7 +1039,7 @@ public struct DeliverablesInspector: Sendable {
             if let root = rootFolderURL {
                 let rootPath = root.standardizedFileURL.path
                 let filePath = a.fileURL.standardizedFileURL.path
-                if filePath.hasPrefix(rootPath) {
+                if QCUtilities.isPath(filePath, inside: rootPath) {
                     let rel = String(filePath.dropFirst(rootPath.count)).trimmingCharacters(in: CharacterSet(charactersIn: "/"))
                     folderRel = (rel as NSString).deletingLastPathComponent
                 }
@@ -1043,7 +1065,7 @@ public struct DeliverablesInspector: Sendable {
             if let root = rootFolderURL {
                 let rootPath = root.standardizedFileURL.path
                 let filePath = a.fileURL.standardizedFileURL.path
-                if filePath.hasPrefix(rootPath) {
+                if QCUtilities.isPath(filePath, inside: rootPath) {
                     let rel = String(filePath.dropFirst(rootPath.count)).trimmingCharacters(in: CharacterSet(charactersIn: "/"))
                     folderRel = (rel as NSString).deletingLastPathComponent
                 }
@@ -1390,7 +1412,7 @@ public struct DeliverablesInspector: Sendable {
             if let root = rootFolderURL {
                 let rootPath = root.standardizedFileURL.path
                 let filePath = a.fileURL.standardizedFileURL.path
-                if filePath.hasPrefix(rootPath) {
+                if QCUtilities.isPath(filePath, inside: rootPath) {
                     let rel = String(filePath.dropFirst(rootPath.count)).trimmingCharacters(in: CharacterSet(charactersIn: "/"))
                     folderRel = (rel as NSString).deletingLastPathComponent
                 }

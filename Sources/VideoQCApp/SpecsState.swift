@@ -461,24 +461,56 @@ public final class SpecsState: ObservableObject {
         isAnalyzingAudioLevels = false
     }
     
+    /// Bumped when the queue is replaced: batches of an earlier queue (still inspecting a big folder) are dropped
+    /// instead of landing over the new one.
+    private var inspectGeneration = 0
+    private var inspectionsRunning = 0
+    /// Files added (append batches) since the queue was replaced: kept when the replacing batch lands after them.
+    private var appendedSinceReplace: Set<URL> = []
+
+    /// Empties the list; inspections still running for the old queue are dropped when they finish.
+    public func clearDeliverables() {
+        cancelAudioAnalysis()
+        inspectGeneration += 1
+        inspectionsRunning = 0
+        appendedSinceReplace = []
+        isInspectingDeliverables = false
+        deliverableAssets = []
+    }
+
     public func inspectDeliverablesBatch(urls: [URL], append: Bool = false) {
         guard !urls.isEmpty else { return }
         cancelAudioAnalysis()
+        if !append {
+            inspectGeneration += 1
+            inspectionsRunning = 0
+            appendedSinceReplace = []
+        }
+        let generation = inspectGeneration
+        inspectionsRunning += 1
         isInspectingDeliverables = true
         
         Task { @MainActor [weak self] in
             guard let self else { return }
             let assets = await DeliverablesInspector.inspectBatch(urls: urls)
+            guard generation == self.inspectGeneration else { return }
+            self.inspectionsRunning -= 1
             if append {
                 var seen = Set(self.deliverableAssets.map { $0.fileURL.standardizedFileURL })
                 let newAssets = assets.filter { seen.insert($0.fileURL.standardizedFileURL).inserted }
+                self.appendedSinceReplace.formUnion(newAssets.map { $0.fileURL.standardizedFileURL })
                 if !newAssets.isEmpty {
                     self.deliverableAssets += newAssets
                 }
             } else {
-                self.deliverableAssets = assets
+                // Files added while this batch was inspecting landed first: keep them.
+                let landed = Set(assets.map { $0.fileURL.standardizedFileURL })
+                self.deliverableAssets = assets + self.deliverableAssets.filter {
+                    let url = $0.fileURL.standardizedFileURL
+                    return self.appendedSinceReplace.contains(url) && !landed.contains(url)
+                }
             }
-            self.isInspectingDeliverables = false
+            if self.inspectionsRunning <= 0 { self.isInspectingDeliverables = false }
         }
     }
     

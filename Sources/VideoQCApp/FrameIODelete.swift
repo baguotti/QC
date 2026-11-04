@@ -23,16 +23,27 @@ enum FrameIODelete {
         item.type == "file" || item.isFolder || item.isVersionStack
     }
 
-    static func run(_ items: [FrameIO.Item], account: String, api: FrameIODeleteAPI) async -> Outcome {
+    /// Past 50 calls (or for over 50 items), one delete every `pace`: Frame.io allows 60 folder / 100 file deletes a
+    /// minute, and a large selection failed partway once its 429 retries ran out. Counted in calls: one stack can be
+    /// a hundred versions.
+    static func run(_ items: [FrameIO.Item], account: String, api: FrameIODeleteAPI,
+                    pace: Duration = .milliseconds(1050)) async -> Outcome {
         var outcome = Outcome()
+        let paced = items.count > 50
+        var calls = 0
+        func call(_ body: () async throws -> Void) async throws {
+            if (paced && calls > 0) || calls >= 50 { try? await Task.sleep(for: pace) }
+            calls += 1
+            try await body()
+        }
         for item in items where canDelete(item) {
             do {
                 if item.isVersionStack {
                     for version in try await api.stackVersions(account: account, stack: item.id, thumbnails: false) {
-                        try await api.delete(account: account, kind: "files", id: version.id)
+                        try await call { try await api.delete(account: account, kind: "files", id: version.id) }
                     }
                 } else {
-                    try await api.delete(account: account, kind: item.isFolder ? "folders" : "files", id: item.id)
+                    try await call { try await api.delete(account: account, kind: item.isFolder ? "folders" : "files", id: item.id) }
                 }
                 outcome.deleted.insert(item.id)
             } catch {

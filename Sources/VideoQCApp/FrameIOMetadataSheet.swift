@@ -237,7 +237,9 @@ struct FrameIOMetadataSheet: View {
         Task {
             var done = 0
             var failure: String?
-            for (count, body) in bodies {
+            for (index, (count, body)) in bodies.enumerated() {
+                // 10 calls a minute: past 10 batches (1,000 files), one every 6.2 s instead of failing on the 429s.
+                if bodies.count > 10, index > 0 { try? await Task.sleep(for: .milliseconds(6200)) }
                 do {
                     guard let body else { throw FrameIO.Failure.unreadable }
                     try await FrameIO.shared.updateMetadata(account: request.account, project: request.project, body: body)

@@ -258,8 +258,13 @@ enum FrameIOCommentImport {
         var result = QCNotesManager.merge(existing: local, incoming: wanted)
         let positions = Dictionary(wanted.filter { !sent.contains($0.id) }.map { ($0.id, ($0.frameIndex, $0.timecode)) },
                                    uniquingKeysWith: { a, _ in a })
-        var moved = 0
+        var moved = 0, relabelled = 0
         for index in result.notes.indices {
+            if result.notes[index].author == oldGuestAuthor { result.notes[index].author = guestAuthor; relabelled += 1 }
+            for reply in result.notes[index].replies.indices where result.notes[index].replies[reply].author == oldGuestAuthor {
+                result.notes[index].replies[reply].author = guestAuthor
+                relabelled += 1
+            }
             guard present.contains(result.notes[index].id), let (frame, timecode) = positions[result.notes[index].id],
                   result.notes[index].frameIndex != frame else { continue }
             result.notes[index].frameIndex = frame
@@ -267,7 +272,7 @@ enum FrameIOCommentImport {
             moved += 1
         }
         if moved > 0 { result.notes.sort { $0.frameIndex < $1.frameIndex } }
-        return (result.notes, result.added, result.updated + moved)
+        return (result.notes, result.added, result.updated + moved + relabelled)
     }
 
     /// Where Frame.io's player shows the comment: its timecode as frames from the clip's start, else `timestamp − 1`.
@@ -306,9 +311,16 @@ enum FrameIOCommentImport {
         return total
     }
 
+    /// Share-link guests (no Frame.io account) come with `owner: null` and no name anywhere in the API, although
+    /// Frame.io's web app shows the name they typed (checked on the comment, single-comment and share endpoints).
+    static let guestAuthor = "Guest (Frame.io)"
+    /// What notes imported before `guestAuthor` called guests.
+    private static let oldGuestAuthor = "Frame.io (Frame.io)"
+
     private static func author(_ owner: FrameIO.Comment.Owner?) -> String {
         let name = owner?.name?.trimmingCharacters(in: .whitespaces)
-        return "\((name?.isEmpty == false ? name : owner?.email) ?? "Frame.io") (Frame.io)"
+        guard let label = name?.isEmpty == false ? name : owner?.email else { return guestAuthor }
+        return "\(label) (Frame.io)"
     }
 
     private static func date(_ text: String?) -> Date? {

@@ -1100,6 +1100,8 @@ enum SettingsTransfer {
             defaults.set(value, forKey: key)
             count += 1
         }
+        // The browser holds its favourites in memory: without this its next change would save the old ones back.
+        FrameIOBrowser.shared.reloadFavourites()
         return "Imported \(count) settings. Appearance and some others apply the next time QCpie opens."
     }
 

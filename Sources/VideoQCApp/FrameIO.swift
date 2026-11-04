@@ -364,7 +364,9 @@ actor FrameIO {
 
     /// Adds files, folders or stacks to an existing share link (one call each; 10 calls/min).
     func addToShare(account: String, share: String, assetIDs: [String]) async throws {
-        for asset in assetIDs {
+        for (index, asset) in assetIDs.enumerated() {
+            // 10 calls a minute: past 10 items, one every 6.2 s (the 429 retries gave up partway through).
+            if assetIDs.count > 10, index > 0 { try await Task.sleep(for: .milliseconds(6200)) }
             let body = try JSONSerialization.data(withJSONObject: ["data": ["asset_id": asset]])
             _ = try await request("POST", "/v4/accounts/\(account)/shares/\(share)/assets", body: body)
         }
@@ -658,7 +660,8 @@ actor FrameIO {
         // Never from the shared URL cache: a listing must reflect renames and moves made a moment ago.
         var req = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData)
         req.httpMethod = method
-        req.setValue("Bearer \(try await accessToken())", forHTTPHeaderField: "Authorization")
+        let token = try await accessToken()
+        req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         if let body {
             req.httpBody = body
             req.setValue("application/json", forHTTPHeaderField: "Content-Type")
@@ -669,7 +672,8 @@ actor FrameIO {
         case 200..<300:
             return data
         case 401 where attempt == 0:
-            tokens?.expires = .distantPast
+            // Only the token this was sent with: a refresh another call already made stays valid.
+            if tokens?.access == token { tokens?.expires = .distantPast }
             return try await request(method, path, body: body, attempt: 1)
         case 429 where attempt < 4:
             // Creating uploads is limited to 5 calls/s per user.

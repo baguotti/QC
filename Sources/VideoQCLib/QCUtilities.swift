@@ -31,6 +31,13 @@ public enum QCUtilities: Sendable {
         mediaKind(of: url) != nil
     }
     
+    /// `path` is `folder` or inside it. A plain `hasPrefix` took "/Jobs/Job10/a.mov" as inside "/Jobs/Job1".
+    public static func isPath(_ path: String, inside folder: String) -> Bool {
+        if folder == "/" { return path.hasPrefix("/") }
+        let base = folder.hasSuffix("/") ? String(folder.dropLast()) : folder
+        return path == base || path.hasPrefix(base + "/")
+    }
+
     /// Robust URL equality comparison that handles path standardization and symlinks
     @inline(__always)
     public static func isSameURL(_ lhs: URL?, _ rhs: URL?) -> Bool {

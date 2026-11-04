@@ -241,8 +241,14 @@ actor NotesSync {
             storeBase(Base(version: version, notes: merged), clip: clip, room: keys.room)
             if Set(merged) != Set(local) {
                 let fps = await QCNotesManager.shared.storedFps(for: url) ?? 25.0
-                await QCNotesManager.shared.saveNotes(merged, for: url, fps: fps)
-                let change = Change(url: url, notes: merged, localSnapshot: local)
+                // Read, merge and save in one step: notes written while the server answered (a Line Check, a Frame.io
+                // import on disk) would otherwise be overwritten. They're pushed by the next sync.
+                let saved = await QCNotesManager.shared.updateNotes(for: url, fps: fps) { current in
+                    Set(current) == Set(local) ? merged : QCNotesManager.threeWayMerge(local: current, remote: merged, base: local)
+                } ?? merged
+                // Notes written meanwhile aren't on the server yet: sync again now (`sync` repeats on `rerun`).
+                if Set(saved) != Set(merged) { rerun.insert(url) }
+                let change = Change(url: url, notes: saved, localSnapshot: local)
                 await MainActor.run {
                     NotificationCenter.default.post(name: Self.didMergeRemoteNotes, object: change)
                     NotesSyncStatus.shared.noteReceived()

@@ -41,6 +41,10 @@ public enum AudioWaveform {
             guard CMBlockBufferGetDataPointer(block, atOffset: 0, lengthAtOffsetOut: &length, totalLengthOut: &total, dataPointerOut: &pointer) == kCMBlockBufferNoErr,
                   let pointer else { continue }
             let count = total / MemoryLayout<Float>.size
+            // Placed by its own time: audio that starts later than the video (an offset track) would otherwise be
+            // drawn that much early.
+            let pts = CMSampleBufferGetPresentationTimeStamp(buffer)
+            if pts.isNumeric { sampleIndex = max(0, Int((pts.seconds * sampleRate).rounded())) }
             func accumulate(_ samples: UnsafePointer<Float>) {
                 for i in 0..<count {
                     let bin = min(bins - 1, Int(Double(sampleIndex + i) / samplesPerBin))

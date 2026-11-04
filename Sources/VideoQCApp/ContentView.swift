@@ -217,7 +217,8 @@ struct ContentView: View {
             }
             .onChange(of: playerEngine.slotB.url) { _, newURL in
                 if playerEngine.activeTarget == .slotB {
-                    loadNotesForActiveURL(newURL)
+                    // Slot B cleared: the notes shown are slot A's again (`notesTargetURL`).
+                    loadNotesForActiveURL(newURL ?? playerEngine.slotA.url)
                 }
             }
             .onChange(of: playerEngine.activeTarget) { _, newTarget in
@@ -890,8 +891,7 @@ struct ContentView: View {
             playerEngine.unload()
             videoFiles = []
             folderURL = nil
-            specsState.cancelAudioAnalysis()
-            specsState.deliverableAssets = []
+            specsState.clearDeliverables()
             specsState.selectedDeliverableURL = nil
             scannerState.scanResults = []
             scannerState.frameCheckResults = []
@@ -949,14 +949,14 @@ struct ContentView: View {
     func determineFolderURL(for videos: [URL], detectedFolder: URL?) -> URL? {
         if let folder = detectedFolder {
             let folderPath = folder.standardizedFileURL.path
-            let allInside = videos.allSatisfy { $0.standardizedFileURL.path.hasPrefix(folderPath) }
+            let allInside = videos.allSatisfy { QCUtilities.isPath($0.standardizedFileURL.path, inside: folderPath) }
             if allInside { return folder }
         }
         guard !videos.isEmpty else { return nil }
         var common = videos[0].deletingLastPathComponent().standardizedFileURL
         for v in videos.dropFirst() {
             let parent = v.deletingLastPathComponent().standardizedFileURL
-            while !parent.path.hasPrefix(common.path) && common.path != "/" {
+            while !QCUtilities.isPath(parent.path, inside: common.path) && common.path != "/" {
                 common = common.deletingLastPathComponent()
             }
         }
@@ -1065,7 +1065,7 @@ struct ContentView: View {
                 if self.selectedTab == .specs {
                     specsState.inspectDeliverablesBatch(urls: uniqueVideos, append: false)
                 } else {
-                    specsState.deliverableAssets = []
+                    specsState.clearDeliverables()
                 }
                 self.loadFinderTagsForQueue()
                 if self.playerEngine.activeURL == nil, let first = uniqueVideos.first {
@@ -2070,40 +2070,60 @@ struct ContentView: View {
     func syncScanResultsToNotes(results: [VideoQCResult]) {
         Task {
             for result in results {
-                var notes = await QCNotesManager.shared.loadNotes(for: result.fileURL)
-                notes.removeAll { $0.author == "Line QC" }
-                
-                if result.isFlagged && !result.glitchSegments.isEmpty {
-                    for seg in result.glitchSegments {
-                        let edgePos = (seg.edge.rawValue.contains("Screen") ? seg.edge.rawValue : "\(seg.edge.rawValue) Edge") + (seg.locationDetail.map { ", \($0)" } ?? "")
-                        let durationInfo = seg.frameCount > 1 ? " (\(seg.frameCount) frames, \(String(format: "%.2fs", seg.durationSeconds)))" : ""
-                        let noteText = "\(edgePos) (\(seg.avgThickness)px) — \(seg.lineDescription) detected [\(seg.detectedColor.hexString.uppercased())]\(durationInfo)"
-                        
-                        let note = QCFileNote(
-                            frameIndex: seg.startFrame,
-                            timecode: seg.startTimecode,
-                            author: "Line QC",
-                            text: noteText,
-                            colorTag: "red",
-                            createdAt: Date(),
-                            isResolved: false
-                        )
-                        notes.append(note)
+                if !result.isFlagged, QCNotesManager.cachedNotesCount(for: result.fileURL) == 0 { continue }
+                let markers = result.isFlagged
+                    ? result.glitchSegments.map { (frame: $0.startFrame, timecode: $0.startTimecode, text: Self.lineCheckNoteText($0)) }
+                    : []
+                await changeNotes(for: result.fileURL, fps: result.fps) { notes in
+                    var notes = notes
+                    let before = notes.count
+                    notes.removeAll { $0.author == "Line QC" }
+                    // A clean clip without old markers has nothing to write (skips a sidecar write per clean clip).
+                    if markers.isEmpty && notes.count == before { return nil }
+                    for marker in markers {
+                        notes.append(QCFileNote(frameIndex: marker.frame, timecode: marker.timecode, author: "Line QC",
+                                                text: marker.text, colorTag: "red", createdAt: Date(), isResolved: false))
                     }
-                    notes.sort { $0.frameIndex < $1.frameIndex }
-                }
-                
-                await QCNotesManager.shared.saveNotes(notes, for: result.fileURL, fps: result.fps)
-                
-                if let activeURL = self.playerEngine.activeURL, activeURL == result.fileURL {
-                    let updatedNotes = notes
-                    await MainActor.run {
-                        withAnimation(Motion.sleeve) {
-                            self.playerEngine.activeNotes = updatedNotes
-                        }
-                    }
+                    if !markers.isEmpty { notes.sort { $0.frameIndex < $1.frameIndex } }
+                    return notes
                 }
             }
+        }
+    }
+
+    /// The text of a finding's red note: also how "Not a Line" finds the note to remove.
+    static func lineCheckNoteText(_ seg: GlitchSegment) -> String {
+        let edgePos = (seg.edge.rawValue.contains("Screen") ? seg.edge.rawValue : "\(seg.edge.rawValue) Edge") + (seg.locationDetail.map { ", \($0)" } ?? "")
+        let durationInfo = seg.frameCount > 1 ? " (\(seg.frameCount) frames, \(String(format: "%.2fs", seg.durationSeconds)))" : ""
+        return "\(edgePos) (\(seg.avgThickness)px) — \(seg.lineDescription) detected [\(seg.detectedColor.hexString.uppercased())]\(durationInfo)"
+    }
+
+    /// "Not a Line": removes that finding's red note from the clip's notes.
+    func removeLineCheckNote(for segment: GlitchSegment, in result: VideoQCResult) {
+        let frame = segment.startFrame, text = Self.lineCheckNoteText(segment)
+        Task {
+            await changeNotes(for: result.fileURL, fps: result.fps) { notes in
+                let kept = notes.filter { !($0.author == "Line QC" && $0.frameIndex == frame && $0.text == text) }
+                return kept.count == notes.count ? nil : kept
+            }
+        }
+    }
+
+    /// Changes a clip's notes. The clip whose notes are shown is changed from those (a save can still be on its way to
+    /// disk) and they're replaced first: the next edit or Frame.io merge saves the notes on screen, so stale ones there
+    /// would undo the change. Other clips change on disk in one notes-manager step, so changes started together
+    /// (two quick "Not a Line"s) can't each save over the other's.
+    private func changeNotes(for url: URL, fps: Double, _ change: @escaping @Sendable ([QCFileNote]) -> [QCFileNote]?) async {
+        if isSameURL(playerEngine.activeNotesURL, url) {
+            guard let notes = change(playerEngine.activeNotes) else { return }
+            withAnimation(Motion.sleeve) { playerEngine.activeNotes = notes }
+            await QCNotesManager.shared.saveNotes(notes, for: url, fps: fps)
+            return
+        }
+        guard let notes = await QCNotesManager.shared.updateNotes(for: url, fps: fps, change) else { return }
+        // Opened while this was saving: show the changed notes.
+        if isSameURL(playerEngine.activeNotesURL, url) {
+            withAnimation(Motion.sleeve) { playerEngine.activeNotes = notes }
         }
     }
     
@@ -2114,9 +2134,6 @@ struct ContentView: View {
         let targetURL = (playerEngine.activeTarget == .slotB && playerEngine.slotB.url != nil) ? playerEngine.slotB.url : (playerEngine.activeURL ?? playerEngine.slotA.url)
         if let url = targetURL {
             if QCNotesManager.hasNotes(for: url) {
-                return true
-            }
-            if scannerState.scanResults.contains(where: { $0.fileURL == url && $0.isFlagged && !$0.glitchSegments.isEmpty }) {
                 return true
             }
         }
@@ -2132,27 +2149,9 @@ struct ContentView: View {
             return
         }
         Task { @MainActor in
-            var notes = await QCNotesManager.shared.loadNotes(for: url)
-            if let result = self.scannerState.scanResults.first(where: { $0.fileURL == url && $0.isFlagged && !$0.glitchSegments.isEmpty }) {
-                let hasQCNotes = notes.contains { $0.author == "Line QC" }
-                if !hasQCNotes {
-                    for seg in result.glitchSegments {
-                        let edgePos = (seg.edge.rawValue.contains("Screen") ? seg.edge.rawValue : "\(seg.edge.rawValue) Edge") + (seg.locationDetail.map { ", \($0)" } ?? "")
-                        let durationInfo = seg.frameCount > 1 ? " (\(seg.frameCount) frames, \(String(format: "%.2fs", seg.durationSeconds)))" : ""
-                        let noteText = "\(edgePos) (\(seg.avgThickness)px) — \(seg.lineDescription) detected [\(seg.detectedColor.hexString.uppercased())]\(durationInfo)"
-                        notes.append(QCFileNote(
-                            frameIndex: seg.startFrame,
-                            timecode: seg.startTimecode,
-                            author: "Line QC",
-                            text: noteText,
-                            colorTag: "red",
-                            createdAt: Date(),
-                            isResolved: false
-                        ))
-                    }
-                    notes.sort { $0.frameIndex < $1.frameIndex }
-                }
-            }
+            // Line Check markers are written to disk once, when a scan finishes (`syncScanResultsToNotes`); rebuilding
+            // them here from the scan results brought back markers the user had deleted.
+            let notes = await QCNotesManager.shared.loadNotes(for: url)
             let targetURL = (self.playerEngine.activeTarget == .slotB && self.playerEngine.slotB.url != nil) ? self.playerEngine.slotB.url : self.playerEngine.activeURL
             if targetURL == url {
                 if self.playerEngine.activeNotesURL != url { self.unseenSyncedNoteIDs = [] }
@@ -2267,6 +2266,10 @@ struct ContentView: View {
         playerEngine.seek(toFrame: target)
     }
     
+    /// The notes on screen are this clip's. Right after switching clips they're still the previous clip's until its
+    /// notes load (a moment, longer on a network drive): saving them then wrote the old clip's notes over the new one's.
+    private var shownNotesAreTarget: Bool { isSameURL(playerEngine.activeNotesURL, notesTargetURL) }
+
     func addNote(_ note: QCFileNote) {
         guard let url = notesTargetURL else { return }
         var note = note
@@ -2278,6 +2281,26 @@ struct ContentView: View {
             let frameB = max(0, Int(floor(secsB * fpsB)))
             note.frameIndex = frameB
             note.timecode = TimecodeFormatter.format(frameIndex: frameB, fps: fpsB)
+        }
+        guard shownNotesAreTarget else {
+            // Its notes haven't loaded yet: add to the file itself, then show them.
+            let fps = isSameURL(url, playerEngine.slotB.url) ? playerEngine.slotB.fps : playerEngine.activeFps
+            let added = note
+            Task {
+                let notes = await QCNotesManager.shared.updateNotes(for: url, fps: fps) { notes in
+                    (notes + [added]).sorted { $0.frameIndex < $1.frameIndex }
+                }
+                await NotesSync.shared.push(url)
+                guard let notes, isSameURL(self.notesTargetURL, url) else { return }
+                withAnimation(Motion.sleeve) {
+                    self.playerEngine.activeNotes = notes
+                    self.playerEngine.activeNotesURL = url
+                    self.playerDrawerTab = .notes
+                    self.showNotesDrawer = true
+                }
+            }
+            showToast("Note logged at \(note.timecode)")
+            return
         }
         var currentNotes = playerEngine.activeNotes
         currentNotes.append(note)
@@ -2293,7 +2316,7 @@ struct ContentView: View {
     }
     
     func toggleNoteResolved(id: UUID) {
-        guard let url = notesTargetURL else { return }
+        guard let url = notesTargetURL, shownNotesAreTarget else { return }
         guard let index = playerEngine.activeNotes.firstIndex(where: { $0.id == id }) else { return }
         playerEngine.activeNotes[index].isResolved.toggle()
         playerEngine.activeNotesURL = url
@@ -2301,7 +2324,7 @@ struct ContentView: View {
     }
     
     func deleteNote(id: UUID) {
-        guard let url = notesTargetURL else { return }
+        guard let url = notesTargetURL, shownNotesAreTarget else { return }
         withAnimation(Motion.list) {
             playerEngine.activeNotes.removeAll(where: { $0.id == id })
             playerEngine.activeNotesURL = url
@@ -2312,7 +2335,7 @@ struct ContentView: View {
     
     /// Deletes the given notes (Notes drawer: "Clear Filtered") and keeps the rest.
     func deleteNotes(ids: Set<UUID>) {
-        guard let url = notesTargetURL, !ids.isEmpty else { return }
+        guard let url = notesTargetURL, shownNotesAreTarget, !ids.isEmpty else { return }
         withAnimation(Motion.list) {
             playerEngine.activeNotes.removeAll { ids.contains($0.id) }
             playerEngine.activeNotesURL = url
@@ -2322,7 +2345,7 @@ struct ContentView: View {
     }
     
     func clearAllNotes() {
-        guard let url = notesTargetURL else { return }
+        guard let url = notesTargetURL, shownNotesAreTarget else { return }
         withAnimation(Motion.list) {
             playerEngine.activeNotes.removeAll()
             playerEngine.activeNotesURL = url
@@ -2333,7 +2356,7 @@ struct ContentView: View {
     
     /// Replaces a note (edited text or new reply) on the clip whose notes are shown.
     func updateNote(_ note: QCFileNote) {
-        guard let url = notesTargetURL,
+        guard let url = notesTargetURL, shownNotesAreTarget,
               let index = playerEngine.activeNotes.firstIndex(where: { $0.id == note.id }) else { return }
         playerEngine.activeNotes[index] = note
         saveNotes(playerEngine.activeNotes, for: url)
@@ -2360,7 +2383,7 @@ struct ContentView: View {
 
     /// Imports a `.qcnotes` file into the shown clip, merging with its existing notes (no duplicates).
     func importQCNotes() {
-        guard let url = notesTargetURL else { return }
+        guard let url = notesTargetURL, shownNotesAreTarget else { return }
         let panel = NSOpenPanel()
         panel.title = "Import QCpie Notes"
         panel.prompt = "Import"
@@ -2446,7 +2469,7 @@ struct ContentView: View {
     /// Frame.io comments on the clip shown: new ones become notes, imported ones update (`FrameIOCommentImport.merge`),
     /// saved and synced like any edit. New notes get the unseen badge while the Notes tab is hidden.
     func applyFrameIOComments(_ change: FrameIOCommentSync.Change) {
-        guard let url = notesTargetURL, isSameURL(url, change.url) else { return }
+        guard let url = notesTargetURL, isSameURL(url, change.url), shownNotesAreTarget else { return }
         let fps = isSameURL(url, playerEngine.slotB.url) ? playerEngine.slotB.fps : playerEngine.activeFps
         let incoming = FrameIOCommentImport.notes(from: change.comments, fps: fps, sent: change.sent)
         let result = FrameIOCommentImport.merge(local: playerEngine.activeNotes, incoming: incoming,
@@ -2503,7 +2526,8 @@ struct ContentView: View {
 
     /// Shows notes another Mac changed, keeping edits made here while that sync was in flight.
     func applySyncedNotes(_ change: NotesSync.Change) {
-        guard let url = notesTargetURL, isSameURL(url, change.url) else { return }
+        // Not shown yet (still loading): they're on disk already and arrive with the load.
+        guard let url = notesTargetURL, isSameURL(url, change.url), shownNotesAreTarget else { return }
         let shownIDs = Set(playerEngine.activeNotes.map(\.id))
         let notes = QCNotesManager.threeWayMerge(local: playerEngine.activeNotes, remote: change.notes, base: change.localSnapshot)
         if !notesTabIsVisible {

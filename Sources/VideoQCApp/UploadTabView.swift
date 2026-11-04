@@ -557,7 +557,7 @@ private struct UploadQueueRow: View, Equatable {
     let isLightMode: Bool
 
     private var palette: StudioPalette { StudioPalette(isLightMode) }
-    private var fraction: Double { Double(job.sent) / Double(max(job.size, 1)) }
+    private var fraction: Double { min(1, Double(job.sent) / Double(max(job.size, 1))) }
 
     var body: some View {
         Group {
@@ -1353,7 +1353,8 @@ private struct UploadLogRunView: View, Equatable {
 
             Rectangle().fill(palette.borderLine).frame(height: 1)
 
-            VStack(alignment: .leading, spacing: 9) {
+            // Lazy: a run of hundreds of files adds an entry per file, and an eager stack rebuilt every row each time.
+            LazyVStack(alignment: .leading, spacing: 9) {
                 ForEach(run.entries) { entry in
                     entryRow(entry)
                         .contentShape(Rectangle())

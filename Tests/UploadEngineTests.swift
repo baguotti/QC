@@ -15,9 +15,13 @@ final class StubStorage: URLProtocol, @unchecked Sendable {
     nonisolated(unsafe) private static var attempts: [String: Int] = [:]
     nonisolated(unsafe) static var delay: TimeInterval = 0
     nonisolated(unsafe) static var onRequest: (@Sendable (String) -> Void)?
+    /// Requests being answered now, and the most at once since the last reset (stress tests).
+    nonisolated(unsafe) private static var active = 0
+    nonisolated(unsafe) private static var activePeak = 0
+    static var peakInFlight: Int { lock.withLock { activePeak } }
 
     static func reset() {
-        lock.withLock { bodies = [:]; failures = [:]; attempts = [:]; delay = 0; onRequest = nil }
+        lock.withLock { bodies = [:]; failures = [:]; attempts = [:]; delay = 0; onRequest = nil; active = 0; activePeak = 0 }
     }
 
     static func fail(_ path: String, with list: [Failure]) { lock.withLock { failures[path] = list } }
@@ -31,8 +35,13 @@ final class StubStorage: URLProtocol, @unchecked Sendable {
     override func startLoading() {
         let path = request.url?.path ?? ""
         let body = Self.read(request)
-        let delay = Self.lock.withLock { Self.delay }
+        let delay = Self.lock.withLock { () -> TimeInterval in
+            Self.active += 1
+            Self.activePeak = max(Self.activePeak, Self.active)
+            return Self.delay
+        }
         DispatchQueue.global().asyncAfter(deadline: .now() + delay) { [self] in
+            Self.lock.withLock { Self.active -= 1 }
             let failure: Failure? = Self.lock.withLock {
                 Self.attempts[path, default: 0] += 1
                 guard var list = Self.failures[path], !list.isEmpty else { return nil }
@@ -292,6 +301,53 @@ struct UploadEngineTests {
         #expect(await api.deleted == ["upload0"])
     }
 
+    @Test("A source drive that drops for a moment is waited for: the upload finishes on the same placeholder")
+    func driveDrops() async throws {
+        StubStorage.reset()
+        StubStorage.delay = 0.05
+        let (file, data) = try makeFile(bytes: Int(Self.partSize) * 4)
+        let away = file.deletingLastPathComponent().appendingPathComponent(".away")
+        // After the first part lands, the file vanishes (the server drive unmounts) and is back 0.3 s later.
+        StubStorage.onRequest = { path in
+            guard path == "/upload0/0", (try? FileManager.default.moveItem(at: file, to: away)) != nil else { return }
+            DispatchQueue.global().asyncAfter(deadline: .now() + 0.3) { try? FileManager.default.moveItem(at: away, to: file) }
+        }
+        let api = FakeFrameIO(partSize: Self.partSize)
+        let outcome = await upload(makeEngine(api, store: UploadResumeStore(directory: nil)), file, size: data.count)
+        #expect(outcome == .uploaded)
+        #expect(await api.created == ["upload0"])
+        #expect(await api.deleted.isEmpty)
+        #expect(assembled("upload0", parts: 4) == data)
+    }
+
+    @Test("A sequence with an empty frame fails, naming it; its other frames still go")
+    func emptyFrame() async throws {
+        StubStorage.reset()
+        let (good, data) = try makeFile(bytes: 5000)
+        let empty = good.deletingLastPathComponent().appendingPathComponent("frame_0002.exr")
+        FileManager.default.createFile(atPath: empty.path, contents: Data())
+        let api = FakeFrameIO(partSize: Self.partSize)
+        let result = OutcomeBox()
+        await makeEngine(api, store: UploadResumeStore(directory: nil)).run(
+            [UploadWork(jobID: UUID(), files: [good, empty], sizes: [Int64(data.count), 0], folders: [])],
+            account: "acc", folder: "root", onStart: { _ in }, onFinish: { _, outcome in result.set(outcome) })
+        #expect(result.value == .failed("“frame_0002.exr” is empty (0 bytes)."))
+        #expect(await api.created == ["upload0"])
+    }
+
+    @Test("A file re-exported after the queue was read uploads as it is now")
+    func sizeChangedBeforeUpload() async throws {
+        StubStorage.reset()
+        let (file, data) = try makeFile(bytes: 3000)
+        let newer = data + Data(repeating: 7, count: 500)
+        try newer.write(to: file)
+        let api = FakeFrameIO(partSize: Self.partSize)
+        // Listed at its old size.
+        let outcome = await upload(makeEngine(api, store: UploadResumeStore(directory: nil)), file, size: data.count)
+        #expect(outcome == .uploaded)
+        #expect(assembled("upload0", parts: 1) == newer)
+    }
+
     @Test("A finished file on Frame.io is skipped; an unfinished placeholder isn't")
     func skipsFinishedOnly() async throws {
         StubStorage.reset()
@@ -330,6 +386,24 @@ struct UploadEngineTests {
         #expect(await store.snapshot.run == nil)
     }
 
+    @Test("Discarding a saved upload is on disk: its files are gone and their placeholders wait to be deleted")
+    func discardIsSaved() async throws {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("resume-\(UUID().uuidString)")
+        let store = UploadResumeStore(directory: url)
+        for name in ["a", "b"] {
+            await store.putFile(.init(path: "/\(name).mov", size: 10, modified: Date(timeIntervalSince1970: 1_000), account: "acc", folderID: "f",
+                                      placeholderID: "p-\(name)", mediaType: nil, parts: [.init(size: 10, url: "https://s3.test/\(name)")], done: []))
+        }
+        await store.setRun(.init(account: "acc", folder: "f", destinationPath: "P › F", keepStructure: false, jobs: []))
+        await store.flush()
+        await store.discard(keeping: ["/b.mov"])
+        await store.flush()
+        let loaded = UploadResumeStore.load(from: url)
+        #expect(loaded.run == nil)
+        #expect(Set(loaded.files.keys) == ["/b.mov"])
+        #expect(loaded.deletes == [.init(account: "acc", id: "p-a")])
+    }
+
     @Test("Errors are classified for retrying")
     func classification() {
         #expect(UploadEngine.classify(PartFailure(status: 503, body: "", retryAfter: 3)) == .transient(retryAfter: 3))
@@ -337,7 +411,10 @@ struct UploadEngineTests {
         #expect(UploadEngine.classify(PartFailure(status: 403, body: "", retryAfter: nil)) == .expired)
         #expect(UploadEngine.classify(PartFailure(status: 400, body: "<Code>BadDigest</Code>", retryAfter: nil)) == .fatal)
         #expect(UploadEngine.classify(URLError(.networkConnectionLost)) == .transient(retryAfter: nil))
-        #expect(UploadEngine.classify(UploadError.missing) == .fatal)
+        // A source drive gone for a moment (or a failed read) is waited for; a changed file isn't.
+        #expect(UploadEngine.classify(UploadError.missing) == .transient(retryAfter: nil))
+        #expect(UploadEngine.classify(UploadError.unreadable) == .transient(retryAfter: nil))
+        #expect(UploadEngine.classify(UploadError.changed) == .fatal)
         #expect(UploadEngine.backoff(10, cap: 30) <= 37.5)
     }
 

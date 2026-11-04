@@ -240,6 +240,7 @@ final class FrameIOBrowser: ObservableObject {
 
     func signOut() {
         Task { await FrameIO.shared.signOut() }
+        loadToken += 1   // a listing still loading mustn't fill the signed-out browser
         signedIn = false
         FrameIOCommentSync.shared.signInChanged(false)
         userName = ""
@@ -323,7 +324,9 @@ final class FrameIOBrowser: ObservableObject {
 
     private static func loadFavourites() -> [Favourite] {
         guard let data = UserDefaults.standard.data(forKey: favouritesKey) else { return [] }
-        return (try? JSONDecoder().decode([Favourite].self, from: data)) ?? []
+        // One per place: renaming a starred folder used to let it be starred again under its new name.
+        var seen = Set<String>()
+        return ((try? JSONDecoder().decode([Favourite].self, from: data)) ?? []).filter { seen.insert($0.id).inserted }
     }
 
     /// Drag to reorder: puts `id` where `target` is (the bar and the list show favourites in this order).
@@ -332,6 +335,12 @@ final class FrameIOBrowser: ObservableObject {
               let to = favourites.firstIndex(where: { $0.id == target }) else { return }
         favourites.move(fromOffsets: IndexSet(integer: from), toOffset: to > from ? to + 1 : to)
         saveFavourites()
+    }
+
+    /// Settings → Import: takes the imported favourites and pages.
+    func reloadFavourites() {
+        favourites = Self.loadFavourites()
+        favouritePages = UserDefaults.standard.stringArray(forKey: Self.favouritePagesKey) ?? ["Page 1"]
     }
 
     private func saveFavourites() {
@@ -389,13 +398,15 @@ final class FrameIOBrowser: ObservableObject {
         UserDefaults.standard.set(favouritePages, forKey: Self.favouritePagesKey)
     }
 
-    var isCurrentFavourite: Bool { favourites.contains { $0.path == path } }
+    /// Compared by ids: titles in a saved path go stale when a folder is renamed.
+    private var currentPlaceID: String { path.map(\.id).joined(separator: "/") }
+    var isCurrentFavourite: Bool { favourites.contains { $0.id == currentPlaceID } }
 
     /// Stars or unstars the open project, folder or stack (stars go to the page shown).
     func toggleCurrentFavourite() {
         guard path.last.map({ [.project, .folder, .stack].contains($0.level) }) == true else { return }
         if isCurrentFavourite {
-            favourites.removeAll { $0.path == path }
+            favourites.removeAll { $0.id == currentPlaceID }
         } else {
             favourites.append(Favourite(path: path, page: currentFavouritePage))
         }
@@ -413,7 +424,7 @@ final class FrameIOBrowser: ObservableObject {
             crumb = Crumb(level: .folder, id: item.id, title: item.title, folderID: item.rootFolderID)
         }
         let favourite = Favourite(path: path + [crumb], page: currentFavouritePage)
-        guard !favourites.contains(where: { $0.path == favourite.path }) else { return }
+        guard !favourites.contains(where: { $0.id == favourite.id }) else { return }
         favourites.append(favourite)
         saveFavourites()
         show(Toast(message: favouritePages.count > 1 ? "Added “\(item.title)” to “\(favouritePages[currentFavouritePage])”"
@@ -592,6 +603,7 @@ final class FrameIOBrowser: ObservableObject {
         Task {
             do {
                 let folder = try await FrameIO.shared.createFolder(account: account, parent: parent, name: name)
+                guard currentFolderID == parent else { return }   // navigated away meanwhile: it lists there
                 items = Self.sorted(items + [folder])
                 selection = [folder.id]
                 anchor = folder.id
@@ -631,6 +643,7 @@ final class FrameIOBrowser: ObservableObject {
         Task {
             do {
                 try await FrameIO.shared.rename(account: account, item: item, to: name)
+                retitle(item.id, to: name)
                 guard undoable else { return }
                 show(Toast(message: "Renamed “\(item.title)” to “\(name)”") {
                     self.rename(item.renamed(name), to: item.title, undoable: false)
@@ -820,7 +833,12 @@ final class FrameIOBrowser: ObservableObject {
         guard let account = accountID, !targets.isEmpty else { return }
         let label = share.name ?? share.shortURL ?? "the share link"
         let what = targets.count == 1 ? "“\(targets[0].title)”" : "\(targets.count) items"
-        if targets.count > 3 { show(Toast(message: "Adding \(what) to “\(label)”…")) }
+        if targets.count > 10 {
+            let minutes = Int((Double(targets.count) * 6.2 / 60).rounded(.up))
+            show(Toast(message: "Adding \(what) to “\(label)”: Frame.io takes 10 a minute, so about \(minutes) min…"))
+        } else if targets.count > 3 {
+            show(Toast(message: "Adding \(what) to “\(label)”…"))
+        }
         Task {
             do {
                 try await FrameIO.shared.addToShare(account: account, share: share.id, assetIDs: targets.map(\.id))
@@ -835,8 +853,12 @@ final class FrameIOBrowser: ObservableObject {
 
     /// Stacks files of the open folder in the given order: the first is V1, the last becomes the current version.
     func stack(_ ordered: [FrameIO.Item], in folderOverride: String? = nil) {
-        guard (2...10).contains(ordered.count), let account = accountID,
-              let folder = folderOverride ?? currentFolderID else { return }
+        guard let account = accountID, let folder = folderOverride ?? currentFolderID else { return }
+        guard (2...10).contains(ordered.count) else {
+            // Also Undo of an Unstack: Frame.io stacks at most 10 files at once.
+            if ordered.count > 10 { show(Toast(message: "Frame.io can stack at most 10 files at once.", isError: true)) }
+            return
+        }
         Task {
             do {
                 let stack = try await FrameIO.shared.createStack(account: account, folder: folder, fileIDs: ordered.map(\.id))
@@ -961,6 +983,22 @@ final class FrameIOBrowser: ObservableObject {
         Task {
             try? await Task.sleep(for: .seconds(next.isError ? 8 : 6))
             if toast?.id == id { toast = nil }
+        }
+    }
+
+    /// A renamed folder, project or stack: its crumb in favourites (and the open path) takes the new name.
+    private func retitle(_ id: String, to title: String) {
+        func renamed(_ crumbs: [Crumb]) -> [Crumb] {
+            crumbs.map { $0.id == id ? Crumb(level: $0.level, id: $0.id, title: title, folderID: $0.folderID) : $0 }
+        }
+        if favourites.contains(where: { $0.path.contains { $0.id == id } }) {
+            favourites = favourites.map { Favourite(path: renamed($0.path), page: $0.page) }
+            saveFavourites()
+        }
+        if path.contains(where: { $0.id == id }) {
+            let updated = renamed(path)
+            loadedPath = loadedPath == path ? updated : loadedPath
+            path = updated
         }
     }
 

@@ -571,6 +571,7 @@ extension ContentView {
         LineCheckDismissals.dismiss(segment, in: result)
         scannerState.refilterResults()
         playerEngine.setScanResults(scannerState.scanResults)
+        removeLineCheckNote(for: segment, in: result)
         showToast("Hidden: \(segment.edge.rawValue) \(segment.startTimecode). Restore it from the clip's header.")
     }
 
@@ -578,6 +579,8 @@ extension ContentView {
         LineCheckDismissals.restore(result)
         scannerState.refilterResults()
         playerEngine.setScanResults(scannerState.scanResults)
+        // Restore brings the clip's red notes back with its findings (all of them: deleted ones too).
+        syncScanResultsToNotes(results: scannerState.scanResults.filter { isSameURL($0.fileURL, result.fileURL) })
     }
     
     /// A file that couldn't be opened or stopped decoding early (shown instead of, or above, its findings).

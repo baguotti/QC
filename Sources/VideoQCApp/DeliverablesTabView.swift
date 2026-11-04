@@ -351,8 +351,7 @@ extension ContentView {
             // Clear Button
             if !specsState.deliverableAssets.isEmpty {
                 Button(action: {
-                    specsState.cancelAudioAnalysis()
-                    specsState.deliverableAssets = []
+                    specsState.clearDeliverables()
                     specsState.selectedDeliverableURL = nil
                 }) {
                     HStack(spacing: 4) {

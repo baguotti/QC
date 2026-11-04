@@ -1,4 +1,5 @@
 import Foundation
+import VideoQCLib
 
 public struct FileSystemTreeNode: Identifiable, Hashable, Sendable {
     public let id: String
@@ -112,7 +113,7 @@ public struct FileSystemTreeBuilder {
             let filePath = stdFile.path
             
             var relPath = ""
-            if filePath.hasPrefix(basePath) {
+            if QCUtilities.isPath(filePath, inside: basePath) {
                 relPath = String(filePath.dropFirst(basePath.count))
                 if relPath.hasPrefix("/") {
                     relPath = String(relPath.dropFirst())
@@ -357,7 +358,7 @@ public struct FileSystemTreeBuilder {
         var common = first.deletingLastPathComponent().standardizedFileURL
         for u in urls.dropFirst() {
             let parent = u.deletingLastPathComponent().standardizedFileURL
-            while !parent.path.hasPrefix(common.path) && common.path != "/" {
+            while !QCUtilities.isPath(parent.path, inside: common.path) && common.path != "/" {
                 common = common.deletingLastPathComponent()
             }
         }

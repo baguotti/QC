@@ -29,6 +29,21 @@ struct FrameIOCommentsTests {
         #expect(note.id == FrameIOCommentImport.noteID("c1"))
     }
 
+    @Test("Share-link guests (owner null) import as Guest; notes imported as \"Frame.io (Frame.io)\" are relabelled once")
+    func guests() {
+        // Measured: a guest's comment comes with `"owner": null` and no name anywhere in the response.
+        let guest = FrameIO.Comment(id: "g", text: "Different intro?", timestamp: 90, createdAt: "2026-11-03T18:40:59Z")
+        let incoming = FrameIOCommentImport.notes(from: [guest], fps: 25)
+        #expect(incoming.first?.author == FrameIOCommentImport.guestAuthor)
+        var old = incoming
+        old[0].author = "Frame.io (Frame.io)"
+        let relabelled = FrameIOCommentImport.merge(local: old, incoming: incoming, previouslyImported: [FrameIOCommentImport.noteID("g")])
+        #expect(relabelled.notes.first?.author == FrameIOCommentImport.guestAuthor)
+        #expect(relabelled.updated == 1)
+        let again = FrameIOCommentImport.merge(local: relabelled.notes, incoming: incoming, previouslyImported: [FrameIOCommentImport.noteID("g")])
+        #expect(again.added == 0 && again.updated == 0)
+    }
+
     @Test("Notes land where Frame.io's player shows the comment: its timecode, not the rounded frame number")
     func shownTimecode() {
         // Measured on a real 25 fps clip: 261 ↔ 00:00:10:11 (frame 261), 450 ↔ 00:00:17:24 (frame 449).

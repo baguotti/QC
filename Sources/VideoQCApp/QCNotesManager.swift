@@ -129,6 +129,15 @@ public actor QCNotesManager {
         return (try? decoder.decode(QCNotesDocument.self, from: data))?.fps
     }
 
+    /// Loads, changes and saves a clip's notes in one actor step, so two changes started together can't each save over
+    /// the other's. `change` returns nil when there's nothing to save.
+    @discardableResult
+    public func updateNotes(for mediaURL: URL, fps: Double, _ change: @Sendable ([QCFileNote]) -> [QCFileNote]?) -> [QCFileNote]? {
+        guard let notes = change(loadNotes(for: mediaURL)) else { return nil }
+        saveNotes(notes, for: mediaURL, fps: fps)
+        return notes
+    }
+
     /// Saves notes atomically to the hidden companion `.<filename>.<ext>.qcnotes` sidecar file.
     @discardableResult
     public func saveNotes(_ notes: [QCFileNote], for mediaURL: URL, fps: Double) -> Bool {
