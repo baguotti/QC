@@ -43,6 +43,18 @@ Without Creative Cloud's agent, double-clicking the .ccx installs the panel. Rem
 - The panel removes older LineFinder markers in the scanned range, adds one marker per segment (red; off-colour lines
   orange; duration = the segment), lists them (click = move the playhead) and Clear removes every LineFinder marker.
 - `panel-log.txt` in the data folder has the last scan's log.
+- **Not a Line** (× on a result row): stored per sequence guid in the panel's `localStorage` as edge + tick range; that
+  marker and row go at once, and later scans hide findings on the same edge overlapping it within 2 frames (QCpie's
+  rule). **Restore N** (next to Clear Markers) brings them all back for the listed sequence.
+
+## Updates
+
+- On opening (at most every 6 h, cached in `localStorage`) the panel reads `api.github.com/…/releases/latest` and looks
+  for `LineFinder-<version>.pkg`. A newer version shows a banner; **Update** downloads the .pkg into the data folder
+  and opens it in Installer (`shell.openPath`, `launchProcess` permission for `.pkg`), then says to restart Premiere.
+  A failed download opens the release page instead. So releasing = attaching the new .pkg to the latest QCpie release.
+- The .pkg has a distribution file without destination/customise pages: Continue → Install → password → Close.
+- 0.0.3 and older have no updater: install 0.0.4 once by hand.
 
 ## Exporter (`exporter/LineFinderExporter.cpp`)
 

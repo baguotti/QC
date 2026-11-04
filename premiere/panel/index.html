@@ -49,6 +49,9 @@
     .row > .size { width: 40px; text-align: right; flex-shrink: 0; }
     .row > .tc { width: 92px; text-align: right; flex-shrink: 0; font-family: monospace; font-size: 11px; }
     .row > .frames { width: 44px; text-align: right; flex-shrink: 0; }
+    .row > .dismiss { width: 18px; text-align: center; flex-shrink: 0; margin-left: 2px; border-radius: 3px; }
+    .row > .dismiss:hover { color: var(--text); background-color: var(--hover); }
+    .columns > .dismiss:hover { background-color: transparent; }
     .columns { height: 18px; font-size: 10px; letter-spacing: 0.4px; border-bottom: 1px solid var(--rule); margin-bottom: 2px; }
     .columns > .tc { font-family: inherit; font-size: 10px; }
     .columns > .spacer { width: 10px; margin-right: 8px; flex-shrink: 0; }
@@ -59,10 +62,17 @@
     .result .tag { font-size: 10px; margin-left: 6px; }
     .more { padding: 6px; }
     .hidden { display: none; }
+    .update { display: flex; flex-direction: row; align-items: center; padding: 6px 8px; margin-bottom: 8px; border-radius: 4px; background-color: var(--hover); }
+    .update-text { flex: 1; margin-right: 8px; }
+    .update.hidden { display: none; }
     #log { display: none; }
   </style>
 </head>
 <body>
+  <div id="update" class="update hidden">
+    <div id="updateText" class="update-text"></div>
+    <sp-button id="updateButton" size="s" variant="accent">Update</sp-button>
+  </div>
   <div class="field">
     <div class="label muted">Colour</div>
     <div id="targetSwatch"></div>
@@ -91,6 +101,7 @@
   <div class="actions">
     <sp-button id="scan" variant="cta" size="s">Scan</sp-button>
     <sp-action-button id="clear" size="s" quiet>Clear Markers</sp-action-button>
+    <sp-action-button id="restore" size="s" quiet class="hidden" title="Bring back the findings hidden as Not a Line">Restore</sp-action-button>
   </div>
   <div id="progressRow" class="hidden">
     <sp-progressbar id="progress" size="s" max="100" value="0"></sp-progressbar>
@@ -104,7 +115,7 @@
   </div>
   <div id="status" class="muted">Set In/Out on the sequence and press Scan.</div>
   <div id="columns" class="row columns muted hidden">
-    <div class="spacer"></div><div class="edge">EDGE</div><div class="size">SIZE</div><div class="tc">START</div><div class="frames">LENGTH</div>
+    <div class="spacer"></div><div class="edge">EDGE</div><div class="size">SIZE</div><div class="tc">START</div><div class="frames">LENGTH</div><div class="dismiss"></div>
   </div>
   <div id="results"></div>
   <div id="log"></div>

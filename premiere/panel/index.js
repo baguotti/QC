@@ -24,6 +24,8 @@ const status = (msg) => { $("status").textContent = msg; $("status").classList.t
 const summary = (msg) => { $("summary").textContent = msg; };
 let scanning = false;
 let shownSequence = null;  // guid of the sequence whose results are listed
+// The last scan of the listed sequence, so Not a Line and Restore can redo its markers and rows without a re-scan.
+let lastScan = null;  // { project, sequence, range, segments, clock }
 
 // MARK: Settings
 
@@ -126,6 +128,8 @@ $("clear").addEventListener("click", async () => {
     clearResults();
     summary("");
     shownSequence = null;
+    lastScan = null;
+    showRestore(0);
   }
   status(n ? `Removed ${n} LineFinder marker${n === 1 ? "" : "s"}.` : "No LineFinder markers on this sequence.");
 });
@@ -196,13 +200,16 @@ async function scan() {
   const clock = await timecodeFormat(sequence, tpf);
   log(`Timecode: ${clock.fps} fps${clock.drop ? " drop-frame" : ""} (display format ${clock.displayType}), zero ${clock.zero}`);
 
-  const segments = result.segments.map((s) => ({
+  const all = result.segments.map((s) => ({
     ...s,
     startTicks: start + BigInt(s.start) * tpf,
     durationTicks: BigInt(s.end - s.start + 1) * tpf,
   }));
+  lastScan = { project, sequence, range: { start, end }, segments: all, clock };
+  const { visible: segments, hidden } = splitDismissed(sequence, all, tpf);
   const { removed, written } = await replaceMarkers(project, sequence, { start, end }, segments.slice(0, MAX_MARKERS), clock);
   showResults(project, sequence, segments, clock);
+  showRestore(hidden.length);
 
   const where = range ? "In/Out" : "whole sequence";
   const lines = `${segments.length} line${segments.length === 1 ? "" : "s"}`;
@@ -212,6 +219,7 @@ async function scan() {
   if (result.skipped) notes.push(`${result.skipped} frames couldn't be analysed (unexpected pixel format).`);
   if (!written) notes.push("Premiere refused to update the markers.");
   if (segments.length > MAX_MARKERS) notes.push(`Markers added for the first ${MAX_MARKERS} lines only.`);
+  if (hidden.length) notes.push(`${hidden.length} hidden as Not a Line.`);
   if (!segments.length) notes.unshift(`No lines found in ${result.frames} frames (${where}).`);
   status(notes.join(" "));
   if (removed) log(`Replaced ${removed} older LineFinder markers in this range.`);
@@ -347,6 +355,13 @@ function showResults(project, sequence, segments, clock) {
     const frames = s.end - s.start + 1;
     const cells = [swatch, edge, cell("size muted", `${s.thickness} px`), cell("tc", timecode(s.startTicks, clock)),
                    cell("frames muted", `${frames} fr`)];
+    const dismiss = cell("dismiss muted", "×");
+    dismiss.title = "Not a Line: hide this finding and its marker on later scans too";
+    dismiss.addEventListener("click", (event) => {
+      event.stopPropagation();
+      notALine(s).catch((e) => log("Not a Line failed: " + e.message));
+    });
+    cells.push(dismiss);
     for (const el of cells) row.appendChild(el);
     row.title = detail(s, clock);
     row.addEventListener("click", () => {
@@ -369,6 +384,69 @@ async function jumpTo(project, sequence, ticks) {
   if (!current || String(current.guid) !== String(sequence.guid)) await project.setActiveSequence(sequence);
   await sequence.setPlayerPosition(ppro.TickTime.createWithTicks(String(ticks)));
 }
+
+// MARK: Not a Line
+
+// Dismissed findings per sequence (localStorage, keyed by sequence guid): edge + tick range. A later scan hides a
+// finding on the same edge that overlaps one within 2 frames, like QCpie's Not a Line.
+const DISMISS_KEY = "linefinder.dismissed.";
+const DISMISS_SLACK_FRAMES = 2n;
+
+function dismissals(sequence) {
+  try { return JSON.parse(localStorage.getItem(DISMISS_KEY + sequence.guid) || "[]"); } catch { return []; }
+}
+
+function saveDismissals(sequence, list) {
+  try {
+    if (list.length) localStorage.setItem(DISMISS_KEY + sequence.guid, JSON.stringify(list));
+    else localStorage.removeItem(DISMISS_KEY + sequence.guid);
+  } catch { /* not essential */ }
+}
+
+function isDismissed(s, list, tpf) {
+  const slack = DISMISS_SLACK_FRAMES * tpf;
+  const end = s.startTicks + s.durationTicks;
+  return list.some((d) => d.edge === s.edge && s.startTicks < BigInt(d.end) + slack && end > BigInt(d.start) - slack);
+}
+
+function splitDismissed(sequence, segments, tpf) {
+  const list = dismissals(sequence);
+  const visible = [], hidden = [];
+  for (const s of segments) (list.length && isDismissed(s, list, tpf) ? hidden : visible).push(s);
+  return { visible, hidden };
+}
+
+async function notALine(s) {
+  if (!lastScan || scanning) return;
+  const { sequence } = lastScan;
+  const list = dismissals(sequence);
+  list.push({ edge: s.edge, start: String(s.startTicks), end: String(s.startTicks + s.durationTicks) });
+  saveDismissals(sequence, list);
+  await redrawLastScan("Hidden as Not a Line.");
+}
+
+// Re-applies the dismissals to the last scan: markers in its range and the rows.
+async function redrawLastScan(message) {
+  const { project, sequence, range, segments, clock } = lastScan;
+  const { visible, hidden } = splitDismissed(sequence, segments, clock.tpf);
+  const { written } = await replaceMarkers(project, sequence, range, visible.slice(0, MAX_MARKERS), clock);
+  showResults(project, sequence, visible, clock);
+  showRestore(hidden.length);
+  summary(`${visible.length} line${visible.length === 1 ? "" : "s"}${hidden.length ? ` · ${hidden.length} hidden` : ""}`);
+  status(written ? (visible.length ? "" : message) : "Premiere refused to update the markers.");
+}
+
+function showRestore(count) {
+  $("restore").textContent = count ? `Restore ${count}` : "Restore";
+  $("restore").classList.toggle("hidden", !count);
+}
+
+// Brings back every Not a Line on the listed sequence.
+$("restore").addEventListener("click", async () => {
+  if (!lastScan || scanning) return;
+  saveDismissals(lastScan.sequence, []);
+  await redrawLastScan("").catch((e) => log("Restore failed: " + e.message));
+});
 
 // Timeline timecode for a sequence time: HH:MM:SS:FF, or HH:MM:SS;FF drop-frame (29.97 / 59.94 DF).
 function timecode(ticks, clock) {
@@ -398,3 +476,70 @@ async function writeLogFile() {
     await file.write(`${$("summary").textContent}\n${$("status").textContent}\n${logEl.textContent}`);
   } catch { /* debugging aid only */ }
 }
+
+// MARK: Updates
+
+// On opening (at most every 6 h) the panel asks GitHub for the latest QCpie release, which carries
+// LineFinder-<version>.pkg. A newer one shows a banner: Update downloads the .pkg and opens it in Installer, which
+// updates the exporter and the panel together; Premiere then needs a restart.
+const RELEASES = "https://api.github.com/repos/baguotti/QC/releases/latest";
+const RELEASES_PAGE = "https://github.com/baguotti/QC/releases/latest";
+const UPDATE_KEY = "linefinder.update";
+const CHECK_EVERY_MS = 6 * 3600 * 1000;
+let update = null;  // { version, url, name }
+
+function newer(a, b) {
+  const pa = a.split(".").map(Number), pb = b.split(".").map(Number);
+  for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
+    const d = (pa[i] || 0) - (pb[i] || 0);
+    if (d) return d > 0;
+  }
+  return false;
+}
+
+async function installedVersion() {
+  const manifest = await (await fs.getPluginFolder()).getEntry("manifest.json");
+  return JSON.parse(await manifest.read()).version;
+}
+
+async function checkForUpdate() {
+  const installed = await installedVersion();
+  let cached = null;
+  try { cached = JSON.parse(localStorage.getItem(UPDATE_KEY) || "null"); } catch { /* check again */ }
+  let latest = cached && Date.now() - cached.checked < CHECK_EVERY_MS ? cached.latest : undefined;
+  if (latest === undefined) {
+    const response = await fetch(RELEASES, { headers: { Accept: "application/vnd.github+json" } });
+    if (!response.ok) throw new Error(`GitHub answered ${response.status}`);
+    const asset = ((await response.json()).assets || []).find((a) => /^LineFinder-[\d.]+\.pkg$/.test(a.name));
+    latest = asset ? { version: asset.name.slice(11, -4), url: asset.browser_download_url, name: asset.name } : null;
+    try { localStorage.setItem(UPDATE_KEY, JSON.stringify({ checked: Date.now(), latest })); } catch { /* fine */ }
+  }
+  if (!latest || !newer(latest.version, installed)) return;
+  update = latest;
+  $("updateText").textContent = `LineFinder ${latest.version} is available (you have ${installed}).`;
+  $("update").classList.remove("hidden");
+}
+
+$("updateButton").addEventListener("click", async () => {
+  if (!update || $("updateButton").hasAttribute("disabled")) return;
+  const button = $("updateButton");
+  button.setAttribute("disabled", "");
+  $("updateText").textContent = `Downloading ${update.version}…`;
+  try {
+    const response = await fetch(update.url);
+    if (!response.ok) throw new Error(`download answered ${response.status}`);
+    const bytes = await response.arrayBuffer();
+    const file = await (await fs.getDataFolder()).createFile(update.name, { overwrite: true });
+    await file.write(bytes, { format: require("uxp").storage.formats.binary });
+    await require("uxp").shell.openPath(file.nativePath);
+    $("updateText").textContent = "Click Install in Installer, then restart Premiere Pro.";
+    button.classList.add("hidden");
+  } catch (e) {
+    log("Update failed: " + (e.stack || e));
+    $("updateText").textContent = "Couldn't download the update. Opening the download page instead.";
+    require("uxp").shell.openExternal(RELEASES_PAGE).catch(() => {});
+    button.removeAttribute("disabled");
+  }
+});
+
+checkForUpdate().catch((e) => log("Update check failed: " + e.message));

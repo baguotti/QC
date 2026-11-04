@@ -17,7 +17,8 @@ PKG="$DIST/LineFinder-$VERSION.pkg"
 rm -rf "$WORK" && mkdir -p "$WORK/root" "$DIST"
 
 # Exporter
-"$PREMIERE/exporter/build.sh"
+# REUSE_EXPORTER=1: package the existing exporter/build bundle (no Premiere SDK on this Mac, exporter unchanged).
+[[ -n "${REUSE_EXPORTER:-}" ]] || "$PREMIERE/exporter/build.sh"
 MEDIACORE="$WORK/root/Library/Application Support/Adobe/Common/Plug-ins/7.0/MediaCore"
 mkdir -p "$MEDIACORE"
 cp -R "$PREMIERE/exporter/build/LineFinderAnalysis.bundle" "$MEDIACORE/"
@@ -53,7 +54,21 @@ COPYFILE_DISABLE=1 pkgbuild --root "$WORK/root" --component-plist "$WORK/compone
   --identifier com.qcpie.linefinder --version "$VERSION" --install-location / "$WORK/LineFinder-component.pkg"
 SIGN=()
 [[ -n "${DEVELOPER_ID_INSTALLER:-}" ]] && SIGN=(--sign "$DEVELOPER_ID_INSTALLER" --timestamp)
-productbuild --package "$WORK/LineFinder-component.pkg" "${SIGN[@]}" "$PKG"
+# Fewest Installer pages (updates come from the panel's Update button): no destination or customise pages, so it is
+# Continue → Install → password → Close.
+productbuild --synthesize --package "$WORK/LineFinder-component.pkg" "$WORK/distribution.xml" >/dev/null
+python3 - "$WORK/distribution.xml" "$VERSION" <<'PY2'
+import re, sys
+path, version = sys.argv[1], sys.argv[2]
+xml = open(path).read()
+pages = (f'<title>LineFinder {version}</title>\n'
+         '    <options customize="never" require-scripts="false" rootVolumeOnly="true" hostArchitectures="arm64,x86_64"/>\n'
+         '    <domains enable_anywhere="false" enable_currentUserHome="false" enable_localSystem="true"/>')
+xml, n = re.subn(r'<options [^>]*/>', pages, xml, count=1)
+assert n == 1, "productbuild --synthesize changed its output"
+open(path, "w").write(xml)
+PY2
+productbuild --distribution "$WORK/distribution.xml" --package-path "$WORK" "${SIGN[@]}" "$PKG"
 if [[ -n "${NOTARY_PROFILE:-}" ]]; then
   xcrun notarytool submit "$PKG" --keychain-profile "$NOTARY_PROFILE" --wait
   xcrun stapler staple "$PKG"

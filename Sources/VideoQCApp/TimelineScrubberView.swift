@@ -283,13 +283,22 @@ public struct TimelineScrubberView: View {
         self.engine = engine
         self.isLightMode = isLightMode
     }
+
+    /// Line Check findings on the timeline: only those whose red note is still there when the notes shown are this
+    /// clip's (deleting or clearing the red notes used to leave their markers behind).
+    private var lineCheckMarkerFrames: [Int] {
+        let frames = engine.activeMarkers.map(\.frameIndex)
+        guard isSameURL(engine.activeNotesURL, engine.activeURL) else { return frames }
+        let noted = Set(engine.activeNotes.lazy.filter { $0.author == FrameIOCommentPush.lineCheckAuthor }.map(\.frameIndex))
+        return frames.filter(noted.contains)
+    }
     
     public var body: some View {
         GeometryReader { geo in
             let width = max(20, geo.size.width)
             let trackWidth = max(1.0, width - (trackInset * 2))
             let durSecs = CMTimeGetSeconds(engine.duration)
-            let markerFrames = engine.activeMarkers.map(\.frameIndex)
+            let markerFrames = lineCheckMarkerFrames
             let noteMarks = engine.activeNotes.map { TimelineMarks.NoteMark(frame: $0.frameIndex, colorTag: $0.colorTag) }
             
             ZStack(alignment: .topLeading) {
