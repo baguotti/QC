@@ -249,6 +249,7 @@ extension ContentView {
         let done = PlanState.allCases.filter(\.isDone).reduce(0) { $0 + (counts[$1] ?? 0) }
         let live = total - (counts[.dropped] ?? 0) - (counts[nil] ?? 0)
         let palette = StudioPalette(isLightMode)
+        let batchItems = planBatchItems
         return FlowChips(spacing: 4) {
             if live > 0 {
                 Text("\(Int((Double(done) / Double(live) * 100).rounded(.down)))% done")
@@ -273,10 +274,28 @@ extension ContentView {
                     inspectPlanFilter = inspectPlanFilter == -2 ? -1 : -2
                 }
             }
+            if batchItems.contains(where: { !$0.name.isEmpty }) {
+                PlanBatchFilter(items: batchItems.filter { !$0.name.isEmpty },
+                                unbatched: batchItems.first { $0.name.isEmpty }?.count ?? 0,
+                                selection: $inspectPlanBatch, isLightMode: isLightMode)
+            }
             LinkFiltersButton(isLightMode: isLightMode) {
-                DeliveryPlanStore.SharedFilter(state: inspectPlanFilter, search: specsState.specsFilterText)
+                DeliveryPlanStore.SharedFilter(state: inspectPlanFilter, search: specsState.specsFilterText, batch: inspectPlanBatch)
             }
         }
+    }
+
+    /// Inspect's files per batch (plan files only; "" = in the plan without a batch), in natural order.
+    var planBatchItems: [PlanBatchFilter.Item] {
+        var total: [String: Int] = [:], done: [String: Int] = [:], dropped: [String: Int] = [:]
+        for asset in specsState.deliverableAssets {
+            guard let info = planFiles[asset.fileURL], info.rowID != nil else { continue }
+            total[info.batch, default: 0] += 1
+            if info.state?.isDone == true { done[info.batch, default: 0] += 1 }
+            if info.state == .dropped { dropped[info.batch, default: 0] += 1 }
+        }
+        let names = PlanBatch.sorted(total.keys) + (total[""] != nil ? [""] : [])
+        return names.map { PlanBatchFilter.Item(name: $0, count: total[$0] ?? 0, done: done[$0] ?? 0, live: (total[$0] ?? 0) - (dropped[$0] ?? 0)) }
     }
 
     /// "Columns" in the table's header menu.
@@ -679,7 +698,7 @@ extension ContentView {
                     
                     // Clean list: hide the plan's chips and badges (filters keep working)
                     if !planFiles.isEmpty {
-                        let filtered = inspectPlanFilter != -1
+                        let filtered = inspectPlanFilter != -1 || inspectPlanBatch != nil
                         Button(action: { withAnimation(Motion.fade) { hidePlanTags.toggle() } }) {
                             HStack(spacing: 4) {
                                 Image(systemName: hidePlanTags ? "tag.slash" : "tag")
@@ -1064,12 +1083,15 @@ extension ContentView {
     var specsKindMask: Int { MediaKindFilter.effectiveMask(mediaKindFilter, present: specsPresentKinds) }
     
     var filteredDeliverableAssets: [DeliverableAsset] {
-        let files = planFiles, filter = inspectPlanFilter
+        let files = planFiles, filter = inspectPlanFilter, batch = inspectPlanBatch
         return specsState.displayedAssets(
             filter: specsState.specsFilterText.trimmingCharacters(in: .whitespacesAndNewlines), mask: specsKindMask,
-            planKey: files.isEmpty ? "" : "\(filter)|\(planFilesVersion)|\(inspectPlanSort)",
-            planAllows: filter == -1 || files.isEmpty ? nil : { url in
-                guard let info = files[url] else { return filter == -2 }
+            planKey: files.isEmpty ? "" : "\(filter)|\(batch ?? "*")|\(planFilesVersion)|\(inspectPlanSort)",
+            planAllows: (filter == -1 && batch == nil) || files.isEmpty ? nil : { url in
+                let info = files[url]
+                if let batch, info?.rowID == nil || info?.batch != batch { return false }
+                guard filter != -1 else { return true }
+                guard let info else { return filter == -2 }
                 return filter == -2 ? info.state == nil : info.state?.rawValue == filter
             },
             planText: files.isEmpty ? nil : { files[$0]?.text },
@@ -1629,6 +1651,8 @@ extension ContentView {
                     Divider()
                     Button("Clear Status") { DeliveryPlanStore.shared.setStatus(nil, rowIDs: DeliveryPlanStore.shared.rowIDs(forFiles: targetFiles())) }
                 }
+                PlanBatchMenu(title: isMulti ? "Set Plan Batch (Selection)" : "Set Plan Batch",
+                              rowIDs: { DeliveryPlanStore.shared.rowIDs(forFiles: targetFiles()) })
                 Button(isMulti ? "Run Plan Checks on Selection" : "Run Plan Checks on This File") {
                     let store = DeliveryPlanStore.shared, queue = PlanCheckQueue.shared
                     queue.loadIfNeeded()

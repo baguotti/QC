@@ -21,6 +21,8 @@ struct DeliveryPlanPanel: View {
     @State private var linkText = ""
     @State private var search = ""
     @State private var statusFilter: PlanState? = nil
+    /// nil: every batch; "": rows without one; else a batch name.
+    @State private var batchFilter: String? = nil
     @State private var noteDraft = ""
     /// The row the note being typed belongs to (the field shows another row's note once the selection moves).
     @State private var noteRowID: String? = nil
@@ -61,6 +63,7 @@ struct DeliveryPlanPanel: View {
             statusFilter = filter.state >= 0 ? PlanState(rawValue: filter.state) : nil
             if filter.state != currentFilter.state { changedOnly = false }   // a search alone keeps "Changed"
             search = filter.search
+            batchFilter = filter.batch
         }
         .background {
             // The plan window gets every key itself (the router passes them through): ⌥1–⌥6 / ⌥0 here.
@@ -373,8 +376,22 @@ struct DeliveryPlanPanel: View {
                     changedOnly.toggle(); statusFilter = nil
                 }
             }
+            if store.hasBatchColumn || !store.batches.isEmpty { batchFilterMenu }
             LinkFiltersButton(isLightMode: isLightMode) { currentFilter }
         }
+    }
+
+    /// Batches with their row counts and % done (QC Passed, Approved, Delivered of rows not dropped).
+    private var batchFilterMenu: some View {
+        var total: [String: Int] = [:], done: [String: Int] = [:], dropped: [String: Int] = [:]
+        for row in store.rows {
+            let b = store.batch(row), state = store.state(row).state
+            total[b, default: 0] += 1
+            if state.isDone { done[b, default: 0] += 1 }
+            if state == .dropped { dropped[b, default: 0] += 1 }
+        }
+        let items = store.batches.map { PlanBatchFilter.Item(name: $0, count: total[$0] ?? 0, done: done[$0] ?? 0, live: (total[$0] ?? 0) - (dropped[$0] ?? 0)) }
+        return PlanBatchFilter(items: items, unbatched: total[""] ?? 0, selection: $batchFilter, isLightMode: isLightMode)
     }
 
     private func chip(_ title: String, selected: Bool, color: Color, action: @escaping () -> Void) -> some View {
@@ -450,7 +467,7 @@ struct DeliveryPlanPanel: View {
     }
 
     private var currentFilter: DeliveryPlanStore.SharedFilter {
-        DeliveryPlanStore.SharedFilter(state: statusFilter?.rawValue ?? -1, search: search)
+        DeliveryPlanStore.SharedFilter(state: statusFilter?.rawValue ?? -1, search: search, batch: batchFilter)
     }
 
     // MARK: Checks
@@ -558,6 +575,14 @@ struct DeliveryPlanPanel: View {
             .menuStyle(.borderlessButton)
             .fixedSize()
             .tip("Set the QC status (⌥1–⌥6). It's written to the sheet's QC Status column.")
+            if store.hasBatchColumn || !store.batches.isEmpty {
+                let batch = store.batch(row)
+                PlanBatchMenu(title: batch.isEmpty ? "No Batch" : PlanBatch.title(batch), rowIDs: { targets })
+                    .menuStyle(.borderlessButton)
+                    .fixedSize()
+                    .font(.ui(size: 11, weight: .semibold))
+                    .tip("Set the delivery batch. It's written to the sheet's Batch column.")
+            }
             let summary = checkSummary(row)
             if state == .toQC || state == .needsFix || state == .check {
                 if summary.result == .passed {
@@ -640,7 +665,8 @@ struct DeliveryPlanPanel: View {
                     onEdit: { line, column, old, new in store.editCell(gid: tab.gid, line: line, column: column, old: old, new: new) },
                     onEditUnavailable: { showEditSetup = true },
                     statusColumn: store.statusColumn(gid: tab.gid),
-                    statusMenu: { line in byLine[line].map { statusNSMenu(statusTargets($0, match: match)) } })
+                    statusMenu: { line in byLine[line].map { statusNSMenu(statusTargets($0, match: match)) } },
+                    listColumns: store.listColumns(gid: tab.gid))
                 if (store.config?.included.count ?? 0) > 1 { sheetTabs }
                 if let selected {
                     Rectangle().fill(palette.borderLine).frame(height: 1)
@@ -681,10 +707,11 @@ struct DeliveryPlanPanel: View {
     /// Lines passing the chips and the filter field; nil when nothing filters (every row shows, as in the sheet).
     private func shownLines(_ rows: [PlanRow], match: PlanMatch) -> Set<Int>? {
         let terms = PlanMatcher.tokens(search)
-        guard statusFilter != nil || changedOnly || !terms.isEmpty else { return nil }
+        guard statusFilter != nil || changedOnly || !terms.isEmpty || batchFilter != nil else { return nil }
         var lines = Set<Int>()
         for row in rows {
             if let statusFilter, store.state(row).state != statusFilter { continue }
+            if let batchFilter, store.batch(row) != batchFilter { continue }
             if changedOnly, store.changes[row.id] == nil { continue }
             if !terms.isEmpty {
                 let haystack = row.searchText + " " + match.result(row).files.map(\.lastPathComponent).joined(separator: " ").lowercased()
@@ -725,6 +752,9 @@ struct DeliveryPlanPanel: View {
         let status = NSMenuItem(title: targets.count > 1 ? "Set Status (\(targets.count) Rows)" : "Set Status", action: nil, keyEquivalent: "")
         status.submenu = statusNSMenu(targets)
         menu.addItem(status)
+        let batch = NSMenuItem(title: targets.count > 1 ? "Set Batch (\(targets.count) Rows)" : "Set Batch", action: nil, keyEquivalent: "")
+        batch.submenu = PlanBatchMenu.nsMenu(store: store, rowIDs: targets)
+        menu.addItem(batch)
         menu.addItem(.separator())
         for url in files {
             menu.addItem("Show \(url.lastPathComponent) in Inspect") { DeliveryPlanStore.post(.reveal, url) }
@@ -763,6 +793,7 @@ struct DeliveryPlanPanel: View {
         var lastHeading: String? = nil
         for row in rows {
             if let statusFilter, store.state(row).state != statusFilter { continue }
+            if let batchFilter, store.batch(row) != batchFilter { continue }
             if changedOnly, store.changes[row.id] == nil { continue }
             if !terms.isEmpty {
                 let haystack = row.searchText + " " + match.result(row).files.map(\.lastPathComponent).joined(separator: " ").lowercased()
@@ -775,7 +806,7 @@ struct DeliveryPlanPanel: View {
             }
             items.append(.row(row))
         }
-        if statusFilter == nil, !changedOnly, terms.isEmpty, !match.extras.isEmpty { items.append(.extras(match.extras)) }
+        if statusFilter == nil, batchFilter == nil, !changedOnly, terms.isEmpty, !match.extras.isEmpty { items.append(.extras(match.extras)) }
         return items
     }
 
@@ -832,6 +863,7 @@ struct DeliveryPlanPanel: View {
             Divider()
             Button("Clear Status") { store.setStatus(nil, rowIDs: targets) }
         }
+        PlanBatchMenu(title: targets.count > 1 ? "Set Batch (\(targets.count) Rows)" : "Set Batch", rowIDs: { targets })
         Divider()
         ForEach(files, id: \.self) { url in
             Button("Show \(url.lastPathComponent) in Inspect") { DeliveryPlanStore.post(.reveal, url) }
@@ -1383,5 +1415,100 @@ struct LinkFiltersButton: View {
         .buttonStyle(.plain)
         .tip(store.linkFilters ? "Filters are linked: the plan and Inspect show the same status and search. Click to unlink."
                                : "Link filters: choosing a status or searching in the plan or Inspect filters the other too.")
+    }
+}
+
+// MARK: - Batches
+
+/// The batch filter shared by the plan and Inspect: a chip-styled menu (All Batches, each batch with its progress,
+/// No Batch).
+struct PlanBatchFilter: View {
+    struct Item { let name: String; let count: Int; let done: Int; let live: Int }
+    let items: [Item]
+    let unbatched: Int
+    @Binding var selection: String?
+    let isLightMode: Bool
+
+    var body: some View {
+        let palette = StudioPalette(isLightMode)
+        let on = selection != nil
+        Menu {
+            Button(selection == nil ? "✓ All Batches" : "All Batches") { selection = nil }
+            Divider()
+            ForEach(items, id: \.name) { item in
+                let pct = item.live > 0 ? "  ·  \(Int((Double(item.done) / Double(item.live) * 100).rounded(.down)))% done" : ""
+                Button("\(selection == item.name ? "✓ " : "")\(PlanBatch.title(item.name))  ·  \(item.count)\(pct)") { selection = item.name }
+            }
+            if unbatched > 0 {
+                Divider()
+                Button("\(selection == "" ? "✓ " : "")No Batch  ·  \(unbatched)") { selection = "" }
+            }
+        } label: {
+            HStack(spacing: 4) {
+                Image(systemName: "square.stack.3d.up")
+                    .font(.system(size: StudioTheme.scaleFont(9)))
+                Text(selection.map { $0.isEmpty ? "No Batch" : PlanBatch.title($0) } ?? "All Batches")
+                    .font(.ui(size: 10, weight: on ? .semibold : .medium))
+            }
+            .foregroundColor(on ? palette.textMain : palette.textMuted)
+            .padding(.horizontal, 7)
+            .padding(.vertical, 3)
+            .background(RoundedRectangle(cornerRadius: Radius.control).fill(on ? palette.bgSubtle : Color.clear))
+            .overlay(RoundedRectangle(cornerRadius: Radius.control).stroke(on ? palette.borderStrong : palette.borderLine, lineWidth: 1))
+            .contentShape(Rectangle())
+        }
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .fixedSize()
+        .tip("Show one delivery batch.")
+    }
+}
+
+/// Set Batch: each batch in the plan, New Batch…, Clear Batch. `rowIDs` is read when an item is chosen.
+/// Doesn't observe the store: it sits in every Inspect row's context menu (no per-row singleton subscriptions); the
+/// batches are read when the menu is built.
+struct PlanBatchMenu: View {
+    let title: String
+    let rowIDs: () -> [String]
+    private var store: DeliveryPlanStore { DeliveryPlanStore.shared }
+
+    var body: some View {
+        Menu(title) {
+            ForEach(store.batches, id: \.self) { name in
+                Button(PlanBatch.title(name)) { store.setBatch(name, rowIDs: rowIDs()) }
+            }
+            if !store.batches.isEmpty { Divider() }
+            Button("New Batch…") {
+                if let name = Self.askNewBatch(store) { store.setBatch(name, rowIDs: rowIDs()) }
+            }
+            Button("Clear Batch") { store.setBatch("", rowIDs: rowIDs()) }
+        }
+    }
+
+    @MainActor static func nsMenu(store: DeliveryPlanStore, rowIDs: [String]) -> NSMenu {
+        let menu = NSMenu()
+        for name in store.batches {
+            menu.addItem(PlanBatch.title(name)) { store.setBatch(name, rowIDs: rowIDs) }
+        }
+        if !store.batches.isEmpty { menu.addItem(.separator()) }
+        menu.addItem("New Batch…") { if let name = askNewBatch(store) { store.setBatch(name, rowIDs: rowIDs) } }
+        menu.addItem("Clear Batch") { store.setBatch("", rowIDs: rowIDs) }
+        return menu
+    }
+
+    /// Asks for a batch name, offering the next number ("3" after "2.1").
+    @MainActor static func askNewBatch(_ store: DeliveryPlanStore) -> String? {
+        let alert = NSAlert()
+        alert.messageText = "New Batch"
+        alert.informativeText = "A number like 3, or 2.1 for a split of batch 2."
+        let field = NSTextField(string: PlanBatch.next(after: store.batches))
+        field.frame = NSRect(x: 0, y: 0, width: 220, height: 24)
+        alert.accessoryView = field
+        alert.addButton(withTitle: "Set Batch")
+        alert.addButton(withTitle: "Cancel")
+        alert.window.initialFirstResponder = field
+        guard alert.runModal() == .alertFirstButtonReturn else { return nil }
+        let name = PlanGrid.normalized(field.stringValue)
+        return name.isEmpty ? nil : name
     }
 }

@@ -341,7 +341,7 @@
   - `PlanStatusResolver.resolve`: a matched file modified after QC Updated ("yyyy-MM-dd HH:mm:ss UTC · reviewer"; stamps without "UTC" are older and local time) sends the row back to To QC with a flag (works across machines: copies keep their modification date).
   - QC Status / QC Note / QC Updated are `PlanField.isQC`: never part of row identity, "changed" highlights or `matchSignature`, so a status edit doesn't re-run matching.
   - Only status changes are stamped (a note edit must not hide a new version that arrived before it).
-  - Writes go through script v3 (`AppsScriptWriter.scriptVersion` = 3; statuses need ≥ 2; `ping` reports the deployed version and older scripts get "Update Script…", which keeps the key and URL). The script works by **Code and header name, never position**:
+  - Writes go through script v4 (`AppsScriptWriter.scriptVersion` = 4; statuses need ≥ 2, dropdowns ≥ 4; `ping` reports the deployed version and older scripts get "Update Script…", which keeps the key and URL). The script works by **Code and header name, never position**:
     - `status` writes the QC columns to every tab listing the code, one `RangeList.setValue` per distinct value.
     - `write` finds a moved row by its code and the column by its header, and refuses stale cells.
     - `columns` adds the three QC columns with the dropdown, once, when a tab lacks them.
@@ -350,6 +350,7 @@
     - `columns` sets the dropdown only on columns it adds; the store asks for it at most once per read, and only when a tab with a Code column lacks a QC column (`columnsRequested`).
     - The set-up key (`setupToken`, UserDefaults `planSetupToken`) is kept until Connect succeeds, so reopening the sheet after copying the script doesn't make a new one.
     - `changes` returns the counter.
+    - `lists` (v4, read-only) returns a tab's dropdown choices keyed by column header (lower case; `#index` without one), from the data validation of the first row under the header (list or range rules). `listColumns(gid:)` maps them onto the Sheet view's columns by header text, because the view leaves hidden and collapsed columns out (sheet column numbers don't line up). The store reads them after each full read (`cellLists`). Validation edits don't move the counter, so `changes` also returns `listsSig` (MD5 of every tab's lists) and the 10 s check re-reads the lists alone when it changes. In the Sheet view those cells draw Sheets' ▾ and double-clicking one opens a menu of its choices (plus Clear) that writes through `editCell`; QC Status keeps its own menu.
   - Store:
     - `setStatus` / `setNote` show at once (`pendingQC` over rows and grids until a read shows them or 2 min pass) and are gathered for 0.3 s into one call.
     - With the script, polling is `changes` every 10 s (every 60 s while QCpie isn't the active app; a few bytes). The full read (CSV + HTML) only happens when the counter moves, or every 3 min. Each full read first records the counter (`counterAtRead`), so a save, already read after saving, doesn't trigger a second full read. Without the script, the full read runs every 60 s.
@@ -364,6 +365,7 @@
     - Code search.
 
     `inspectPlanFilter` and `inspectPlanSort` are part of `displayedAssets`' cache key; the closures only run on a cache miss.
+- **Batches** (`PlanBatch`, `PlanField.batch`): a Batch column ("1", "1.1", "2"…; sorted naturally, 1 < 1.1 < 1.2 < 2 < 10). Batch and the QC columns are `isTracking`: never part of row identity, matching or "changed". Set from the plan (right-click / row card / status bar: Set Batch ▸ batches, New Batch… (`askNewBatch`, offers the next number), Clear Batch) or Inspect (Set Plan Batch); written with the statuses (`PlanStatusItem.batch`, same 0.3 s batching and `pendingQC` overlay). The script writes Batch as text (`setNumberFormat('@')`: "1.10" must not become 1.1), mirrors it across tabs like the QC columns (`MIRRORED`), and adds a Batch column once when a tab with codes lacks one (`columns` with `batch: true`). `store.batches` (natural order) feeds `PlanBatchFilter`, a chip-styled menu with each batch's count and % done, in the plan's and Inspect's chip rows (`batchFilter` / `inspectPlanBatch`, part of `SharedFilter` and of `displayedAssets`' plan key). `PlanFileInfo.batch` carries it to Inspect.
 - **Inspect search** (the left panel's `specsFilterText`; no second field above the table): every word must appear in the file name or its plan row (`PlanFileInfo.text`, the row's values lower-cased), else a plain name/path match.
 - **Inspect keyboard** (router scope `.specsOnly`; text fields keep their keys):
   - The keys:

@@ -1,6 +1,6 @@
 # QCpie
 
-**VERSION 0.12.2** · Video QC for macOS (Apple silicon)
+**VERSION 0.12.3** · Video QC for macOS (Apple silicon)
 
 Check deliverables, compare versions, scan for errors and send them to Frame.io in one app.
 

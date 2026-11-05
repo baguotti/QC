@@ -41,10 +41,12 @@ struct PlanTab: Codable, Equatable, Sendable, Identifiable, Hashable {
 /// The columns the plan understands, recognised by their header text (position and order don't matter).
 enum PlanField: String, CaseIterable, Codable, Sendable {
     case id, number, name, length, channel, placement, resolution, aspect, logos, graphics, cta, subs, translations,
-         sound, maxSize, frameRate, format, qcStatus, qcNote, qcUpdated
+         sound, maxSize, frameRate, format, qcStatus, qcNote, qcUpdated, batch
 
     /// QCpie's own columns (written by it, never part of a row's identity or "changed" highlights).
     var isQC: Bool { self == .qcStatus || self == .qcNote || self == .qcUpdated }
+    /// Columns QCpie writes (QC columns and Batch): never part of a row's identity, matching or "changed" highlights.
+    var isTracking: Bool { isQC || self == .batch }
 
     var title: String {
         switch self {
@@ -68,6 +70,7 @@ enum PlanField: String, CaseIterable, Codable, Sendable {
         case .qcStatus: return "QC Status"
         case .qcNote: return "QC Note"
         case .qcUpdated: return "QC Updated"
+        case .batch: return "Batch"
         }
     }
 
@@ -83,6 +86,7 @@ enum PlanField: String, CaseIterable, Codable, Sendable {
         case "qc status": return .qcStatus
         case "qc note", "qc notes": return .qcNote
         case "qc updated": return .qcUpdated
+        case "batch", "batches", "delivery batch": return .batch
         default: break
         }
         if h.contains("file name") || h.contains("filename") || h.contains("file title") { return .name }
@@ -148,7 +152,7 @@ struct PlanRow: Identifiable, Sendable, Equatable {
     func value(_ field: PlanField) -> String { values[field] ?? "" }
     /// Every recognised value, for change detection.
     var content: [String: String] {
-        Dictionary(uniqueKeysWithValues: values.filter { !$0.key.isQC }.map { ($0.key.rawValue, $0.value) })
+        Dictionary(uniqueKeysWithValues: values.filter { !$0.key.isTracking }.map { ($0.key.rawValue, $0.value) })
     }
     /// What matching depends on (QC columns excluded).
     var matchSignature: [String: String] { content.merging(["#id": id], uniquingKeysWith: { a, _ in a }) }
@@ -767,6 +771,38 @@ struct PlanFileInfo: Equatable, Sendable {
     let line: Int
     let rowID: String?
     let state: PlanState?
+    /// The row's batch ("" when none).
+    var batch: String = ""
     /// The row's values, lower-cased, for Inspect's search (channel, placement, resolution…).
     var text: String = ""
+}
+
+/// Delivery batches ("1", "1.1", "2"…): a sheet's Batch column, sorted naturally (1 < 1.1 < 1.2 < 2 < 10).
+enum PlanBatch {
+    /// The numbers in a batch name, for sorting.
+    private static func parts(_ name: String) -> [Int] {
+        name.split { !$0.isNumber }.compactMap { Int($0) }
+    }
+
+    static func precedes(_ a: String, _ b: String) -> Bool {
+        let pa = parts(a), pb = parts(b)
+        if pa != pb, !pa.isEmpty, !pb.isEmpty { return pa.lexicographicallyPrecedes(pb) }
+        if pa.isEmpty != pb.isEmpty { return !pa.isEmpty }   // numbered batches first
+        return a.localizedStandardCompare(b) == .orderedAscending
+    }
+
+    static func sorted(_ names: some Sequence<String>) -> [String] {
+        Array(Set(names.map { PlanGrid.normalized($0) }.filter { !$0.isEmpty })).sorted(by: precedes)
+    }
+
+    /// "1.1" → "Batch 1.1"; a name that already says more ("Final", "Batch 2") stays.
+    static func title(_ name: String) -> String {
+        name.first?.isNumber == true ? "Batch \(name)" : name
+    }
+
+    /// The batch after the last numbered one: "3" after "2.1".
+    static func next(after names: [String]) -> String {
+        let top = names.compactMap { parts($0).first }.max() ?? 0
+        return "\(top + 1)"
+    }
 }

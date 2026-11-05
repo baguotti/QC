@@ -173,6 +173,15 @@ final class DeliveryPlanStore: ObservableObject {
     @Published private(set) var fileIndex: [URL: PlanFileInfo] = [:]
     /// The deployed script's version (nil until checked); statuses need version 2.
     @Published private(set) var scriptVersion: Int? = nil
+    /// Dropdown choices per tab (gid), keyed by header (lower case) or "#" + sheet column index (script v4).
+    @Published private(set) var cellLists: [String: [String: [String]]] = [:]
+    /// Every batch named in the plan (pending edits included), in natural order.
+    @Published private(set) var batches: [String] = []
+    /// Whether any included tab has a Batch column.
+    var hasBatchColumn: Bool { headers.values.contains { $0.columns[.batch] != nil } }
+    private var batchColumnRequested = false
+    /// The script's fingerprint of the dropdown choices at the last 10 s check.
+    private var lastListsSig: String?
     var scriptOutdated: Bool { config?.writer != nil && (scriptVersion ?? AppsScriptWriter.scriptVersion) < AppsScriptWriter.scriptVersion }
 
     /// The last cell edit's outcome, for the status line.
@@ -191,7 +200,7 @@ final class DeliveryPlanStore: ObservableObject {
     private var refreshAfterEdit: Task<Void, Never>?
 
     /// QC columns sent but not yet seen in a read (by lower-cased code), laid over rows and grids.
-    private struct PendingQC { var status: String?; var note: String?; var updated: String?; var since: Date }
+    private struct PendingQC { var status: String?; var note: String?; var updated: String?; var batch: String? = nil; var since: Date }
     private var pendingQC: [String: PendingQC] = [:]
     private var queuedQC: [String: PlanStatusItem] = [:]
     private var flushTask: Task<Void, Never>?
@@ -251,7 +260,7 @@ final class DeliveryPlanStore: ObservableObject {
             saveConfig()
             seen = [:]
             rows = []
-            grids = [:]; readGrids = [:]; pending = [:]; pendingQC = [:]; queuedQC = [:]; states = [:]; fileIndex = [:]; headers = [:]; scriptVersion = nil; lastCounter = nil
+            grids = [:]; readGrids = [:]; pending = [:]; pendingQC = [:]; queuedQC = [:]; states = [:]; fileIndex = [:]; headers = [:]; scriptVersion = nil; lastCounter = nil; cellLists = [:]; lastListsSig = nil
             changes = [:]
             removed = []
             await refresh(adoptAsSeen: true)
@@ -278,7 +287,7 @@ final class DeliveryPlanStore: ObservableObject {
         self.config = nil
         UserDefaults.standard.removeObject(forKey: Self.configKey)
         rows = []
-        grids = [:]; readGrids = [:]; pending = [:]; pendingQC = [:]; queuedQC = [:]; states = [:]; fileIndex = [:]; headers = [:]; scriptVersion = nil; lastCounter = nil
+        grids = [:]; readGrids = [:]; pending = [:]; pendingQC = [:]; queuedQC = [:]; states = [:]; fileIndex = [:]; headers = [:]; scriptVersion = nil; lastCounter = nil; cellLists = [:]; lastListsSig = nil
         match = .empty
         changes = [:]
         removed = []
@@ -322,7 +331,15 @@ final class DeliveryPlanStore: ObservableObject {
                     // Every 10 s while QCpie is in front, every minute behind other apps.
                     try? await Task.sleep(for: .seconds(NSApp.isActive ? 10 : 60))
                     guard !Task.isCancelled, let self else { return }
-                    let counter = try? await AppsScriptWriter.changeCounter(writer)
+                    let changes = try? await AppsScriptWriter.changes(writer)
+                    let counter = changes?.counter
+                    // Dropdown choices edited in Sheets (not counted as edits): re-read them alone.
+                    if let sig = changes?.listsSig {
+                        if let last = lastListsSig, last != sig, let config {
+                            await readLists(tabs: config.included, link: config.link)
+                        }
+                        lastListsSig = sig
+                    }
                     // Each read records the counter it saw (`counterAtRead`), so our own saves, already read after
                     // saving, don't cause a second full read (~1 MB) here.
                     let moved = counter != nil && lastCounter != nil && counter != lastCounter
@@ -386,6 +403,7 @@ final class DeliveryPlanStore: ObservableObject {
             phase = .idle
             lastUpdated = Date()
             if let counterAtRead { lastCounter = counterAtRead }
+            Task { await self.readLists(tabs: included, link: config.link) }
             guard gridsChanged || csvs != lastCachedCSVs else { return }   // nothing new to write
             lastCachedCSVs = csvs
             let dir = Self.directory(config.link.sheetID)
@@ -424,6 +442,7 @@ final class DeliveryPlanStore: ObservableObject {
         let (newRows, unread, newHeaders, rowsChanged, matchChanged) = parsed
         headers = newHeaders
         columnsRequested = false
+        batchColumnRequested = false
         var counts = tabCounts
         for tab in tabs { counts[tab.gid] = newRows.filter { $0.tab == tab.name }.count }
         if counts != tabCounts { tabCounts = counts }
@@ -468,7 +487,7 @@ final class DeliveryPlanStore: ObservableObject {
                 var edits: [CellKey: String] = [:]
                 for row in rows where row.tab == tab.name {
                     guard let code = row.code, let p = pendingQC[code.lowercased()] else { continue }
-                    for (field, value) in [(PlanField.qcStatus, p.status), (.qcNote, p.note), (.qcUpdated, p.updated)] {
+                    for (field, value) in [(PlanField.qcStatus, p.status), (.qcNote, p.note), (.qcUpdated, p.updated), (.batch, p.batch)] {
                         if let value, let column = header.columns[field] { edits[CellKey(line: row.line, column: column)] = value }
                     }
                 }
@@ -588,7 +607,7 @@ final class DeliveryPlanStore: ObservableObject {
             guard let old = seen[row.id] else { result[row.id] = .added; continue }
             let now = row.content
             guard now != old.values else { continue }
-            let fields = PlanField.allCases.filter { !$0.isQC }.compactMap { field -> String? in
+            let fields = PlanField.allCases.filter { !$0.isTracking }.compactMap { field -> String? in
                 let a = old.values[field.rawValue] ?? "", b = now[field.rawValue] ?? ""
                 return a == b ? nil : "\(field.title): \(a.isEmpty ? "—" : a) → \(b.isEmpty ? "—" : b)"
             }
@@ -679,6 +698,7 @@ final class DeliveryPlanStore: ObservableObject {
         let dates = Dictionary(files.compactMap { f in f.modified.map { (f.url, $0) } }, uniquingKeysWith: { a, _ in a })
         var newStates: [String: PlanRowState] = [:]
         var index: [URL: PlanFileInfo] = [:]
+        var batchNames = Set<String>()
         for row in rows {
             let result = match.result(row)
             let pending = row.code.flatMap { pendingQC[$0.lowercased()] }
@@ -687,11 +707,15 @@ final class DeliveryPlanStore: ObservableObject {
                                                    updated: pending?.updated ?? row.value(.qcUpdated),
                                                    fileDates: result.files.compactMap { dates[$0] })
             newStates[row.id] = state
+            let rowBatch = batch(row)
+            if !rowBatch.isEmpty { batchNames.insert(rowBatch) }
             for url in result.files where index[url] == nil {
                 index[url] = PlanFileInfo(code: row.code ?? "", line: row.line, rowID: row.id, state: state.state,
-                                          text: row.values.values.joined(separator: " ").lowercased())
+                                          batch: rowBatch, text: row.values.values.joined(separator: " ").lowercased())
             }
         }
+        let sortedBatches = PlanBatch.sorted(batchNames)
+        if sortedBatches != batches { batches = sortedBatches }
         for url in match.extras { index[url] = PlanFileInfo(code: "", line: 0, rowID: nil, state: nil) }
         if newStates != states { states = newStates }
         if index != fileIndex { fileIndex = index }
@@ -719,11 +743,24 @@ final class DeliveryPlanStore: ObservableObject {
         queueQC(rows.filter { $0.id == rowID }) { item in item.note = note }
     }
 
+    /// Sets ("" clears) the batch of rows. Shown at once, written with the statuses (by code, every tab).
+    func setBatch(_ batch: String, rowIDs: [String]) {
+        let ids = Set(rowIDs)
+        let value = PlanGrid.normalized(batch)
+        queueQC(rows.filter { ids.contains($0.id) }) { item in item.batch = value }
+    }
+
+    /// The batch as shown (a pending edit wins), normalised; "" when none.
+    func batch(_ row: PlanRow) -> String {
+        PlanGrid.normalized(row.code.flatMap { pendingQC[$0.lowercased()]?.batch } ?? row.value(.batch))
+    }
+
     // MARK: Linked filters
 
     /// The status filter and search shared by the plan and Inspect while `linkFilters` is on.
     /// `state`: -1 all, -2 not in the plan (Inspect only), else a `PlanState` raw value.
-    struct SharedFilter: Equatable { var state = -1; var search = "" }
+    /// `batch`: nil all, "" no batch, else a batch name.
+    struct SharedFilter: Equatable { var state = -1; var search = ""; var batch: String? = nil }
 
     @Published var linkFilters = UserDefaults.standard.bool(forKey: "planLinkFilters") {
         didSet { UserDefaults.standard.set(linkFilters, forKey: "planLinkFilters") }
@@ -734,7 +771,12 @@ final class DeliveryPlanStore: ObservableObject {
     func publishFilter(_ filter: SharedFilter, fromPlan: Bool = false) {
         guard linkFilters, filter != sharedFilter else { return }
         // The plan has no "Not in Plan" chip: showing everything there mustn't undo Inspect's choice.
-        if fromPlan, sharedFilter.state == -2, filter.state == -1, filter.search == sharedFilter.search { return }
+        if fromPlan, sharedFilter.state == -2, filter.state == -1 {
+            // …but its search and batch still go across.
+            let kept = SharedFilter(state: -2, search: filter.search, batch: filter.batch)
+            if kept != sharedFilter { sharedFilter = kept }
+            return
+        }
         sharedFilter = filter
     }
 
@@ -781,6 +823,7 @@ final class DeliveryPlanStore: ObservableObject {
             if let s = item.status { p.status = s }
             if let n = item.note { p.note = n }
             if let u = item.updated { p.updated = u }
+            if let b = item.batch { p.batch = b }
             p.since = Date()
             pendingQC[key] = p
         }
@@ -808,9 +851,18 @@ final class DeliveryPlanStore: ObservableObject {
                 guard let columns = headers[gid]?.columns, columns[.id] != nil else { return false }
                 return columns[.qcStatus] == nil || columns[.qcNote] == nil || columns[.qcUpdated] == nil
             }
-            if lacking, !columnsRequested {
+            if lacking, !columnsRequested, items.contains(where: { $0.status != nil || $0.note != nil }) {
                 try await AppsScriptWriter.ensureColumns(writer)
                 columnsRequested = true
+            }
+            // A Batch column is added (once) when a batch is set and a tab with codes has none.
+            let lackingBatch = included.contains { gid in
+                guard let columns = headers[gid]?.columns, columns[.id] != nil else { return false }
+                return columns[.batch] == nil
+            }
+            if lackingBatch, !batchColumnRequested, items.contains(where: { $0.batch != nil }) {
+                try await AppsScriptWriter.ensureColumns(writer, batch: true)
+                batchColumnRequested = true
             }
             let missing = try await AppsScriptWriter.setStatus(writer, items: items)
             savingCount -= 1
@@ -840,9 +892,39 @@ final class DeliveryPlanStore: ObservableObject {
             let shows = row.map { r in
                 (p.status.map { PlanGrid.normalized($0) == PlanGrid.normalized(r.value(.qcStatus)) } ?? true)
                     && (p.note.map { PlanGrid.normalized($0) == PlanGrid.normalized(r.value(.qcNote)) } ?? true)
+                    && (p.batch.map { PlanGrid.normalized($0) == PlanGrid.normalized(r.value(.batch)) } ?? true)
             } ?? false
             if expired || shows { pendingQC[key] = nil }
         }
+    }
+
+    /// Dropdown choices for the included tabs, after each full read and when the 10 s check's fingerprint moves
+    /// (validation edits don't move the change counter).
+    private func readLists(tabs: [PlanTab], link: PlanSheetLink) async {
+        guard let writer = config?.writer, (scriptVersion ?? 0) >= 4 else {
+            if !cellLists.isEmpty { cellLists = [:] }
+            return
+        }
+        var lists: [String: [String: [String]]] = [:]
+        for tab in tabs {
+            guard let tabLists = try? await AppsScriptWriter.lists(writer, gid: tab.gid) else { return }   // keep the last
+            if !tabLists.isEmpty { lists[tab.gid] = tabLists }
+        }
+        guard config?.link == link, lists != cellLists else { return }
+        cellLists = lists
+    }
+
+    /// Dropdown choices by the Sheet view's column (0-based), matched by header: the view leaves hidden columns
+    /// out, so the sheet's column numbers can't be used.
+    func listColumns(gid: String) -> [Int: [String]] {
+        guard let lists = cellLists[gid], !lists.isEmpty, let grid = grids[gid] else { return [:] }
+        let headerLine = headers[gid]?.line
+        var out: [Int: [String]] = [:]
+        for column in grid.columnWidths.indices {
+            let name = headerLine.flatMap { grid.text(line: $0, column: column) }.map { PlanGrid.normalized($0).lowercased() } ?? ""
+            if let list = (name.isEmpty ? nil : lists[name]) ?? lists["#\(column)"] { out[column] = list }
+        }
+        return out
     }
 
     /// Asks the script its version (once per session, and after connecting).

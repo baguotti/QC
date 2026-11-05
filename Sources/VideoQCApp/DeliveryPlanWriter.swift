@@ -38,6 +38,7 @@ struct PlanStatusItem: Codable, Equatable, Sendable {
     var status: String? = nil
     var note: String? = nil
     var updated: String? = nil
+    var batch: String? = nil
 }
 
 enum PlanWriteError: LocalizedError {
@@ -61,7 +62,7 @@ enum AppsScriptWriter {
     }
 
     /// The script version this QCpie expects (`ping` reports the deployed one).
-    static let scriptVersion = 3
+    static let scriptVersion = 4
 
     /// The script to paste into the sheet's Extensions → Apps Script.
     static func script(token: String) -> String {
@@ -72,6 +73,8 @@ enum AppsScriptWriter {
         const TOKEN = '\(token)';
         const VERSION = \(scriptVersion);
         const QC = ['QC Status', 'QC Note', 'QC Updated'];
+        // Columns copied to the other tabs listing the same code when edited (QC columns and Batch).
+        const MIRRORED = QC.concat(['Batch']).map(n => n.toLowerCase());
         const STATUSES = \(statusesJS);
 
         function doPost(e) {
@@ -81,12 +84,14 @@ enum AppsScriptWriter {
           const ss = SpreadsheetApp.getActiveSpreadsheet();
           const props = PropertiesService.getDocumentProperties();
           if (req.action === 'ping') return out({ ok: true, id: ss.getId(), title: ss.getName(), version: VERSION });
-          if (req.action === 'changes') return out({ ok: true, counter: Number(props.getProperty('counter') || 0) });
+          if (req.action === 'changes')
+            return out({ ok: true, counter: Number(props.getProperty('counter') || 0), listsSig: listsSignature(ss) });
+          if (req.action === 'lists') return out({ ok: true, lists: lists(ss, req.gid) });
           const lock = LockService.getDocumentLock();
           lock.waitLock(20000);
           try {
             let result;
-            if (req.action === 'columns') result = ensureColumns(ss);
+            if (req.action === 'columns') result = ensureColumns(ss, req.batch ? ['Batch'] : QC);
             else if (req.action === 'status') result = setStatus(ss, req.items || [], null);
             else if (req.action === 'write') result = writeCells(ss, req.gid, req.cells || []);
             else return out({ ok: false, error: 'Update the script: copy it from QCpie again.' });
@@ -106,7 +111,7 @@ enum AppsScriptWriter {
           const sheet = e.range.getSheet();
           const h = header(sheet);
           if (!h || !h.code) return;
-          const qcCols = QC.map(n => h.cols[n.toLowerCase()]).filter(Boolean);
+          const qcCols = MIRRORED.map(n => h.cols[n]).filter(Boolean);
           const r0 = e.range.getRow(), c0 = e.range.getColumn(), nr = e.range.getNumRows(), nc = e.range.getNumColumns();
           if (!qcCols.some(c => c >= c0 && c < c0 + nc) || r0 + nr - 1 <= h.row || nr > 500) return;
           const first = Math.max(r0, h.row + 1);
@@ -127,7 +132,8 @@ enum AppsScriptWriter {
             code: v[h.code - 1],
             status: edited('qc status') ? v[h.cols['qc status'] - 1] : null,
             note: edited('qc note') ? v[h.cols['qc note'] - 1] : null,
-            updated: (edited('qc updated') || edited('qc status')) && h.cols['qc updated'] ? v[h.cols['qc updated'] - 1] : null
+            updated: (edited('qc updated') || edited('qc status')) && h.cols['qc updated'] ? v[h.cols['qc updated'] - 1] : null,
+            batch: edited('batch') ? v[h.cols['batch'] - 1] : null
           })).filter(i => String(i.code).trim() !== '');
           setStatus(SpreadsheetApp.getActiveSpreadsheet(), items, sheet.getSheetId());
         }
@@ -164,13 +170,14 @@ enum AppsScriptWriter {
           return map;
         }
 
-        // Adds the QC columns (at the end) to every tab with a Code column, with the status dropdown.
-        function ensureColumns(ss) {
+        // Adds columns (at the end) to every tab with a Code column that lacks them: the QC columns (with the status
+        // dropdown) or Batch.
+        function ensureColumns(ss, names) {
           let added = 0;
           ss.getSheets().forEach(sheet => {
             let h = header(sheet);
             if (!h) return;
-            QC.forEach(name => {
+            names.forEach(name => {
               if (h.cols[name.toLowerCase()]) return;
               const col = sheet.getLastColumn() + 1;
               if (col > sheet.getMaxColumns()) sheet.insertColumnAfter(sheet.getMaxColumns());
@@ -179,6 +186,8 @@ enum AppsScriptWriter {
               h = header(sheet);
               added++;
             });
+            const batchCol = h.cols['batch'];
+            if (batchCol && sheet.getMaxRows() > h.row) sheet.getRange(h.row + 1, batchCol, sheet.getMaxRows() - h.row, 1).setNumberFormat('@');
             const statusCol = h.cols['qc status'];
             const rows = sheet.getMaxRows() - h.row;
             if (statusCol && rows > 0) {
@@ -202,16 +211,21 @@ enum AppsScriptWriter {
               const rows = byCode[key(item.code)];
               if (!rows) return;
               found[key(item.code)] = true;
-              [['qc status', item.status], ['qc note', item.note], ['qc updated', item.updated]].forEach(([name, value]) => {
+              [['qc status', item.status], ['qc note', item.note], ['qc updated', item.updated], ['batch', item.batch]].forEach(([name, value]) => {
                 const col = h.cols[name];
                 if (!col || value === null || value === undefined) return;
                 rows.forEach(r => {
                   const g = col + '|' + value;
-                  (groups[g] = groups[g] || { value: value, cells: [] }).cells.push(sheet.getRange(r, col).getA1Notation());
+                  (groups[g] = groups[g] || { value: value, cells: [], text: name === 'batch' }).cells.push(sheet.getRange(r, col).getA1Notation());
                 });
               });
             });
-            Object.keys(groups).forEach(g => sheet.getRangeList(groups[g].cells).setValue(groups[g].value));
+            // Batch is written as text: "1.10" must not become the number 1.1.
+            Object.keys(groups).forEach(g => {
+              const list = sheet.getRangeList(groups[g].cells);
+              if (groups[g].text) list.setNumberFormat('@');
+              list.setValue(groups[g].value);
+            });
           });
           return { missing: items.map(i => i.code).filter(c => !found[key(c)]) };
         }
@@ -239,16 +253,48 @@ enum AppsScriptWriter {
             if (c.expect !== undefined && c.expect !== null && norm(current) !== norm(c.expect)) {
               return { row: c.row, col: c.col, ok: false, current: current };
             }
+            if (h && h.cols['batch'] === col) range.setNumberFormat('@');
             range.setValue(c.value);
             const name = h ? Object.keys(h.cols).find(k => h.cols[k] === col) : null;
-            if (c.code && name && QC.map(n => n.toLowerCase()).includes(name)) {
+            if (c.code && name && MIRRORED.includes(name)) {
               const item = { code: c.code };
-              item[{ 'qc status': 'status', 'qc note': 'note', 'qc updated': 'updated' }[name]] = c.value;
+              item[{ 'qc status': 'status', 'qc note': 'note', 'qc updated': 'updated', 'batch': 'batch' }[name]] = c.value;
               setStatus(ss, [item], sheet.getSheetId());
             }
             return { row: c.row, col: c.col, ok: true };
           });
           return { results: results };
+        }
+
+        // Dropdown choices by column, from the data validation of the first row under the header. Keyed by the
+        // column's header (lower case), else '#' + its 0-based index: QCpie's view leaves hidden columns out, so
+        // positions can differ.
+        function lists(ss, gid) {
+          const sheet = ss.getSheets().find(s => String(s.getSheetId()) === String(gid));
+          if (!sheet || sheet.getLastColumn() < 1) return {};
+          const h = header(sheet);
+          const row = h ? h.row + 1 : 2;
+          if (row > sheet.getMaxRows()) return {};
+          const names = h ? sheet.getRange(h.row, 1, 1, sheet.getLastColumn()).getDisplayValues()[0] : [];
+          const result = {};
+          sheet.getRange(row, 1, 1, sheet.getLastColumn()).getDataValidations()[0].forEach((rule, i) => {
+            if (!rule) return;
+            const type = rule.getCriteriaType(), args = rule.getCriteriaValues();
+            let values = null;
+            if (type === SpreadsheetApp.DataValidationCriteria.VALUE_IN_LIST) values = args[0];
+            else if (type === SpreadsheetApp.DataValidationCriteria.VALUE_IN_RANGE)
+              values = args[0].getDisplayValues().reduce((a, r) => a.concat(r), []);
+            if (values) values = values.map(String).filter(v => v.trim() !== '');
+            if (values && values.length) result[key(names[i] || '') || '#' + i] = values;
+          });
+          return result;
+        }
+
+        // A short fingerprint of every tab's dropdown choices: editing a dropdown doesn't count as an edit, so QCpie
+        // compares this on its 10 s check and re-reads the choices only when it changes.
+        function listsSignature(ss) {
+          const all = ss.getSheets().map(s => s.getSheetId() + ':' + JSON.stringify(lists(ss, s.getSheetId()))).join('|');
+          return Utilities.base64Encode(Utilities.computeDigest(Utilities.DigestAlgorithm.MD5, all));
         }
 
         function out(o) {
@@ -267,6 +313,7 @@ enum AppsScriptWriter {
         var gid: String? = nil
         var cells: [PlanCellEdit]? = nil
         var items: [PlanStatusItem]? = nil
+        var batch: Bool? = nil
     }
 
     private struct Response: Decodable {
@@ -278,6 +325,8 @@ enum AppsScriptWriter {
         let counter: Int?
         let results: [PlanCellResult]?
         let missing: [String]?
+        let lists: [String: [String]]?
+        let listsSig: String?
     }
 
     private static let session: URLSession = {
@@ -310,17 +359,28 @@ enum AppsScriptWriter {
 
     /// The script's edit counter: it moves whenever the spreadsheet is edited (in Sheets or through the script).
     static func changeCounter(_ link: PlanWriteLink) async throws -> Int {
-        try await send(link, Request(token: link.token, action: "changes")).counter ?? 0
+        try await changes(link).counter
+    }
+
+    /// The edit counter plus a fingerprint of the dropdown choices (nil before script v4).
+    static func changes(_ link: PlanWriteLink) async throws -> (counter: Int, listsSig: String?) {
+        let response = try await send(link, Request(token: link.token, action: "changes"))
+        return (response.counter ?? 0, response.listsSig)
     }
 
     /// Adds the QC columns (with the status dropdown) to every tab with a Code column that lacks them.
-    static func ensureColumns(_ link: PlanWriteLink) async throws {
-        _ = try await send(link, Request(token: link.token, action: "columns"))
+    static func ensureColumns(_ link: PlanWriteLink, batch: Bool = false) async throws {
+        _ = try await send(link, Request(token: link.token, action: "columns", batch: batch ? true : nil))
     }
 
     /// Writes QC columns by code; returns the codes no tab lists.
     static func setStatus(_ link: PlanWriteLink, items: [PlanStatusItem]) async throws -> [String] {
         try await send(link, Request(token: link.token, action: "status", items: items)).missing ?? []
+    }
+
+    /// Dropdown choices for one tab (script v4), keyed by the column's header in lower case, else "#" + its index.
+    static func lists(_ link: PlanWriteLink, gid: String) async throws -> [String: [String]] {
+        try await send(link, Request(token: link.token, action: "lists", gid: gid)).lists ?? [:]
     }
 
     static func write(_ link: PlanWriteLink, gid: String, cells: [PlanCellEdit]) async throws -> [PlanCellResult] {

@@ -31,6 +31,8 @@ struct ContentView: View {
     @State var planFilesVersion = 0
     /// Inspect's Delivery Plan filter: -1 all, -2 not in the plan, else a `PlanState` raw value.
     @State var inspectPlanFilter = -1
+    /// Inspect's batch filter: nil every batch, "" files whose row has none, else a batch name.
+    @State var inspectPlanBatch: String? = nil
     /// Inspect sorted by the plan: 0 off (column sort), 1 plan order (sheet rows), 2 plan status.
     @State var inspectPlanSort = 0
     @Environment(\.openWindow) var openWindow
@@ -309,14 +311,18 @@ struct ContentView: View {
             .onAppear { InspectPreview.shared.select(specsState.selectedDeliverableURL) }
             // Linked filters (Delivery Plan ⇄ Inspect): Inspect's status chip and search go out, the plan's come in.
             .onChange(of: inspectPlanFilter) { _, state in
-                DeliveryPlanStore.shared.publishFilter(.init(state: state, search: specsState.specsFilterText))
+                DeliveryPlanStore.shared.publishFilter(.init(state: state, search: specsState.specsFilterText, batch: inspectPlanBatch))
+            }
+            .onChange(of: inspectPlanBatch) { _, batch in
+                DeliveryPlanStore.shared.publishFilter(.init(state: inspectPlanFilter, search: specsState.specsFilterText, batch: batch))
             }
             .onChange(of: specsState.specsFilterText) { _, text in
-                DeliveryPlanStore.shared.publishFilter(.init(state: inspectPlanFilter, search: text))
+                DeliveryPlanStore.shared.publishFilter(.init(state: inspectPlanFilter, search: text, batch: inspectPlanBatch))
             }
             .onReceive(DeliveryPlanStore.shared.$sharedFilter) { filter in
                 guard DeliveryPlanStore.shared.linkFilters else { return }
                 if inspectPlanFilter != filter.state { inspectPlanFilter = filter.state }
+                if inspectPlanBatch != filter.batch { inspectPlanBatch = filter.batch }
                 if specsState.specsFilterText != filter.search { specsState.specsFilterText = filter.search }
             }
             .onReceive(DeliveryPlanStore.shared.$fileIndex) { index in

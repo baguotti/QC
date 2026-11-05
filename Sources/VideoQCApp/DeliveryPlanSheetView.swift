@@ -55,6 +55,8 @@ struct DeliveryPlanSheetView: NSViewRepresentable {
     /// The QC Status column: double-clicking it opens `statusMenu` instead of a text field.
     var statusColumn: Int? = nil
     var statusMenu: (_ line: Int) -> NSMenu? = { _ in nil }
+    /// Columns (0-based) with a dropdown in the sheet: double-clicking one offers its choices.
+    var listColumns: [Int: [String]] = [:]
 
     func makeNSView(context: Context) -> PlanSheetContainer { PlanSheetContainer() }
 
@@ -66,6 +68,7 @@ struct DeliveryPlanSheetView: NSViewRepresentable {
         view.onEditUnavailable = onEditUnavailable
         view.statusColumn = statusColumn
         view.statusMenu = statusMenu
+        if view.listColumns != listColumns { view.listColumns = listColumns }
         view.update(grid: grid, shownLines: shownLines, zoom: zoom, marks: marks, selectedLines: selectedLines, chrome: chrome)
         view.scroll(to: scrollToLine, token: scrollToken)
     }
@@ -141,6 +144,8 @@ struct PlanSheetLayout {
 /// Draws sheet rows. Fonts and paragraph styles are cached per size/weight.
 final class PlanSheetPainter {
     private var fonts: [String: NSFont] = [:]
+    /// Columns drawn with Sheets' dropdown chevron (body rows only).
+    var dropdownColumns: Set<Int> = []
     private static let gridline = NSColor(white: 0, alpha: 0.15)   // design-ok: Google Sheets' own gridline colour
 
     static func color(_ rgb: UInt32) -> NSColor {
@@ -174,7 +179,8 @@ final class PlanSheetPainter {
     }
 
     /// One sheet row with its top-left at `origin`; `clip` limits the columns worth drawing.
-    func draw(_ grid: PlanGrid, row index: Int, origin: CGPoint, height: CGFloat, layout: PlanSheetLayout, clip: CGRect) {
+    func draw(_ grid: PlanGrid, row index: Int, origin: CGPoint, height: CGFloat, layout: PlanSheetLayout, clip: CGRect,
+              dropdowns: Bool = false) {
         let row = grid.rows[index]
         let x = layout.columnX
         let zoom = layout.zoom
@@ -248,9 +254,42 @@ final class PlanSheetPainter {
             }
             NSGraphicsContext.saveGraphicsState()
             NSBezierPath(rect: rect).addClip()
-            text.draw(with: CGRect(x: inner.minX, y: y, width: style.wrap ? inner.width : max(inner.width, 10_000), height: textHeight),
-                      options: [.usesLineFragmentOrigin])
+            // Unwrapped text gets a wide box so it never breaks; the box is placed so its alignment lands on the cell's
+            // (a left-anchored 10,000 pt box put centred text 5,000 pt to the right, outside the cell).
+            let box: CGRect
+            if style.wrap {
+                box = CGRect(x: inner.minX, y: y, width: inner.width, height: textHeight)
+            } else {
+                let wide: CGFloat = 10_000
+                let left: CGFloat
+                switch style.align {
+                case .left: left = inner.minX
+                case .center: left = inner.midX - wide / 2
+                case .right: left = inner.maxX - wide
+                }
+                box = CGRect(x: left, y: y, width: wide, height: textHeight)
+            }
+            text.draw(with: box, options: [.usesLineFragmentOrigin])
             NSGraphicsContext.restoreGraphicsState()
+        }
+        if dropdowns, !dropdownColumns.isEmpty { drawChevrons(origin: origin, height: height, layout: layout, clip: clip) }
+    }
+
+    /// Sheets' ▾ at the right of each dropdown cell.
+    private func drawChevrons(origin: CGPoint, height: CGFloat, layout: PlanSheetLayout, clip: CGRect) {
+        let x = layout.columnX
+        let size = 4 * layout.zoom
+        NSColor(white: 0.45, alpha: 1).setFill()   // design-ok: Sheets' own chevron grey
+        for column in dropdownColumns where column + 1 < x.count {
+            let right = origin.x + x[column + 1] - 6 * layout.zoom
+            guard right >= clip.minX, right - size * 2 <= clip.maxX else { continue }
+            let midY = origin.y + height / 2
+            let path = NSBezierPath()
+            path.move(to: CGPoint(x: right - size * 2, y: midY - size / 2))
+            path.line(to: CGPoint(x: right, y: midY - size / 2))
+            path.line(to: CGPoint(x: right - size, y: midY + size / 2))
+            path.close()
+            path.fill()
         }
     }
 }
@@ -265,6 +304,9 @@ final class PlanSheetContainer: NSView, NSTextFieldDelegate {
     var onEditUnavailable: (() -> Void)?
     var statusColumn: Int?
     var statusMenu: ((Int) -> NSMenu?)?
+    var listColumns: [Int: [String]] = [:] {
+        didSet { painter.dropdownColumns = Set(listColumns.keys); body.needsDisplay = true }
+    }
     private var editor: NSTextField?
     private var editing: (line: Int, column: Int, old: String)?
 
@@ -385,6 +427,25 @@ final class PlanSheetContainer: NSView, NSTextFieldDelegate {
         if column == statusColumn, let menu = statusMenu?(line) {
             endEditor(commit: true)
             onSelect?(line, 1)
+            let x = layout.columnX[column], y = layout.bodyY[row + 1]
+            menu.popUp(positioning: nil, at: CGPoint(x: x, y: y), in: body)
+            return
+        }
+        if let options = listColumns[column] {
+            endEditor(commit: true)
+            onSelect?(line, 1)
+            let current = grid.cell(line: line, column: column).map { grid.rows[$0.0].cells[$0.1].text } ?? ""
+            let menu = NSMenu()
+            for option in options {
+                menu.addItem(option) { [weak self] in
+                    if PlanGrid.normalized(option) != PlanGrid.normalized(current) { self?.onEdit?(line, column, current, option) }
+                }
+                if PlanGrid.normalized(option) == PlanGrid.normalized(current) { menu.items.last?.state = .on }
+            }
+            if !current.isEmpty {
+                menu.addItem(.separator())
+                menu.addItem("Clear") { [weak self] in self?.onEdit?(line, column, current, "") }
+            }
             let x = layout.columnX[column], y = layout.bodyY[row + 1]
             menu.popUp(positioning: nil, at: CGPoint(x: x, y: y), in: body)
             return
@@ -517,7 +578,7 @@ final class PlanSheetBody: PlanSheetPart {
         for i in layout.bodyRows(from: dirtyRect.minY, to: dirtyRect.maxY) {
             let y = layout.bodyY[i]
             container.painter.draw(grid, row: layout.body[i], origin: CGPoint(x: 0, y: y),
-                                   height: layout.bodyY[i + 1] - y, layout: layout, clip: dirtyRect)
+                                   height: layout.bodyY[i + 1] - y, layout: layout, clip: dirtyRect, dropdowns: true)
         }
         if let chrome = container.chrome, !container.selectedLines.isEmpty {
           for i in layout.bodyRows(from: dirtyRect.minY, to: dirtyRect.maxY) where container.selectedLines.contains(grid.rows[layout.body[i]].line) {

@@ -283,4 +283,16 @@ extension DeliveryPlanTests {
         #expect(rows.map(\.name) == ["A_15s_KL0001", "B_15s"])
         #expect(rows[1].section == "NEW SECTION" && rows[1].code == nil)
     }
+
+    @Test("Batches sort naturally and are never part of matching or changes")
+    func batches() {
+        #expect(PlanBatch.sorted(["2", "1.10", "1", "10", "1.2", "Final", " 1 "]) == ["1", "1.2", "1.10", "2", "10", "Final"])
+        #expect(PlanBatch.title("1.1") == "Batch 1.1" && PlanBatch.title("Final") == "Final")
+        #expect(PlanBatch.next(after: ["1", "2.1"]) == "3" && PlanBatch.next(after: []) == "1")
+        #expect(PlanField.detect("Batch") == .batch && PlanField.batch.isTracking && !PlanField.batch.isQC)
+        let a = PlanParser.rows(csv: "Code,File Name,Resolution,Length,Batch\nKL0001,A_KL0001,1920x1080,15s,1\n", tab: "T")
+        let b = PlanParser.rows(csv: "Code,File Name,Resolution,Length,Batch\nKL0001,A_KL0001,1920x1080,15s,2\n", tab: "T")
+        #expect(a[0].value(.batch) == "1" && a[0].id == b[0].id)
+        #expect(a[0].matchSignature == b[0].matchSignature && a[0].content == b[0].content)
+    }
 }
