@@ -43,7 +43,7 @@ If two existing styles conflict and neither is clearly the standard, ask the use
 - `SleeveToggle(side:isOpen:isLightMode:help:action:)`: the only chevron for showing and hiding a side panel. It is placed in the header band (leading for the left panel, trailing for the drawer) and animates with `Motion.sleeve`.
 - `DrawerCloseButton`: the ✕ next to a drawer's tab pill.
 - `TransportIconButtonStyle`: icon buttons in headers and transport bars. `ToolHover` (`FrameIOBrowserView.swift`): Finder-style toolbar buttons inside the Frame.io browser.
-- `PlanFilterChip` (`DeliveryPlanPanel.swift`): status-dot filter chips with counts (Delivery Plan and Inspect).
+- Plan filter bar (`DeliveryPlanPanel.swift`, Delivery Plan and Inspect): `PlanProgressMeter` (slim bar + %), `PlanFilterChip` (dot, title, quieter count; no box, the selected one on a `bgSubtle` `Radius.segment` via `planBarItem`), `PlanBarDivider` (hairline), `PlanBarMenuLabel` (text + small chevron, optional alert dot) for the Batch and Frame.io menus, and the bare link icon. No bordered boxes in this bar.
 - `PanelResizeHandle`, `.headerBand`, `.studioBox`, `sectionHeader`, `statBox`, `MediaInfoPanel`, `SidebarModalShell` (settings-style modals).
 - Feedback: `showToast` / `onToast` for results ("Copied link", "3 files queued"). An `NSAlert` sheet for anything destructive, where Return cancels and the destructive button names the action. Empty states have a title and one sentence saying what to do (see `MediaInfoPanel`'s `emptyTitle`/`emptyMessage`).
 

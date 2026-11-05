@@ -89,7 +89,7 @@ enum AppsScriptWriter {
           const props = PropertiesService.getDocumentProperties();
           if (req.action === 'ping') return out({ ok: true, id: ss.getId(), title: ss.getName(), version: VERSION });
           if (req.action === 'changes')
-            return out({ ok: true, counter: Number(props.getProperty('counter') || 0), listsSig: listsSignature(ss) });
+            return out({ ok: true, counter: Number(props.getProperty('counter') || 0), listsSig: cachedListsSignature(ss) });
           if (req.action === 'lists') return out({ ok: true, lists: lists(ss, req.gid) });
           const lock = LockService.getDocumentLock();
           lock.waitLock(20000);
@@ -299,6 +299,18 @@ enum AppsScriptWriter {
 
         // A short fingerprint of every tab's dropdown choices: editing a dropdown doesn't count as an edit, so QCpie
         // compares this on its 10 s check and re-reads the choices only when it changes.
+        // QCpie asks every 10 s; reading every tab's validations each time would spend the script's daily run-time
+        // quota (90 min on free accounts) on a plan left open all day. Recomputed at most once a minute.
+        function cachedListsSignature(ss) {
+          const cache = CacheService.getDocumentCache();
+          let sig = cache.get('listsSig');
+          if (!sig) {
+            sig = listsSignature(ss);
+            cache.put('listsSig', sig, 60);
+          }
+          return sig;
+        }
+
         function listsSignature(ss) {
           const all = ss.getSheets().map(s => s.getSheetId() + ':' + JSON.stringify(lists(ss, s.getSheetId()))).join('|');
           return Utilities.base64Encode(Utilities.computeDigest(Utilities.DigestAlgorithm.MD5, all));
@@ -339,7 +351,8 @@ enum AppsScriptWriter {
 
     private static let session: URLSession = {
         let configuration = URLSessionConfiguration.ephemeral
-        configuration.timeoutIntervalForRequest = 30
+        // Apps Script can take a while (a cold start, a group of 100 rows): a 30 s limit reported writes that landed.
+        configuration.timeoutIntervalForRequest = 90
         return URLSession(configuration: configuration)
     }()
 

@@ -653,12 +653,35 @@ final class FrameIOCommentSync: ObservableObject {
         }
     }
 
-    private func crawlFavourites() async {
-        guard await FrameIO.shared.isSignedIn else { return }
+    private var crawling = false
+
+    /// The plan's Find Frame.io Links: the favourites scan now, plus the projects in `projects` (ids of projects the
+    /// plan's links already point to). False when signed out or a scan is already running.
+    func scanNow(projects: Set<String>) async -> Bool {
+        guard !crawling, await FrameIO.shared.isSignedIn else { return false }
+        var extra: [(account: String, folder: String)] = []
+        if !projects.isEmpty, let accounts = try? await FrameIO.shared.accounts() {
+            for project in projects {
+                for account in accounts {
+                    if let root = (try? await FrameIO.shared.item(account: account.id, kind: "projects", id: project))?.rootFolderID {
+                        extra.append((account.id, root))
+                        break
+                    }
+                }
+            }
+        }
+        await crawlFavourites(extra: extra)
+        return true
+    }
+
+    private func crawlFavourites(extra: [(account: String, folder: String)] = []) async {
+        guard !crawling, await FrameIO.shared.isSignedIn else { return }
+        crawling = true
+        defer { crawling = false }
         var queue: [(account: String, folder: String)] = FrameIOBrowser.shared.favourites.compactMap { favourite in
             guard let account = favourite.path.first?.id, let folder = favourite.path.last?.listedFolder else { return nil }
             return (account, folder)
-        }
+        } + extra
         var visited = Set<String>()
         var newVersions: [(stack: String, file: String)] = []
         while !queue.isEmpty, visited.count < 400, !Task.isCancelled {

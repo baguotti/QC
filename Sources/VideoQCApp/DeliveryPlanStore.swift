@@ -739,7 +739,9 @@ final class DeliveryPlanStore: ObservableObject {
                     state.upload = .stale
                     state.flags.append("Changed after its upload to Frame.io (\(uploadedOn)): Frame.io has an older version.")
                 }
-                if !state.state.isDone, state.state != .dropped, state.state != .onHold {
+                // Only for rows checked here (a file on this Mac, or marked Needs Fix): on a machine without the files a
+                // linked row is just Missing locally, not uploaded too early.
+                if [.toQC, .check, .wrongSpec, .needsFix].contains(state.state), !result.files.isEmpty || state.state == .needsFix {
                     state.flags.append("On Frame.io before passing QC.")
                 }
             }
@@ -893,10 +895,12 @@ final class DeliveryPlanStore: ObservableObject {
             }
         }
         guard let url else { return }
-        queueQC(rows(withCode: code), quiet: true) { item in
+        // Uploads finish one file at a time: one recompute for a burst, not one per file (main thread, maybe playback).
+        queueQC(rows(withCode: code), quiet: true, refresh: false) { item in
             item.frameio = url
             item.uploaded = Self.uploadStamp(Date())
         }
+        scheduleRecompute()
     }
 
     /// Files listed on Frame.io (the browser, the favourites crawl): a row without a link gets the file whose name holds
@@ -909,40 +913,169 @@ final class DeliveryPlanStore: ObservableObject {
             Task { await self.loadCachedIfNeeded(); if !self.rows.isEmpty { self.frameIOListed(items) } }
             return
         }
-        guard hasFrameIOColumn, !rows.isEmpty else { return }
+        // Found while browsing: only into a sheet that already has the column. Find Frame.io Links may add it.
+        guard hasFrameIOColumn || searchingLinks, !rows.isEmpty else { return }
         // Only into a script known to write the Frame.io column (an older one answers "ok" and drops it). Listings can
         // come before any plan panel has asked the script its version (browsing in the Upload tab): ask, then go on.
         guard (scriptVersion ?? 0) >= 4 else {
             if scriptVersion == nil { Task { if await self.trackingWritable() { self.frameIOListed(items) } } }
             return
         }
-        var found: [String: (item: FrameIO.Item, count: Int)] = [:]
+        // Candidates per code: files whose name holds the code, plus files named exactly like a row without its code
+        // ("…_20s" for "…_20s_KL0140") or exactly like the local file matched to the row: names without a code.
+        let names = exactNameIndex()
+        var candidates: [String: [FrameIO.Item]] = [:]
         for item in items where !item.isFolder && item.viewURL != nil {
-            let name = item.isVersionStack ? (item.headVersion?.name ?? item.title) : item.title
-            for code in codes(inFileNamed: name) { found[code] = (item, (found[code]?.count ?? 0) + 1) }
+            let name = Self.listedName(item)
+            var codes = codes(inFileNamed: name)
+            if codes.isEmpty {
+                // The local file matched to a row settles look-alike names; else the row's name without its code, if
+                // only one row has it.
+                let key = Self.nameKey(name)
+                if let local = names.local[key], local.count == 1 { codes = local }
+                else if let bare = names.bare[key], bare.count == 1 { codes = bare }
+            }
+            for code in codes { candidates[code, default: []].append(item) }
         }
         var queued = false
-        for (code, entry) in found where entry.count == 1 {
+        for (code, files) in candidates {
             let targets = rows(withCode: code)
-            guard !targets.isEmpty, targets.allSatisfy({ frameioLink($0).isEmpty }), let url = entry.item.viewURL else { continue }
+            guard !targets.isEmpty, targets.allSatisfy({ frameioLink($0).isEmpty }) else { continue }
             // The code alone could be another project's (codes repeat across campaigns): the file's name must also hold
-            // the row's name (it ends with the code), or be the name of the local file matched to the row.
-            let name = entry.item.isVersionStack ? (entry.item.headVersion?.name ?? entry.item.title) : entry.item.title
-            let fileTokens = PlanMatcher.tokens((name as NSString).deletingPathExtension)
-            let named = targets.contains { row in
-                PlanMatcher.contains(fileTokens, PlanMatcher.tokens(row.name))
-                    || match.result(row).files.contains { $0.lastPathComponent.caseInsensitiveCompare(name) == .orderedSame }
+            // the row's name (it ends with the code), be the row's name without the code, or be the name of the local
+            // file matched to the row.
+            func fits(_ item: FrameIO.Item, exactly: Bool) -> Bool {
+                let name = Self.listedName(item)
+                let key = Self.nameKey(name)
+                return targets.contains { row in
+                    let rowKey = Self.nameKey(row.name)
+                    let local = match.result(row).files.contains { $0.lastPathComponent.caseInsensitiveCompare(name) == .orderedSame }
+                    if exactly { return key == rowKey || key == Self.nameKey(Self.strippingCode(row)) || local }
+                    return PlanMatcher.contains(PlanMatcher.tokens(key), PlanMatcher.tokens(rowKey)) || key == Self.nameKey(Self.strippingCode(row)) || local
+                }
             }
-            guard named else { continue }
-            let date = entry.item.createdDate
-            queueQC(targets, quiet: true, refresh: false) { item in
-                item.frameio = url
-                if let date, targets.allSatisfy({ self.shown(.uploaded, $0).isEmpty }) { item.uploaded = Self.uploadStamp(date) }
+            // One file: it must fit. Several (a "_v2" beside the original): only one named exactly like the row.
+            let chosen: FrameIO.Item?
+            if files.count == 1 { chosen = fits(files[0], exactly: false) ? files[0] : nil } else {
+                let exact = files.filter { fits($0, exactly: true) }
+                chosen = exact.count == 1 ? exact[0] : nil
             }
+            guard let item = chosen, let url = item.viewURL else { continue }
+            let date = Self.listedDate(item)
+            queueQC(targets, quiet: true, refresh: false) { entry in
+                entry.frameio = url
+                if let date, targets.allSatisfy({ self.shown(.uploaded, $0).isEmpty }) { entry.uploaded = Self.uploadStamp(date) }
+            }
+            queued = true
+        }
+        // Rows already linked to a listed version stack: a version added since (on Frame.io, by anyone) moves Uploaded
+        // on, so a local file exported before it isn't flagged as newer than Frame.io's.
+        for item in items where item.isVersionStack {
+            guard let url = item.viewURL, let updated = Self.listedDate(item) else { continue }
+            let linked = rows.filter { $0.code != nil && frameioLink($0) == PlanGrid.normalized(url) }
+            guard !linked.isEmpty else { continue }
+            let recorded = linked.compactMap { PlanUpload.date(shown(.uploaded, $0)) }.max()
+            guard recorded.map({ updated > $0.addingTimeInterval(60) }) ?? true else { continue }
+            queueQC(linked, quiet: true, refresh: false) { entry in entry.uploaded = Self.uploadStamp(updated) }
             queued = true
         }
         // One recompute and redraw for the whole listing, not one per row.
         if queued { recomputeStates(); publishGrids() }
+    }
+
+    /// When a listed item last reached Frame.io: a file's creation; a stack's last change (its newest version).
+    nonisolated static func listedDate(_ item: FrameIO.Item) -> Date? {
+        item.isVersionStack ? (item.updatedDate ?? item.createdDate) : item.createdDate
+    }
+
+    private var recomputeTask: Task<Void, Never>?
+    /// States and grids once, 0.3 s after the last of a burst of automatic writes.
+    private func scheduleRecompute() {
+        recomputeTask?.cancel()
+        recomputeTask = Task {
+            try? await Task.sleep(for: .milliseconds(300))
+            guard !Task.isCancelled else { return }
+            recomputeStates()
+            publishGrids()
+        }
+    }
+
+    /// A listed file's name (stacks: their current version's).
+    nonisolated static func listedName(_ item: FrameIO.Item) -> String {
+        item.isVersionStack ? (item.headVersion?.name ?? item.title) : item.title
+    }
+
+    /// A name compared without extension, case or separators ("A_20s.mp4" = "a 20s").
+    nonisolated static func nameKey(_ name: String) -> String {
+        PlanMatcher.tokens((name as NSString).deletingPathExtension).joined(separator: " ")
+    }
+
+    /// The row's name without its code at the end ("…_20s_KL0140" → "…_20s").
+    nonisolated static func strippingCode(_ row: PlanRow) -> String {
+        guard let code = row.code, !code.isEmpty else { return row.name }
+        let tokens = PlanMatcher.tokens(row.name), codeTokens = PlanMatcher.tokens(code)
+        guard tokens.count > codeTokens.count, Array(tokens.suffix(codeTokens.count)) == codeTokens else { return row.name }
+        return tokens.dropLast(codeTokens.count).joined(separator: " ")
+    }
+
+    /// Exact names that point at rows, by `nameKey`: the local files matched to them (`local`) and their names without
+    /// the code (`bare`). Kept apart: a local match settles a name several rows share without their codes. Built once
+    /// per set of rows and match.
+    private var nameIndex: (rows: Int, match: Int, local: [String: Set<String>], bare: [String: Set<String>])?
+    private func exactNameIndex() -> (local: [String: Set<String>], bare: [String: Set<String>]) {
+        if let nameIndex, nameIndex.rows == rowsVersion, nameIndex.match == matchRevision { return (nameIndex.local, nameIndex.bare) }
+        var local: [String: Set<String>] = [:], bare: [String: Set<String>] = [:]
+        for row in rows {
+            guard let code = row.code?.lowercased(), !code.isEmpty else { continue }
+            bare[Self.nameKey(Self.strippingCode(row)), default: []].insert(code)
+            for url in match.result(row).files { local[Self.nameKey(url.lastPathComponent), default: []].insert(code) }
+        }
+        nameIndex = (rowsVersion, matchRevision, local, bare)
+        return (local, bare)
+    }
+
+    /// Find Frame.io Links (the plan's ••• menu): what it's doing or found, shown in the status line for a while.
+    @Published private(set) var linkSearch: String?
+    private var searchingLinks = false
+
+    /// Scans the Frame.io favourites and the projects the plan's links already point to now, instead of waiting for the
+    /// 30-minute background scan; rows without a link get one as listings come in (the same rules as browsing).
+    func findFrameIOLinks() async {
+        guard !searchingLinks else { return }
+        guard await trackingWritable() else {
+            showLinkSearch("Set up or update the sheet's script first (••• menu).")
+            return
+        }
+        searchingLinks = true
+        defer { searchingLinks = false }
+        let before = linkedCodes()
+        let link = config?.link
+        linkSearch = "Looking on Frame.io…"
+        let projects = Set(rows.compactMap { row -> String? in
+            let link = frameioLink(row)
+            return link.isEmpty ? nil : (try? FrameIOLink.parse(link))?.project
+        })
+        let ran = await FrameIOCommentSync.shared.scanNow(projects: projects)
+        try? await Task.sleep(for: .milliseconds(500))   // the last listings reach the plan on the main actor
+        guard config?.link == link else { linkSearch = nil; return }   // another sheet was linked meanwhile
+        let found = linkedCodes().subtracting(before).count
+        showLinkSearch(!ran ? "Sign in to Frame.io (Upload tab), or wait for the scan already running."
+                       : found == 0 ? "No new Frame.io links found." : "Found \(found) Frame.io link\(found == 1 ? "" : "s").")
+    }
+
+    private func linkedCodes() -> Set<String> {
+        Set(rows.compactMap { row in frameioLink(row).isEmpty ? nil : row.code?.lowercased() })
+    }
+
+    private var linkSearchClear: Task<Void, Never>?
+    private func showLinkSearch(_ text: String) {
+        linkSearch = text
+        linkSearchClear?.cancel()
+        linkSearchClear = Task {
+            try? await Task.sleep(for: .seconds(8))
+            guard !Task.isCancelled else { return }
+            linkSearch = nil
+        }
     }
 
     /// A linked file answered 404 to a comment check: if Frame.io confirms it's gone (a second 404 for the file itself),
@@ -994,7 +1127,7 @@ final class DeliveryPlanStore: ObservableObject {
             if found == nil { found = try? await FrameIO.shared.item(account: account.id, kind: "version_stacks", id: asset) }
             guard let item = found, let url = item.viewURL else { continue }
             let ids = Set(rowIDs)
-            let date = item.createdDate
+            let date = Self.listedDate(item)
             queueQC(rows.filter { ids.contains($0.id) }) { entry in
                 entry.frameio = url
                 if let date { entry.uploaded = Self.uploadStamp(date) }
@@ -1118,15 +1251,25 @@ final class DeliveryPlanStore: ObservableObject {
                 try await AppsScriptWriter.ensureColumns(writer, names: needed.map(\.title))
                 requestedColumns.formUnion(needed)
             }
-            let missing = try await AppsScriptWriter.setStatus(writer, items: items)
-            for item in items where (pendingQC[item.code.lowercased()]?.since ?? .distantFuture) <= started {
-                pendingQC[item.code.lowercased()]?.sent = true
+            // Groups of 100 rows: one call with hundreds (a big delivery's links) can outlast the request timeout while
+            // the script is still writing. A failed group fails only itself and those after it.
+            var missing: [String] = []
+            var start = 0
+            while start < items.count {
+                let chunk = Array(items[start..<min(start + 100, items.count)])
+                missing += try await AppsScriptWriter.setStatus(writer, items: chunk)
+                for item in chunk where (pendingQC[item.code.lowercased()]?.since ?? .distantFuture) <= started {
+                    pendingQC[item.code.lowercased()]?.sent = true
+                }
+                start += chunk.count
             }
             savingCount -= 1
             editState = missing.isEmpty ? .saved : .failed("Not saved for \(missing.count) code\(missing.count == 1 ? "" : "s") no tab lists: \(missing.prefix(3).joined(separator: ", ")).")
         } catch {
             savingCount -= 1
-            for item in items where (pendingQC[item.code.lowercased()]?.since ?? .distantFuture) <= started {
+            // Groups already written keep their pending state (marked sent); the rest go back to what the sheet shows.
+            for item in items where (pendingQC[item.code.lowercased()]?.since ?? .distantFuture) <= started
+                && pendingQC[item.code.lowercased()]?.sent != true {
                 pendingQC[item.code.lowercased()] = nil
             }
             recomputeStates()

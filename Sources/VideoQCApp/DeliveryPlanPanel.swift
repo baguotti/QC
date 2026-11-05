@@ -246,6 +246,12 @@ struct DeliveryPlanPanel: View {
                 } else {
                     Button("Set Up Editing…") { showEditSetup = true }
                 }
+                if store.canEdit {
+                    Button("Find Frame.io Links") { Task { await store.findFrameIOLinks() } }
+                        .disabled(store.linkSearch == "Looking on Frame.io…")
+                }
+                Toggle("Link Filters with Inspect", isOn: Binding(get: { store.linkFilters },
+                                                                  set: { _ in store.toggleLinkFilters(from: currentFilter) }))
                 Button("Link Another Sheet…") { relinking = true }
                 Divider()
                 Button("Unlink Sheet", role: .destructive) { store.unlink() }
@@ -345,6 +351,9 @@ struct DeliveryPlanPanel: View {
         case .failed(let message):
             Text(message).font(.ui(size: 10)).foregroundColor(palette.negative).lineLimit(3)
         }
+        if let search = store.linkSearch {
+            Text(search).font(.ui(size: 10)).foregroundColor(palette.textSubtle).lineLimit(2)
+        }
         if !store.unreadTabs.isEmpty {
             Text("No header row found in: \(store.unreadTabs.joined(separator: ", "))")
                 .font(.ui(size: 10)).foregroundColor(palette.textSubtle).lineLimit(2)
@@ -356,37 +365,34 @@ struct DeliveryPlanPanel: View {
         let changed = store.changes.count
         let done = PlanState.allCases.filter(\.isDone).reduce(0) { $0 + (counts[$1] ?? 0) }
         let live = total - (counts[.dropped] ?? 0)
-        return FlowChips(spacing: 4) {
-            Text(live > 0 ? "\(Int((Double(done) / Double(live) * 100).rounded(.down)))% done" : "")
-                .font(.ui(size: 10, weight: .semibold))
-                .foregroundColor(palette.positive)
-                .monospacedDigit()
-                .padding(.vertical, 3)
-            chip("All \(total)", selected: statusFilter == nil && !changedOnly, color: palette.textMuted) {
+        return FlowChips(spacing: 2) {
+            if live > 0 { PlanProgressMeter(done: done, live: live, isLightMode: isLightMode) }
+            chip("All", count: total, selected: statusFilter == nil && !changedOnly, color: nil) {
                 statusFilter = nil; changedOnly = false
             }
             ForEach(PlanState.allCases, id: \.self) { status in
                 let n = counts[status] ?? 0
                 if n > 0 || status == .missing {
-                    chip("\(status.title) \(n)", selected: statusFilter == status, color: color(status)) {
+                    chip(status.title, count: n, selected: statusFilter == status, color: color(status)) {
                         statusFilter = statusFilter == status ? nil : status
                         changedOnly = false
                     }
                 }
             }
             if changed > 0 {
-                chip("Changed \(changed)", selected: changedOnly, color: palette.accentBlue) {
+                chip("Changed", count: changed, selected: changedOnly, color: palette.accentBlue) {
                     changedOnly.toggle(); statusFilter = nil
                 }
             }
+            PlanBarDivider(isLightMode: isLightMode)
             // Also while their filter is on (set from Inspect through the link): a hidden active filter hides rows silently.
             if store.hasBatchColumn || !store.batches.isEmpty || batchFilter != nil { batchFilterMenu }
             if store.hasFrameIOColumn || uploadFilter != nil {
                 let counts = store.planCounts.uploads
                 PlanUploadFilter(none: counts.none, on: counts.on, stale: counts.stale, selection: $uploadFilter, isLightMode: isLightMode)
             }
-            LinkFiltersButton(isLightMode: isLightMode) { currentFilter }
         }
+        .planBarLinkMenu { currentFilter }
     }
 
     /// Batches with their row counts and % done (QC Passed, Approved, Delivered of rows not dropped).
@@ -394,8 +400,8 @@ struct DeliveryPlanPanel: View {
         PlanBatchFilter(items: store.planCounts.batches, unbatched: store.planCounts.unbatched, selection: $batchFilter, isLightMode: isLightMode)
     }
 
-    private func chip(_ title: String, selected: Bool, color: Color, action: @escaping () -> Void) -> some View {
-        PlanFilterChip(title: title, selected: selected, color: color, isLightMode: isLightMode, action: action)
+    private func chip(_ title: String, count: Int, selected: Bool, color: Color?, action: @escaping () -> Void) -> some View {
+        PlanFilterChip(title: title, count: count, selected: selected, color: color, isLightMode: isLightMode, action: action)
     }
 
     private var searchBar: some View {
@@ -1416,8 +1422,10 @@ struct PlanCheckProgressStrip: View {
 /// A filter chip (plan and Inspect): status dot, title with count; selected = filled.
 struct PlanFilterChip: View {
     let title: String
+    var count: Int? = nil
     let selected: Bool
-    let color: Color
+    /// The status colour; nil for "All" (no dot).
+    let color: Color?
     let isLightMode: Bool
     let action: () -> Void
 
@@ -1425,45 +1433,118 @@ struct PlanFilterChip: View {
         let palette = StudioPalette(isLightMode)
         Button(action: action) {
             HStack(spacing: 4) {
-                Circle().fill(color).frame(width: 6, height: 6)
+                if let color { Circle().fill(color).frame(width: 5, height: 5) }
                 Text(title)
                     .font(.ui(size: 10, weight: selected ? .semibold : .medium))
-                    .monospacedDigit()
                     .foregroundColor(selected ? palette.textMain : palette.textMuted)
+                if let count {
+                    Text("\(count)")
+                        .font(.ui(size: 10, weight: .medium))
+                        .monospacedDigit()
+                        .foregroundColor(selected ? palette.textMuted : palette.textSubtle)
+                }
             }
-            .padding(.horizontal, 7)
-            .padding(.vertical, 3)
-            .background(RoundedRectangle(cornerRadius: Radius.control).fill(selected ? palette.bgSubtle : Color.clear))
-            .overlay(RoundedRectangle(cornerRadius: Radius.control).stroke(selected ? palette.borderStrong : palette.borderLine, lineWidth: 1))
-            .contentShape(Rectangle())
+            .planBarItem(selected: selected, palette: palette)
         }
         .buttonStyle(.plain)
     }
 }
 
-/// Links the plan's and Inspect's filters (status chip + search). Accent when on.
-struct LinkFiltersButton: View {
+extension View {
+    /// The filter bar's items: no box; the selected one sits on a soft segment.
+    func planBarItem(selected: Bool, palette: StudioPalette) -> some View {
+        self
+            .padding(.horizontal, 6)
+            .padding(.vertical, 3)
+            .background(RoundedRectangle(cornerRadius: Radius.segment).fill(selected ? palette.bgSubtle : Color.clear))
+            .contentShape(Rectangle())
+    }
+}
+
+/// "% done" as a slim bar and a figure (QC Passed, Approved, Delivered of everything not dropped).
+struct PlanProgressMeter: View {
+    let done: Int
+    let live: Int
     let isLightMode: Bool
-    let current: () -> DeliveryPlanStore.SharedFilter
+
+    var body: some View {
+        let palette = StudioPalette(isLightMode)
+        let fraction = live > 0 ? Double(done) / Double(live) : 0
+        HStack(spacing: 5) {
+            ZStack(alignment: .leading) {
+                RoundedRectangle(cornerRadius: Radius.control).fill(palette.bgSubtle)
+                RoundedRectangle(cornerRadius: Radius.control).fill(palette.positive).frame(width: 36 * fraction)
+            }
+            .frame(width: 36, height: 3)
+            Text("\(Int((fraction * 100).rounded(.down)))%")
+                .font(.ui(size: 10, weight: .semibold))
+                .monospacedDigit()
+                .foregroundColor(palette.textMuted)
+        }
+        .padding(.trailing, 4)
+        .padding(.vertical, 3)
+        .tip("\(done) of \(live) done (QC Passed, Approved or Delivered; dropped rows don't count).")
+    }
+}
+
+/// Between the status filters and the menus: a hairline, or while the plan's and Inspect's filters are linked, a small
+/// chain in its place (click to unlink). Linking is switched on from the ••• menu or a right-click on the bar.
+struct PlanBarDivider: View {
+    let isLightMode: Bool
     @ObservedObject private var store = DeliveryPlanStore.shared
 
     var body: some View {
         let palette = StudioPalette(isLightMode)
-        Button { store.toggleLinkFilters(from: current()) } label: {
-            Image(systemName: "link")
-                .font(.system(size: StudioTheme.scaleFont(10), weight: store.linkFilters ? .bold : .regular))
-                .foregroundColor(store.linkFilters ? palette.accentBlue : palette.textMuted)
-                .padding(.horizontal, 6)
-                .padding(.vertical, 3)
-                .background(RoundedRectangle(cornerRadius: Radius.control).fill(store.linkFilters ? palette.accentBlue.opacity(0.15) : Color.clear))
-                .overlay(RoundedRectangle(cornerRadius: Radius.control).stroke(store.linkFilters ? palette.accentBlue : palette.borderLine, lineWidth: 1))
-                .contentShape(Rectangle())
+        if store.linkFilters {
+            Button { store.toggleLinkFilters(from: .init()) } label: {
+                Image(systemName: "link")
+                    .font(.system(size: StudioTheme.scaleFont(8), weight: .semibold))
+                    .foregroundColor(palette.accentBlue.opacity(0.8))
+                    .padding(.horizontal, 4)
+                    .padding(.vertical, 4)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .tip("Filters are linked with Inspect (or the plan): status, batch, Frame.io and search follow each other. Click to unlink.")
+        } else {
+            Rectangle().fill(palette.borderLine).frame(width: 1, height: 12).padding(.horizontal, 4).padding(.vertical, 4)
         }
-        .buttonStyle(.plain)
-        .tip(store.linkFilters ? "Filters are linked: the plan and Inspect show the same status and search. Click to unlink."
-                               : "Link filters: choosing a status or searching in the plan or Inspect filters the other too.")
     }
 }
+
+extension View {
+    /// Right-click on a filter bar: link or unlink the plan's and Inspect's filters (`current`: this side's filter, copied
+    /// to the other when linking).
+    func planBarLinkMenu(_ current: @escaping () -> DeliveryPlanStore.SharedFilter) -> some View {
+        contextMenu {
+            let store = DeliveryPlanStore.shared
+            Button(store.linkFilters ? "Unlink Filters" : "Link Filters (Plan and Inspect)") { store.toggleLinkFilters(from: current()) }
+        }
+    }
+}
+
+/// A filter bar menu's label: text, a small chevron, a dot when something needs a look.
+struct PlanBarMenuLabel: View {
+    let title: String
+    let active: Bool
+    var alert: Color? = nil
+    let isLightMode: Bool
+
+    var body: some View {
+        let palette = StudioPalette(isLightMode)
+        HStack(spacing: 3) {
+            Text(title)
+                .font(.ui(size: 10, weight: active ? .semibold : .medium))
+                .foregroundColor(active ? palette.textMain : palette.textMuted)
+            if let alert { Circle().fill(alert).frame(width: 5, height: 5) }
+            Image(systemName: "chevron.down")
+                .font(.system(size: StudioTheme.scaleFont(7), weight: .semibold))
+                .foregroundColor(palette.textSubtle)
+        }
+        .planBarItem(selected: active, palette: palette)
+    }
+}
+
 
 // MARK: - Batches
 
@@ -1477,8 +1558,6 @@ struct PlanBatchFilter: View {
     let isLightMode: Bool
 
     var body: some View {
-        let palette = StudioPalette(isLightMode)
-        let on = selection != nil
         Menu {
             Button(selection == nil ? "✓ All Batches" : "All Batches") { selection = nil }
             Divider()
@@ -1491,18 +1570,8 @@ struct PlanBatchFilter: View {
                 Button("\(selection == "" ? "✓ " : "")No Batch  ·  \(unbatched)") { selection = "" }
             }
         } label: {
-            HStack(spacing: 4) {
-                Image(systemName: "square.stack.3d.up")
-                    .font(.system(size: StudioTheme.scaleFont(9)))
-                Text(selection.map { $0.isEmpty ? "No Batch" : PlanBatch.title($0) } ?? "All Batches")
-                    .font(.ui(size: 10, weight: on ? .semibold : .medium))
-            }
-            .foregroundColor(on ? palette.textMain : palette.textMuted)
-            .padding(.horizontal, 7)
-            .padding(.vertical, 3)
-            .background(RoundedRectangle(cornerRadius: Radius.control).fill(on ? palette.bgSubtle : Color.clear))
-            .overlay(RoundedRectangle(cornerRadius: Radius.control).stroke(on ? palette.borderStrong : palette.borderLine, lineWidth: 1))
-            .contentShape(Rectangle())
+            PlanBarMenuLabel(title: selection.map { $0.isEmpty ? "No Batch" : PlanBatch.title($0) } ?? "Batch",
+                             active: selection != nil, isLightMode: isLightMode)
         }
         .menuStyle(.borderlessButton)
         .menuIndicator(.hidden)
@@ -1618,21 +1687,8 @@ struct PlanUploadFilter: View {
             option(0, none)
             if stale > 0 { option(2, stale) }
         } label: {
-            HStack(spacing: 4) {
-                Image(systemName: "arrow.up.circle")
-                    .font(.system(size: StudioTheme.scaleFont(9)))
-                Text(selection.flatMap { Self.titles[$0] } ?? "Frame.io")
-                    .font(.ui(size: 10, weight: active ? .semibold : .medium))
-                if stale > 0 {
-                    Circle().fill(TagTone.amber.color(palette.isLight)).frame(width: 5, height: 5)
-                }
-            }
-            .foregroundColor(active ? palette.textMain : palette.textMuted)
-            .padding(.horizontal, 7)
-            .padding(.vertical, 3)
-            .background(RoundedRectangle(cornerRadius: Radius.control).fill(active ? palette.bgSubtle : Color.clear))
-            .overlay(RoundedRectangle(cornerRadius: Radius.control).stroke(active ? palette.borderStrong : palette.borderLine, lineWidth: 1))
-            .contentShape(Rectangle())
+            PlanBarMenuLabel(title: selection.flatMap { Self.titles[$0] } ?? "Frame.io", active: active,
+                             alert: stale > 0 ? TagTone.amber.color(palette.isLight) : nil, isLightMode: isLightMode)
         }
         .menuStyle(.borderlessButton)
         .menuIndicator(.hidden)

@@ -252,30 +252,25 @@ extension ContentView {
         let live = total - (counts[.dropped] ?? 0) - (counts[nil] ?? 0)
         let palette = StudioPalette(isLightMode)
         let batchItems = summary.batches
-        return FlowChips(spacing: 4) {
-            if live > 0 {
-                Text("\(Int((Double(done) / Double(live) * 100).rounded(.down)))% done")
-                    .font(.ui(size: 10, weight: .semibold))
-                    .foregroundColor(palette.positive)
-                    .monospacedDigit()
-                    .padding(.vertical, 3)
-            }
-            PlanFilterChip(title: "All \(total)", selected: inspectPlanFilter == -1, color: palette.textMuted, isLightMode: isLightMode) {
+        return FlowChips(spacing: 2) {
+            if live > 0 { PlanProgressMeter(done: done, live: live, isLightMode: isLightMode) }
+            PlanFilterChip(title: "All", count: total, selected: inspectPlanFilter == -1, color: nil, isLightMode: isLightMode) {
                 inspectPlanFilter = -1
             }
             ForEach(PlanState.allCases, id: \.self) { state in
                 if let n = counts[state], n > 0 {
-                    PlanFilterChip(title: "\(state.title) \(n)", selected: inspectPlanFilter == state.rawValue,
+                    PlanFilterChip(title: state.title, count: n, selected: inspectPlanFilter == state.rawValue,
                                    color: PlanRowView.color(state, palette), isLightMode: isLightMode) {
                         inspectPlanFilter = inspectPlanFilter == state.rawValue ? -1 : state.rawValue
                     }
                 }
             }
             if let n = counts[nil], n > 0 {
-                PlanFilterChip(title: "Not in Plan \(n)", selected: inspectPlanFilter == -2, color: palette.textSubtle, isLightMode: isLightMode) {
+                PlanFilterChip(title: "Not in Plan", count: n, selected: inspectPlanFilter == -2, color: palette.textSubtle, isLightMode: isLightMode) {
                     inspectPlanFilter = inspectPlanFilter == -2 ? -1 : -2
                 }
             }
+            PlanBarDivider(isLightMode: isLightMode)
             if batchItems.contains(where: { !$0.name.isEmpty }) || inspectPlanBatch != nil {
                 PlanBatchFilter(items: batchItems.filter { !$0.name.isEmpty },
                                 unbatched: batchItems.first { $0.name.isEmpty }?.count ?? 0,
@@ -286,9 +281,9 @@ extension ContentView {
                 let counts = summary.uploads
                 PlanUploadFilter(none: counts.none, on: counts.on, stale: counts.stale, selection: $inspectPlanUpload, isLightMode: isLightMode)
             }
-            LinkFiltersButton(isLightMode: isLightMode) {
-                DeliveryPlanStore.SharedFilter(state: inspectPlanFilter, search: specsState.specsFilterText, batch: inspectPlanBatch, upload: inspectPlanUpload)
-            }
+        }
+        .planBarLinkMenu {
+            DeliveryPlanStore.SharedFilter(state: inspectPlanFilter, search: specsState.specsFilterText, batch: inspectPlanBatch, upload: inspectPlanUpload)
         }
     }
 
