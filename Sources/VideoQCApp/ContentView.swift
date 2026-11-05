@@ -31,14 +31,17 @@ struct ContentView: View {
     @State var planFilesVersion = 0
     /// Inspect's plan chip counts, rebuilt only when the files or the plan index change (not on every redraw).
     @State var inspectPlanCounts = InspectPlanCounts()
+    @State var inspectGroupCache = InspectGroupCache()
     /// Inspect's Delivery Plan filter: -1 all, -2 not in the plan, else a `PlanState` raw value.
     @State var inspectPlanFilter = -1
     /// Inspect's batch filter: nil every batch, "" files whose row has none, else a batch name.
     @State var inspectPlanBatch: String? = nil
     /// Inspect's Frame.io filter: nil all, else a `PlanUpload.passes` value.
     @State var inspectPlanUpload: Int? = nil
+    /// Inspect's Group By (`InspectGrouping` raw value): folders (the tree), none (flat), or plan batch / status / channel.
+    @AppStorage("inspectGroupBy") var inspectGroupBy = "folder"
     /// Inspect sorted by the plan: 0 off (column sort), 1 plan order (sheet rows), 2 plan status.
-    @State var inspectPlanSort = 0
+    @AppStorage("inspectPlanSort") var inspectPlanSort = 0
     @Environment(\.openWindow) var openWindow
     /// Inspect's clean list: the plan's chips and badges hidden (filters still apply).
     @AppStorage("inspectHidePlanTags") var hidePlanTags = false
@@ -1834,7 +1837,9 @@ struct ContentView: View {
     
     func increaseThumbnailSize() {
         if selectedTab == .specs {
-            if specsDisplayMode == "inline" {
+            if specsDisplayMode == "compact" {
+                withAnimation(Motion.fade) { specsDisplayMode = "inline" }   // Compact → List → Thumbnails
+            } else if specsDisplayMode == "inline" {
                 withAnimation(Motion.fade) {
                     specsDisplayMode = "thumbnail"
                     specsThumbnailSize = 36.0
@@ -1860,7 +1865,9 @@ struct ContentView: View {
     
     func decreaseThumbnailSize() {
         if selectedTab == .specs {
-            if specsDisplayMode == "thumbnail" {
+            if specsDisplayMode == "inline" {
+                withAnimation(Motion.fade) { specsDisplayMode = "compact" }   // Thumbnails → List → Compact
+            } else if specsDisplayMode == "thumbnail" {
                 if specsThumbnailSize <= 36.0 {
                     withAnimation(Motion.fade) {
                         specsDisplayMode = "inline"

@@ -815,6 +815,8 @@ struct PlanFileInfo: Equatable, Sendable {
     /// The row's Frame.io link ("" when none).
     var frameio: String = ""
     var upload: PlanUpload = .none
+    /// The row's channel ("" when none), for Inspect's Group By.
+    var channel: String = ""
     /// The row's values, lower-cased, for Inspect's search (channel, placement, resolution…).
     var text: String = ""
 }

@@ -645,8 +645,8 @@ struct UserSettingsModalView: View {
                     segmented(listOrThumbs, selection: $queueDisplayMode)
                 }
                 rowDivider
-                row("tablecells", "Inspect view", "List rows or thumbnails in the Inspect table.") {
-                    segmented(listOrThumbs, selection: $specsDisplayMode)
+                row("tablecells", "Inspect view", "Compact rows, list rows or thumbnails in the Inspect table.") {
+                    segmented(inspectDensities, selection: $specsDisplayMode)
                 }
                 rowDivider
                 row("arrow.up.arrow.down", "Sort files by", "Order inside each folder. Names sort naturally: v9 before v10.") {
@@ -1006,6 +1006,8 @@ struct UserSettingsModalView: View {
                                Option(value: "#000000", label: "Black"), Option(value: "#FFFFFF", label: "White")]
     
     private let listOrThumbs = [Option(value: "inline", label: "List"), Option(value: "thumbnail", label: "Thumbnails")]
+    private let inspectDensities = [Option(value: "compact", label: "Compact"), Option(value: "inline", label: "List"),
+                                    Option(value: "thumbnail", label: "Thumbnails")]
     
     private func segmented(_ options: [Option], selection: Binding<String>) -> some View {
         Picker("", selection: selection) {

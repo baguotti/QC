@@ -754,7 +754,8 @@ final class DeliveryPlanStore: ObservableObject {
             uploads.append(state.upload)
             for url in result.files where index[url] == nil {
                 index[url] = PlanFileInfo(code: row.code ?? "", line: row.line, rowID: row.id, state: state.state,
-                                          batch: rowBatch, frameio: link, upload: state.upload, text: row.searchText)
+                                          batch: rowBatch, frameio: link, upload: state.upload,
+                                          channel: PlanGrid.normalized(row.value(.channel)), text: row.searchText)
             }
         }
         let sortedBatches = PlanBatch.sorted(batchNames)

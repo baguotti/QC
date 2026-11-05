@@ -289,6 +289,57 @@ extension ContentView {
 
     /// Inspect's files per batch (plan files only; "" = in the plan without a batch), in natural order.
 
+    /// The View menu: Group By, Sort By, Density, then folder / group shortcuts.
+    @ViewBuilder
+    var inspectViewMenuItems: some View {
+        Section("Group By") {
+            ForEach(InspectGrouping.allCases, id: \.self) { grouping in
+                Toggle(grouping.title, isOn: Binding(get: { inspectGrouping == grouping }, set: { _ in
+                    withAnimation(Motion.list) {
+                        inspectGroupBy = grouping.rawValue
+                        if grouping == .folder { hideAllFolders = false }
+                    }
+                }))
+                .disabled(grouping.needsPlan && planFiles.isEmpty)
+            }
+        }
+        Section("Sort By") { inspectSortMenuItems }
+        Section("Density") {
+            ForEach([("compact", "Compact"), ("inline", "List"), ("thumbnail", "Thumbnails")], id: \.0) { mode, title in
+                Toggle(title, isOn: Binding(get: { specsDisplayMode == mode }, set: { _ in
+                    withAnimation(Motion.fade) { specsDisplayMode = mode }
+                }))
+            }
+        }
+        if inspectGrouping != .none {
+            Divider()
+            Button(specsState.deliverablesCollapsedFolderIDs.isEmpty ? "Collapse All Groups" : "Expand All Groups") {
+                toggleAllDeliverablesFolders()
+            }
+            if inspectGrouping == .folder, hideAllFolders || !hiddenFolderIDs.isEmpty {
+                Button("Show Hidden Folders") { toggleHideFolders() }
+            }
+        }
+    }
+
+    /// Sort orders (View menu and the table header's right-click): the plan's, then the columns', then the direction.
+    @ViewBuilder
+    var inspectSortMenuItems: some View {
+        if !planFiles.isEmpty {
+            ForEach([(1, "Plan Order"), (3, "Problems First"), (2, "Plan Status"), (4, "Code")], id: \.0) { value, title in
+                Toggle(title, isOn: Binding(get: { inspectPlanSort == value }, set: { _ in inspectPlanSort = value }))
+            }
+            Divider()
+        }
+        ForEach(SpecsSortColumn.allCases, id: \.self) { column in
+            Toggle(column.displayName, isOn: Binding(get: { inspectPlanSort == 0 && specsState.specsSortColumn == column },
+                                                     set: { _ in toggleSpecsSort(column) }))
+        }
+        Divider()
+        Button(specsState.specsSortAscending ? "Ascending" : "Descending") { specsState.specsSortAscending.toggle() }
+            .disabled(inspectPlanSort != 0)
+    }
+
     /// "Columns" in the table's header menu.
     var columnsMenu: some View {
         Menu("Columns") { columnsMenuItems }
@@ -645,48 +696,23 @@ extension ContentView {
                     .fixedSize()
                     .explain(isFileNameExpanded ? "Reset File Name column width back to default (220px)." : "Auto-fit File Name column to fit longest filename without truncation.")
                     
-                    // Button 2: Folders (Hide/Show like Tab 1)
-                    let isFoldersHidden = hideAllFolders || !hiddenFolderIDs.isEmpty
-                    let canToggleFolders = hasDeliverablesSubfolders
-                    Button(action: toggleHideFolders) {
+                    // View: Group By, Sort By, Density in one menu (replaces the Folders and List/Thumbs buttons).
+                    Menu { inspectViewMenuItems } label: {
                         HStack(spacing: 4) {
-                            Image(systemName: isFoldersHidden ? "folder" : "folder.badge.minus")
+                            Image(systemName: "square.stack")
                                 .font(.system(size: StudioTheme.scaleFont(8.5), weight: .bold))
-                            SlotText(
-                                isFoldersHidden ? "Show" : "Hide",
-                                mode: .word,
-                                direction: .up,
-                                font: .ui(size: 10, weight: .semibold),
-                                foregroundColor: canToggleFolders ? (isFoldersHidden ? accentBlue : textMain) : textSubtle,
-                                tracking: 0.3,
-                                stagger: 0.018,
-                                rollDistance: 9,
-                                trigger: isFoldersHidden
-                            )
+                            Text(inspectGrouping == .folder || inspectGrouping == .none ? "View" : "By \(inspectGrouping.title)")
+                                .font(.ui(size: 10, weight: .semibold))
                         }
-                        .padding(.horizontal, 8)
-                        .frame(height: 24)
-                        .contentShape(Rectangle())
-                        .foregroundColor(canToggleFolders ? (isFoldersHidden ? accentBlue : textMain) : textSubtle)
+                        .foregroundColor(inspectGrouping == .folder ? textMain : accentBlue)
                     }
-                    .buttonStyle(.plain)
-                    .disabled(!canToggleFolders)
+                    .menuStyle(.borderlessButton)
+                    .menuIndicator(.hidden)
                     .fixedSize()
-                    .contextMenu {
-                        Button(action: toggleHideFolders) {
-                            Label(isFoldersHidden ? "Show Folder Groups" : "Hide Folder Groups (Flat List)",
-                                  systemImage: isFoldersHidden ? "folder.badge.plus" : "list.bullet")
-                        }
-                        if !isFoldersHidden && hasDeliverablesSubfolders {
-                            Divider()
-                            Button(action: toggleAllDeliverablesFolders) {
-                                Label(specsState.deliverablesCollapsedFolderIDs.isEmpty ? "Collapse All Folders" : "Expand All Folders",
-                                      systemImage: specsState.deliverablesCollapsedFolderIDs.isEmpty ? "chevron.down.square" : "chevron.right.square")
-                            }
-                        }
-                    }
-                    .explain(isFoldersHidden ? "Show all folder headers in asset lists." : "Hide folder headers and display assets in a flat list.")
-                    
+                    .padding(.horizontal, 8)
+                    .frame(height: 24)
+                    .explain("Group, sort and size Inspect's rows.")
+
                     // Clean list: hide the plan's chips and badges (filters keep working)
                     if !planFiles.isEmpty {
                         let filtered = inspectPlanFilter != -1 || inspectPlanBatch != nil || inspectPlanUpload != nil
@@ -726,45 +752,21 @@ extension ContentView {
                     .frame(height: 24)
                     .explain("Show or hide Inspect's columns.")
 
-                    // Button 3: List / Thumbs (Direct Toggle + Chevron Popover)
-                    HStack(spacing: 0) {
-                        Button(action: {
-                            withAnimation(Motion.fade) {
-                                specsDisplayMode = (specsDisplayMode == "thumbnail" ? "inline" : "thumbnail")
-                            }
-                        }) {
-                            HStack(spacing: 4) {
-                                Image(systemName: specsDisplayMode == "thumbnail" ? "square.grid.2x2" : "list.bullet")
-                                    .font(.system(size: StudioTheme.scaleFont(8.5), weight: .bold))
-                                Text(specsDisplayMode == "thumbnail" ? "Thumbs" : "List")
-                                    .font(.ui(size: 10, weight: .semibold))
-                            }
-                            .padding(.horizontal, 9)
-                            .frame(height: 24)
-                            .contentShape(Rectangle())
-                            .foregroundColor(textMain)
-                        }
-                        .buttonStyle(.plain)
-                        .explain("Click to toggle between List and Thumbnail view.")
-                        
-                        Rectangle()
-                            .fill(borderLine)
-                            .frame(width: 1, height: 14)
-                        
+                    // Thumbnail size (thumbnail density only).
+                    if specsDisplayMode == "thumbnail" {
                         Button(action: { showSpecsViewOptionsPopover.toggle() }) {
-                            Image(systemName: "chevron.down")
-                                .font(.system(size: StudioTheme.scaleFont(7.5), weight: .bold))
-                                .frame(width: 22, height: 24)
+                            Image(systemName: "slider.horizontal.3")
+                                .font(.system(size: StudioTheme.scaleFont(9), weight: .bold))
+                                .frame(width: 24, height: 24)
                                 .contentShape(Rectangle())
                                 .foregroundColor(textMuted)
                         }
                         .buttonStyle(.plain)
-                        .explain("Open view options and adjust thumbnail size.")
+                        .explain("Thumbnail size.")
                         .popover(isPresented: $showSpecsViewOptionsPopover, arrowEdge: .bottom) {
                             specsViewOptionsPopoverContent
                         }
                     }
-                    .fixedSize()
                 }
                 .padding(.bottom, 4)
             }
@@ -806,30 +808,12 @@ extension ContentView {
                         .font(.ui(size: 10, weight: .semibold))
                         .foregroundColor(textMuted)
                         .padding(.horizontal, 14)
-                        .padding(.vertical, specsDisplayMode == "large" ? 10 : (specsDisplayMode == "thumbnail" ? 8 : 6))
+                        .padding(.vertical, specsDisplayMode == "large" ? 10 : (specsDisplayMode == "thumbnail" ? 8 : (specsDisplayMode == "compact" ? 3 : 6)))
                         .frame(width: availableWidth, alignment: .leading)
                         .background(bgCardHeader)
                         .contextMenu {
                             columnsMenu
-                            Menu("Sort By") {
-                                if !planFiles.isEmpty {
-                                    Button(inspectPlanSort == 1 ? "✓ Plan Order" : "Plan Order") { inspectPlanSort = 1 }
-                                    Button(inspectPlanSort == 2 ? "✓ Plan Status" : "Plan Status") { inspectPlanSort = 2 }
-                                    Divider()
-                                }
-                                ForEach(SpecsSortColumn.allCases, id: \.self) { col in
-                                    Button(action: {
-                                        toggleSpecsSort(col)
-                                    }) {
-                                        HStack {
-                                            Text(col.displayName)
-                                            if specsState.specsSortColumn == col, inspectPlanSort == 0 {
-                                                Image(systemName: specsState.specsSortAscending ? "chevron.up" : "chevron.down")
-                                            }
-                                        }
-                                    }
-                                }
-                            }
+                            Menu("Sort By") { inspectSortMenuItems }
                             Divider()
                             Button(action: { specsState.specsSortAscending.toggle() }) {
                                 Label(specsState.specsSortAscending ? "Ascending" : "Descending", systemImage: specsState.specsSortAscending ? "arrow.up" : "arrow.down")
@@ -870,7 +854,7 @@ extension ContentView {
                                     // Computed once per render and handed to every row (each row used to rebuild the
                                     // sorted list + folder tree for its menus and indent, on every selection change).
                                     let displayOrder = rows.filter { !$0.isDirectory }.map(\.url)
-                                    let isTreeLayout = hasDeliverablesSubfolders && !hideAllFolders
+                                    let isTreeLayout = inspectGrouping == .folder ? hasDeliverablesSubfolders && !hideAllFolders : inspectGrouping.needsPlan
                                     let assetIndexMap = Dictionary(uniqueKeysWithValues: displayOrder.enumerated().map { ($0.element, $0.offset) })
                                     let _ = { specsState.currentDisplayOrder = displayOrder }()
                                     // Rows re-render only when something they show changes (like the Player queue):
@@ -920,8 +904,19 @@ extension ContentView {
                             .id("\(specsDisplayMode)_\(Int(specsThumbnailWidth))")
                         }
                         .onReceive(NotificationCenter.default.publisher(for: SpecsState.scrollToFile)) { notification in
-                            guard let url = notification.object as? URL,
-                                  let id = deliverableRows.first(where: { $0.url == url })?.id else { return }
+                            guard let url = notification.object as? URL else { return }
+                            guard let id = deliverableRows.first(where: { $0.url == url && !$0.isDirectory })?.id else {
+                                // In a collapsed group or folder: open the ones holding it, then scroll once they're drawn.
+                                let tree = inspectGrouping.needsPlan ? planGroupTree : deliverablesTree
+                                func holders(_ nodes: [FileSystemTreeNode]) -> [String] {
+                                    nodes.filter { $0.isDirectory && $0.videoURLs.contains(url) }.flatMap { [$0.id] + holders($0.children) }
+                                }
+                                let opened = Set(holders(tree)).intersection(specsState.deliverablesCollapsedFolderIDs)
+                                guard !opened.isEmpty else { return }
+                                specsState.deliverablesCollapsedFolderIDs.subtract(opened)
+                                DispatchQueue.main.async { NotificationCenter.default.post(notification) }
+                                return
+                            }
                             // Keyboard steps scroll only as far as needed (no animation: key repeat must keep up);
                             // a plan click centres the file.
                             if notification.userInfo?["minimal"] as? Bool == true {
@@ -943,9 +938,15 @@ extension ContentView {
     
     // MARK: - Column Resizing & Width Helpers
     
-    /// Rows as shown: the folder tree when there are subfolders, otherwise the flat list as depth-0 nodes.
+    /// Rows as shown: the folder tree (when there are subfolders), plan groups (batch / status / channel), or the flat
+    /// list as depth-0 nodes.
     private var deliverableRows: [FileSystemTreeNode] {
-        if hasDeliverablesSubfolders { return flattenedDeliverableNodes }
+        switch inspectGrouping {
+        case .folder where hasDeliverablesSubfolders: return flattenedDeliverableNodes
+        case .batch, .status, .channel:
+            return FileSystemTreeBuilder.flatten(nodes: planGroupTree, collapsedIDs: specsState.deliverablesCollapsedFolderIDs)
+        default: break
+        }
         return filteredDeliverableAssets.map {
             FileSystemTreeNode(id: $0.fileURL.path, name: $0.fileName, url: $0.fileURL, isDirectory: false, relativePath: $0.fileName, depth: 0)
         }
@@ -1089,7 +1090,12 @@ extension ContentView {
             planText: files.isEmpty ? nil : { files[$0]?.text },
             planSort: files.isEmpty || inspectPlanSort == 0 ? nil : { [sort = inspectPlanSort] url in
                 guard let info = files[url], let state = info.state else { return Int.max }   // not in the plan: last
-                return sort == 1 ? info.line : state.rawValue * 100_000 + info.line
+                switch sort {
+                case 1: return info.line
+                case 3: return (InspectGrouping.statusOrder.firstIndex(of: state) ?? 99) * 100_000 + info.line   // problems first
+                case 4: return (Int(info.code.filter(\.isNumber)) ?? Int.max / 200_000) * 100_000 + info.line    // code number
+                default: return state.rawValue * 100_000 + info.line
+                }
             })
     }
     
@@ -1189,7 +1195,8 @@ extension ContentView {
                 }
                 return ids
             }
-            specsState.deliverablesCollapsedFolderIDs = Set(deliverablesTree.flatMap { collectFolderIDs($0) })
+            let tree = inspectGrouping.needsPlan ? planGroupTree : deliverablesTree
+            specsState.deliverablesCollapsedFolderIDs = Set(tree.flatMap { collectFolderIDs($0) })
         } else {
             specsState.deliverablesCollapsedFolderIDs.removeAll()
         }
@@ -1209,6 +1216,8 @@ extension ContentView {
         let totalSeconds = folderAssets.reduce(0.0) { $0 + $1.durationSeconds }
         let formattedSize = DeliverablesInspector.formatFileSize(bytes: totalBytes)
         let formattedDur = TimecodeFormatter.format(frameIndex: Int(round(totalSeconds * 25.0)), fps: 25.0)
+        // A plan group (Group By batch / status / channel) rather than a folder: its own icon, no folder actions.
+        let isGroup = node.id.hasPrefix("group:")
         
         return HStack(spacing: 8) {
             Image(systemName: isCollapsed ? "chevron.right" : "chevron.down")
@@ -1217,7 +1226,7 @@ extension ContentView {
                 .frame(width: 25, alignment: .center)
             
             HStack(spacing: 6) {
-                Image(systemName: "folder")
+                Image(systemName: isGroup ? "square.stack" : "folder")
                     .font(.system(size: StudioTheme.scaleFont(11), weight: .medium))
                     .foregroundColor(textSubtle)
                     .frame(width: 14, height: 14)
@@ -1266,8 +1275,14 @@ extension ContentView {
                 specsState.deliverablesCollapsedFolderIDs.insert(node.id)
             }
         }
-        .explain(node.url.path)
+        .explain(isGroup ? node.name : node.url.path)
         .contextMenu {
+            if isGroup {
+                Button(isCollapsed ? "Expand Group" : "Collapse Group") {
+                    if isCollapsed { specsState.deliverablesCollapsedFolderIDs.remove(node.id) }
+                    else { specsState.deliverablesCollapsedFolderIDs.insert(node.id) }
+                }
+            } else {
             Button("Hide Folder") {
                 hideSpecificFolder(id: node.id)
             }
@@ -1281,6 +1296,7 @@ extension ContentView {
             }
             Button("Reveal in Finder") {
                 NSWorkspace.shared.activateFileViewerSelecting([node.url])
+            }
             }
         }
     }
@@ -1594,7 +1610,7 @@ extension ContentView {
         }
         .font(.ui(size: 11))
         .padding(.horizontal, 14)
-        .padding(.vertical, specsDisplayMode == "large" ? 10 : (specsDisplayMode == "thumbnail" ? 7 : 4))
+        .padding(.vertical, specsDisplayMode == "large" ? 10 : (specsDisplayMode == "thumbnail" ? 7 : (specsDisplayMode == "compact" ? 1 : 4)))
         .frame(width: rowWidth > 0 ? rowWidth : nil, alignment: .leading)
         .background(
             isSelected ? accentBlue.opacity(0.14) : (hasMismatch ? alertRed.opacity(0.12) : (idx % 2 == 0 ? bgPanel : bgCardSubtle))
@@ -1968,5 +1984,99 @@ final class InspectPlanCounts {
         key = (version, filesVersion)
         cached = summary
         return summary
+    }
+}
+
+// MARK: - Group By
+
+/// Inspect's Group By: the folder tree, a flat list, or the Delivery Plan's batch / status / channel.
+enum InspectGrouping: String, CaseIterable {
+    case folder, none, batch, status, channel
+
+    var title: String {
+        switch self {
+        case .folder: return "Folder"
+        case .none: return "None"
+        case .batch: return "Batch"
+        case .status: return "Status"
+        case .channel: return "Channel"
+        }
+    }
+
+    var needsPlan: Bool { self == .batch || self == .status || self == .channel }
+
+    /// Status groups, problems first: what needs a look, then what's waiting, then what's done.
+    static let statusOrder: [PlanState] = [.wrongSpec, .needsFix, .check, .toQC, .missing, .onHold, .passed, .approved, .delivered, .dropped]
+}
+
+extension ContentView {
+    var inspectGrouping: InspectGrouping {
+        let grouping = InspectGrouping(rawValue: inspectGroupBy) ?? .folder
+        return grouping.needsPlan && planFiles.isEmpty ? .folder : grouping   // no plan linked: nothing to group by
+    }
+
+    /// Plan groups as one level of header nodes (ids "group:<kind>:<key>"), files in the list's order inside each.
+    /// Cached until the files, filters, sort or plan index change (Inspect redraws on every selection).
+    var planGroupTree: [FileSystemTreeNode] {
+        let key = "\(inspectGrouping.rawValue)|\(specsState.assetsVersion)|\(planFilesVersion)|\(inspectPlanFilter)|\(inspectPlanBatch ?? "*")|\(inspectPlanUpload ?? -1)|\(inspectPlanSort)|\(specsState.specsSortColumnRaw)|\(specsState.specsSortAscending)|\(specsState.specsFilterText)|\(specsKindMask)"
+        return inspectGroupCache.tree(key: key) { buildPlanGroupTree() }
+    }
+
+    private func buildPlanGroupTree() -> [FileSystemTreeNode] {
+        let grouping = inspectGrouping
+        var order: [String] = [], members: [String: [URL]] = [:], titles: [String: String] = [:]
+        for asset in filteredDeliverableAssets {
+            let info = planFiles[asset.fileURL]
+            let key: String, title: String
+            if info?.rowID == nil {
+                key = "~notInPlan"; title = "Not in Plan"
+            } else if let info {
+                switch grouping {
+                case .batch: (key, title) = info.batch.isEmpty ? ("~noBatch", "No Batch") : (info.batch, PlanBatch.title(info.batch))
+                case .status: (key, title) = (info.state.map { String($0.rawValue) } ?? "~", info.state?.title ?? "Not in Plan")
+                default: (key, title) = info.channel.isEmpty ? ("~noChannel", "No Channel") : (info.channel.lowercased(), info.channel)
+                }
+            } else { continue }
+            if members[key] == nil { order.append(key); titles[key] = title }
+            members[key, default: []].append(asset.fileURL)
+        }
+        // Groups in a meaningful order: batches by number, statuses problems first, channels by name; leftovers last.
+        let batchOrder = Dictionary(uniqueKeysWithValues: PlanBatch.sorted(order.filter { !$0.hasPrefix("~") }).enumerated().map { ($0.element, $0.offset) })
+        let rank: (String) -> (Int, String) = { key in
+            if key.hasPrefix("~") { return (key == "~notInPlan" ? 3 : 2, key) }
+            switch grouping {
+            case .status:
+                let state = Int(key).flatMap { PlanState(rawValue: $0) }
+                return (0, String(format: "%02d", state.flatMap { InspectGrouping.statusOrder.firstIndex(of: $0) } ?? 99))
+            case .batch:
+                return (0, String(format: "%06d", batchOrder[key] ?? 0))
+            default: return (0, key)
+            }
+        }
+        let sortedKeys = order.sorted { rank($0) < rank($1) }
+        let root = folderURL ?? URL(fileURLWithPath: "/")
+        return sortedKeys.map { key in
+            let urls = members[key] ?? []
+            return FileSystemTreeNode(
+                id: "group:\(grouping.rawValue):\(key)", name: titles[key] ?? key, url: root, isDirectory: true,
+                relativePath: "", depth: 0,
+                children: urls.map { FileSystemTreeNode(id: $0.path, name: $0.lastPathComponent, url: $0, isDirectory: false,
+                                                        relativePath: $0.lastPathComponent, depth: 1) },
+                videoURLs: urls)
+        }
+    }
+}
+
+/// Inspect's plan groups, kept for one key (a class in `@State`: storing doesn't trigger a render).
+@MainActor
+final class InspectGroupCache {
+    private var key: String?
+    private var cached: [FileSystemTreeNode] = []
+
+    func tree(key: String, build: () -> [FileSystemTreeNode]) -> [FileSystemTreeNode] {
+        if key == self.key { return cached }
+        cached = build()
+        self.key = key
+        return cached
     }
 }
