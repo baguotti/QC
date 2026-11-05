@@ -87,6 +87,7 @@ actor FrameIOLinks {
     /// A Frame.io file that's gone (deleted here or on the web): clips linked to it are unlinked and it leaves the
     /// name/size index, so it isn't linked again.
     func forget(fileID: String) {
+        Task { @MainActor in DeliveryPlanStore.shared.frameIOGone([fileID]) }
         let links = state.links.filter { $0.value.fileID != fileID }
         let seen = state.seen?.filter { $0.value.fileID != fileID }
         guard links.count != state.links.count || seen?.count != state.seen?.count else { return }
@@ -105,6 +106,7 @@ actor FrameIOLinks {
 
     /// Records the files of a listing (stacks: their current version) for matching clips by name and size later.
     func remember(_ items: [FrameIO.Item], account: String) {
+        Task { @MainActor in DeliveryPlanStore.shared.frameIOListed(items) }
         var seen = state.seen ?? [:]
         var changed = false
         for item in items where !item.isFolder {

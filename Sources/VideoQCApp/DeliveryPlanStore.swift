@@ -135,7 +135,8 @@ final class DeliveryPlanStore: ObservableObject {
     enum Phase: Equatable { case idle, loading, failed(String) }
 
     @Published private(set) var config: Config?
-    @Published private(set) var rows: [PlanRow] = []
+    @Published private(set) var rows: [PlanRow] = [] { didSet { rowsVersion &+= 1 } }
+    private var rowsVersion = 0
     @Published private(set) var match: PlanMatch = .empty
     @Published private(set) var phase: Phase = .idle
     @Published private(set) var lastUpdated: Date?
@@ -179,7 +180,6 @@ final class DeliveryPlanStore: ObservableObject {
     @Published private(set) var batches: [String] = []
     /// Whether any included tab has a Batch column.
     var hasBatchColumn: Bool { headers.values.contains { $0.columns[.batch] != nil } }
-    private var batchColumnRequested = false
     /// The script's fingerprint of the dropdown choices at the last 10 s check.
     private var lastListsSig: String?
     var scriptOutdated: Bool { config?.writer != nil && (scriptVersion ?? AppsScriptWriter.scriptVersion) < AppsScriptWriter.scriptVersion }
@@ -200,7 +200,8 @@ final class DeliveryPlanStore: ObservableObject {
     private var refreshAfterEdit: Task<Void, Never>?
 
     /// QC columns sent but not yet seen in a read (by lower-cased code), laid over rows and grids.
-    private struct PendingQC { var status: String?; var note: String?; var updated: String?; var batch: String? = nil; var since: Date }
+    /// Columns QCpie wrote (QC columns, Batch, Frame.io, Uploaded) by field, until a read shows them.
+    private struct PendingQC { var values: [PlanField: String] = [:]; var since: Date }
     private var pendingQC: [String: PendingQC] = [:]
     private var queuedQC: [String: PlanStatusItem] = [:]
     private var flushTask: Task<Void, Never>?
@@ -208,7 +209,8 @@ final class DeliveryPlanStore: ObservableObject {
     private var headers: [String: (line: Int, columns: [PlanField: Int])] = [:]
     private var lastCounter: Int? = nil
     /// The script was asked to add the QC columns; reset by each read (which shows whether they're there).
-    private var columnsRequested = false
+    /// Columns asked of the script since the last read (each at most once per read).
+    private var requestedColumns: Set<PlanField> = []
     /// Bumped when matching or files change (cache key for per-row check summaries).
     private(set) var matchRevision = 0
 
@@ -441,8 +443,7 @@ final class DeliveryPlanStore: ObservableObject {
         }.value
         let (newRows, unread, newHeaders, rowsChanged, matchChanged) = parsed
         headers = newHeaders
-        columnsRequested = false
-        batchColumnRequested = false
+        requestedColumns = []
         var counts = tabCounts
         for tab in tabs { counts[tab.gid] = newRows.filter { $0.tab == tab.name }.count }
         if counts != tabCounts { tabCounts = counts }
@@ -487,8 +488,8 @@ final class DeliveryPlanStore: ObservableObject {
                 var edits: [CellKey: String] = [:]
                 for row in rows where row.tab == tab.name {
                     guard let code = row.code, let p = pendingQC[code.lowercased()] else { continue }
-                    for (field, value) in [(PlanField.qcStatus, p.status), (.qcNote, p.note), (.qcUpdated, p.updated), (.batch, p.batch)] {
-                        if let value, let column = header.columns[field] { edits[CellKey(line: row.line, column: column)] = value }
+                    for (field, value) in p.values {
+                        if let column = header.columns[field] { edits[CellKey(line: row.line, column: column)] = value }
                     }
                 }
                 if !edits.isEmpty { grid = grid.applying(edits); out[tab.gid] = grid }
@@ -703,15 +704,15 @@ final class DeliveryPlanStore: ObservableObject {
             let result = match.result(row)
             let pending = row.code.flatMap { pendingQC[$0.lowercased()] }
             let state = PlanStatusResolver.resolve(match: result.status, hasFiles: !result.files.isEmpty,
-                                                   qc: pending?.status ?? row.value(.qcStatus),
-                                                   updated: pending?.updated ?? row.value(.qcUpdated),
+                                                   qc: pending?.values[.qcStatus] ?? row.value(.qcStatus),
+                                                   updated: pending?.values[.qcUpdated] ?? row.value(.qcUpdated),
                                                    fileDates: result.files.compactMap { dates[$0] })
             newStates[row.id] = state
             let rowBatch = batch(row)
             if !rowBatch.isEmpty { batchNames.insert(rowBatch) }
             for url in result.files where index[url] == nil {
                 index[url] = PlanFileInfo(code: row.code ?? "", line: row.line, rowID: row.id, state: state.state,
-                                          batch: rowBatch, text: row.values.values.joined(separator: " ").lowercased())
+                                          batch: rowBatch, frameio: frameioLink(row), text: row.values.values.joined(separator: " ").lowercased())
             }
         }
         let sortedBatches = PlanBatch.sorted(batchNames)
@@ -728,7 +729,7 @@ final class DeliveryPlanStore: ObservableObject {
 
     /// The QC note as shown (a pending edit wins).
     func note(_ row: PlanRow) -> String {
-        row.code.flatMap { pendingQC[$0.lowercased()]?.note } ?? row.value(.qcNote)
+        shown(.qcNote, row)
     }
 
     // MARK: Statuses
@@ -752,7 +753,139 @@ final class DeliveryPlanStore: ObservableObject {
 
     /// The batch as shown (a pending edit wins), normalised; "" when none.
     func batch(_ row: PlanRow) -> String {
-        PlanGrid.normalized(row.code.flatMap { pendingQC[$0.lowercased()]?.batch } ?? row.value(.batch))
+        PlanGrid.normalized(shown(.batch, row))
+    }
+
+    /// A column QCpie writes, as shown: a pending edit wins over the last read.
+    private func shown(_ field: PlanField, _ row: PlanRow) -> String {
+        row.code.flatMap { pendingQC[$0.lowercased()]?.values[field] } ?? row.value(field)
+    }
+
+    // MARK: Frame.io
+
+    /// The row's Frame.io link as shown (a pending edit wins); "" when none.
+    func frameioLink(_ row: PlanRow) -> String { PlanGrid.normalized(shown(.frameio, row)) }
+
+    /// Whether any included tab has a Frame.io column (links found while browsing are only written then).
+    var hasFrameIOColumn: Bool { headers.values.contains { $0.columns[.frameio] != nil } }
+
+    /// Plan codes by their first token (built once per set of rows): a Frame.io listing is checked per file name token,
+    /// not per row.
+    private var codeIndex: (rows: Int, byToken: [String: [(code: String, tokens: [String])]])?
+
+    /// Codes (lower case) whose rows are in the plan, found in a file name as whole tokens ("…_KL0001.mp4").
+    private func codes(inFileNamed name: String) -> Set<String> {
+        let tokens = PlanMatcher.tokens((name as NSString).deletingPathExtension)
+        guard !tokens.isEmpty else { return [] }
+        if codeIndex?.rows != rowsVersion {
+            var byToken: [String: [(code: String, tokens: [String])]] = [:]
+            var seen = Set<String>()
+            for row in rows {
+                guard let code = row.code?.lowercased(), !code.isEmpty, seen.insert(code).inserted else { continue }
+                let codeTokens = PlanMatcher.tokens(code)
+                if let first = codeTokens.first { byToken[first, default: []].append((code, codeTokens)) }
+            }
+            codeIndex = (rowsVersion, byToken)
+        }
+        var found = Set<String>()
+        for token in Set(tokens) {
+            for entry in codeIndex?.byToken[token] ?? [] where PlanMatcher.contains(tokens, entry.tokens) { found.insert(entry.code) }
+        }
+        return found
+    }
+
+    private func rows(withCode code: String) -> [PlanRow] { rows.filter { $0.code?.lowercased() == code } }
+
+    /// "2026-11-05 10:42 UTC": the Uploaded column.
+    nonisolated static func uploadStamp(_ date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = TimeZone(identifier: "UTC")
+        formatter.dateFormat = "yyyy-MM-dd HH:mm"
+        return formatter.string(from: date) + " UTC"
+    }
+
+    /// QCpie uploaded `file` (the Upload tab) as Frame.io file `fileID`: its row's Frame.io column gets the file's link
+    /// and Uploaded the date. A newer upload replaces an older link. Files whose row isn't clear (none, or several codes
+    /// in the name) are left for Link Frame.io File….
+    func uploaded(_ file: URL, account: String, fileID: String) async {
+        guard config?.writer != nil else { return }
+        var codes = Set<String>()
+        if let code = fileIndex[file]?.code, !code.isEmpty { codes = [code.lowercased()] } else { codes = self.codes(inFileNamed: file.lastPathComponent) }
+        guard codes.count == 1, let code = codes.first else { return }
+        guard let item = try? await FrameIO.shared.item(account: account, kind: "files", id: fileID), let url = item.viewURL else { return }
+        queueQC(rows(withCode: code), quiet: true) { item in
+            item.frameio = url
+            item.uploaded = Self.uploadStamp(Date())
+        }
+    }
+
+    /// Files listed on Frame.io (the browser, the favourites crawl): a row without a link gets the file whose name holds
+    /// its code, when exactly one such file was in the listing (stacks: the stack, so the link survives new versions).
+    /// Only into a sheet that has a Frame.io column, and never over a link already there.
+    func frameIOListed(_ items: [FrameIO.Item]) {
+        guard config?.writer != nil, !scriptOutdated, hasFrameIOColumn, !rows.isEmpty else { return }
+        var found: [String: (item: FrameIO.Item, count: Int)] = [:]
+        for item in items where !item.isFolder && item.viewURL != nil {
+            let name = item.isVersionStack ? (item.headVersion?.name ?? item.title) : item.title
+            for code in codes(inFileNamed: name) { found[code] = (item, (found[code]?.count ?? 0) + 1) }
+        }
+        for (code, entry) in found where entry.count == 1 {
+            let targets = rows(withCode: code)
+            guard !targets.isEmpty, targets.allSatisfy({ frameioLink($0).isEmpty }), let url = entry.item.viewURL else { continue }
+            let date = entry.item.createdDate
+            queueQC(targets, quiet: true) { item in
+                item.frameio = url
+                if let date, targets.allSatisfy({ self.shown(.uploaded, $0).isEmpty }) { item.uploaded = Self.uploadStamp(date) }
+            }
+        }
+    }
+
+    /// Frame.io files or stacks deleted (in the browser, or found gone): rows linked to them lose the link.
+    func frameIOGone(_ ids: Set<String>) {
+        guard config?.writer != nil, !ids.isEmpty else { return }
+        let targets = rows.filter { row in
+            let link = frameioLink(row)
+            return !link.isEmpty && ids.contains { link.hasSuffix("/" + $0) || link.contains("/" + $0 + "?") }
+        }
+        guard !targets.isEmpty else { return }
+        queueQC(targets, quiet: true) { item in item.frameio = ""; item.uploaded = "" }
+    }
+
+    /// Link Frame.io File…: a pasted Frame.io file or stack link goes into the rows' Frame.io column (a link set by hand
+    /// is never replaced by one found while browsing). Failures show in the status line.
+    func linkFrameIO(_ text: String, rowIDs: [String]) async {
+        if let failure = await linkFrameIOFailure(text, rowIDs: rowIDs) { editState = .failed(failure) }
+    }
+
+    /// Nil when linked, else why not.
+    private func linkFrameIOFailure(_ text: String, rowIDs: [String]) async -> String? {
+        let link: FrameIOLink
+        do {
+            link = try FrameIOLink.parse(await FrameIOLink.expand(text))
+        } catch {
+            return (error as? FrameIOLink.Failure)?.errorDescription ?? error.localizedDescription
+        }
+        guard let asset = link.asset else { return "That's a folder or project link: paste the link of the file itself." }
+        guard let accounts = try? await FrameIO.shared.accounts() else { return "Sign in to Frame.io (Upload tab) to check the link." }
+        for account in accounts {
+            var found = try? await FrameIO.shared.item(account: account.id, kind: "files", id: asset)
+            if found == nil { found = try? await FrameIO.shared.item(account: account.id, kind: "version_stacks", id: asset) }
+            guard let item = found, let url = item.viewURL else { continue }
+            let ids = Set(rowIDs)
+            let date = item.createdDate
+            queueQC(rows.filter { ids.contains($0.id) }) { entry in
+                entry.frameio = url
+                if let date { entry.uploaded = Self.uploadStamp(date) }
+            }
+            return nil
+        }
+        return FrameIOLink.Failure.notFound.errorDescription ?? "That file wasn't found in your Frame.io accounts."
+    }
+
+    func clearFrameIO(rowIDs: [String]) {
+        let ids = Set(rowIDs)
+        queueQC(rows.filter { ids.contains($0.id) }) { item in item.frameio = ""; item.uploaded = "" }
     }
 
     // MARK: Linked filters
@@ -804,11 +937,12 @@ final class DeliveryPlanStore: ObservableObject {
         return urls.compactMap { fileIndex[$0]?.rowID }.filter { seen.insert($0).inserted }
     }
 
-    private func queueQC(_ targets: [PlanRow], _ change: (inout PlanStatusItem) -> Void) {
-        guard config?.writer != nil else { editState = .failed("Set up editing (••• menu) to set statuses."); return }
-        guard !scriptOutdated else { editState = .failed("Update the script (••• → Update Script…) to set statuses."); return }
+    /// `quiet`: automatic writes (Frame.io links) say nothing when the sheet can't take them.
+    private func queueQC(_ targets: [PlanRow], quiet: Bool = false, _ change: (inout PlanStatusItem) -> Void) {
+        guard config?.writer != nil else { if !quiet { editState = .failed("Set up editing (••• menu) to set statuses.") }; return }
+        guard !scriptOutdated else { if !quiet { editState = .failed("Update the script (••• → Update Script…) to set statuses.") }; return }
         let coded = targets.filter { !($0.code ?? "").isEmpty }
-        guard !coded.isEmpty else { editState = .failed("Statuses need a Code column in the sheet."); return }
+        guard !coded.isEmpty else { if !quiet { editState = .failed("Statuses need a Code column in the sheet.") }; return }
         let reviewer = UserDefaults.standard.string(forKey: "reviewerName").flatMap { $0.isEmpty ? nil : $0 } ?? NSFullUserName()
         let stamp = PlanStatusResolver.stamp(Date(), by: reviewer)
         for row in coded {
@@ -819,11 +953,8 @@ final class DeliveryPlanStore: ObservableObject {
             // new version that arrived before it.
             if item.status != nil { item.updated = stamp }
             queuedQC[key] = item
-            var p = pendingQC[key] ?? PendingQC(status: nil, note: nil, updated: nil, since: Date())
-            if let s = item.status { p.status = s }
-            if let n = item.note { p.note = n }
-            if let u = item.updated { p.updated = u }
-            if let b = item.batch { p.batch = b }
+            var p = pendingQC[key] ?? PendingQC(since: Date())
+            p.values.merge(item.fieldValues) { _, new in new }
             p.since = Date()
             pendingQC[key] = p
         }
@@ -844,25 +975,20 @@ final class DeliveryPlanStore: ObservableObject {
         queuedQC = [:]
         savingCount += 1
         do {
-            // The QC columns are added (once) when an included tab lacks them.
-            // Only tabs with a Code column can hold statuses; asked once until a read shows the columns.
+            // Columns being written that an included tab with codes lacks are added (asked once until a read shows
+            // them). Setting any QC column adds all three.
             let included = config?.included.map(\.gid) ?? []
-            let lacking = included.contains { gid in
-                guard let columns = headers[gid]?.columns, columns[.id] != nil else { return false }
-                return columns[.qcStatus] == nil || columns[.qcNote] == nil || columns[.qcUpdated] == nil
+            var used = Set(items.flatMap { $0.fieldValues.keys })
+            if used.contains(where: \.isQC) { used.formUnion([.qcStatus, .qcNote, .qcUpdated]) }
+            let needed = [PlanField.qcStatus, .qcNote, .qcUpdated, .batch, .frameio, .uploaded].filter { field in
+                used.contains(field) && !requestedColumns.contains(field) && included.contains { gid in
+                    guard let columns = headers[gid]?.columns, columns[.id] != nil else { return false }
+                    return columns[field] == nil
+                }
             }
-            if lacking, !columnsRequested, items.contains(where: { $0.status != nil || $0.note != nil }) {
-                try await AppsScriptWriter.ensureColumns(writer)
-                columnsRequested = true
-            }
-            // A Batch column is added (once) when a batch is set and a tab with codes has none.
-            let lackingBatch = included.contains { gid in
-                guard let columns = headers[gid]?.columns, columns[.id] != nil else { return false }
-                return columns[.batch] == nil
-            }
-            if lackingBatch, !batchColumnRequested, items.contains(where: { $0.batch != nil }) {
-                try await AppsScriptWriter.ensureColumns(writer, batch: true)
-                batchColumnRequested = true
+            if !needed.isEmpty {
+                try await AppsScriptWriter.ensureColumns(writer, names: needed.map(\.title))
+                requestedColumns.formUnion(needed)
             }
             let missing = try await AppsScriptWriter.setStatus(writer, items: items)
             savingCount -= 1
@@ -890,9 +1016,7 @@ final class DeliveryPlanStore: ObservableObject {
             let expired = Date().timeIntervalSince(p.since) > 120
             let row = byCode[key]
             let shows = row.map { r in
-                (p.status.map { PlanGrid.normalized($0) == PlanGrid.normalized(r.value(.qcStatus)) } ?? true)
-                    && (p.note.map { PlanGrid.normalized($0) == PlanGrid.normalized(r.value(.qcNote)) } ?? true)
-                    && (p.batch.map { PlanGrid.normalized($0) == PlanGrid.normalized(r.value(.batch)) } ?? true)
+                p.values.allSatisfy { field, value in PlanGrid.normalized(value) == PlanGrid.normalized(r.value(field)) }
             } ?? false
             if expired || shows { pendingQC[key] = nil }
         }
@@ -944,5 +1068,19 @@ final class DeliveryPlanStore: ObservableObject {
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         if let data = try? JSONEncoder().encode(cache) { try? data.write(to: dir.appendingPathComponent("tabs.json"), options: .atomic) }
         if let data = try? JSONEncoder().encode(grids) { try? data.write(to: dir.appendingPathComponent("grids.json"), options: .atomic) }
+    }
+}
+
+private extension PlanStatusItem {
+    /// The columns this item writes, by field.
+    var fieldValues: [PlanField: String] {
+        var values: [PlanField: String] = [:]
+        if let status { values[.qcStatus] = status }
+        if let note { values[.qcNote] = note }
+        if let updated { values[.qcUpdated] = updated }
+        if let batch { values[.batch] = batch }
+        if let frameio { values[.frameio] = frameio }
+        if let uploaded { values[.uploaded] = uploaded }
+        return values
     }
 }

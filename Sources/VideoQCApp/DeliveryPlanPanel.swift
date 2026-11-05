@@ -675,7 +675,7 @@ struct DeliveryPlanPanel: View {
                         ScrollView {
                             PlanRowView(row: selected, result: match.result(selected), state: store.state(selected),
                                         note: store.note(selected), checkLines: checkSummary(selected).lines,
-                                        change: store.changes[selected.id],
+                                        change: store.changes[selected.id], frameio: store.frameioLink(selected),
                                         selected: false, wide: true, isLightMode: isLightMode,
                                         themeRevision: ThemeManager.shared.revision)
                         }
@@ -756,6 +756,17 @@ struct DeliveryPlanPanel: View {
         batch.submenu = PlanBatchMenu.nsMenu(store: store, rowIDs: targets)
         menu.addItem(batch)
         menu.addItem(.separator())
+        let link = store.frameioLink(row)
+        if let url = URL(string: link), !link.isEmpty {
+            menu.addItem("Open in Frame.io") { NSWorkspace.shared.open(url) }
+            menu.addItem("Copy Frame.io Link") {
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString(link, forType: .string)
+            }
+        }
+        menu.addItem(link.isEmpty ? "Link Frame.io File…" : "Change Frame.io Link…") { [store] in PlanFrameIOLinker.ask(store: store, rowIDs: targets) }
+        if !link.isEmpty { menu.addItem("Clear Frame.io Link") { [store] in store.clearFrameIO(rowIDs: targets) } }
+        menu.addItem(.separator())
         for url in files {
             menu.addItem("Show \(url.lastPathComponent) in Inspect") { DeliveryPlanStore.post(.reveal, url) }
             menu.addItem("Play \(url.lastPathComponent)") { DeliveryPlanStore.post(.play, url) }
@@ -827,6 +838,7 @@ struct DeliveryPlanPanel: View {
                     case .row(let row):
                         PlanRowView(row: row, result: match.result(row), state: store.state(row), note: store.note(row),
                                     checkLines: checkSummary(row).lines, change: store.changes[row.id],
+                                    frameio: store.frameioLink(row),
                                     selected: selectedRow == row.id || highlighted.contains(row.id), wide: placement == .window,
                                     isLightMode: isLightMode, themeRevision: ThemeManager.shared.revision)
                             .equatable()
@@ -864,6 +876,17 @@ struct DeliveryPlanPanel: View {
             Button("Clear Status") { store.setStatus(nil, rowIDs: targets) }
         }
         PlanBatchMenu(title: targets.count > 1 ? "Set Batch (\(targets.count) Rows)" : "Set Batch", rowIDs: { targets })
+        Divider()
+        let link = store.frameioLink(row)
+        if let url = URL(string: link), !link.isEmpty {
+            Button("Open in Frame.io") { NSWorkspace.shared.open(url) }
+            Button("Copy Frame.io Link") {
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString(link, forType: .string)
+            }
+        }
+        Button(link.isEmpty ? "Link Frame.io File…" : "Change Frame.io Link…") { PlanFrameIOLinker.ask(store: store, rowIDs: targets) }
+        if !link.isEmpty { Button("Clear Frame.io Link") { store.clearFrameIO(rowIDs: targets) } }
         Divider()
         ForEach(files, id: \.self) { url in
             Button("Show \(url.lastPathComponent) in Inspect") { DeliveryPlanStore.post(.reveal, url) }
@@ -969,6 +992,8 @@ struct PlanRowView: View, Equatable {
     var note = ""
     var checkLines: [String] = []
     let change: DeliveryPlanStore.Change?
+    /// The row's Frame.io link ("" when not uploaded / linked).
+    var frameio = ""
     let selected: Bool
     let wide: Bool
     let isLightMode: Bool
@@ -1083,6 +1108,19 @@ struct PlanRowView: View, Equatable {
                             .truncationMode(.middle)
                     }
                     .foregroundColor(palette.accentBlue)
+                }
+                if let link = URL(string: frameio), !frameio.isEmpty {
+                    Button { NSWorkspace.shared.open(link) } label: {
+                        HStack(spacing: 4) {
+                            Image(systemName: "arrow.up.forward.square")
+                                .font(.system(size: StudioTheme.scaleFont(8)))
+                            Text("On Frame.io")
+                                .font(.ui(size: 10, weight: .medium))
+                        }
+                        .foregroundColor(palette.accentBlue)
+                    }
+                    .buttonStyle(.plain)
+                    .tip(frameio)
                 }
                 ForEach(result.problems, id: \.self) { problem in
                     Text(problem)
@@ -1510,5 +1548,27 @@ struct PlanBatchMenu: View {
         guard alert.runModal() == .alertFirstButtonReturn else { return nil }
         let name = PlanGrid.normalized(field.stringValue)
         return name.isEmpty ? nil : name
+    }
+}
+
+/// Link Frame.io File…: asks for a Frame.io file link (the clipboard's, when it holds one) and puts it in the rows'
+/// Frame.io column.
+enum PlanFrameIOLinker {
+    @MainActor static func ask(store: DeliveryPlanStore, rowIDs: [String]) {
+        let alert = NSAlert()
+        alert.messageText = rowIDs.count > 1 ? "Link \(rowIDs.count) Rows to a Frame.io File" : "Link a Frame.io File"
+        alert.informativeText = "Paste the file's Frame.io link (Copy Asset URL in Frame.io or QCpie's browser). A link set here isn't replaced by one QCpie finds."
+        let clipboard = NSPasteboard.general.string(forType: .string) ?? ""
+        let field = NSTextField(string: clipboard.contains("frame.io") || clipboard.contains("f.io/") ? clipboard : "")
+        field.placeholderString = "https://next.frame.io/project/…/view/…"
+        field.frame = NSRect(x: 0, y: 0, width: 360, height: 24)
+        alert.accessoryView = field
+        alert.addButton(withTitle: "Link")
+        alert.addButton(withTitle: "Cancel")
+        alert.window.initialFirstResponder = field
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+        let text = field.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else { return }
+        Task { @MainActor in await store.linkFrameIO(text, rowIDs: rowIDs) }
     }
 }

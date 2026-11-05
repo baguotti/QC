@@ -295,4 +295,14 @@ extension DeliveryPlanTests {
         #expect(a[0].value(.batch) == "1" && a[0].id == b[0].id)
         #expect(a[0].matchSignature == b[0].matchSignature && a[0].content == b[0].content)
     }
+
+    @Test("Frame.io and Uploaded columns are QCpie's own, never part of matching")
+    func frameioColumns() {
+        #expect(PlanField.detect("Frame.io") == .frameio && PlanField.detect("Uploaded") == .uploaded)
+        #expect(PlanField.frameio.isTracking && PlanField.uploaded.isTracking)
+        let csv = "Code,File Name,Resolution,Length,Frame.io\nKL0001,A_KL0001,1920x1080,15s,"
+        let a = PlanParser.rows(csv: csv + "\n", tab: "T"), b = PlanParser.rows(csv: csv + "https://next.frame.io/project/p/view/x\n", tab: "T")
+        #expect(b[0].value(.frameio) == "https://next.frame.io/project/p/view/x" && a[0].matchSignature == b[0].matchSignature)
+        #expect(DeliveryPlanStore.uploadStamp(Date(timeIntervalSince1970: 0)) == "1970-01-01 00:00 UTC")
+    }
 }

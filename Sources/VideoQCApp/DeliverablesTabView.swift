@@ -1653,6 +1653,13 @@ extension ContentView {
                 }
                 PlanBatchMenu(title: isMulti ? "Set Plan Batch (Selection)" : "Set Plan Batch",
                               rowIDs: { DeliveryPlanStore.shared.rowIDs(forFiles: targetFiles()) })
+                if let link = planFiles[asset.fileURL]?.frameio, let web = URL(string: link), !link.isEmpty {
+                    Button("Open in Frame.io") { NSWorkspace.shared.open(web) }
+                } else {
+                    Button("Link Frame.io File…") {
+                        PlanFrameIOLinker.ask(store: DeliveryPlanStore.shared, rowIDs: DeliveryPlanStore.shared.rowIDs(forFiles: targetFiles()))
+                    }
+                }
                 Button(isMulti ? "Run Plan Checks on Selection" : "Run Plan Checks on This File") {
                     let store = DeliveryPlanStore.shared, queue = PlanCheckQueue.shared
                     queue.loadIfNeeded()

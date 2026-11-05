@@ -795,6 +795,7 @@ final class FrameIOBrowser: ObservableObject {
                 saveFavourites()
             }
             for id in outcome.deleted { versionCounts[id] = nil }
+            DeliveryPlanStore.shared.frameIOGone(outcome.deleted)
             hideDeleted(outcome.deleted)
             if let stack { versionCounts[stack.id] = nil }
             if let first = outcome.failures.first {

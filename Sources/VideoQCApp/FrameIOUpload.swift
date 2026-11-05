@@ -75,6 +75,8 @@ final class UploadQueue: ObservableObject {
                                            progress: progress, network: NetworkMonitor.shared,
                                            onUploaded: { file, account, id in
                                                await FrameIOLinks.shared.link(file, account: account, fileID: id)
+                                               // Not awaited: the plan's lookup of the file's link mustn't hold up the upload.
+                                               Task { await DeliveryPlanStore.shared.uploaded(file, account: account, fileID: id) }
                                                await Notifier.shared.noteOwnUpload(id)
                                            })
     private enum Stop { case pause, cancel }

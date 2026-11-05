@@ -41,12 +41,12 @@ struct PlanTab: Codable, Equatable, Sendable, Identifiable, Hashable {
 /// The columns the plan understands, recognised by their header text (position and order don't matter).
 enum PlanField: String, CaseIterable, Codable, Sendable {
     case id, number, name, length, channel, placement, resolution, aspect, logos, graphics, cta, subs, translations,
-         sound, maxSize, frameRate, format, qcStatus, qcNote, qcUpdated, batch
+         sound, maxSize, frameRate, format, qcStatus, qcNote, qcUpdated, batch, frameio, uploaded
 
     /// QCpie's own columns (written by it, never part of a row's identity or "changed" highlights).
     var isQC: Bool { self == .qcStatus || self == .qcNote || self == .qcUpdated }
     /// Columns QCpie writes (QC columns and Batch): never part of a row's identity, matching or "changed" highlights.
-    var isTracking: Bool { isQC || self == .batch }
+    var isTracking: Bool { isQC || self == .batch || self == .frameio || self == .uploaded }
 
     var title: String {
         switch self {
@@ -71,6 +71,8 @@ enum PlanField: String, CaseIterable, Codable, Sendable {
         case .qcNote: return "QC Note"
         case .qcUpdated: return "QC Updated"
         case .batch: return "Batch"
+        case .frameio: return "Frame.io"
+        case .uploaded: return "Uploaded"
         }
     }
 
@@ -87,6 +89,8 @@ enum PlanField: String, CaseIterable, Codable, Sendable {
         case "qc note", "qc notes": return .qcNote
         case "qc updated": return .qcUpdated
         case "batch", "batches", "delivery batch": return .batch
+        case "frame.io", "frameio", "frame io", "frame.io link": return .frameio
+        case "uploaded", "upload date", "uploaded on": return .uploaded
         default: break
         }
         if h.contains("file name") || h.contains("filename") || h.contains("file title") { return .name }
@@ -773,6 +777,8 @@ struct PlanFileInfo: Equatable, Sendable {
     let state: PlanState?
     /// The row's batch ("" when none).
     var batch: String = ""
+    /// The row's Frame.io link ("" when none).
+    var frameio: String = ""
     /// The row's values, lower-cased, for Inspect's search (channel, placement, resolution…).
     var text: String = ""
 }

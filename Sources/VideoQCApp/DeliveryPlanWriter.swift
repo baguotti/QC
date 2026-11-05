@@ -39,6 +39,8 @@ struct PlanStatusItem: Codable, Equatable, Sendable {
     var note: String? = nil
     var updated: String? = nil
     var batch: String? = nil
+    var frameio: String? = nil
+    var uploaded: String? = nil
 }
 
 enum PlanWriteError: LocalizedError {
@@ -74,7 +76,8 @@ enum AppsScriptWriter {
         const VERSION = \(scriptVersion);
         const QC = ['QC Status', 'QC Note', 'QC Updated'];
         // Columns copied to the other tabs listing the same code when edited (QC columns and Batch).
-        const MIRRORED = QC.concat(['Batch']).map(n => n.toLowerCase());
+        const MIRRORED = QC.concat(['Batch', 'Frame.io', 'Uploaded']).map(n => n.toLowerCase());
+        const ITEM_KEYS = { 'qc status': 'status', 'qc note': 'note', 'qc updated': 'updated', 'batch': 'batch', 'frame.io': 'frameio', 'uploaded': 'uploaded' };
         const STATUSES = \(statusesJS);
 
         function doPost(e) {
@@ -91,7 +94,7 @@ enum AppsScriptWriter {
           lock.waitLock(20000);
           try {
             let result;
-            if (req.action === 'columns') result = ensureColumns(ss, req.batch ? ['Batch'] : QC);
+            if (req.action === 'columns') result = ensureColumns(ss, req.names || (req.batch ? ['Batch'] : QC));
             else if (req.action === 'status') result = setStatus(ss, req.items || [], null);
             else if (req.action === 'write') result = writeCells(ss, req.gid, req.cells || []);
             else return out({ ok: false, error: 'Update the script: copy it from QCpie again.' });
@@ -133,7 +136,9 @@ enum AppsScriptWriter {
             status: edited('qc status') ? v[h.cols['qc status'] - 1] : null,
             note: edited('qc note') ? v[h.cols['qc note'] - 1] : null,
             updated: (edited('qc updated') || edited('qc status')) && h.cols['qc updated'] ? v[h.cols['qc updated'] - 1] : null,
-            batch: edited('batch') ? v[h.cols['batch'] - 1] : null
+            batch: edited('batch') ? v[h.cols['batch'] - 1] : null,
+            frameio: edited('frame.io') ? v[h.cols['frame.io'] - 1] : null,
+            uploaded: edited('uploaded') ? v[h.cols['uploaded'] - 1] : null
           })).filter(i => String(i.code).trim() !== '');
           setStatus(SpreadsheetApp.getActiveSpreadsheet(), items, sheet.getSheetId());
         }
@@ -211,7 +216,7 @@ enum AppsScriptWriter {
               const rows = byCode[key(item.code)];
               if (!rows) return;
               found[key(item.code)] = true;
-              [['qc status', item.status], ['qc note', item.note], ['qc updated', item.updated], ['batch', item.batch]].forEach(([name, value]) => {
+              Object.keys(ITEM_KEYS).map(name => [name, item[ITEM_KEYS[name]]]).forEach(([name, value]) => {
                 const col = h.cols[name];
                 if (!col || value === null || value === undefined) return;
                 rows.forEach(r => {
@@ -258,7 +263,7 @@ enum AppsScriptWriter {
             const name = h ? Object.keys(h.cols).find(k => h.cols[k] === col) : null;
             if (c.code && name && MIRRORED.includes(name)) {
               const item = { code: c.code };
-              item[{ 'qc status': 'status', 'qc note': 'note', 'qc updated': 'updated', 'batch': 'batch' }[name]] = c.value;
+              item[ITEM_KEYS[name]] = c.value;
               setStatus(ss, [item], sheet.getSheetId());
             }
             return { row: c.row, col: c.col, ok: true };
@@ -314,6 +319,7 @@ enum AppsScriptWriter {
         var cells: [PlanCellEdit]? = nil
         var items: [PlanStatusItem]? = nil
         var batch: Bool? = nil
+        var names: [String]? = nil
     }
 
     private struct Response: Decodable {
@@ -369,8 +375,9 @@ enum AppsScriptWriter {
     }
 
     /// Adds the QC columns (with the status dropdown) to every tab with a Code column that lacks them.
-    static func ensureColumns(_ link: PlanWriteLink, batch: Bool = false) async throws {
-        _ = try await send(link, Request(token: link.token, action: "columns", batch: batch ? true : nil))
+    /// Adds columns to every tab with a Code column that lacks them: the QC columns by default, else `names`.
+    static func ensureColumns(_ link: PlanWriteLink, names: [String]? = nil) async throws {
+        _ = try await send(link, Request(token: link.token, action: "columns", names: names))
     }
 
     /// Writes QC columns by code; returns the codes no tab lists.
