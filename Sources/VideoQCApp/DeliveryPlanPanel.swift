@@ -873,8 +873,8 @@ struct DeliveryPlanPanel: View {
                     }
                 }
                     .contentShape(Rectangle())
+                    .onTapGesture(count: 2) { DeliveryPlanStore.post(.play, url) }   // before the single tap, or it never fires
                     .onTapGesture { DeliveryPlanStore.post(.reveal, url) }
-                    .onTapGesture(count: 2) { DeliveryPlanStore.post(.play, url) }
             }
         }
         .padding(.horizontal, 12)

@@ -495,7 +495,16 @@ final class PlanSheetBody: PlanSheetPart {
     /// Click selects the row; double-click edits the cell (playing is the row number's double-click).
     override func mouseDown(with event: NSEvent) {
         let point = convert(event.locationInWindow, from: nil)
-        if event.clickCount >= 2 { container?.beginEdit(atBody: point); return }
+        if event.clickCount >= 2 {
+            // Editing set up: edit the cell. Otherwise play the row's file (the set-up is in the ••• menu, not a
+            // sheet popping up on every double-click).
+            if container?.canEdit == true {
+                container?.beginEdit(atBody: point)
+            } else if let container, let line = container.line(atBodyY: point.y) {
+                container.onSelect?(line, 2)
+            }
+            return
+        }
         guard let container, let line = container.line(atBodyY: point.y) else { return }
         container.onSelect?(line, 1)
     }

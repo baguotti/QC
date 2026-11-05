@@ -70,7 +70,9 @@ final class PlanCheckQueue: ObservableObject {
         didSet { if isPlayerPlaying, !oldValue { yieldToPlayback() } }
     }
 
-    private struct Job: Equatable { let url: URL; let kinds: Set<PlanCheckKind> }
+    /// `size` / `modified`: the file version as the plan sees it, which results are stamped with (an image sequence's
+    /// size is the whole sequence, not its first frame's: stamping the file's own size, it never matched again).
+    private struct Job: Equatable { let url: URL; let kinds: Set<PlanCheckKind>; let size: Int64; let modified: Date? }
     private var queue: [Job] = []
     private var done = 0
     private var total = 0
@@ -147,7 +149,7 @@ final class PlanCheckQueue: ObservableObject {
             let have = Set(checks(for: file.url, size: file.size, modified: file.modified)?.outcomes.keys.map { $0 } ?? [])
             let need = kinds.subtracting(have)
             guard !need.isEmpty, !queued.contains(file.url), !running.contains(file.url) else { continue }
-            queue.append(Job(url: file.url, kinds: need))
+            queue.append(Job(url: file.url, kinds: need, size: file.size, modified: file.modified))
             queued.insert(file.url)
             added += 1
         }
@@ -232,8 +234,8 @@ final class PlanCheckQueue: ObservableObject {
             guard let a = try? FileManager.default.attributesOfItem(atPath: url.path) else { return nil }
             return ((a[.size] as? NSNumber)?.int64Value ?? 0, a[.modificationDate] as? Date ?? .distantPast)
         }.value
-        guard let stamp else { return nil }
-        var result = PlanFileChecks(size: stamp.0, modified: stamp.1)
+        guard let stamp else { return nil }   // gone from disk
+        var result = PlanFileChecks(size: job.size, modified: job.modified ?? stamp.1)
         if let old = results[url], old.size == result.size, abs(old.modified.timeIntervalSince(result.modified)) < 1 {
             result.outcomes = old.outcomes
         }
