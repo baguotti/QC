@@ -33,6 +33,8 @@ struct ContentView: View {
     @State var inspectPlanFilter = -1
     /// Inspect's batch filter: nil every batch, "" files whose row has none, else a batch name.
     @State var inspectPlanBatch: String? = nil
+    /// Inspect's Frame.io filter: nil all, else a `PlanUpload.passes` value.
+    @State var inspectPlanUpload: Int? = nil
     /// Inspect sorted by the plan: 0 off (column sort), 1 plan order (sheet rows), 2 plan status.
     @State var inspectPlanSort = 0
     @Environment(\.openWindow) var openWindow
@@ -311,18 +313,22 @@ struct ContentView: View {
             .onAppear { InspectPreview.shared.select(specsState.selectedDeliverableURL) }
             // Linked filters (Delivery Plan ⇄ Inspect): Inspect's status chip and search go out, the plan's come in.
             .onChange(of: inspectPlanFilter) { _, state in
-                DeliveryPlanStore.shared.publishFilter(.init(state: state, search: specsState.specsFilterText, batch: inspectPlanBatch))
+                DeliveryPlanStore.shared.publishFilter(.init(state: state, search: specsState.specsFilterText, batch: inspectPlanBatch, upload: inspectPlanUpload))
             }
             .onChange(of: inspectPlanBatch) { _, batch in
-                DeliveryPlanStore.shared.publishFilter(.init(state: inspectPlanFilter, search: specsState.specsFilterText, batch: batch))
+                DeliveryPlanStore.shared.publishFilter(.init(state: inspectPlanFilter, search: specsState.specsFilterText, batch: batch, upload: inspectPlanUpload))
+            }
+            .onChange(of: inspectPlanUpload) { _, upload in
+                DeliveryPlanStore.shared.publishFilter(.init(state: inspectPlanFilter, search: specsState.specsFilterText, batch: inspectPlanBatch, upload: upload))
             }
             .onChange(of: specsState.specsFilterText) { _, text in
-                DeliveryPlanStore.shared.publishFilter(.init(state: inspectPlanFilter, search: text, batch: inspectPlanBatch))
+                DeliveryPlanStore.shared.publishFilter(.init(state: inspectPlanFilter, search: text, batch: inspectPlanBatch, upload: inspectPlanUpload))
             }
             .onReceive(DeliveryPlanStore.shared.$sharedFilter) { filter in
                 guard DeliveryPlanStore.shared.linkFilters else { return }
                 if inspectPlanFilter != filter.state { inspectPlanFilter = filter.state }
                 if inspectPlanBatch != filter.batch { inspectPlanBatch = filter.batch }
+                if inspectPlanUpload != filter.upload { inspectPlanUpload = filter.upload }
                 if specsState.specsFilterText != filter.search { specsState.specsFilterText = filter.search }
             }
             .onReceive(DeliveryPlanStore.shared.$fileIndex) { index in

@@ -720,6 +720,41 @@ enum PlanState: Int, CaseIterable, Sendable, Hashable {
 struct PlanRowState: Equatable, Sendable {
     var state: PlanState
     var flags: [String] = []
+    var upload: PlanUpload = .none
+}
+
+/// Whether a row's file is on Frame.io (its Frame.io column), and whether the local file changed after the upload.
+enum PlanUpload: Int, Equatable, Sendable {
+    case none = 0, uploaded = 1, stale = 2
+
+    /// Filter values (`uploadFilter`): 0 not on Frame.io, 1 on Frame.io (stale included), 2 changed since upload.
+    func passes(_ filter: Int) -> Bool {
+        switch filter {
+        case 0: return self == .none
+        case 1: return self != .none
+        default: return self == .stale
+        }
+    }
+
+    /// "2026-11-05 10:42 UTC" (the Uploaded column) → date. Formatters are made once: this runs per linked row on
+    /// every state recompute.
+    static func date(_ stamp: String) -> Date? {
+        let text = stamp.trimmingCharacters(in: .whitespaces)
+        guard text.hasSuffix("UTC") else { return nil }
+        return minutes.date(from: text) ?? seconds.date(from: text)
+    }
+
+    private static let minutes = utcFormatter("yyyy-MM-dd HH:mm 'UTC'")
+    private static let seconds = utcFormatter("yyyy-MM-dd HH:mm:ss 'UTC'")
+    static let stampFormatter = utcFormatter("yyyy-MM-dd HH:mm")
+
+    private static func utcFormatter(_ format: String) -> DateFormatter {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = TimeZone(identifier: "UTC")
+        formatter.dateFormat = format
+        return formatter
+    }
 }
 
 enum PlanStatusResolver {
@@ -779,11 +814,13 @@ struct PlanFileInfo: Equatable, Sendable {
     var batch: String = ""
     /// The row's Frame.io link ("" when none).
     var frameio: String = ""
+    var upload: PlanUpload = .none
     /// The row's values, lower-cased, for Inspect's search (channel, placement, resolution…).
     var text: String = ""
 }
 
-/// Delivery batches ("1", "1.1", "2"…): a sheet's Batch column, sorted naturally (1 < 1.1 < 1.2 < 2 < 10).
+/// Delivery batches: a sheet's Batch column, plain numbers ("1", "2", "3"…), sorted by number (2 < 10). Other text a
+/// sheet already holds ("Final") sorts after them.
 enum PlanBatch {
     /// The numbers in a batch name, for sorting.
     private static func parts(_ name: String) -> [Int] {
@@ -801,12 +838,12 @@ enum PlanBatch {
         Array(Set(names.map { PlanGrid.normalized($0) }.filter { !$0.isEmpty })).sorted(by: precedes)
     }
 
-    /// "1.1" → "Batch 1.1"; a name that already says more ("Final", "Batch 2") stays.
+    /// "2" → "Batch 2"; a name that already says more ("Final", "Batch 2") stays.
     static func title(_ name: String) -> String {
         name.first?.isNumber == true ? "Batch \(name)" : name
     }
 
-    /// The batch after the last numbered one: "3" after "2.1".
+    /// The batch after the highest one: "3" after "2".
     static func next(after names: [String]) -> String {
         let top = names.compactMap { parts($0).first }.max() ?? 0
         return "\(top + 1)"

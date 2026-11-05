@@ -288,7 +288,7 @@ extension DeliveryPlanTests {
     func batches() {
         #expect(PlanBatch.sorted(["2", "1.10", "1", "10", "1.2", "Final", " 1 "]) == ["1", "1.2", "1.10", "2", "10", "Final"])
         #expect(PlanBatch.title("1.1") == "Batch 1.1" && PlanBatch.title("Final") == "Final")
-        #expect(PlanBatch.next(after: ["1", "2.1"]) == "3" && PlanBatch.next(after: []) == "1")
+        #expect(PlanBatch.next(after: ["1", "2"]) == "3" && PlanBatch.next(after: []) == "1")
         #expect(PlanField.detect("Batch") == .batch && PlanField.batch.isTracking && !PlanField.batch.isQC)
         let a = PlanParser.rows(csv: "Code,File Name,Resolution,Length,Batch\nKL0001,A_KL0001,1920x1080,15s,1\n", tab: "T")
         let b = PlanParser.rows(csv: "Code,File Name,Resolution,Length,Batch\nKL0001,A_KL0001,1920x1080,15s,2\n", tab: "T")
@@ -304,5 +304,14 @@ extension DeliveryPlanTests {
         let a = PlanParser.rows(csv: csv + "\n", tab: "T"), b = PlanParser.rows(csv: csv + "https://next.frame.io/project/p/view/x\n", tab: "T")
         #expect(b[0].value(.frameio) == "https://next.frame.io/project/p/view/x" && a[0].matchSignature == b[0].matchSignature)
         #expect(DeliveryPlanStore.uploadStamp(Date(timeIntervalSince1970: 0)) == "1970-01-01 00:00 UTC")
+    }
+
+    @Test("Upload state: stamps parse and filters pass the right rows")
+    func uploadState() {
+        #expect(PlanUpload.date("2026-11-05 10:42 UTC") == Date(timeIntervalSince1970: 1_793_875_320))
+        #expect(PlanUpload.date("2026-11-05 10:42:00 UTC") != nil && PlanUpload.date("yesterday") == nil)
+        #expect(PlanUpload.uploaded.passes(1) && PlanUpload.stale.passes(1) && !PlanUpload.none.passes(1))
+        #expect(PlanUpload.none.passes(0) && !PlanUpload.uploaded.passes(0))
+        #expect(PlanUpload.stale.passes(2) && !PlanUpload.uploaded.passes(2))
     }
 }

@@ -279,8 +279,15 @@ extension ContentView {
                                 unbatched: batchItems.first { $0.name.isEmpty }?.count ?? 0,
                                 selection: $inspectPlanBatch, isLightMode: isLightMode)
             }
+            // Shown with the plan's: when the sheet has a Frame.io column (read here, not observed: `planFiles` redraws).
+            if DeliveryPlanStore.shared.hasFrameIOColumn || inspectPlanUpload != nil {
+                let counts = PlanUploadFilter.counts(specsState.deliverableAssets.compactMap { asset in
+                    planFiles[asset.fileURL].flatMap { $0.rowID == nil ? nil : $0.upload }
+                })
+                PlanUploadFilter(none: counts.none, on: counts.on, stale: counts.stale, selection: $inspectPlanUpload, isLightMode: isLightMode)
+            }
             LinkFiltersButton(isLightMode: isLightMode) {
-                DeliveryPlanStore.SharedFilter(state: inspectPlanFilter, search: specsState.specsFilterText, batch: inspectPlanBatch)
+                DeliveryPlanStore.SharedFilter(state: inspectPlanFilter, search: specsState.specsFilterText, batch: inspectPlanBatch, upload: inspectPlanUpload)
             }
         }
     }
@@ -698,7 +705,7 @@ extension ContentView {
                     
                     // Clean list: hide the plan's chips and badges (filters keep working)
                     if !planFiles.isEmpty {
-                        let filtered = inspectPlanFilter != -1 || inspectPlanBatch != nil
+                        let filtered = inspectPlanFilter != -1 || inspectPlanBatch != nil || inspectPlanUpload != nil
                         Button(action: { withAnimation(Motion.fade) { hidePlanTags.toggle() } }) {
                             HStack(spacing: 4) {
                                 Image(systemName: hidePlanTags ? "tag.slash" : "tag")
@@ -1083,13 +1090,14 @@ extension ContentView {
     var specsKindMask: Int { MediaKindFilter.effectiveMask(mediaKindFilter, present: specsPresentKinds) }
     
     var filteredDeliverableAssets: [DeliverableAsset] {
-        let files = planFiles, filter = inspectPlanFilter, batch = inspectPlanBatch
+        let files = planFiles, filter = inspectPlanFilter, batch = inspectPlanBatch, upload = inspectPlanUpload
         return specsState.displayedAssets(
             filter: specsState.specsFilterText.trimmingCharacters(in: .whitespacesAndNewlines), mask: specsKindMask,
-            planKey: files.isEmpty ? "" : "\(filter)|\(batch ?? "*")|\(planFilesVersion)|\(inspectPlanSort)",
-            planAllows: (filter == -1 && batch == nil) || files.isEmpty ? nil : { url in
+            planKey: files.isEmpty ? "" : "\(filter)|\(batch ?? "*")|\(upload ?? -1)|\(planFilesVersion)|\(inspectPlanSort)",
+            planAllows: (filter == -1 && batch == nil && upload == nil) || files.isEmpty ? nil : { url in
                 let info = files[url]
                 if let batch, info?.rowID == nil || info?.batch != batch { return false }
+                if let upload, info?.rowID == nil || info?.upload.passes(upload) != true { return false }
                 guard filter != -1 else { return true }
                 guard let info else { return filter == -2 }
                 return filter == -2 ? info.state == nil : info.state?.rawValue == filter

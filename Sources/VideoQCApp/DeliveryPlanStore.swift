@@ -484,12 +484,15 @@ final class DeliveryPlanStore: ObservableObject {
         // Pending QC columns, by code → this tab's line for that code.
         if !pendingQC.isEmpty, let config {
             for tab in config.included {
-                guard var grid = out[tab.gid], let header = headers[tab.gid] else { continue }
+                guard var grid = out[tab.gid], headers[tab.gid] != nil else { continue }
+                // QCpie's columns in this tab's view, found once per tab.
+                var columns: [PlanField: Int] = [:]
+                for field in PlanField.allCases where field.isTracking { columns[field] = gridColumn(field, gid: tab.gid) }
                 var edits: [CellKey: String] = [:]
                 for row in rows where row.tab == tab.name {
                     guard let code = row.code, let p = pendingQC[code.lowercased()] else { continue }
                     for (field, value) in p.values {
-                        if let column = header.columns[field] { edits[CellKey(line: row.line, column: column)] = value }
+                        if let column = columns[field] { edits[CellKey(line: row.line, column: column)] = value }
                     }
                 }
                 if !edits.isEmpty { grid = grid.applying(edits); out[tab.gid] = grid }
@@ -703,16 +706,30 @@ final class DeliveryPlanStore: ObservableObject {
         for row in rows {
             let result = match.result(row)
             let pending = row.code.flatMap { pendingQC[$0.lowercased()] }
-            let state = PlanStatusResolver.resolve(match: result.status, hasFiles: !result.files.isEmpty,
+            var state = PlanStatusResolver.resolve(match: result.status, hasFiles: !result.files.isEmpty,
                                                    qc: pending?.values[.qcStatus] ?? row.value(.qcStatus),
                                                    updated: pending?.values[.qcUpdated] ?? row.value(.qcUpdated),
                                                    fileDates: result.files.compactMap { dates[$0] })
+            let link = frameioLink(row)
+            if !link.isEmpty {
+                state.upload = .uploaded
+                // The local file changed after the upload (a minute's grace: the upload stamp has no seconds).
+                let uploadedOn = shown(.uploaded, row)
+                if let when = PlanUpload.date(uploadedOn), let newest = result.files.compactMap({ dates[$0] }).max(),
+                   newest > when.addingTimeInterval(60) {
+                    state.upload = .stale
+                    state.flags.append("Changed after its upload to Frame.io (\(uploadedOn)): Frame.io has an older version.")
+                }
+                if !state.state.isDone, state.state != .dropped, state.state != .onHold {
+                    state.flags.append("On Frame.io before passing QC.")
+                }
+            }
             newStates[row.id] = state
             let rowBatch = batch(row)
             if !rowBatch.isEmpty { batchNames.insert(rowBatch) }
             for url in result.files where index[url] == nil {
                 index[url] = PlanFileInfo(code: row.code ?? "", line: row.line, rowID: row.id, state: state.state,
-                                          batch: rowBatch, frameio: frameioLink(row), text: row.values.values.joined(separator: " ").lowercased())
+                                          batch: rowBatch, frameio: link, upload: state.upload, text: row.values.values.joined(separator: " ").lowercased())
             }
         }
         let sortedBatches = PlanBatch.sorted(batchNames)
@@ -723,7 +740,16 @@ final class DeliveryPlanStore: ObservableObject {
     }
 
     /// The tab's QC Status column (0-based), when it has one.
-    func statusColumn(gid: String) -> Int? { headers[gid]?.columns[.qcStatus] }
+    func statusColumn(gid: String) -> Int? { gridColumn(.qcStatus, gid: gid) }
+
+    /// A field's column in the Sheet view, found by header text: the view leaves hidden and collapsed columns out, so
+    /// the sheet's column numbers (`headers`, from the CSV) can point at the wrong one. Nil when hidden in the view.
+    func gridColumn(_ field: PlanField, gid: String) -> Int? {
+        guard let header = headers[gid], let column = header.columns[field] else { return nil }
+        guard let grid = readGrids[gid] else { return column }
+        if PlanField.detect(grid.text(line: header.line, column: column) ?? "") == field { return column }
+        return grid.columnWidths.indices.first { PlanField.detect(grid.text(line: header.line, column: $0) ?? "") == field }
+    }
 
     func state(_ row: PlanRow) -> PlanRowState { states[row.id] ?? PlanRowState(state: .missing) }
 
@@ -798,11 +824,7 @@ final class DeliveryPlanStore: ObservableObject {
 
     /// "2026-11-05 10:42 UTC": the Uploaded column.
     nonisolated static func uploadStamp(_ date: Date) -> String {
-        let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.timeZone = TimeZone(identifier: "UTC")
-        formatter.dateFormat = "yyyy-MM-dd HH:mm"
-        return formatter.string(from: date) + " UTC"
+        PlanUpload.stampFormatter.string(from: date) + " UTC"
     }
 
     /// QCpie uploaded `file` (the Upload tab) as Frame.io file `fileID`: its row's Frame.io column gets the file's link
@@ -830,15 +852,28 @@ final class DeliveryPlanStore: ObservableObject {
             let name = item.isVersionStack ? (item.headVersion?.name ?? item.title) : item.title
             for code in codes(inFileNamed: name) { found[code] = (item, (found[code]?.count ?? 0) + 1) }
         }
+        var queued = false
         for (code, entry) in found where entry.count == 1 {
             let targets = rows(withCode: code)
             guard !targets.isEmpty, targets.allSatisfy({ frameioLink($0).isEmpty }), let url = entry.item.viewURL else { continue }
+            // The code alone could be another project's (codes repeat across campaigns): the file's name must also hold
+            // the row's name (it ends with the code), or be the name of the local file matched to the row.
+            let name = entry.item.isVersionStack ? (entry.item.headVersion?.name ?? entry.item.title) : entry.item.title
+            let fileTokens = PlanMatcher.tokens((name as NSString).deletingPathExtension)
+            let named = targets.contains { row in
+                PlanMatcher.contains(fileTokens, PlanMatcher.tokens(row.name))
+                    || match.result(row).files.contains { $0.lastPathComponent.caseInsensitiveCompare(name) == .orderedSame }
+            }
+            guard named else { continue }
             let date = entry.item.createdDate
-            queueQC(targets, quiet: true) { item in
+            queueQC(targets, quiet: true, refresh: false) { item in
                 item.frameio = url
                 if let date, targets.allSatisfy({ self.shown(.uploaded, $0).isEmpty }) { item.uploaded = Self.uploadStamp(date) }
             }
+            queued = true
         }
+        // One recompute and redraw for the whole listing, not one per row.
+        if queued { recomputeStates(); publishGrids() }
     }
 
     /// Frame.io files or stacks deleted (in the browser, or found gone): rows linked to them lose the link.
@@ -893,7 +928,8 @@ final class DeliveryPlanStore: ObservableObject {
     /// The status filter and search shared by the plan and Inspect while `linkFilters` is on.
     /// `state`: -1 all, -2 not in the plan (Inspect only), else a `PlanState` raw value.
     /// `batch`: nil all, "" no batch, else a batch name.
-    struct SharedFilter: Equatable { var state = -1; var search = ""; var batch: String? = nil }
+    /// `upload`: nil all, else a `PlanUpload.passes` filter value.
+    struct SharedFilter: Equatable { var state = -1; var search = ""; var batch: String? = nil; var upload: Int? = nil }
 
     @Published var linkFilters = UserDefaults.standard.bool(forKey: "planLinkFilters") {
         didSet { UserDefaults.standard.set(linkFilters, forKey: "planLinkFilters") }
@@ -906,7 +942,7 @@ final class DeliveryPlanStore: ObservableObject {
         // The plan has no "Not in Plan" chip: showing everything there mustn't undo Inspect's choice.
         if fromPlan, sharedFilter.state == -2, filter.state == -1 {
             // …but its search and batch still go across.
-            let kept = SharedFilter(state: -2, search: filter.search, batch: filter.batch)
+            let kept = SharedFilter(state: -2, search: filter.search, batch: filter.batch, upload: filter.upload)
             if kept != sharedFilter { sharedFilter = kept }
             return
         }
@@ -938,7 +974,8 @@ final class DeliveryPlanStore: ObservableObject {
     }
 
     /// `quiet`: automatic writes (Frame.io links) say nothing when the sheet can't take them.
-    private func queueQC(_ targets: [PlanRow], quiet: Bool = false, _ change: (inout PlanStatusItem) -> Void) {
+    /// `refresh: false` leaves the recompute and redraw to the caller (several rows queued in a row).
+    private func queueQC(_ targets: [PlanRow], quiet: Bool = false, refresh: Bool = true, _ change: (inout PlanStatusItem) -> Void) {
         guard config?.writer != nil else { if !quiet { editState = .failed("Set up editing (••• menu) to set statuses.") }; return }
         guard !scriptOutdated else { if !quiet { editState = .failed("Update the script (••• → Update Script…) to set statuses.") }; return }
         let coded = targets.filter { !($0.code ?? "").isEmpty }
@@ -958,8 +995,10 @@ final class DeliveryPlanStore: ObservableObject {
             p.since = Date()
             pendingQC[key] = p
         }
-        recomputeStates()
-        publishGrids()
+        if refresh {
+            recomputeStates()
+            publishGrids()
+        }
         editState = .saving(queuedQC.count)
         flushTask?.cancel()
         flushTask = Task {

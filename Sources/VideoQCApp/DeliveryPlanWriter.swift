@@ -225,7 +225,7 @@ enum AppsScriptWriter {
                 });
               });
             });
-            // Batch is written as text: "1.10" must not become the number 1.1.
+            // Batch is written as text, so the sheet keeps exactly what was set.
             Object.keys(groups).forEach(g => {
               const list = sheet.getRangeList(groups[g].cells);
               if (groups[g].text) list.setNumberFormat('@');

@@ -12,6 +12,8 @@ struct PlanSheetMark: Equatable {
     var changed: Bool
     /// Plan checks of the row's files: a ring around the dot (green all passed, red one failed).
     var checks: PlanChecksSummary.Result = .notRun
+    /// On Frame.io: a small arrow by the dot (amber when the local file changed after the upload).
+    var upload: PlanUpload = .none
 }
 
 /// App colours for the chrome around the sheet (gutter, column letters, selection). The cells use the sheet's own.
@@ -89,7 +91,7 @@ struct PlanSheetLayout {
     let frozenHeight: CGFloat
 
     static let letterBar: CGFloat = 20
-    static let gutterWidth: CGFloat = 52
+    static let gutterWidth: CGFloat = 58
 
     init(grid: PlanGrid, shownLines: Set<Int>?, zoom: CGFloat) {
         self.zoom = zoom
@@ -675,6 +677,17 @@ final class PlanSheetGutter: PlanSheetPart {
                 path.lineWidth = 1.5
                 path.stroke()
             }
+        }
+        if let mark, mark.upload != .none {
+            (mark.upload == .stale ? chrome.statusColors[.check] ?? chrome.accent : chrome.accent).setFill()
+            let s: CGFloat = 3, x = rect.minX + 19, y = rect.midY
+            let arrow = NSBezierPath()
+            arrow.move(to: CGPoint(x: x, y: y - s))
+            arrow.line(to: CGPoint(x: x + s, y: y + 1))
+            arrow.line(to: CGPoint(x: x - s, y: y + 1))
+            arrow.close()
+            arrow.fill()
+            CGRect(x: x - 0.75, y: y + 1, width: 1.5, height: s).fill()
         }
         let right = NSMutableParagraphStyle()
         right.alignment = .right

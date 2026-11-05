@@ -23,6 +23,8 @@ struct DeliveryPlanPanel: View {
     @State private var statusFilter: PlanState? = nil
     /// nil: every batch; "": rows without one; else a batch name.
     @State private var batchFilter: String? = nil
+    /// nil: all; else a `PlanUpload.passes` value (0 not on Frame.io, 1 on, 2 changed since upload).
+    @State private var uploadFilter: Int? = nil
     @State private var noteDraft = ""
     /// The row the note being typed belongs to (the field shows another row's note once the selection moves).
     @State private var noteRowID: String? = nil
@@ -64,6 +66,7 @@ struct DeliveryPlanPanel: View {
             if filter.state != currentFilter.state { changedOnly = false }   // a search alone keeps "Changed"
             search = filter.search
             batchFilter = filter.batch
+            uploadFilter = filter.upload
         }
         .background {
             // The plan window gets every key itself (the router passes them through): ⌥1–⌥6 / ⌥0 here.
@@ -377,6 +380,10 @@ struct DeliveryPlanPanel: View {
                 }
             }
             if store.hasBatchColumn || !store.batches.isEmpty { batchFilterMenu }
+            if store.hasFrameIOColumn {
+                let counts = PlanUploadFilter.counts(store.rows.lazy.map { store.state($0).upload })
+                PlanUploadFilter(none: counts.none, on: counts.on, stale: counts.stale, selection: $uploadFilter, isLightMode: isLightMode)
+            }
             LinkFiltersButton(isLightMode: isLightMode) { currentFilter }
         }
     }
@@ -467,7 +474,7 @@ struct DeliveryPlanPanel: View {
     }
 
     private var currentFilter: DeliveryPlanStore.SharedFilter {
-        DeliveryPlanStore.SharedFilter(state: statusFilter?.rawValue ?? -1, search: search, batch: batchFilter)
+        DeliveryPlanStore.SharedFilter(state: statusFilter?.rawValue ?? -1, search: search, batch: batchFilter, upload: uploadFilter)
     }
 
     // MARK: Checks
@@ -643,7 +650,7 @@ struct DeliveryPlanPanel: View {
             let tabRows = rows.filter { $0.tab == tab.name }
             let byLine = Dictionary(tabRows.map { ($0.line, $0) }, uniquingKeysWith: { a, _ in a })
             let marks = byLine.mapValues { PlanSheetMark(status: store.state($0).state, changed: store.changes[$0.id] != nil,
-                                                         checks: checkSummary($0).result) }
+                                                         checks: checkSummary($0).result, upload: store.state($0).upload) }
             let highlighted = highlightedRows(tabRows, match: match)
             let selected = selectedRow.flatMap { id in tabRows.first { $0.id == id } } ?? highlighted.first
             VStack(spacing: 0) {
@@ -707,11 +714,12 @@ struct DeliveryPlanPanel: View {
     /// Lines passing the chips and the filter field; nil when nothing filters (every row shows, as in the sheet).
     private func shownLines(_ rows: [PlanRow], match: PlanMatch) -> Set<Int>? {
         let terms = PlanMatcher.tokens(search)
-        guard statusFilter != nil || changedOnly || !terms.isEmpty || batchFilter != nil else { return nil }
+        guard statusFilter != nil || changedOnly || !terms.isEmpty || batchFilter != nil || uploadFilter != nil else { return nil }
         var lines = Set<Int>()
         for row in rows {
             if let statusFilter, store.state(row).state != statusFilter { continue }
             if let batchFilter, store.batch(row) != batchFilter { continue }
+            if let uploadFilter, !store.state(row).upload.passes(uploadFilter) { continue }
             if changedOnly, store.changes[row.id] == nil { continue }
             if !terms.isEmpty {
                 let haystack = row.searchText + " " + match.result(row).files.map(\.lastPathComponent).joined(separator: " ").lowercased()
@@ -805,6 +813,7 @@ struct DeliveryPlanPanel: View {
         for row in rows {
             if let statusFilter, store.state(row).state != statusFilter { continue }
             if let batchFilter, store.batch(row) != batchFilter { continue }
+            if let uploadFilter, !store.state(row).upload.passes(uploadFilter) { continue }
             if changedOnly, store.changes[row.id] == nil { continue }
             if !terms.isEmpty {
                 let haystack = row.searchText + " " + match.result(row).files.map(\.lastPathComponent).joined(separator: " ").lowercased()
@@ -817,7 +826,7 @@ struct DeliveryPlanPanel: View {
             }
             items.append(.row(row))
         }
-        if statusFilter == nil, batchFilter == nil, !changedOnly, terms.isEmpty, !match.extras.isEmpty { items.append(.extras(match.extras)) }
+        if statusFilter == nil, batchFilter == nil, uploadFilter == nil, !changedOnly, terms.isEmpty, !match.extras.isEmpty { items.append(.extras(match.extras)) }
         return items
     }
 
@@ -1355,6 +1364,11 @@ struct PlanPill: View {
                 Text(state.title)
                     .font(.ui(size: 10, weight: .medium))
                     .foregroundColor(PlanRowView.color(state, palette))
+                if info.upload != .none {
+                    Image(systemName: "arrow.up.circle.fill")
+                        .font(.system(size: StudioTheme.scaleFont(9)))
+                        .foregroundColor(info.upload == .stale ? TagTone.amber.color(palette.isLight) : palette.accentBlue)
+                }
             } else {
                 Text("Not in plan")
                     .font(.ui(size: 10, weight: .medium))
@@ -1366,7 +1380,8 @@ struct PlanPill: View {
         .padding(.horizontal, 5)
         .padding(.vertical, 1)
         .background(RoundedRectangle(cornerRadius: Radius.control).fill(palette.bgSubtle))
-        .help(info.state == nil ? "Not in the Delivery Plan." : "Delivery Plan row \(info.line)\(info.code.isEmpty ? "" : " · \(info.code)") · \(info.state!.title)")
+        .help(info.state == nil ? "Not in the Delivery Plan." : "Delivery Plan row \(info.line)\(info.code.isEmpty ? "" : " · \(info.code)") · \(info.state!.title)"
+              + (info.upload == .uploaded ? " · On Frame.io" : info.upload == .stale ? " · Changed since its Frame.io upload" : ""))
     }
 }
 
@@ -1534,11 +1549,11 @@ struct PlanBatchMenu: View {
         return menu
     }
 
-    /// Asks for a batch name, offering the next number ("3" after "2.1").
+    /// Asks for a batch number, offering the next one ("3" after "2"). Batches are whole numbers.
     @MainActor static func askNewBatch(_ store: DeliveryPlanStore) -> String? {
         let alert = NSAlert()
         alert.messageText = "New Batch"
-        alert.informativeText = "A number like 3, or 2.1 for a split of batch 2."
+        alert.informativeText = "Batches are numbered 1, 2, 3…"
         let field = NSTextField(string: PlanBatch.next(after: store.batches))
         field.frame = NSRect(x: 0, y: 0, width: 220, height: 24)
         alert.accessoryView = field
@@ -1546,8 +1561,11 @@ struct PlanBatchMenu: View {
         alert.addButton(withTitle: "Cancel")
         alert.window.initialFirstResponder = field
         guard alert.runModal() == .alertFirstButtonReturn else { return nil }
-        let name = PlanGrid.normalized(field.stringValue)
-        return name.isEmpty ? nil : name
+        guard let number = Int(field.stringValue.trimmingCharacters(in: .whitespaces)), number > 0 else {
+            NSSound.beep()
+            return nil
+        }
+        return String(number)
     }
 }
 
@@ -1570,5 +1588,65 @@ enum PlanFrameIOLinker {
         let text = field.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return }
         Task { @MainActor in await store.linkFrameIO(text, rowIDs: rowIDs) }
+    }
+}
+
+/// The Frame.io filter shared by the plan and Inspect: All, On Frame.io, Not on Frame.io, Changed since upload.
+struct PlanUploadFilter: View {
+    let none: Int
+    let on: Int
+    let stale: Int
+    @Binding var selection: Int?
+    let isLightMode: Bool
+
+    private static let titles = [0: "Not on Frame.io", 1: "On Frame.io", 2: "Changed Since Upload"]
+
+    /// The three counts in one pass.
+    static func counts(_ uploads: some Sequence<PlanUpload>) -> (none: Int, on: Int, stale: Int) {
+        var none = 0, on = 0, stale = 0
+        for upload in uploads {
+            switch upload {
+            case .none: none += 1
+            case .uploaded: on += 1
+            case .stale: on += 1; stale += 1
+            }
+        }
+        return (none, on, stale)
+    }
+
+    var body: some View {
+        let palette = StudioPalette(isLightMode)
+        let active = selection != nil
+        Menu {
+            Button(selection == nil ? "✓ All Files" : "All Files") { selection = nil }
+            Divider()
+            option(1, on)
+            option(0, none)
+            if stale > 0 { option(2, stale) }
+        } label: {
+            HStack(spacing: 4) {
+                Image(systemName: "arrow.up.circle")
+                    .font(.system(size: StudioTheme.scaleFont(9)))
+                Text(selection.flatMap { Self.titles[$0] } ?? "Frame.io")
+                    .font(.ui(size: 10, weight: active ? .semibold : .medium))
+                if stale > 0 {
+                    Circle().fill(TagTone.amber.color(palette.isLight)).frame(width: 5, height: 5)
+                }
+            }
+            .foregroundColor(active ? palette.textMain : palette.textMuted)
+            .padding(.horizontal, 7)
+            .padding(.vertical, 3)
+            .background(RoundedRectangle(cornerRadius: Radius.control).fill(active ? palette.bgSubtle : Color.clear))
+            .overlay(RoundedRectangle(cornerRadius: Radius.control).stroke(active ? palette.borderStrong : palette.borderLine, lineWidth: 1))
+            .contentShape(Rectangle())
+        }
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .fixedSize()
+        .tip(stale > 0 ? "\(stale) file\(stale == 1 ? "" : "s") changed after upload: Frame.io has an older version." : "Show files by whether they're on Frame.io.")
+    }
+
+    private func option(_ value: Int, _ count: Int) -> some View {
+        Button("\(selection == value ? "✓ " : "")\(Self.titles[value]!)  ·  \(count)") { selection = value }
     }
 }
