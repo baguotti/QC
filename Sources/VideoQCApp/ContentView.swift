@@ -29,6 +29,8 @@ struct ContentView: View {
     /// Inspect's mirror of `DeliveryPlanStore.fileIndex` (code, row, state per file), updated only when it changes.
     @State var planFiles: [URL: PlanFileInfo] = [:]
     @State var planFilesVersion = 0
+    /// Inspect's plan chip counts, rebuilt only when the files or the plan index change (not on every redraw).
+    @State var inspectPlanCounts = InspectPlanCounts()
     /// Inspect's Delivery Plan filter: -1 all, -2 not in the plan, else a `PlanState` raw value.
     @State var inspectPlanFilter = -1
     /// Inspect's batch filter: nil every batch, "" files whose row has none, else a batch name.

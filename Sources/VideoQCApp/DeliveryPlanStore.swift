@@ -178,10 +178,21 @@ final class DeliveryPlanStore: ObservableObject {
     @Published private(set) var cellLists: [String: [String: [String]]] = [:]
     /// Every batch named in the plan (pending edits included), in natural order.
     @Published private(set) var batches: [String] = []
+    /// Counts for the batch and Frame.io filters (rows), rebuilt with the states.
+    struct PlanCounts: Equatable {
+        var batches: [PlanBatchFilter.Item] = []
+        var unbatched = 0
+        var uploads = (none: 0, on: 0, stale: 0)
+        static func == (a: PlanCounts, b: PlanCounts) -> Bool {
+            a.batches == b.batches && a.unbatched == b.unbatched && a.uploads == b.uploads
+        }
+    }
+    @Published private(set) var planCounts = PlanCounts()
     /// Whether any included tab has a Batch column.
     var hasBatchColumn: Bool { headers.values.contains { $0.columns[.batch] != nil } }
-    /// The script's fingerprint of the dropdown choices at the last 10 s check.
+    /// The script's fingerprint of the dropdown choices at the last 10 s check, and at the last lists read.
     private var lastListsSig: String?
+    private var listsReadSig: String?
     var scriptOutdated: Bool { config?.writer != nil && (scriptVersion ?? AppsScriptWriter.scriptVersion) < AppsScriptWriter.scriptVersion }
 
     /// The last cell edit's outcome, for the status line.
@@ -201,7 +212,8 @@ final class DeliveryPlanStore: ObservableObject {
 
     /// QC columns sent but not yet seen in a read (by lower-cased code), laid over rows and grids.
     /// Columns QCpie wrote (QC columns, Batch, Frame.io, Uploaded) by field, until a read shows them.
-    private struct PendingQC { var values: [PlanField: String] = [:]; var since: Date }
+    /// `sent`: the script took the write (it should show in the next reads; if it never does, the user is told).
+    private struct PendingQC { var values: [PlanField: String] = [:]; var since: Date; var sent = false }
     private var pendingQC: [String: PendingQC] = [:]
     private var queuedQC: [String: PlanStatusItem] = [:]
     private var flushTask: Task<Void, Never>?
@@ -262,7 +274,7 @@ final class DeliveryPlanStore: ObservableObject {
             saveConfig()
             seen = [:]
             rows = []
-            grids = [:]; readGrids = [:]; pending = [:]; pendingQC = [:]; queuedQC = [:]; states = [:]; fileIndex = [:]; headers = [:]; scriptVersion = nil; lastCounter = nil; cellLists = [:]; lastListsSig = nil
+            grids = [:]; readGrids = [:]; pending = [:]; pendingQC = [:]; queuedQC = [:]; states = [:]; fileIndex = [:]; headers = [:]; scriptVersion = nil; lastCounter = nil; cellLists = [:]; lastListsSig = nil; listsReadSig = nil; deferredTracking = []
             changes = [:]
             removed = []
             await refresh(adoptAsSeen: true)
@@ -289,7 +301,7 @@ final class DeliveryPlanStore: ObservableObject {
         self.config = nil
         UserDefaults.standard.removeObject(forKey: Self.configKey)
         rows = []
-        grids = [:]; readGrids = [:]; pending = [:]; pendingQC = [:]; queuedQC = [:]; states = [:]; fileIndex = [:]; headers = [:]; scriptVersion = nil; lastCounter = nil; cellLists = [:]; lastListsSig = nil
+        grids = [:]; readGrids = [:]; pending = [:]; pendingQC = [:]; queuedQC = [:]; states = [:]; fileIndex = [:]; headers = [:]; scriptVersion = nil; lastCounter = nil; cellLists = [:]; lastListsSig = nil; listsReadSig = nil; deferredTracking = []
         match = .empty
         changes = [:]
         removed = []
@@ -405,7 +417,10 @@ final class DeliveryPlanStore: ObservableObject {
             phase = .idle
             lastUpdated = Date()
             if let counterAtRead { lastCounter = counterAtRead }
-            Task { await self.readLists(tabs: included, link: config.link) }
+            // The dropdown lists only when none are loaded or their fingerprint moved (full reads follow every edit).
+            if cellLists.isEmpty || lastListsSig == nil || listsReadSig != lastListsSig {
+                Task { await self.readLists(tabs: included, link: config.link) }
+            }
             guard gridsChanged || csvs != lastCachedCSVs else { return }   // nothing new to write
             lastCachedCSVs = csvs
             let dir = Self.directory(config.link.sheetID)
@@ -703,6 +718,9 @@ final class DeliveryPlanStore: ObservableObject {
         var newStates: [String: PlanRowState] = [:]
         var index: [URL: PlanFileInfo] = [:]
         var batchNames = Set<String>()
+        var perBatch: [String: (total: Int, done: Int, dropped: Int)] = [:]
+        var uploads: [PlanUpload] = []
+        uploads.reserveCapacity(rows.count)
         for row in rows {
             let result = match.result(row)
             let pending = row.code.flatMap { pendingQC[$0.lowercased()] }
@@ -710,11 +728,12 @@ final class DeliveryPlanStore: ObservableObject {
                                                    qc: pending?.values[.qcStatus] ?? row.value(.qcStatus),
                                                    updated: pending?.values[.qcUpdated] ?? row.value(.qcUpdated),
                                                    fileDates: result.files.compactMap { dates[$0] })
-            let link = frameioLink(row)
+            // Pending writes are already in hand (`pending`): no per-field lookups.
+            let link = PlanGrid.normalized(pending?.values[.frameio] ?? row.value(.frameio))
             if !link.isEmpty {
                 state.upload = .uploaded
                 // The local file changed after the upload (a minute's grace: the upload stamp has no seconds).
-                let uploadedOn = shown(.uploaded, row)
+                let uploadedOn = pending?.values[.uploaded] ?? row.value(.uploaded)
                 if let when = PlanUpload.date(uploadedOn), let newest = result.files.compactMap({ dates[$0] }).max(),
                    newest > when.addingTimeInterval(60) {
                     state.upload = .stale
@@ -725,15 +744,28 @@ final class DeliveryPlanStore: ObservableObject {
                 }
             }
             newStates[row.id] = state
-            let rowBatch = batch(row)
+            let rowBatch = PlanGrid.normalized(pending?.values[.batch] ?? row.value(.batch))
             if !rowBatch.isEmpty { batchNames.insert(rowBatch) }
+            perBatch[rowBatch, default: (0, 0, 0)].total += 1
+            if state.state.isDone { perBatch[rowBatch, default: (0, 0, 0)].done += 1 }
+            if state.state == .dropped { perBatch[rowBatch, default: (0, 0, 0)].dropped += 1 }
+            uploads.append(state.upload)
             for url in result.files where index[url] == nil {
                 index[url] = PlanFileInfo(code: row.code ?? "", line: row.line, rowID: row.id, state: state.state,
-                                          batch: rowBatch, frameio: link, upload: state.upload, text: row.values.values.joined(separator: " ").lowercased())
+                                          batch: rowBatch, frameio: link, upload: state.upload, text: row.searchText)
             }
         }
         let sortedBatches = PlanBatch.sorted(batchNames)
         if sortedBatches != batches { batches = sortedBatches }
+        // The filter menus' counts, once per recompute rather than on every redraw of the plan (each Inspect selection).
+        let counts = PlanCounts(
+            batches: sortedBatches.map { name in
+                let c = perBatch[name] ?? (0, 0, 0)
+                return PlanBatchFilter.Item(name: name, count: c.total, done: c.done, live: c.total - c.dropped)
+            },
+            unbatched: perBatch[""]?.total ?? 0,
+            uploads: PlanUploadFilter.counts(uploads))
+        if counts != planCounts { planCounts = counts }
         for url in match.extras { index[url] = PlanFileInfo(code: "", line: 0, rowID: nil, state: nil) }
         if newStates != states { states = newStates }
         if index != fileIndex { fileIndex = index }
@@ -831,11 +863,36 @@ final class DeliveryPlanStore: ObservableObject {
     /// and Uploaded the date. A newer upload replaces an older link. Files whose row isn't clear (none, or several codes
     /// in the name) are left for Link Frame.io File….
     func uploaded(_ file: URL, account: String, fileID: String) async {
-        guard config?.writer != nil else { return }
+        guard await trackingWritable() else {
+            deferTracking { await self.uploaded(file, account: account, fileID: fileID) }
+            return
+        }
+        // Uploading before the plan was opened this session: its rows aren't loaded yet (the cache, else one read).
+        if rows.isEmpty { await loadCachedIfNeeded() }
+        if rows.isEmpty { await refresh() }
         var codes = Set<String>()
-        if let code = fileIndex[file]?.code, !code.isEmpty { codes = [code.lowercased()] } else { codes = self.codes(inFileNamed: file.lastPathComponent) }
+        // The queue and Inspect can spell the same path differently (symlinks, /private/var…).
+        let info = fileIndex[file] ?? fileIndex[file.standardizedFileURL] ?? fileIndex[file.resolvingSymlinksInPath()]
+        if let code = info?.code, !code.isEmpty {
+            codes = [code.lowercased()]
+        } else {
+            // Not one of the plan's matched files: the code alone could be another campaign's, so the name must also
+            // hold the row's name (as when linking while browsing).
+            let fileTokens = PlanMatcher.tokens(file.deletingPathExtension().lastPathComponent)
+            codes = self.codes(inFileNamed: file.lastPathComponent).filter { code in
+                rows(withCode: code).contains { PlanMatcher.contains(fileTokens, PlanMatcher.tokens($0.name)) }
+            }
+        }
         guard codes.count == 1, let code = codes.first else { return }
-        guard let item = try? await FrameIO.shared.item(account: account, kind: "files", id: fileID), let url = item.viewURL else { return }
+        // The file's link: a few tries (a dropped request mustn't lose the link), then built from its project.
+        var url: String?
+        for attempt in 0..<3 where url == nil {
+            if attempt > 0 { try? await Task.sleep(for: .seconds(2 * attempt)) }
+            if let item = try? await FrameIO.shared.item(account: account, kind: "files", id: fileID) {
+                url = item.viewURL ?? item.projectID.map { "https://next.frame.io/project/\($0)/view/\(fileID)" }
+            }
+        }
+        guard let url else { return }
         queueQC(rows(withCode: code), quiet: true) { item in
             item.frameio = url
             item.uploaded = Self.uploadStamp(Date())
@@ -846,7 +903,19 @@ final class DeliveryPlanStore: ObservableObject {
     /// its code, when exactly one such file was in the listing (stacks: the stack, so the link survives new versions).
     /// Only into a sheet that has a Frame.io column, and never over a link already there.
     func frameIOListed(_ items: [FrameIO.Item]) {
-        guard config?.writer != nil, !scriptOutdated, hasFrameIOColumn, !rows.isEmpty else { return }
+        guard config?.writer != nil else { return }
+        // Browsing before the plan was opened this session: load its cached rows once, then look again.
+        if rows.isEmpty, !loadedFromDisk {
+            Task { await self.loadCachedIfNeeded(); if !self.rows.isEmpty { self.frameIOListed(items) } }
+            return
+        }
+        guard hasFrameIOColumn, !rows.isEmpty else { return }
+        // Only into a script known to write the Frame.io column (an older one answers "ok" and drops it). Listings can
+        // come before any plan panel has asked the script its version (browsing in the Upload tab): ask, then go on.
+        guard (scriptVersion ?? 0) >= 4 else {
+            if scriptVersion == nil { Task { if await self.trackingWritable() { self.frameIOListed(items) } } }
+            return
+        }
         var found: [String: (item: FrameIO.Item, count: Int)] = [:]
         for item in items where !item.isFolder && item.viewURL != nil {
             let name = item.isVersionStack ? (item.headVersion?.name ?? item.title) : item.title
@@ -876,9 +945,26 @@ final class DeliveryPlanStore: ObservableObject {
         if queued { recomputeStates(); publishGrids() }
     }
 
+    /// A linked file answered 404 to a comment check: if Frame.io confirms it's gone (a second 404 for the file itself),
+    /// rows linked to it lose the link. A file still processing, or a hiccup, keeps it.
+    func frameIOFileMissing(account: String, fileID: String) async {
+        guard rows.contains(where: { frameioLink($0).hasSuffix("/" + fileID) }) else { return }
+        do {
+            _ = try await FrameIO.shared.item(account: account, kind: "files", id: fileID)
+        } catch FrameIO.Failure.http(404, _) {
+            frameIOGone([fileID])
+        } catch {}
+    }
+
     /// Frame.io files or stacks deleted (in the browser, or found gone): rows linked to them lose the link.
     func frameIOGone(_ ids: Set<String>) {
         guard config?.writer != nil, !ids.isEmpty else { return }
+        guard (scriptVersion ?? 0) >= 4 else {
+            if scriptVersion == nil {
+                Task { if await self.trackingWritable() { self.frameIOGone(ids) } else { self.deferTracking { self.frameIOGone(ids) } } }
+            }
+            return
+        }
         let targets = rows.filter { row in
             let link = frameioLink(row)
             return !link.isEmpty && ids.contains { link.hasSuffix("/" + $0) || link.contains("/" + $0 + "?") }
@@ -993,6 +1079,7 @@ final class DeliveryPlanStore: ObservableObject {
             var p = pendingQC[key] ?? PendingQC(since: Date())
             p.values.merge(item.fieldValues) { _, new in new }
             p.since = Date()
+            p.sent = false
             pendingQC[key] = p
         }
         if refresh {
@@ -1012,6 +1099,8 @@ final class DeliveryPlanStore: ObservableObject {
         guard let writer = config?.writer, !queuedQC.isEmpty else { return }
         let items = Array(queuedQC.values)
         queuedQC = [:]
+        // Edits queued for the same rows while this call is out are newer: they keep their own pending state.
+        let started = Date()
         savingCount += 1
         do {
             // Columns being written that an included tab with codes lacks are added (asked once until a read shows
@@ -1030,11 +1119,16 @@ final class DeliveryPlanStore: ObservableObject {
                 requestedColumns.formUnion(needed)
             }
             let missing = try await AppsScriptWriter.setStatus(writer, items: items)
+            for item in items where (pendingQC[item.code.lowercased()]?.since ?? .distantFuture) <= started {
+                pendingQC[item.code.lowercased()]?.sent = true
+            }
             savingCount -= 1
             editState = missing.isEmpty ? .saved : .failed("Not saved for \(missing.count) code\(missing.count == 1 ? "" : "s") no tab lists: \(missing.prefix(3).joined(separator: ", ")).")
         } catch {
             savingCount -= 1
-            for item in items { pendingQC[item.code.lowercased()] = nil }
+            for item in items where (pendingQC[item.code.lowercased()]?.since ?? .distantFuture) <= started {
+                pendingQC[item.code.lowercased()] = nil
+            }
             recomputeStates()
             publishGrids()
             editState = .failed("Not saved: \(error.localizedDescription)")
@@ -1051,13 +1145,22 @@ final class DeliveryPlanStore: ObservableObject {
     private func dropSettledQC() {
         guard !pendingQC.isEmpty else { return }
         let byCode = Dictionary(rows.compactMap { r in r.code.map { ($0.lowercased(), r) } }, uniquingKeysWith: { a, _ in a })
+        var lost: [String] = []
         for (key, p) in pendingQC {
             let expired = Date().timeIntervalSince(p.since) > 120
             let row = byCode[key]
             let shows = row.map { r in
                 p.values.allSatisfy { field, value in PlanGrid.normalized(value) == PlanGrid.normalized(r.value(field)) }
             } ?? false
-            if expired || shows { pendingQC[key] = nil }
+            if shows { pendingQC[key] = nil } else if expired {
+                pendingQC[key] = nil
+                // Taken by the script but never in the sheet: say so rather than let the value quietly vanish.
+                // (A row deleted from the sheet meanwhile isn't a lost edit.)
+                if p.sent, let row { lost.append(row.code ?? key) }
+            }
+        }
+        if !lost.isEmpty {
+            editState = .failed("The sheet didn't keep \(lost.count) edit\(lost.count == 1 ? "" : "s") (\(lost.sorted().prefix(3).joined(separator: ", "))). Check the sheet's script is up to date (••• → Update Script…).")
         }
     }
 
@@ -1068,17 +1171,22 @@ final class DeliveryPlanStore: ObservableObject {
             if !cellLists.isEmpty { cellLists = [:] }
             return
         }
+        let sigAtStart = lastListsSig
         var lists: [String: [String: [String]]] = [:]
         for tab in tabs {
             guard let tabLists = try? await AppsScriptWriter.lists(writer, gid: tab.gid) else { return }   // keep the last
             if !tabLists.isEmpty { lists[tab.gid] = tabLists }
         }
-        guard config?.link == link, lists != cellLists else { return }
-        cellLists = lists
+        guard config?.link == link else { return }
+        listsReadSig = sigAtStart
+        if lists != cellLists { cellLists = lists }
     }
 
     /// Dropdown choices by the Sheet view's column (0-based), matched by header: the view leaves hidden columns
     /// out, so the sheet's column numbers can't be used.
+    /// The tab's header line (1-based), once read.
+    func headerLine(gid: String) -> Int? { headers[gid]?.line }
+
     func listColumns(gid: String) -> [Int: [String]] {
         guard let lists = cellLists[gid], !lists.isEmpty, let grid = grids[gid] else { return [:] }
         let headerLine = headers[gid]?.line
@@ -1090,11 +1198,50 @@ final class DeliveryPlanStore: ObservableObject {
         return out
     }
 
+    private var versionCheck: Task<Void, Never>?
+    /// Frame.io updates (an upload's link, a deletion) that came while the script couldn't be reached: replayed once it
+    /// answers as version 4, so they aren't lost. Capped; dropped when the plan is relinked.
+    private var deferredTracking: [@MainActor () async -> Void] = []
+
+    private func deferTracking(_ work: @escaping @MainActor () async -> Void) {
+        guard config?.writer != nil, scriptVersion.map({ $0 >= 4 }) ?? true, deferredTracking.count < 500 else { return }
+        deferredTracking.append(work)
+    }
+
+    private func replayDeferredTracking() {
+        guard (scriptVersion ?? 0) >= 4, !deferredTracking.isEmpty else { return }
+        let work = deferredTracking
+        deferredTracking = []
+        Task { for item in work { await item() } }
+    }
+
+    /// Whether the script is known to write Batch / Frame.io / Uploaded (version 4). Asks it once when not known yet;
+    /// concurrent callers share the one request.
+    private func trackingWritable() async -> Bool {
+        guard config?.writer != nil else { return false }
+        if scriptVersion == nil {
+            if let failed = scriptCheckFailed, Date().timeIntervalSince(failed) < 60 { return false }
+            if versionCheck == nil { versionCheck = Task { await self.checkScript(); self.versionCheck = nil } }
+            await versionCheck?.value
+        }
+        return (scriptVersion ?? 0) >= 4
+    }
+
     /// Asks the script its version (once per session, and after connecting).
     func checkScript() async {
         guard scriptVersion == nil || scriptOutdated, let writer = config?.writer, let sheetID = config?.link.sheetID else { return }
-        if let version = try? await AppsScriptWriter.ping(writer, sheetID: sheetID), version != scriptVersion { scriptVersion = version }
+        if let version = try? await AppsScriptWriter.ping(writer, sheetID: sheetID) {
+            scriptCheckFailed = nil
+            if version != scriptVersion { scriptVersion = version }
+            replayDeferredTracking()
+        } else {
+            scriptCheckFailed = Date()
+        }
     }
+
+    /// When the last version check failed (offline, script not deployed): automatic writes don't ask again for a minute
+    /// (the favourites crawl lists hundreds of folders).
+    private var scriptCheckFailed: Date?
 
     // MARK: Disk
 

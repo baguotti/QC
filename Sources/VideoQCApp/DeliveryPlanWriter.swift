@@ -77,6 +77,7 @@ enum AppsScriptWriter {
         const QC = ['QC Status', 'QC Note', 'QC Updated'];
         // Columns copied to the other tabs listing the same code when edited (QC columns and Batch).
         const MIRRORED = QC.concat(['Batch', 'Frame.io', 'Uploaded']).map(n => n.toLowerCase());
+        const TEXT_COLS = ['batch', 'frame.io', 'uploaded'];
         const ITEM_KEYS = { 'qc status': 'status', 'qc note': 'note', 'qc updated': 'updated', 'batch': 'batch', 'frame.io': 'frameio', 'uploaded': 'uploaded' };
         const STATUSES = \(statusesJS);
 
@@ -221,11 +222,12 @@ enum AppsScriptWriter {
                 if (!col || value === null || value === undefined) return;
                 rows.forEach(r => {
                   const g = col + '|' + value;
-                  (groups[g] = groups[g] || { value: value, cells: [], text: name === 'batch' }).cells.push(sheet.getRange(r, col).getA1Notation());
+                  (groups[g] = groups[g] || { value: value, cells: [], text: TEXT_COLS.includes(name) }).cells.push(sheet.getRange(r, col).getA1Notation());
                 });
               });
             });
-            // Batch is written as text, so the sheet keeps exactly what was set.
+            // Batch, Frame.io and Uploaded are written as text, so the sheet keeps exactly what was set (a date-like
+            // "2026-11-05 10:42 UTC" mustn't become a date).
             Object.keys(groups).forEach(g => {
               const list = sheet.getRangeList(groups[g].cells);
               if (groups[g].text) list.setNumberFormat('@');
@@ -258,7 +260,7 @@ enum AppsScriptWriter {
             if (c.expect !== undefined && c.expect !== null && norm(current) !== norm(c.expect)) {
               return { row: c.row, col: c.col, ok: false, current: current };
             }
-            if (h && h.cols['batch'] === col) range.setNumberFormat('@');
+            if (h && TEXT_COLS.some(n => h.cols[n] === col)) range.setNumberFormat('@');
             range.setValue(c.value);
             const name = h ? Object.keys(h.cols).find(k => h.cols[k] === col) : null;
             if (c.code && name && MIRRORED.includes(name)) {

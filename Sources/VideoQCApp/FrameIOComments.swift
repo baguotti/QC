@@ -87,7 +87,6 @@ actor FrameIOLinks {
     /// A Frame.io file that's gone (deleted here or on the web): clips linked to it are unlinked and it leaves the
     /// name/size index, so it isn't linked again.
     func forget(fileID: String) {
-        Task { @MainActor in DeliveryPlanStore.shared.frameIOGone([fileID]) }
         let links = state.links.filter { $0.value.fileID != fileID }
         let seen = state.seen?.filter { $0.value.fileID != fileID }
         guard links.count != state.links.count || seen?.count != state.seen?.count else { return }
@@ -479,6 +478,7 @@ final class FrameIOCommentSync: ObservableObject {
         } catch FrameIO.Failure.http(404, _) {
             // The Frame.io file was deleted: stop asking for it (and showing an error) every minute.
             await FrameIOLinks.shared.forget(fileID: link.fileID)
+            await DeliveryPlanStore.shared.frameIOFileMissing(account: link.account, fileID: link.fileID)
             guard isActive(url) else { return }
             activeLinked = false
             activeLink = nil

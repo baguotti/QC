@@ -244,12 +244,14 @@ extension ContentView {
     /// The Delivery Plan's filter chips, as in the plan: % done, All, a chip per state with its file count, Not in Plan.
     var inspectPlanChips: some View {
         // Files the plan hasn't indexed (not measured) count as Not in Plan, as the filter treats them.
-        let counts = Dictionary(grouping: specsState.deliverableAssets, by: { planFiles[$0.fileURL]?.state }).mapValues(\.count)
+        let summary = inspectPlanCounts.summary(assets: specsState.deliverableAssets, version: specsState.assetsVersion,
+                                                files: planFiles, filesVersion: planFilesVersion)
+        let counts = summary.states
         let total = specsState.deliverableAssets.count
         let done = PlanState.allCases.filter(\.isDone).reduce(0) { $0 + (counts[$1] ?? 0) }
         let live = total - (counts[.dropped] ?? 0) - (counts[nil] ?? 0)
         let palette = StudioPalette(isLightMode)
-        let batchItems = planBatchItems
+        let batchItems = summary.batches
         return FlowChips(spacing: 4) {
             if live > 0 {
                 Text("\(Int((Double(done) / Double(live) * 100).rounded(.down)))% done")
@@ -274,16 +276,14 @@ extension ContentView {
                     inspectPlanFilter = inspectPlanFilter == -2 ? -1 : -2
                 }
             }
-            if batchItems.contains(where: { !$0.name.isEmpty }) {
+            if batchItems.contains(where: { !$0.name.isEmpty }) || inspectPlanBatch != nil {
                 PlanBatchFilter(items: batchItems.filter { !$0.name.isEmpty },
                                 unbatched: batchItems.first { $0.name.isEmpty }?.count ?? 0,
                                 selection: $inspectPlanBatch, isLightMode: isLightMode)
             }
             // Shown with the plan's: when the sheet has a Frame.io column (read here, not observed: `planFiles` redraws).
             if DeliveryPlanStore.shared.hasFrameIOColumn || inspectPlanUpload != nil {
-                let counts = PlanUploadFilter.counts(specsState.deliverableAssets.compactMap { asset in
-                    planFiles[asset.fileURL].flatMap { $0.rowID == nil ? nil : $0.upload }
-                })
+                let counts = summary.uploads
                 PlanUploadFilter(none: counts.none, on: counts.on, stale: counts.stale, selection: $inspectPlanUpload, isLightMode: isLightMode)
             }
             LinkFiltersButton(isLightMode: isLightMode) {
@@ -293,17 +293,6 @@ extension ContentView {
     }
 
     /// Inspect's files per batch (plan files only; "" = in the plan without a batch), in natural order.
-    var planBatchItems: [PlanBatchFilter.Item] {
-        var total: [String: Int] = [:], done: [String: Int] = [:], dropped: [String: Int] = [:]
-        for asset in specsState.deliverableAssets {
-            guard let info = planFiles[asset.fileURL], info.rowID != nil else { continue }
-            total[info.batch, default: 0] += 1
-            if info.state?.isDone == true { done[info.batch, default: 0] += 1 }
-            if info.state == .dropped { dropped[info.batch, default: 0] += 1 }
-        }
-        let names = PlanBatch.sorted(total.keys) + (total[""] != nil ? [""] : [])
-        return names.map { PlanBatchFilter.Item(name: $0, count: total[$0] ?? 0, done: done[$0] ?? 0, live: (total[$0] ?? 0) - (dropped[$0] ?? 0)) }
-    }
 
     /// "Columns" in the table's header menu.
     var columnsMenu: some View {
@@ -1950,4 +1939,39 @@ extension ContentView {
         }
     }
     
+}
+
+/// Inspect's plan chip counts (states, batches, Frame.io), kept until the measured files or the plan's file index
+/// change. A class held in `@State`: refreshing it doesn't trigger another render.
+@MainActor
+final class InspectPlanCounts {
+    struct Summary {
+        var states: [PlanState?: Int] = [:]
+        var batches: [PlanBatchFilter.Item] = []
+        var uploads = (none: 0, on: 0, stale: 0)
+    }
+    private var key: (Int, Int)?
+    private var cached = Summary()
+
+    func summary(assets: [DeliverableAsset], version: Int, files: [URL: PlanFileInfo], filesVersion: Int) -> Summary {
+        if let key, key == (version, filesVersion) { return cached }
+        var summary = Summary()
+        var total: [String: Int] = [:], done: [String: Int] = [:], dropped: [String: Int] = [:]
+        var uploads: [PlanUpload] = []
+        for asset in assets {
+            let info = files[asset.fileURL]
+            summary.states[info?.state, default: 0] += 1
+            guard let info, info.rowID != nil else { continue }
+            total[info.batch, default: 0] += 1
+            if info.state?.isDone == true { done[info.batch, default: 0] += 1 }
+            if info.state == .dropped { dropped[info.batch, default: 0] += 1 }
+            uploads.append(info.upload)
+        }
+        let names = PlanBatch.sorted(total.keys) + (total[""] != nil ? [""] : [])
+        summary.batches = names.map { PlanBatchFilter.Item(name: $0, count: total[$0] ?? 0, done: done[$0] ?? 0, live: (total[$0] ?? 0) - (dropped[$0] ?? 0)) }
+        summary.uploads = PlanUploadFilter.counts(uploads)
+        key = (version, filesVersion)
+        cached = summary
+        return summary
+    }
 }

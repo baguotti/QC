@@ -59,6 +59,8 @@ struct DeliveryPlanSheetView: NSViewRepresentable {
     var statusMenu: (_ line: Int) -> NSMenu? = { _ in nil }
     /// Columns (0-based) with a dropdown in the sheet: double-clicking one offers its choices.
     var listColumns: [Int: [String]] = [:]
+    /// The sheet's header line: dropdowns start below it (an unfrozen header scrolls with the rows).
+    var headerLine: Int? = nil
 
     func makeNSView(context: Context) -> PlanSheetContainer { PlanSheetContainer() }
 
@@ -71,6 +73,7 @@ struct DeliveryPlanSheetView: NSViewRepresentable {
         view.statusColumn = statusColumn
         view.statusMenu = statusMenu
         if view.listColumns != listColumns { view.listColumns = listColumns }
+        if view.headerLine != headerLine { view.headerLine = headerLine }
         view.update(grid: grid, shownLines: shownLines, zoom: zoom, marks: marks, selectedLines: selectedLines, chrome: chrome)
         view.scroll(to: scrollToLine, token: scrollToken)
     }
@@ -309,6 +312,9 @@ final class PlanSheetContainer: NSView, NSTextFieldDelegate {
     var listColumns: [Int: [String]] = [:] {
         didSet { painter.dropdownColumns = Set(listColumns.keys); body.needsDisplay = true }
     }
+    var headerLine: Int? {
+        didSet { body.needsDisplay = true }
+    }
     private var editor: NSTextField?
     private var editing: (line: Int, column: Int, old: String)?
 
@@ -433,7 +439,7 @@ final class PlanSheetContainer: NSView, NSTextFieldDelegate {
             menu.popUp(positioning: nil, at: CGPoint(x: x, y: y), in: body)
             return
         }
-        if let options = listColumns[column] {
+        if let options = listColumns[column], line > (headerLine ?? 0) {
             endEditor(commit: true)
             onSelect?(line, 1)
             let current = grid.cell(line: line, column: column).map { grid.rows[$0.0].cells[$0.1].text } ?? ""
@@ -580,7 +586,8 @@ final class PlanSheetBody: PlanSheetPart {
         for i in layout.bodyRows(from: dirtyRect.minY, to: dirtyRect.maxY) {
             let y = layout.bodyY[i]
             container.painter.draw(grid, row: layout.body[i], origin: CGPoint(x: 0, y: y),
-                                   height: layout.bodyY[i + 1] - y, layout: layout, clip: dirtyRect, dropdowns: true)
+                                   height: layout.bodyY[i + 1] - y, layout: layout, clip: dirtyRect,
+                                   dropdowns: grid.rows[layout.body[i]].line > (container.headerLine ?? 0))
         }
         if let chrome = container.chrome, !container.selectedLines.isEmpty {
           for i in layout.bodyRows(from: dirtyRect.minY, to: dirtyRect.maxY) where container.selectedLines.contains(grid.rows[layout.body[i]].line) {

@@ -379,9 +379,10 @@ struct DeliveryPlanPanel: View {
                     changedOnly.toggle(); statusFilter = nil
                 }
             }
-            if store.hasBatchColumn || !store.batches.isEmpty { batchFilterMenu }
-            if store.hasFrameIOColumn {
-                let counts = PlanUploadFilter.counts(store.rows.lazy.map { store.state($0).upload })
+            // Also while their filter is on (set from Inspect through the link): a hidden active filter hides rows silently.
+            if store.hasBatchColumn || !store.batches.isEmpty || batchFilter != nil { batchFilterMenu }
+            if store.hasFrameIOColumn || uploadFilter != nil {
+                let counts = store.planCounts.uploads
                 PlanUploadFilter(none: counts.none, on: counts.on, stale: counts.stale, selection: $uploadFilter, isLightMode: isLightMode)
             }
             LinkFiltersButton(isLightMode: isLightMode) { currentFilter }
@@ -390,15 +391,7 @@ struct DeliveryPlanPanel: View {
 
     /// Batches with their row counts and % done (QC Passed, Approved, Delivered of rows not dropped).
     private var batchFilterMenu: some View {
-        var total: [String: Int] = [:], done: [String: Int] = [:], dropped: [String: Int] = [:]
-        for row in store.rows {
-            let b = store.batch(row), state = store.state(row).state
-            total[b, default: 0] += 1
-            if state.isDone { done[b, default: 0] += 1 }
-            if state == .dropped { dropped[b, default: 0] += 1 }
-        }
-        let items = store.batches.map { PlanBatchFilter.Item(name: $0, count: total[$0] ?? 0, done: done[$0] ?? 0, live: (total[$0] ?? 0) - (dropped[$0] ?? 0)) }
-        return PlanBatchFilter(items: items, unbatched: total[""] ?? 0, selection: $batchFilter, isLightMode: isLightMode)
+        PlanBatchFilter(items: store.planCounts.batches, unbatched: store.planCounts.unbatched, selection: $batchFilter, isLightMode: isLightMode)
     }
 
     private func chip(_ title: String, selected: Bool, color: Color, action: @escaping () -> Void) -> some View {
@@ -673,7 +666,8 @@ struct DeliveryPlanPanel: View {
                     onEditUnavailable: { showEditSetup = true },
                     statusColumn: store.statusColumn(gid: tab.gid),
                     statusMenu: { line in byLine[line].map { statusNSMenu(statusTargets($0, match: match)) } },
-                    listColumns: store.listColumns(gid: tab.gid))
+                    listColumns: store.listColumns(gid: tab.gid),
+                    headerLine: store.headerLine(gid: tab.gid))
                 if (store.config?.included.count ?? 0) > 1 { sheetTabs }
                 if let selected {
                     Rectangle().fill(palette.borderLine).frame(height: 1)
@@ -1476,7 +1470,7 @@ struct LinkFiltersButton: View {
 /// The batch filter shared by the plan and Inspect: a chip-styled menu (All Batches, each batch with its progress,
 /// No Batch).
 struct PlanBatchFilter: View {
-    struct Item { let name: String; let count: Int; let done: Int; let live: Int }
+    struct Item: Equatable { let name: String; let count: Int; let done: Int; let live: Int }
     let items: [Item]
     let unbatched: Int
     @Binding var selection: String?
@@ -1602,7 +1596,7 @@ struct PlanUploadFilter: View {
     private static let titles = [0: "Not on Frame.io", 1: "On Frame.io", 2: "Changed Since Upload"]
 
     /// The three counts in one pass.
-    static func counts(_ uploads: some Sequence<PlanUpload>) -> (none: Int, on: Int, stale: Int) {
+    nonisolated static func counts(_ uploads: some Sequence<PlanUpload>) -> (none: Int, on: Int, stale: Int) {
         var none = 0, on = 0, stale = 0
         for upload in uploads {
             switch upload {
