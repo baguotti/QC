@@ -2,107 +2,9 @@ import Foundation
 import SwiftUI
 import VideoQCLib
 
-/// Where a plan's tabs and rows come from. Today: a sheet shared as "Anyone with the link" (`PublicSheetSource`).
-/// Google sign-in (Sheets API, private and client sheets) will be a second implementation of the same two calls.
-protocol PlanSheetSource: Sendable {
-    /// Title and visible tabs of the spreadsheet.
-    func describe(_ link: PlanSheetLink) async throws -> (title: String, tabs: [PlanTab])
-    /// One tab as CSV.
-    func csv(_ link: PlanSheetLink, tab: PlanTab) async throws -> String
-    /// One tab as Sheets draws it (widths, colours, borders…), or nil when that can't be read: the CSV is enough.
-    func grid(_ link: PlanSheetLink, tab: PlanTab) async -> PlanGrid?
-}
-
-enum PlanSourceError: LocalizedError {
-    case notShared
-    case http(Int)
-    case noTabs
-
-    var errorDescription: String? {
-        switch self {
-        case .notShared: return "The sheet isn't shared as “Anyone with the link”. Share it that way in Google Sheets, or wait for Google sign-in."
-        case .http(let code): return "Google Sheets answered \(code)."
-        case .noTabs: return "No tabs found in the sheet."
-        }
-    }
-}
-
-/// A link-shared sheet, read without signing in: `htmlview` lists the tabs, `export?format=csv&gid=` reads one.
-/// (`gviz/tq` CSV was avoided: it types each column and blanks values that don't fit the column's majority type.)
-struct PublicSheetSource: PlanSheetSource {
-    let session: URLSession
-
-    static let shared = PublicSheetSource(session: {
-        let configuration = URLSessionConfiguration.ephemeral
-        configuration.requestCachePolicy = .reloadIgnoringLocalCacheData
-        configuration.timeoutIntervalForRequest = 20
-        return URLSession(configuration: configuration)
-    }())
-
-    private func get(_ url: URL) async throws -> String {
-        let (data, response) = try await session.data(from: url)
-        guard let http = response as? HTTPURLResponse else { throw PlanSourceError.http(0) }
-        // Unshared sheets redirect to the Google sign-in page.
-        if http.url?.host?.contains("accounts.google.com") == true || http.statusCode == 401 || http.statusCode == 403 {
-            throw PlanSourceError.notShared
-        }
-        guard http.statusCode == 200 else { throw http.statusCode == 404 ? PlanSourceError.notShared : PlanSourceError.http(http.statusCode) }
-        return String(decoding: data, as: UTF8.self)
-    }
-
-    func describe(_ link: PlanSheetLink) async throws -> (title: String, tabs: [PlanTab]) {
-        let html = try await get(URL(string: "https://docs.google.com/spreadsheets/d/\(link.sheetID)/htmlview")!)
-        let (title, tabs) = Self.parseHTMLView(html)
-        if tabs.isEmpty, let gid = link.gid { return (title, [PlanTab(gid: gid, name: "Sheet")]) }
-        guard !tabs.isEmpty else { throw PlanSourceError.noTabs }
-        return (title, tabs)
-    }
-
-    func csv(_ link: PlanSheetLink, tab: PlanTab) async throws -> String {
-        let text = try await get(URL(string: "https://docs.google.com/spreadsheets/d/\(link.sheetID)/export?format=csv&gid=\(tab.gid)")!)
-        if text.hasPrefix("<!DOCTYPE") || text.hasPrefix("<html") { throw PlanSourceError.notShared }
-        return text
-    }
-
-    func grid(_ link: PlanSheetLink, tab: PlanTab) async -> PlanGrid? {
-        let url = URL(string: "https://docs.google.com/spreadsheets/d/\(link.sheetID)/htmlview/sheet?headers=true&gid=\(tab.gid)")!
-        guard let html = try? await get(url) else { return nil }
-        // ~0.2 s (≥ 1 s on efficiency cores) for 1,100 rows, and only formatting: never ahead of playback.
-        return await Task.detached(priority: .utility) { PlanGrid.parseHTML(html) }.value
-    }
-
-    /// `{name: "Placement", pageUrl: "…", gid: "1810111647"}` entries and the `<title>`.
-    static func parseHTMLView(_ html: String) -> (String, [PlanTab]) {
-        var tabs: [PlanTab] = []
-        let pattern = #"\{name: "((?:[^"\\]|\\.)*)", pageUrl: "[^"]*", gid: "(\d+)""#
-        if let regex = try? NSRegularExpression(pattern: pattern) {
-            let ns = html as NSString
-            for m in regex.matches(in: html, range: NSRange(location: 0, length: ns.length)) {
-                let name = unescape(ns.substring(with: m.range(at: 1)))
-                let gid = ns.substring(with: m.range(at: 2))
-                if !tabs.contains(where: { $0.gid == gid }) { tabs.append(PlanTab(gid: gid, name: name)) }
-            }
-        }
-        var title = ""
-        if let start = html.range(of: "<title>"), let end = html.range(of: "</title>", range: start.upperBound..<html.endIndex) {
-            title = String(html[start.upperBound..<end.lowerBound])
-                .replacingOccurrences(of: " - Google Sheets", with: "")
-                .replacingOccurrences(of: " - Google Drive", with: "")
-                .replacingOccurrences(of: "&amp;", with: "&").replacingOccurrences(of: "&#39;", with: "'")
-                .trimmingCharacters(in: .whitespaces)
-        }
-        return (title, tabs)
-    }
-
-    private static func unescape(_ text: String) -> String {
-        guard text.contains("\\") else { return text }
-        let json = "\"" + text + "\""
-        return (try? JSONDecoder().decode(String.self, from: Data(json.utf8))) ?? text
-    }
-}
-
-/// The linked Delivery Plan: rows from the sheet, re-read every 60 s while a plan panel is on screen, matched against
-/// the Inspect tab's measured files. Observed only by the plan panels (drawer and window), never by `ContentView`,
+/// The linked Delivery Plan: rows read through the Sheets API as the signed-in Google user (every 10 s while a plan
+/// panel is on screen, parsed only when the values changed), matched against the Inspect tab's measured files. QCpie's
+/// own values live in the sheet's QCpie tab (`PlanQCTab`); every edit goes through the on-disk outbox (`PlanOutbox`). Observed only by the plan panels (drawer and window), never by `ContentView`,
 /// so refreshes and matching don't redraw the window. Fetching, parsing and matching run off the main thread.
 @MainActor
 final class DeliveryPlanStore: ObservableObject {
@@ -114,8 +16,8 @@ final class DeliveryPlanStore: ObservableObject {
         var tabs: [PlanTab]
         /// Tabs left out (by gid); new tabs are included.
         var excluded: Set<String> = []
-        /// The Apps Script that writes cells (editing is off without it).
-        var writer: PlanWriteLink? = nil
+        /// The QCpie tab's gid, once the sheet has one.
+        var qcTab: String? = nil
 
         var included: [PlanTab] { tabs.filter { !excluded.contains($0.gid) } }
     }
@@ -172,9 +74,7 @@ final class DeliveryPlanStore: ObservableObject {
     /// Inspect's view of the plan, by file: code, row and state; nil state = not in the plan. Rebuilt only when it
     /// changes, so `ContentView` (which mirrors it for the Inspect table) redraws once per change, never per poll.
     @Published private(set) var fileIndex: [URL: PlanFileInfo] = [:]
-    /// The deployed script's version (nil until checked); statuses need version 2.
-    @Published private(set) var scriptVersion: Int? = nil
-    /// Dropdown choices per tab (gid), keyed by header (lower case) or "#" + sheet column index (script v4).
+    /// Dropdown choices per tab (gid), keyed by header (lower case) or "#" + sheet column index.
     @Published private(set) var cellLists: [String: [String: [String]]] = [:]
     /// Every batch named in the plan (pending edits included), in natural order.
     @Published private(set) var batches: [String] = []
@@ -194,13 +94,9 @@ final class DeliveryPlanStore: ObservableObject {
         }
     }
     @Published private(set) var planCounts = PlanCounts()
-    /// Whether any included tab has a Batch column.
-    var hasBatchColumn: Bool { headers.values.contains { $0.columns[.batch] != nil } }
-    /// The script's fingerprint of the dropdown choices at the last 10 s check, and at the last lists read.
-    private var lastListsSig: String?
-    private var listsReadSig: String?
-    var scriptOutdated: Bool { config?.writer != nil && (scriptVersion ?? AppsScriptWriter.scriptVersion) < AppsScriptWriter.scriptVersion }
-
+    /// Whether rows can have a batch (the QCpie tab holds one for every code).
+    var hasBatchColumn: Bool { hasQCTab || headers.values.contains { $0.columns[.batch] != nil } }
+    var hasQCTab: Bool { config?.qcTab != nil }
     /// The last cell edit's outcome, for the status line.
     @Published private(set) var editState: EditState = .idle
 
@@ -208,38 +104,26 @@ final class DeliveryPlanStore: ObservableObject {
 
     /// A cell by sheet row (1-based) and column (0-based).
     struct CellKey: Hashable, Sendable { let line: Int; let column: Int }
-    private struct PendingEdit { let value: String; let since: Date }
-    /// Edits sent but not yet seen in a read of the sheet: laid over every read so the cell doesn't flick back.
-    private var pending: [String: [CellKey: PendingEdit]] = [:]
-    /// Grids as last read from the sheet (`grids` = these + pending edits).
+    /// Every edit not yet in a read of the sheet (on disk: `outbox.json`).
+    private var outbox = PlanOutbox()
+    /// Grids as last read from the sheet (`grids` = these + the outbox's edits).
     private var readGrids: [String: PlanGrid] = [:]
-    private var savingCount = 0
-    private var refreshAfterEdit: Task<Void, Never>?
-
-    /// QC columns sent but not yet seen in a read (by lower-cased code), laid over rows and grids.
-    /// Columns QCpie wrote (QC columns, Batch, Frame.io, Uploaded) by field, until a read shows them.
-    /// `sent`: the script took the write (it should show in the next reads; if it never does, the user is told).
-    private struct PendingQC { var values: [PlanField: String] = [:]; var since: Date; var sent = false }
-    private var pendingQC: [String: PendingQC] = [:]
-    private var queuedQC: [String: PlanStatusItem] = [:]
-    private var flushTask: Task<Void, Never>?
+    /// Each tab's formatted layout (read every 5 minutes, or when rows or columns are added) and when it was read.
+    private var layouts: [String: PlanGrid] = [:]
+    private var layoutRead: [String: Date] = [:]
+    private var layoutTask: Task<Void, Never>?
+    /// The last values read, by gid: the layout is filled with them.
+    private var tables: [String: [[String]]] = [:]
+    /// The last values reply as received: an identical one means nothing changed (no parse, no matching).
+    private var lastValues: Data?
+    private var lastMetadata = Date.distantPast
+    private var reading = false
+    /// The QCpie tab as last read (nil: none, or not read yet).
+    private var qcTable: PlanQCTab.Table?
     /// Each tab's header (by gid): its line and the column of each field.
     private var headers: [String: (line: Int, columns: [PlanField: Int])] = [:]
-    private var lastCounter: Int? = nil
-    /// The script was asked to add the QC columns; reset by each read (which shows whether they're there).
-    /// Columns asked of the script since the last read (each at most once per read).
-    private var requestedColumns: Set<PlanField> = []
     /// Bumped when matching or files change (cache key for per-row check summaries).
     private(set) var matchRevision = 0
-
-    /// The key a new script is made with, kept until editing is connected: reopening the set-up sheet after copying
-    /// the script must not make a different one.
-    var setupToken: String {
-        if let token = UserDefaults.standard.string(forKey: "planSetupToken") { return token }
-        let token = AppsScriptWriter.newToken()
-        UserDefaults.standard.set(token, forKey: "planSetupToken")
-        return token
-    }
 
     private var seen: [String: SeenRow] = [:]
     private var files: [PlanFile] = []
@@ -247,8 +131,7 @@ final class DeliveryPlanStore: ObservableObject {
     private var pollTask: Task<Void, Never>?
     private var matchTask: Task<Void, Never>?
     private var loadedFromDisk = false
-    private var lastCachedCSVs: [String] = []
-    private let source: PlanSheetSource = PublicSheetSource.shared
+    private let api = SheetsAPI.shared
 
     static let refreshInterval: Duration = .seconds(60)
     private static let configKey = "deliveryPlanConfig"
@@ -257,6 +140,8 @@ final class DeliveryPlanStore: ObservableObject {
         if let data = UserDefaults.standard.data(forKey: Self.configKey),
            let config = try? JSONDecoder().decode(Config.self, from: data) {
             self.config = config
+            // Edits saved before quitting go out as soon as QCpie can reach the sheet.
+            Task { await self.loadOutbox() }
         }
     }
 
@@ -269,48 +154,57 @@ final class DeliveryPlanStore: ObservableObject {
         }
         phase = .loading
         do {
-            let (title, tabs) = try await source.describe(link)
+            let meta = try await api.metadata(link.sheetID)
+            let tabs = Self.planTabs(meta.tabs)
+            guard !tabs.isEmpty else { phase = .failed("No tabs found in the sheet."); return }
             // One tab to start with (sheets often list the same files twice, e.g. by placement and by edit): the tab
             // the link points at, else the one with the most rows. Others are a click away in the ••• menu.
-            let (chosen, counts) = try await Self.startingTab(link: link, tabs: tabs, source: source)
+            let data = try await api.values(link.sheetID, ranges: tabs.map { SheetsAPI.quoted($0.name) })
+            let counts = try await Task.detached(priority: .userInitiated) { () -> [String: Int] in
+                let tables = try SheetsAPI.tables(data)
+                var out: [String: Int] = [:]
+                for (tab, table) in zip(tabs, tables) { out[tab.gid] = PlanParser.parse(table: table, tab: tab.name).rows.count }
+                return out
+            }.value
+            let chosen = link.gid.flatMap { gid in tabs.contains { $0.gid == gid } ? gid : nil }
+                ?? tabs.max { (counts[$0.gid] ?? 0) < (counts[$1.gid] ?? 0) }?.gid
+            resetState()
             tabCounts = counts
-            var config = Config(link: link, title: title.isEmpty ? "Delivery Plan" : title, tabs: tabs)
+            var config = Config(link: link, title: meta.title.isEmpty ? "Delivery Plan" : meta.title, tabs: tabs)
             config.excluded = Set(tabs.map(\.gid).filter { $0 != chosen })
+            config.qcTab = meta.tabs.first { $0.title == PlanQCTab.title }?.gid
             self.config = config
             saveConfig()
-            seen = [:]
-            rows = []
-            grids = [:]; readGrids = [:]; pending = [:]; pendingQC = [:]; queuedQC = [:]; states = [:]; fileIndex = [:]; headers = [:]; scriptVersion = nil; lastCounter = nil; cellLists = [:]; lastListsSig = nil; listsReadSig = nil; deferredTracking = []; frameioFolders = [:]; frameioExtras = []; foldersSaveTask?.cancel(); dismissedMismatches = []; localExtras = []
-            changes = [:]
-            removed = []
+            lastMetadata = Date()
             await refresh(adoptAsSeen: true)
         } catch {
-            phase = .failed(error.localizedDescription)
+            phase = .failed(Self.describe(error))
         }
     }
 
-    nonisolated private static func startingTab(link: PlanSheetLink, tabs: [PlanTab], source: PlanSheetSource) async throws -> (String?, [String: Int]) {
-        let counts = try await withThrowingTaskGroup(of: (String, Int).self) { group in
-            for tab in tabs {
-                group.addTask { (tab.gid, PlanParser.rows(csv: try await source.csv(link, tab: tab), tab: tab.name).count) }
-            }
-            var out: [String: Int] = [:]
-            for try await (gid, count) in group { out[gid] = count }
-            return out
-        }
-        if let gid = link.gid, tabs.contains(where: { $0.gid == gid }) { return (gid, counts) }
-        return (tabs.max { (counts[$0.gid] ?? 0) < (counts[$1.gid] ?? 0) }?.gid, counts)
+    /// The tabs a plan can show: visible ones, not the QCpie tab.
+    nonisolated static func planTabs(_ tabs: [SheetsAPI.Tab]) -> [PlanTab] {
+        tabs.filter { !$0.hidden && $0.title != PlanQCTab.title }.map { PlanTab(gid: $0.gid, name: $0.title) }
+    }
+
+    nonisolated static func describe(_ error: Error) -> String {
+        (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+    }
+
+    /// Everything read or derived from a sheet (linking another one, unlinking).
+    private func resetState() {
+        seen = [:]; rows = []; grids = [:]; readGrids = [:]; layouts = [:]; layoutRead = [:]; layoutTask?.cancel(); layoutTask = nil
+        tables = [:]; lastValues = nil; qcTable = nil; outbox = PlanOutbox(); states = [:]; fileIndex = [:]; headers = [:]
+        cellLists = [:]; frameioFolders = [:]; frameioExtras = []; foldersSaveTask?.cancel(); dismissedMismatches = []
+        localExtras = []; changes = [:]; removed = []; editState = .idle; loadedFromDisk = false
     }
 
     func unlink() {
         guard let config else { return }
         self.config = nil
         UserDefaults.standard.removeObject(forKey: Self.configKey)
-        rows = []
-        grids = [:]; readGrids = [:]; pending = [:]; pendingQC = [:]; queuedQC = [:]; states = [:]; fileIndex = [:]; headers = [:]; scriptVersion = nil; lastCounter = nil; cellLists = [:]; lastListsSig = nil; listsReadSig = nil; deferredTracking = []; frameioFolders = [:]; frameioExtras = []; foldersSaveTask?.cancel(); dismissedMismatches = []; localExtras = []
+        resetState()
         match = .empty
-        changes = [:]
-        removed = []
         unreadTabs = []
         tabCounts = [:]
         seen = [:]
@@ -334,46 +228,20 @@ final class DeliveryPlanStore: ObservableObject {
 
     // MARK: Refreshing
 
-    /// Panels call these on appear / disappear: the sheet is only polled while one is on screen.
+    /// Panels call these on appear / disappear: the sheet is only read while one is on screen.
     func panelAppeared() {
         visiblePanels += 1
         guard visiblePanels == 1 else { return }
         pollTask = Task { [weak self] in
             await self?.loadCachedIfNeeded()
-            await self?.checkScript()
-            // Coming back to Inspect or the plan within a minute of the last read: no full re-read.
+            // Coming back to Inspect or the plan within a minute of the last read: no re-read.
             if let last = self?.lastUpdated, Date().timeIntervalSince(last) < 60 {} else { await self?.refresh() }
-            var lastFull = self?.lastUpdated ?? Date()
             while !Task.isCancelled {
-                // With the script (v2): a few bytes every 10 s, the full read only when something changed (and every
-                // 3 min regardless). Without: the full read every minute.
-                if let writer = self?.config?.writer, (self?.scriptVersion ?? 0) >= 2 {
-                    // Every 10 s while QCpie is in front, every minute behind other apps.
-                    try? await Task.sleep(for: .seconds(NSApp.isActive ? 10 : 60))
-                    guard !Task.isCancelled, let self else { return }
-                    let changes = try? await AppsScriptWriter.changes(writer)
-                    let counter = changes?.counter
-                    // Dropdown choices edited in Sheets (not counted as edits): re-read them alone.
-                    if let sig = changes?.listsSig {
-                        if let last = lastListsSig, last != sig, let config {
-                            await readLists(tabs: config.included, link: config.link)
-                        }
-                        lastListsSig = sig
-                    }
-                    // Each read records the counter it saw (`counterAtRead`), so our own saves, already read after
-                    // saving, don't cause a second full read (~1 MB) here.
-                    let moved = counter != nil && lastCounter != nil && counter != lastCounter
-                    if counter != nil { lastCounter = counter }
-                    if moved || Date().timeIntervalSince(lastFull) > 180 {
-                        await refresh()
-                        lastFull = Date()
-                    }
-                } else {
-                    try? await Task.sleep(for: Self.refreshInterval)
-                    guard !Task.isCancelled else { return }
-                    await self?.refresh()
-                    lastFull = Date()
-                }
+                // Every 10 s while QCpie is in front, every minute behind other apps. One call returns every included
+                // tab's values (a few hundred KB for a big plan, gzipped on the wire); an unchanged reply isn't parsed.
+                try? await Task.sleep(for: .seconds(NSApp.isActive ? 10 : 60))
+                guard !Task.isCancelled, let self else { return }
+                await self.refresh()
             }
         }
     }
@@ -383,71 +251,92 @@ final class DeliveryPlanStore: ObservableObject {
         if visiblePanels == 0 { pollTask?.cancel(); pollTask = nil }
     }
 
-    /// Re-reads the tab list and every included tab. `adoptAsSeen`: the first read of a new link isn't "changes".
-    func refresh(adoptAsSeen: Bool = false) async {
-        guard let config, phase != .loading || adoptAsSeen else { return }
-        phase = .loading
-        let source = source
-        // The change counter as of this read: edits already in it (our own saves included) are in what we read, so
-        // the 10 s check only reads again for edits made after it.
-        var counterAtRead: Int? = nil
-        if let writer = config.writer, (scriptVersion ?? 0) >= 2 { counterAtRead = try? await AppsScriptWriter.changeCounter(writer) }
+    /// Google sign-in finished: read the sheet and send what the outbox holds.
+    func signedIn() {
+        guard config != nil else { return }
+        Task { await refresh(full: true); scheduleFlush(after: 0) }
+    }
+
+    /// The tab list and title (tabs added, renamed or hidden in the sheet show up without relinking).
+    private func readMetadata(_ config: Config) async throws -> Config {
+        let meta = try await api.metadata(config.link.sheetID)
+        var updated = config
+        updated.tabs = Self.planTabs(meta.tabs)
+        if !meta.title.isEmpty { updated.title = meta.title }
+        updated.qcTab = meta.tabs.first { $0.title == PlanQCTab.title }?.gid
+        lastMetadata = Date()
+        if updated != self.config, self.config?.link == config.link {
+            self.config = updated
+            saveConfig()
+        }
+        return updated
+    }
+
+    private func ranges(_ config: Config) -> [String] {
+        config.included.map { SheetsAPI.quoted($0.name) } + (config.qcTab != nil ? [SheetsAPI.quoted(PlanQCTab.title)] : [])
+    }
+
+    /// Reads every included tab and the QCpie tab in one call. Parsing, matching and the grids run only when the reply
+    /// differs from the last one. The tab list is read every 3 minutes, on `full`, and when a tab can't be found.
+    /// `adoptAsSeen`: the first read of a new link isn't "changes".
+    func refresh(adoptAsSeen: Bool = false, full: Bool = false) async {
+        // A new link's first read waits for a read of the old one to finish (it'll be thrown away).
+        if adoptAsSeen { while reading { try? await Task.sleep(for: .milliseconds(50)) } }
+        guard var config, !reading else { return }
+        reading = true
+        defer { reading = false }
+        if rows.isEmpty || adoptAsSeen { phase = .loading }
+        let started = Date()
         do {
-            // The tab list too: tabs added or renamed in the sheet show up without relinking.
-            let (title, tabs) = try await source.describe(config.link)
-            var updated = config
-            updated.tabs = tabs
-            if !title.isEmpty { updated.title = title }
-            if updated != self.config, self.config?.link == config.link {
-                self.config = updated
-                saveConfig()
-            }
-            let included = updated.included
-            // The formatted grid is read alongside: a failure there only costs the formatting.
-            let fetched = try await withThrowingTaskGroup(of: (Int, String, PlanGrid?).self) { group in
-                for (index, tab) in included.enumerated() {
-                    group.addTask {
-                        async let grid = source.grid(config.link, tab: tab)
-                        let text = try await source.csv(config.link, tab: tab)
-                        return (index, text, await grid)
-                    }
-                }
-                var out = [(String, PlanGrid?)](repeating: ("", nil), count: included.count)
-                for try await (index, text, grid) in group { out[index] = (text, grid) }
-                return out
+            if full || adoptAsSeen || Date().timeIntervalSince(lastMetadata) > 180 { config = try await readMetadata(config) }
+            var data: Data
+            do {
+                data = try await api.values(config.link.sheetID, ranges: ranges(config))
+            } catch SheetsAPI.Failure.http(400, _) {
+                // A tab renamed or deleted since the last tab list.
+                config = try await readMetadata(config)
+                data = try await api.values(config.link.sheetID, ranges: ranges(config))
             }
             guard self.config?.link == config.link else { return }   // relinked meanwhile
-            let csvs = fetched.map(\.0)
-            await apply(tabs: included, csvs: csvs, adoptAsSeen: adoptAsSeen)
-            let gridsChanged = await applyGrids(tabs: included, csvs: csvs, formatted: fetched.map(\.1))
-            phase = .idle
-            lastUpdated = Date()
-            if let counterAtRead { lastCounter = counterAtRead }
-            // The dropdown lists only when none are loaded or their fingerprint moved (full reads follow every edit).
-            if cellLists.isEmpty || lastListsSig == nil || listsReadSig != lastListsSig {
-                Task { await self.readLists(tabs: included, link: config.link) }
+            // Edits Google took before this read started are in it: they leave the overlay now, with the new values.
+            let settled = outbox.settle(readStart: started)
+            if settled { saveOutbox() }
+            if data != lastValues || adoptAsSeen {
+                lastValues = data
+                let included = config.included
+                let all = try await Task.detached(priority: .userInitiated) { try SheetsAPI.tables(data) }.value
+                let planTables = Array(all.prefix(included.count))
+                let qcValues = config.qcTab != nil && all.count > included.count ? all[included.count] : nil
+                await apply(tabs: included, tables: planTables, qc: qcValues, adoptAsSeen: adoptAsSeen)
+                await applyGrids(tabs: included, tables: planTables)
+                let dir = Self.directory(config.link.sheetID)
+                var cache = Dictionary(uniqueKeysWithValues: zip(included.map(\.gid), planTables))
+                if let qcValues { cache["qc"] = qcValues }
+                Task.detached(priority: .utility) { Self.writeCache(cache, to: dir) }
+                lastUpdated = Date()
+            } else {
+                if settled { recomputeStates(); publishGrids() }
+                // "Updated" moves on once a minute when nothing changed (each publish redraws the panels).
+                if lastUpdated.map({ Date().timeIntervalSince($0) > 60 }) ?? true { lastUpdated = Date() }
             }
-            guard gridsChanged || csvs != lastCachedCSVs else { return }   // nothing new to write
-            lastCachedCSVs = csvs
-            let dir = Self.directory(config.link.sheetID)
-            let cache = Dictionary(uniqueKeysWithValues: zip(included.map(\.gid), csvs))
-            let gridCache = readGrids
-            Task.detached(priority: .utility) { Self.writeCache(cache, grids: gridCache, to: dir) }
+            if phase != .idle { phase = .idle }
+            if !outbox.unsent.records.isEmpty || !outbox.unsent.cells.isEmpty { scheduleFlush(after: 0) }
         } catch is CancellationError {
-            phase = .idle
+            if phase != .idle { phase = .idle }
         } catch {
-            phase = .failed(error.localizedDescription)
+            if case GoogleAuth.Failure.signedOut = error { GoogleAccount.shared.noteSignedOut() }
+            phase = .failed(Self.describe(error))
         }
     }
 
-    private func apply(tabs: [PlanTab], csvs: [String], adoptAsSeen: Bool) async {
+    private func apply(tabs: [PlanTab], tables: [[[String]]], qc: [[String]]?, adoptAsSeen: Bool) async {
         let oldRows = rows
-        let parsed = await Task.detached(priority: .userInitiated) { () -> ([PlanRow], [String], [String: (line: Int, columns: [PlanField: Int])], Bool, Bool) in
+        let parsed = await Task.detached(priority: .userInitiated) { () -> ([PlanRow], [String], [String: (line: Int, columns: [PlanField: Int])], PlanQCTab.Table?, Bool, Bool) in
             var all: [PlanRow] = []
             var unread: [String] = []
             var headers: [String: (line: Int, columns: [PlanField: Int])] = [:]
-            for (tab, text) in zip(tabs, csvs) {
-                let (rows, header) = PlanParser.parse(csv: text, tab: tab.name)   // one CSV parse for both
+            for (tab, table) in zip(tabs, tables) {
+                let (rows, header) = PlanParser.parse(table: table, tab: tab.name)
                 if let header {
                     headers[tab.gid] = (header.index + 1, header.columns)
                 } else if rows.isEmpty {
@@ -455,16 +344,20 @@ final class DeliveryPlanStore: ObservableObject {
                 }
                 all += rows
             }
+            // QCpie's own values come from its tab (the plan tabs' QC columns are lookups of it, or old copies).
+            let qcTable = qc.flatMap(PlanQCTab.parse)
+            if let qcTable { all = all.map { $0.withTracking(qcTable.values[($0.code ?? "").lowercased()] ?? [:]) } }
             PlanParser.flagDuplicates(&all)
             // Compared here, not on the main thread (~50 ms for 1,100 rows on efficiency cores).
             let rowsChanged = all != oldRows
             // Matching ignores QC columns: a status change doesn't re-run it.
             let matchChanged = rowsChanged && all.map(\.matchSignature) != oldRows.map(\.matchSignature)
-            return (all, unread, headers, rowsChanged, matchChanged)
+            return (all, unread, headers, qcTable, rowsChanged, matchChanged)
         }.value
-        let (newRows, unread, newHeaders, rowsChanged, matchChanged) = parsed
+        let (newRows, unread, newHeaders, newQC, rowsChanged, matchChanged) = parsed
         headers = newHeaders
-        requestedColumns = []
+        stampSheetsEdits(old: qcTable, new: newQC, adoptAsSeen: adoptAsSeen)
+        qcTable = newQC
         var counts = tabCounts
         for tab in tabs { counts[tab.gid] = newRows.filter { $0.tab == tab.name }.count }
         if counts != tabCounts { tabCounts = counts }
@@ -475,151 +368,198 @@ final class DeliveryPlanStore: ObservableObject {
         if rowsChanged { rows = newRows }
         if unread != unreadTabs { unreadTabs = unread }
         recomputeChanges()
-        dropSettledQC()
         if matchChanged { rematch() } else if rowsChanged { recomputeStates() }
     }
 
-    /// The formatted grid when it was read, else one rebuilt from the CSV. Publishes only what changed.
-    @discardableResult
-    private func applyGrids(tabs: [PlanTab], csvs: [String], formatted: [PlanGrid?]) async -> Bool {
-        let current = readGrids
-        let built = await Task.detached(priority: .userInitiated) { () -> [String: PlanGrid] in
-            var out: [String: PlanGrid] = [:]
-            for (index, tab) in tabs.enumerated() {
-                if let grid = formatted[index] { out[tab.gid] = grid; continue }
-                // Keep a formatted grid from an earlier read over an unformatted rebuild.
-                let rebuilt = PlanGrid.fromCSV(csvs[index])
-                if let old = current[tab.gid], old.formatted, old.rows.count == rebuilt.rows.count { out[tab.gid] = old } else { out[tab.gid] = rebuilt }
-            }
-            return out
-        }.value
-        let changed = built != readGrids
-        readGrids = built
-        publishGrids()
-        return changed
+    /// A QC Status changed in Google Sheets (on the QCpie tab) without a new QC Updated: stamp it, so a file exported
+    /// after it still sends the row back to To QC. Any Mac reading the change may stamp it; they agree to the second.
+    private func stampSheetsEdits(old: PlanQCTab.Table?, new: PlanQCTab.Table?, adoptAsSeen: Bool) {
+        guard let old, let new, !adoptAsSeen else { return }
+        let stamp = PlanStatusResolver.stamp(Date(), by: "Sheets")
+        var stamped = false
+        defer { if stamped { saveOutbox(); scheduleFlush(after: 1) } }
+        for (key, values) in new.values where outbox.records[key] == nil {
+            let before = old.values[key] ?? [:]
+            guard (values[.qcStatus] ?? "") != (before[.qcStatus] ?? ""), (values[.qcUpdated] ?? "") == (before[.qcUpdated] ?? ""),
+                  !(values[.qcStatus] ?? "").isEmpty else { continue }
+            outbox.set(code: key, name: "", [.qcUpdated: stamp], quiet: true)
+            stamped = true
+        }
     }
 
-    /// Read grids with pending edits laid over. An edit leaves once the sheet shows it (or after 2 minutes).
+    /// Each tab's grid: its formatted layout filled with the latest values when the layout still fits them, else
+    /// the values unformatted (or the last grid) until the layout has been read again. Layouts are read in the
+    /// background every 5 minutes, and when rows or columns were added or removed.
+    private func applyGrids(tabs: [PlanTab], tables newTables: [[[String]]]) async {
+        for (tab, table) in zip(tabs, newTables) { tables[tab.gid] = table }
+        let layouts = layouts
+        let built = await Task.detached(priority: .userInitiated) { () -> ([String: PlanGrid], [String]) in
+            var out: [String: PlanGrid] = [:]
+            var stale: [String] = []
+            for (tab, table) in zip(tabs, newTables) {
+                guard let layout = layouts[tab.gid] else { out[tab.gid] = PlanGrid.fromTable(table); stale.append(tab.gid); continue }
+                // A layout of another size still shows the values it has cells for, until it's read again.
+                if !layout.fits(table) { stale.append(tab.gid) }
+                out[tab.gid] = layout.withTexts(table)
+            }
+            return (out, stale)
+        }.value
+        readGrids = built.0
+        publishGrids()
+        let due = tabs.filter { tab in built.1.contains(tab.gid) || layoutRead[tab.gid].map { Date().timeIntervalSince($0) > 300 } ?? true }
+        if !due.isEmpty, layoutTask == nil { layoutTask = Task { await self.readLayouts(due); self.layoutTask = nil } }
+    }
+
+    /// Reads tabs' formatting and dropdown choices (one tab at a time, off the main thread). ~1–3 MB per 1,000-row
+    /// tab: only on link, every 5 minutes and when the sheet's size changed, never on the 10 s check.
+    private func readLayouts(_ tabs: [PlanTab]) async {
+        guard let config else { return }
+        let id = config.link.sheetID
+        for tab in tabs {
+            guard let table = tables[tab.gid] else { continue }
+            guard let data = try? await api.layout(id, tab: tab.name) else {
+                layoutRead[tab.gid] = Date().addingTimeInterval(-240)   // try again in a minute, not every 10 s
+                continue
+            }
+            let grid = await Task.detached(priority: .utility) { PlanGrid.fromSheets(layout: data, table: table) }.value
+            guard self.config?.link == config.link else { return }
+            layoutRead[tab.gid] = Date()
+            if let grid {
+                layouts[tab.gid] = grid
+                // Values read while the layout was on its way win.
+                readGrids[tab.gid] = tables[tab.gid].map { grid.withTexts($0) } ?? grid
+            }
+            if let header = headers[tab.gid] { await readLists(tab: tab, headerLine: header.line, table: table) }
+        }
+        publishGrids()
+        let dir = Self.directory(id), cache = layouts
+        Task.detached(priority: .utility) { Self.writeLayouts(cache, to: dir) }
+    }
+
+    /// Dropdown choices of the row under the header, keyed by header text (lower case), else "#" + sheet column.
+    private func readLists(tab: PlanTab, headerLine: Int, table: [[String]]) async {
+        guard let config, let data = try? await api.validations(config.link.sheetID, tab: tab.name, row: headerLine + 1) else { return }
+        let (lists, ranges) = Self.parseValidations(data)
+        var resolved = lists
+        if !ranges.isEmpty, let values = try? await api.values(config.link.sheetID, ranges: ranges.map(\.range)),
+           let read = try? SheetsAPI.tables(values) {
+            for (item, cells) in zip(ranges, read) {
+                let options = cells.flatMap { $0 }.map(PlanGrid.normalized).filter { !$0.isEmpty }
+                if !options.isEmpty { resolved[item.column] = options }
+            }
+        }
+        let names = headerLine - 1 < table.count ? table[headerLine - 1] : []
+        var out: [String: [String]] = [:]
+        for (column, options) in resolved {
+            let name = column < names.count ? PlanGrid.normalized(names[column]).lowercased() : ""
+            out[name.isEmpty ? "#\(column)" : name] = options
+        }
+        if cellLists[tab.gid] != (out.isEmpty ? nil : out) { cellLists[tab.gid] = out.isEmpty ? nil : out }
+    }
+
+    /// Lists (`ONE_OF_LIST`) and ranges to read (`ONE_OF_RANGE`) by sheet column, from a `validations` reply.
+    nonisolated static func parseValidations(_ data: Data) -> (lists: [Int: [String]], ranges: [(column: Int, range: String)]) {
+        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let grid = ((json["sheets"] as? [[String: Any]])?.first?["data"] as? [[String: Any]])?.first,
+              let values = (grid["rowData"] as? [[String: Any]])?.first?["values"] as? [[String: Any]] else { return ([:], []) }
+        var lists: [Int: [String]] = [:]
+        var ranges: [(Int, String)] = []
+        for (column, cell) in values.enumerated() {
+            guard let condition = (cell["dataValidation"] as? [String: Any])?["condition"] as? [String: Any],
+                  let type = condition["type"] as? String else { continue }
+            let entries = (condition["values"] as? [[String: Any]] ?? []).compactMap { $0["userEnteredValue"] as? String }
+            if type == "ONE_OF_LIST" {
+                let options = entries.map(PlanGrid.normalized).filter { !$0.isEmpty }
+                if !options.isEmpty { lists[column] = options }
+            } else if type == "ONE_OF_RANGE", let range = entries.first {
+                ranges.append((column, range.hasPrefix("=") ? String(range.dropFirst()) : range))
+            }
+        }
+        return (lists, ranges)
+    }
+
+    /// Read grids with the outbox's edits laid over (QCpie's columns by code, typed cells by position).
     private func publishGrids() {
         var out = readGrids
-        // Pending QC columns, by code → this tab's line for that code.
-        if !pendingQC.isEmpty, let config {
+        if let config {
+            let overlay = outbox.overlay
             for tab in config.included {
-                guard var grid = out[tab.gid], headers[tab.gid] != nil else { continue }
-                // QCpie's columns in this tab's view, found once per tab.
-                var columns: [PlanField: Int] = [:]
-                for field in PlanField.allCases where field.isTracking { columns[field] = gridColumn(field, gid: tab.gid) }
-                var edits: [CellKey: String] = [:]
-                for row in rows where row.tab == tab.name {
-                    guard let code = row.code, let p = pendingQC[code.lowercased()] else { continue }
-                    for (field, value) in p.values {
-                        if let column = columns[field] { edits[CellKey(line: row.line, column: column)] = value }
+                guard var grid = out[tab.gid] else { continue }
+                var edits = outbox.cellOverlay(gid: tab.gid)
+                if !overlay.isEmpty, headers[tab.gid] != nil {
+                    // QCpie's columns in this tab's view, found once per tab.
+                    var columns: [PlanField: Int] = [:]
+                    for field in PlanField.allCases where field.isTracking { columns[field] = gridColumn(field, gid: tab.gid) }
+                    if !columns.isEmpty {
+                        for row in rows where row.tab == tab.name {
+                            guard let code = row.code, let values = overlay[code.lowercased()] else { continue }
+                            for (field, value) in values {
+                                if let column = columns[field] { edits[CellKey(line: row.line, column: column)] = value }
+                            }
+                        }
                     }
                 }
                 if !edits.isEmpty { grid = grid.applying(edits); out[tab.gid] = grid }
             }
-        }
-        for (gid, edits) in pending {
-            guard let grid = readGrids[gid] else { continue }
-            var keep: [CellKey: PendingEdit] = [:]
-            for (key, edit) in edits where Date().timeIntervalSince(edit.since) < 120 {
-                if PlanGrid.normalized(grid.text(line: key.line, column: key.column) ?? "") != PlanGrid.normalized(edit.value) {
-                    keep[key] = edit
-                }
-            }
-            pending[gid] = keep.isEmpty ? nil : keep
-            if !keep.isEmpty { out[gid] = (out[gid] ?? grid).applying(keep.mapValues(\.value)) }
         }
         if out != grids { grids = out }
     }
 
     // MARK: Editing
 
-    var canEdit: Bool { config?.writer != nil }
+    /// Edits need Google sign-in (Google decides who may edit the sheet).
+    var canEdit: Bool { GoogleAccount.shared.signedIn }
 
-    /// Connects the script after checking it answers for this spreadsheet; nil turns editing off.
-    func setWriter(_ link: PlanWriteLink?) async throws {
-        guard var config else { return }
-        if let link {
-            scriptVersion = try await AppsScriptWriter.ping(link, sheetID: config.link.sheetID)
-            UserDefaults.standard.removeObject(forKey: "planSetupToken")
-        }
-        guard self.config?.link == config.link else { return }
-        config.writer = link
-        self.config = config
-        saveConfig()
-        editState = .idle
-    }
-
-    /// Shows the new text at once and writes it; on failure or a conflicting change in the sheet the cell goes back.
+    /// A cell typed in the Sheet view. QCpie's columns go to the QCpie tab (by code); other cells are written where
+    /// they are, unless the sheet changed them meanwhile. Shown at once either way.
     func editCell(gid: String, line: Int, column: Int, old: String, new: String) {
-        guard let writer = config?.writer, new != old else { return }
-        let key = CellKey(line: line, column: column)
-        pending[gid, default: [:]][key] = PendingEdit(value: new, since: Date())
-        publishGrids()
-        savingCount += 1
-        editState = .saving(savingCount)
-        // The row's code and the column's header let the script find the cell again if rows were sorted or columns
-        // inserted since QCpie read the sheet (by number alone, a same-looking cell on another row could be overwritten).
-        let tabName = config?.tabs.first { $0.gid == gid }?.name
-        let code = rows.first { $0.tab == tabName && $0.line == line }?.code
-        let header = headers[gid].flatMap { readGrids[gid]?.text(line: $0.line, column: column) }
-        let cell = PlanCellEdit(row: line, col: column + 1, code: code, header: header.flatMap { $0.isEmpty ? nil : $0 },
-                                value: new, expect: old)
-        Task {
-            var failure: String? = nil
-            do {
-                let results = try await AppsScriptWriter.write(writer, gid: gid, cells: [cell])
-                if let result = results.first, !result.ok {
-                    failure = "Not saved: the cell was changed in the sheet meanwhile (now “\(result.current ?? "")”)."
-                }
-            } catch {
-                failure = "Not saved: \(error.localizedDescription)"
-            }
-            savingCount -= 1
-            if let failure {
-                pending[gid]?[key] = nil
-                publishGrids()
-                editState = .failed(failure)
-            } else if savingCount == 0 {
-                editState = .saved
-            }
-            // Re-read shortly after the last save, so rows, matching and formatting follow the edit.
-            refreshAfterEdit?.cancel()
-            refreshAfterEdit = Task {
-                try? await Task.sleep(for: .seconds(1.5))
-                guard !Task.isCancelled, savingCount == 0 else { return }
-                await refresh()
-            }
+        guard let config, new != old, let tab = config.tabs.first(where: { $0.gid == gid }) else { return }
+        let grid = readGrids[gid]
+        let header = headers[gid].flatMap { h in grid?.text(line: h.line, column: column) }.map(PlanGrid.normalized)
+        if let field = header.flatMap(PlanField.detect), field.isTracking, line > (headers[gid]?.line ?? 0) {
+            guard let row = rows.first(where: { $0.tab == tab.name && $0.line == line }) else { return }
+            queueQC([row]) { $0[field] = PlanGrid.normalized(new) }
+            return
         }
+        let sheetColumn = grid?.sheetColumns.flatMap { column < $0.count ? $0[column] : nil } ?? column
+        let code = rows.first { $0.tab == tab.name && $0.line == line }?.code
+        outbox.add(PlanOutbox.Cell(gid: gid, line: line, column: column, sheetColumn: sheetColumn, code: code,
+                                   header: header.flatMap { $0.isEmpty ? nil : $0 }, value: new, expect: old, changed: Date()))
+        saveOutbox()
+        publishGrids()
+        editState = .saving(outbox.unsent.records.count + outbox.unsent.cells.count)
+        scheduleFlush()
     }
 
     private func loadCachedIfNeeded() async {
         guard !loadedFromDisk, let config else { return }
         loadedFromDisk = true
         let dir = Self.directory(config.link.sheetID)
-        let (cache, seen, gridCache, folders, dismissed) = await Task.detached(priority: .userInitiated) { () -> ([String: String], [String: SeenRow], [String: PlanGrid], [String: [ListedFile]], [String]) in
-            let cache = (try? Data(contentsOf: dir.appendingPathComponent("tabs.json")))
-                .flatMap { try? JSONDecoder().decode([String: String].self, from: $0) } ?? [:]
-            let seen = (try? Data(contentsOf: dir.appendingPathComponent("seen.json")))
-                .flatMap { try? JSONDecoder().decode([String: SeenRow].self, from: $0) } ?? [:]
-            let grids = (try? Data(contentsOf: dir.appendingPathComponent("grids.json")))
-                .flatMap { try? JSONDecoder().decode([String: PlanGrid].self, from: $0) } ?? [:]
-            let folders = (try? Data(contentsOf: dir.appendingPathComponent("frameio-folders.json")))
-                .flatMap { try? JSONDecoder().decode([String: [ListedFile]].self, from: $0) } ?? [:]
-            let dismissed = (try? Data(contentsOf: dir.appendingPathComponent("dismissed-mismatches.json")))
-                .flatMap { try? JSONDecoder().decode([String].self, from: $0) } ?? []
-            return (cache, seen, grids, folders, dismissed)
+        let (cache, seen, layoutCache, folders, dismissed) = await Task.detached(priority: .userInitiated) { () -> ([String: [[String]]], [String: SeenRow], [String: PlanGrid], [String: [ListedFile]], [String]) in
+            func read<T: Decodable>(_ name: String, _ type: T.Type) -> T? {
+                (try? Data(contentsOf: dir.appendingPathComponent(name))).flatMap { try? JSONDecoder().decode(T.self, from: $0) }
+            }
+            return (read("values.json", [String: [[String]]].self) ?? [:], read("seen.json", [String: SeenRow].self) ?? [:],
+                    read("layouts.json", [String: PlanGrid].self) ?? [:], read("frameio-folders.json", [String: [ListedFile]].self) ?? [:],
+                    read("dismissed-mismatches.json", [String].self) ?? [])
         }.value
+        guard self.config?.link == config.link else { return }
         if !dismissed.isEmpty { dismissedMismatches.formUnion(dismissed); scheduleRecompute() }
         self.seen = seen
         // Listings that came in before this read are newer than the saved ones.
         frameioFolders = folders.merging(frameioFolders) { _, listed in listed }
+        if layouts.isEmpty { layouts = layoutCache }
         let tabs = config.included.filter { cache[$0.gid] != nil }
         if !tabs.isEmpty, rows.isEmpty {
-            let csvs = tabs.map { cache[$0.gid]! }
-            await apply(tabs: tabs, csvs: csvs, adoptAsSeen: false)
-            if grids.isEmpty { await applyGrids(tabs: tabs, csvs: csvs, formatted: tabs.map { gridCache[$0.gid] }) }
+            let planTables = tabs.map { cache[$0.gid]! }
+            await apply(tabs: tabs, tables: planTables, qc: cache["qc"], adoptAsSeen: false)
+            if grids.isEmpty {
+                for (tab, table) in zip(tabs, planTables) { tables[tab.gid] = table }
+                readGrids = Dictionary(uniqueKeysWithValues: zip(tabs, planTables).map { tab, table in
+                    (tab.gid, layouts[tab.gid]?.withTexts(table) ?? PlanGrid.fromTable(table))
+                })
+                publishGrids()
+            }
         }
     }
 
@@ -737,8 +677,9 @@ final class DeliveryPlanStore: ObservableObject {
         var mismatchCounts: [PlanMismatch: Int] = [:]
         var mismatchTotal = 0
         // Links first (pending writes win): the listed folders' extras and Frame.io's sizes depend on all of them.
+        let overlay = outbox.overlay
         let links = rows.map { row in
-            PlanGrid.normalized(row.code.flatMap { pendingQC[$0.lowercased()]?.values[.frameio] } ?? row.value(.frameio))
+            PlanGrid.normalized(row.code.flatMap { overlay[$0.lowercased()]?[.frameio] } ?? row.value(.frameio))
         }
         // By Frame.io id, not URL text: links pasted by hand can differ in form, and a row may link a stack's current
         // version while the folder lists the stack.
@@ -766,19 +707,21 @@ final class DeliveryPlanStore: ObservableObject {
         }.map { PlanFrameIOExtra(name: $0.name, url: $0.url, note: extraNote($0.name, linkedCodes: linkedCodes)) }
         extras.sort { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
         // "No file here" only on a Mac holding some of the plan's files (not one that only has other projects loaded).
-        let hasLocalFiles = files.count > match.extras.count, tracksFrameIO = hasFrameIOColumn
+        let hasLocalFiles = files.count > match.extras.count
+        // "Done but not on Frame.io" only for plans that use Frame.io links at all.
+        let tracksFrameIO = links.contains { !$0.isEmpty }
         for (row, link) in zip(rows, links) {
             let result = match.result(row)
-            let pending = row.code.flatMap { pendingQC[$0.lowercased()] }
+            let pending = row.code.flatMap { overlay[$0.lowercased()] }
             var state = PlanStatusResolver.resolve(match: result.status, hasFiles: !result.files.isEmpty,
-                                                   qc: pending?.values[.qcStatus] ?? row.value(.qcStatus),
-                                                   updated: pending?.values[.qcUpdated] ?? row.value(.qcUpdated),
+                                                   qc: pending?[.qcStatus] ?? row.value(.qcStatus),
+                                                   updated: pending?[.qcUpdated] ?? row.value(.qcUpdated),
                                                    fileDates: result.files.compactMap { dates[$0] })
             var found: [(kind: PlanMismatch, flag: String)] = []
             if !link.isEmpty {
                 state.upload = .uploaded
                 // The local file changed after the upload (a minute's grace: the upload stamp has no seconds).
-                let uploadedOn = pending?.values[.uploaded] ?? row.value(.uploaded)
+                let uploadedOn = pending?[.uploaded] ?? row.value(.uploaded)
                 if let when = PlanUpload.date(uploadedOn), let newest = result.files.compactMap({ dates[$0] }).max(),
                    newest > when.addingTimeInterval(60) {
                     state.upload = .stale
@@ -815,7 +758,7 @@ final class DeliveryPlanStore: ObservableObject {
             for kind in state.mismatches { mismatchCounts[kind, default: 0] += 1 }
             if !state.mismatches.isEmpty { mismatchTotal += 1 }
             newStates[row.id] = state
-            let rowBatch = PlanGrid.normalized(pending?.values[.batch] ?? row.value(.batch))
+            let rowBatch = PlanGrid.normalized(pending?[.batch] ?? row.value(.batch))
             if !rowBatch.isEmpty { batchNames.insert(rowBatch) }
             perBatch[rowBatch, default: (0, 0, 0)].total += 1
             if state.state.isDone { perBatch[rowBatch, default: (0, 0, 0)].done += 1 }
@@ -880,18 +823,18 @@ final class DeliveryPlanStore: ObservableObject {
     /// Sets (nil: clears) the QC status of rows, stamped with time and reviewer. Shown at once, written in one batch.
     func setStatus(_ status: PlanQCStatus?, rowIDs: [String]) {
         let ids = Set(rowIDs)
-        queueQC(rows.filter { ids.contains($0.id) }) { item in item.status = status?.title ?? "" }
+        queueQC(rows.filter { ids.contains($0.id) }) { item in item[.qcStatus] = status?.title ?? "" }
     }
 
     func setNote(_ note: String, rowID: String) {
-        queueQC(rows.filter { $0.id == rowID }) { item in item.note = note }
+        queueQC(rows.filter { $0.id == rowID }) { item in item[.qcNote] = note }
     }
 
     /// Sets ("" clears) the batch of rows. Shown at once, written with the statuses (by code, every tab).
     func setBatch(_ batch: String, rowIDs: [String]) {
         let ids = Set(rowIDs)
         let value = PlanGrid.normalized(batch)
-        queueQC(rows.filter { ids.contains($0.id) }) { item in item.batch = value }
+        queueQC(rows.filter { ids.contains($0.id) }) { item in item[.batch] = value }
     }
 
     /// The batch as shown (a pending edit wins), normalised; "" when none.
@@ -901,7 +844,7 @@ final class DeliveryPlanStore: ObservableObject {
 
     /// A column QCpie writes, as shown: a pending edit wins over the last read.
     private func shown(_ field: PlanField, _ row: PlanRow) -> String {
-        row.code.flatMap { pendingQC[$0.lowercased()]?.values[field] } ?? row.value(field)
+        row.code.flatMap { outbox.records[$0.lowercased()]?.values[field.rawValue] } ?? row.value(field)
     }
 
     // MARK: Frame.io
@@ -909,8 +852,8 @@ final class DeliveryPlanStore: ObservableObject {
     /// The row's Frame.io link as shown (a pending edit wins); "" when none.
     func frameioLink(_ row: PlanRow) -> String { PlanGrid.normalized(shown(.frameio, row)) }
 
-    /// Whether any included tab has a Frame.io column (links found while browsing are only written then).
-    var hasFrameIOColumn: Bool { headers.values.contains { $0.columns[.frameio] != nil } }
+    /// Whether rows can hold Frame.io links: the QCpie tab has a Frame.io column for every code.
+    var hasFrameIOColumn: Bool { hasQCTab || headers.values.contains { $0.columns[.frameio] != nil } }
 
     /// Plan codes by their first token (built once per set of rows): a Frame.io listing is checked per file name token,
     /// not per row.
@@ -952,10 +895,7 @@ final class DeliveryPlanStore: ObservableObject {
     /// and Uploaded the date. A newer upload replaces an older link. Files whose row isn't clear (none, or several codes
     /// in the name) are left for Link Frame.io File….
     func uploaded(_ file: URL, account: String, fileID: String) async {
-        guard await trackingWritable() else {
-            deferTracking { await self.uploaded(file, account: account, fileID: fileID) }
-            return
-        }
+        guard config != nil else { return }
         // Uploading before the plan was opened this session: its rows aren't loaded yet (the cache, else one read).
         if rows.isEmpty { await loadCachedIfNeeded() }
         if rows.isEmpty { await refresh() }
@@ -984,8 +924,8 @@ final class DeliveryPlanStore: ObservableObject {
         guard let url else { return }
         // Uploads finish one file at a time: one recompute for a burst, not one per file (main thread, maybe playback).
         queueQC(rows(withCode: code), quiet: true, refresh: false) { item in
-            item.frameio = url
-            item.uploaded = Self.uploadStamp(Date())
+            item[.frameio] = url
+            item[.uploaded] = Self.uploadStamp(Date())
         }
         scheduleRecompute()
     }
@@ -1001,15 +941,9 @@ final class DeliveryPlanStore: ObservableObject {
             return
         }
         recordListing(items, folder: folder)
-        guard config?.writer != nil else { return }
-        // Found while browsing: only into a sheet that already has the column. Find Frame.io Links may add it.
-        guard hasFrameIOColumn || searchingLinks, !rows.isEmpty else { return }
-        // Only into a script known to write the Frame.io column (an older one answers "ok" and drops it). Listings can
-        // come before any plan panel has asked the script its version (browsing in the Upload tab): ask, then go on.
-        guard (scriptVersion ?? 0) >= 4 else {
-            if scriptVersion == nil { Task { if await self.trackingWritable() { self.frameIOListed(items, folder: folder) } } }
-            return
-        }
+        // Found while browsing: only into a sheet with the QCpie tab (it's set up on purpose; links wait in the outbox
+        // while this Mac is signed out).
+        guard hasQCTab, !rows.isEmpty else { return }
         // Candidates per code: files whose name holds the code, plus files named exactly like a row without its code
         // ("…_20s" for "…_20s_KL0140") or exactly like the local file matched to the row: names without a code.
         let names = exactNameIndex()
@@ -1052,8 +986,8 @@ final class DeliveryPlanStore: ObservableObject {
             guard let item = chosen, let url = item.viewURL else { continue }
             let date = Self.listedDate(item)
             queueQC(targets, quiet: true, refresh: false) { entry in
-                entry.frameio = url
-                if let date, targets.allSatisfy({ self.shown(.uploaded, $0).isEmpty }) { entry.uploaded = Self.uploadStamp(date) }
+                entry[.frameio] = url
+                if let date, targets.allSatisfy({ self.shown(.uploaded, $0).isEmpty }) { entry[.uploaded] = Self.uploadStamp(date) }
             }
             queued = true
         }
@@ -1065,7 +999,7 @@ final class DeliveryPlanStore: ObservableObject {
             guard !linked.isEmpty else { continue }
             let recorded = linked.compactMap { PlanUpload.date(shown(.uploaded, $0)) }.max()
             guard recorded.map({ updated > $0.addingTimeInterval(60) }) ?? true else { continue }
-            queueQC(linked, quiet: true, refresh: false) { entry in entry.uploaded = Self.uploadStamp(updated) }
+            queueQC(linked, quiet: true, refresh: false) { entry in entry[.uploaded] = Self.uploadStamp(updated) }
             queued = true
         }
         // One recompute and redraw for the whole listing, not one per row.
@@ -1262,8 +1196,8 @@ final class DeliveryPlanStore: ObservableObject {
     /// 30-minute background scan; rows without a link get one as listings come in (the same rules as browsing).
     func findFrameIOLinks() async {
         guard !searchingLinks else { return }
-        guard await trackingWritable() else {
-            showLinkSearch("Set up or update the sheet's script first (••• menu).")
+        guard hasQCTab else {
+            showLinkSearch("Set up the QCpie tab first (Delivery Plan ••• menu).")
             return
         }
         searchingLinks = true
@@ -1322,19 +1256,12 @@ final class DeliveryPlanStore: ObservableObject {
             dropped = true
         }
         if dropped { saveFrameIOFolders(); scheduleRecompute() }
-        guard config?.writer != nil else { return }
-        guard (scriptVersion ?? 0) >= 4 else {
-            if scriptVersion == nil {
-                Task { if await self.trackingWritable() { self.frameIOGone(ids) } else { self.deferTracking { self.frameIOGone(ids) } } }
-            }
-            return
-        }
         let targets = rows.filter { row in
             let link = frameioLink(row)
             return !link.isEmpty && ids.contains { link.hasSuffix("/" + $0) || link.contains("/" + $0 + "?") }
         }
         guard !targets.isEmpty else { return }
-        queueQC(targets, quiet: true) { item in item.frameio = ""; item.uploaded = "" }
+        queueQC(targets, quiet: true) { item in item[.frameio] = ""; item[.uploaded] = "" }
     }
 
     /// Link Frame.io File…: a pasted Frame.io file or stack link goes into the rows' Frame.io column (a link set by hand
@@ -1360,8 +1287,8 @@ final class DeliveryPlanStore: ObservableObject {
             let ids = Set(rowIDs)
             let date = Self.listedDate(item)
             queueQC(rows.filter { ids.contains($0.id) }) { entry in
-                entry.frameio = url
-                if let date { entry.uploaded = Self.uploadStamp(date) }
+                entry[.frameio] = url
+                if let date { entry[.uploaded] = Self.uploadStamp(date) }
             }
             return nil
         }
@@ -1370,7 +1297,7 @@ final class DeliveryPlanStore: ObservableObject {
 
     func clearFrameIO(rowIDs: [String]) {
         let ids = Set(rowIDs)
-        queueQC(rows.filter { ids.contains($0.id) }) { item in item.frameio = ""; item.uploaded = "" }
+        queueQC(rows.filter { ids.contains($0.id) }) { item in item[.frameio] = ""; item[.uploaded] = "" }
     }
 
     // MARK: Linked filters
@@ -1423,199 +1350,357 @@ final class DeliveryPlanStore: ObservableObject {
         return urls.compactMap { fileIndex[$0]?.rowID }.filter { seen.insert($0).inserted }
     }
 
-    /// `quiet`: automatic writes (Frame.io links) say nothing when the sheet can't take them.
+    /// Queues QCpie's columns for rows (by code) in the outbox: shown at once, written to the QCpie tab in one call
+    /// 0.3 s after the last change. A status change is stamped (QC Updated) with time and reviewer.
+    /// `quiet`: automatic writes (Frame.io links) say nothing when they can't be saved.
     /// `refresh: false` leaves the recompute and redraw to the caller (several rows queued in a row).
-    private func queueQC(_ targets: [PlanRow], quiet: Bool = false, refresh: Bool = true, _ change: (inout PlanStatusItem) -> Void) {
-        guard config?.writer != nil else { if !quiet { editState = .failed("This Mac can't edit the sheet yet: Delivery Plan ••• → Set Up Editing… (on a second Mac, paste the editing link copied from the first).") }; return }
-        guard !scriptOutdated else { if !quiet { editState = .failed("Update the script (••• → Update Script…) to set statuses.") }; return }
+    private func queueQC(_ targets: [PlanRow], quiet: Bool = false, refresh: Bool = true, _ change: (inout [PlanField: String]) -> Void) {
+        guard config != nil else { return }
         let coded = targets.filter { !($0.code ?? "").isEmpty }
         guard !coded.isEmpty else { if !quiet { editState = .failed("Statuses need a Code column in the sheet.") }; return }
-        let reviewer = UserDefaults.standard.string(forKey: "reviewerName").flatMap { $0.isEmpty ? nil : $0 } ?? NSFullUserName()
-        let stamp = PlanStatusResolver.stamp(Date(), by: reviewer)
-        for row in coded {
-            let key = row.code!.lowercased()
-            var item = queuedQC[key] ?? PlanStatusItem(code: row.code!)
-            change(&item)
-            // Only a status change is stamped: QC Updated dates the review, and a note edited later must not hide a
-            // new version that arrived before it.
-            if item.status != nil { item.updated = stamp }
-            queuedQC[key] = item
-            var p = pendingQC[key] ?? PendingQC(since: Date())
-            p.values.merge(item.fieldValues) { _, new in new }
-            p.since = Date()
-            p.sent = false
-            pendingQC[key] = p
+        var values: [PlanField: String] = [:]
+        change(&values)
+        guard !values.isEmpty else { return }
+        // Only a status change is stamped: QC Updated dates the review, and a note edited later must not hide a new
+        // version that arrived before it.
+        if values[.qcStatus] != nil {
+            let reviewer = UserDefaults.standard.string(forKey: "reviewerName").flatMap { $0.isEmpty ? nil : $0 } ?? NSFullUserName()
+            values[.qcUpdated] = PlanStatusResolver.stamp(Date(), by: reviewer)
         }
+        for row in coded { outbox.set(code: row.code!, name: row.name, values, quiet: quiet) }
+        saveOutbox()
         if refresh {
             recomputeStates()
             publishGrids()
         }
-        editState = .saving(queuedQC.count)
+        if !quiet { editState = .saving(outbox.unsent.records.count + outbox.unsent.cells.count) }
+        scheduleFlush()
+    }
+
+    // MARK: Outbox
+
+    private var flushTask: Task<Void, Never>?
+    private var flushing = false
+    private var retryDelay: Double = 0
+
+    private func scheduleFlush(after seconds: Double = 0.3) {
         flushTask?.cancel()
         flushTask = Task {
-            try? await Task.sleep(for: .milliseconds(300))   // gather a burst of clicks / shortcuts into one call
+            // Gathers a burst of clicks / shortcuts / Frame.io listings into one call.
+            try? await Task.sleep(for: .seconds(seconds))
             guard !Task.isCancelled else { return }
-            await flushQC()
+            await self.flush()
         }
     }
 
-    private func flushQC() async {
-        guard let writer = config?.writer, !queuedQC.isEmpty else { return }
-        let items = Array(queuedQC.values)
-        queuedQC = [:]
-        // Edits queued for the same rows while this call is out are newer: they keep their own pending state.
-        let started = Date()
-        savingCount += 1
-        do {
-            // Columns being written that an included tab with codes lacks are added (asked once until a read shows
-            // them). Setting any QC column adds all three.
-            let included = config?.included.map(\.gid) ?? []
-            var used = Set(items.flatMap { $0.fieldValues.keys })
-            if used.contains(where: \.isQC) { used.formUnion([.qcStatus, .qcNote, .qcUpdated]) }
-            let needed = [PlanField.qcStatus, .qcNote, .qcUpdated, .batch, .frameio, .uploaded].filter { field in
-                used.contains(field) && !requestedColumns.contains(field) && included.contains { gid in
-                    guard let columns = headers[gid]?.columns, columns[.id] != nil else { return false }
-                    return columns[field] == nil
-                }
-            }
-            if !needed.isEmpty {
-                try await AppsScriptWriter.ensureColumns(writer, names: needed.map(\.title))
-                requestedColumns.formUnion(needed)
-            }
-            // Groups of 100 rows: one call with hundreds (a big delivery's links) can outlast the request timeout while
-            // the script is still writing. A failed group fails only itself and those after it.
-            var missing: [String] = []
-            var start = 0
-            while start < items.count {
-                let chunk = Array(items[start..<min(start + 100, items.count)])
-                missing += try await AppsScriptWriter.setStatus(writer, items: chunk)
-                for item in chunk where (pendingQC[item.code.lowercased()]?.since ?? .distantFuture) <= started {
-                    pendingQC[item.code.lowercased()]?.sent = true
-                }
-                start += chunk.count
-            }
-            savingCount -= 1
-            editState = missing.isEmpty ? .saved : .failed("Not saved for \(missing.count) code\(missing.count == 1 ? "" : "s") no tab lists: \(missing.prefix(3).joined(separator: ", ")).")
-        } catch {
-            savingCount -= 1
-            // Groups already written keep their pending state (marked sent); the rest go back to what the sheet shows.
-            for item in items where (pendingQC[item.code.lowercased()]?.since ?? .distantFuture) <= started
-                && pendingQC[item.code.lowercased()]?.sent != true {
-                pendingQC[item.code.lowercased()] = nil
-            }
-            recomputeStates()
-            publishGrids()
-            editState = .failed("Not saved: \(error.localizedDescription)")
+    /// Sends what the outbox holds that Google doesn't have yet. QCpie's columns: the QCpie tab is read first (rows
+    /// may have been sorted or added), then the values for codes it has are written and the others appended, as text.
+    /// Cells: each tab is read, the cell found again by code and header, and written only if it still shows what
+    /// QCpie showed. Offline or Google busy: kept and retried. No access: dropped with the reason.
+    private func flush() async {
+        guard !flushing, let config else { return }
+        var (records, cells) = outbox.unsent
+        guard !records.isEmpty || !cells.isEmpty else { return }
+        let loud = records.contains { !$0.quiet } || !cells.isEmpty
+        guard await GoogleAuth.shared.isSignedIn else {
+            if loud { editState = .failed("Saved on this Mac: sign in with Google (Delivery Plan ••• menu) to send it to the sheet.") }
+            return
         }
+        if config.qcTab == nil {
+            if records.contains(where: { !$0.quiet }) {
+                editState = .failed("Saved on this Mac: set up the QCpie tab (Delivery Plan ••• menu) to send statuses to the sheet.")
+            }
+            records = []
+            guard !cells.isEmpty else { return }
+        }
+        flushing = true
+        defer { flushing = false }
+        let id = config.link.sheetID
+        let sentAt = Date()
+        var refused: [String] = []
+        do {
+            if !records.isEmpty {
+                let data = try await api.values(id, ranges: [SheetsAPI.quoted(PlanQCTab.title)])
+                let table = try await Task.detached(priority: .userInitiated) { () -> PlanQCTab.Table? in
+                    PlanQCTab.parse(try SheetsAPI.tables(data).first ?? [])
+                }.value
+                var updates: [(range: String, values: [[String]])] = []
+                let current: PlanQCTab.Table
+                if let table { current = table } else {
+                    // The header row was cleared: put it back.
+                    updates.append((PlanQCTab.cell(row: 1, column: 0), [PlanQCTab.header]))
+                    var columns: [PlanField: Int] = [.id: 0, .name: 1]
+                    for (i, field) in PlanQCTab.fields.enumerated() { columns[field] = i + 2 }
+                    current = PlanQCTab.Table(columns: columns, lines: [:], values: [:], width: PlanQCTab.header.count)
+                }
+                let changes = records.map { PlanQCTab.Change(code: $0.code, name: $0.name, values: $0.fields) }
+                let writes = PlanQCTab.writes(changes, into: current)
+                try await api.update(id, updates + writes.updates, raw: true)
+                try await api.append(id, range: "\(SheetsAPI.quoted(PlanQCTab.title))!A1", rows: writes.appends)
+                outbox.written(codes: records.map(\.code), cells: [], sentAt: sentAt)
+            }
+            for gid in Set(cells.map(\.gid)) {
+                guard let tab = config.tabs.first(where: { $0.gid == gid }) else {
+                    outbox.drop(codes: [], cells: Set(cells.filter { $0.gid == gid }.map(\.id)), sentAt: sentAt)
+                    refused.append("that tab is no longer in the sheet")
+                    continue
+                }
+                let data = try await api.values(id, ranges: [SheetsAPI.quoted(tab.name)])
+                let table = try SheetsAPI.tables(data).first ?? []
+                var writes: [(range: String, values: [[String]])] = []
+                var written = Set<UUID>(), conflicts = Set<UUID>()
+                for cell in cells where cell.gid == gid {
+                    switch Self.locate(cell, in: table) {
+                    case .success(let (row, column)):
+                        writes.append(("\(SheetsAPI.quoted(tab.name))!\(PlanGrid.columnName(column))\(row + 1)", [[cell.value]]))
+                        written.insert(cell.id)
+                    case .failure(let reason):
+                        conflicts.insert(cell.id)
+                        refused.append(reason.message)
+                    }
+                }
+                try await api.update(id, writes, raw: false)
+                outbox.written(codes: [], cells: written, sentAt: sentAt)
+                outbox.drop(codes: [], cells: conflicts, sentAt: sentAt)
+            }
+            retryDelay = 0
+            if loud { editState = refused.isEmpty ? .saved : .failed("Not saved: \(refused[0]).") }
+        } catch {
+            switch error {
+            case GoogleAuth.Failure.signedOut:
+                GoogleAccount.shared.noteSignedOut()
+                if loud { editState = .failed("Saved on this Mac: sign in with Google (Delivery Plan ••• menu) to send it to the sheet.") }
+            case SheetsAPI.Failure.http(400, _):
+                // Usually a tab renamed or deleted (the QCpie tab too): read the tab list and keep the edits; if the
+                // QCpie tab is gone they wait for it to be set up again.
+                _ = try? await readMetadata(config)
+                retryDelay = min(max(5, retryDelay * 2), 120)
+                if loud { editState = .failed("Not saved yet (\(Self.describe(error))): trying again in \(Int(retryDelay)) s.") }
+                scheduleFlush(after: retryDelay)
+            case let failure as SheetsAPI.Failure where !failure.isTransient:
+                // Google won't take these however often they're sent (no edit access, bad range): drop them.
+                outbox.drop(codes: records.map(\.code), cells: Set(cells.map(\.id)), sentAt: sentAt)
+                if loud { editState = .failed("Not saved: \(Self.describe(error))") }
+            default:
+                // Offline or Google busy: kept, tried again later (and on the next read).
+                retryDelay = min(max(5, retryDelay * 2), 120)
+                if loud { editState = .failed("Not saved yet (\(Self.describe(error))): trying again in \(Int(retryDelay)) s.") }
+                scheduleFlush(after: retryDelay)
+            }
+        }
+        saveOutbox()
+        recomputeStates()
+        publishGrids()
+        // Read again shortly, so the written edits come back from the sheet (and leave the outbox).
         refreshAfterEdit?.cancel()
         refreshAfterEdit = Task {
             try? await Task.sleep(for: .seconds(1.5))
-            guard !Task.isCancelled, savingCount == 0, queuedQC.isEmpty else { return }
+            guard !Task.isCancelled else { return }
             await refresh()
+            if !outbox.unsent.records.isEmpty || !outbox.unsent.cells.isEmpty { scheduleFlush(after: 0.3) }
         }
     }
+    private var refreshAfterEdit: Task<Void, Never>?
 
-    /// Pending QC edits leave once a read shows them (or after 2 minutes).
-    private func dropSettledQC() {
-        guard !pendingQC.isEmpty else { return }
-        let byCode = Dictionary(rows.compactMap { r in r.code.map { ($0.lowercased(), r) } }, uniquingKeysWith: { a, _ in a })
-        var lost: [String] = []
-        for (key, p) in pendingQC {
-            let expired = Date().timeIntervalSince(p.since) > 120
-            let row = byCode[key]
-            let shows = row.map { r in
-                p.values.allSatisfy { field, value in PlanGrid.normalized(value) == PlanGrid.normalized(r.value(field)) }
-            } ?? false
-            if shows { pendingQC[key] = nil } else if expired {
-                pendingQC[key] = nil
-                // Taken by the script but never in the sheet: say so rather than let the value quietly vanish.
-                // (A row deleted from the sheet meanwhile isn't a lost edit.)
-                if p.sent, let row { lost.append(row.code ?? key) }
+    struct CellRefusal: Error { let message: String }
+
+    /// Where a typed cell is now (0-based row and sheet column): its row by code when the sheet was sorted, its
+    /// column by header when columns moved. Refused when the row is gone or the cell no longer shows what QCpie did.
+    nonisolated static func locate(_ cell: PlanOutbox.Cell, in table: [[String]]) -> Result<(Int, Int), CellRefusal> {
+        func text(_ r: Int, _ c: Int) -> String { r < table.count && c < table[r].count ? table[r][c] : "" }
+        var row = cell.line - 1
+        var column = cell.sheetColumn
+        if let header = PlanParser.header(table) {
+            if let code = cell.code, let codeColumn = header.columns[.id],
+               PlanGrid.normalized(text(row, codeColumn)).lowercased() != code.lowercased() {
+                guard let moved = table.indices.first(where: { $0 > header.index && PlanGrid.normalized(text($0, codeColumn)).lowercased() == code.lowercased() }) else {
+                    return .failure(CellRefusal(message: "the row \(code) is no longer in the sheet"))
+                }
+                row = moved
+            }
+            if let name = cell.header?.lowercased(),
+               let found = table[header.index].firstIndex(where: { PlanGrid.normalized($0).lowercased() == name }) {
+                column = found
             }
         }
-        if !lost.isEmpty {
-            editState = .failed("The sheet didn't keep \(lost.count) edit\(lost.count == 1 ? "" : "s") (\(lost.sorted().prefix(3).joined(separator: ", "))). Check the sheet's script is up to date (••• → Update Script…).")
+        let current = text(row, column)
+        guard PlanGrid.normalized(current) == PlanGrid.normalized(cell.expect) else {
+            return .failure(CellRefusal(message: "the cell was changed in the sheet meanwhile (now “\(current)”)"))
+        }
+        return .success((row, column))
+    }
+
+    private var outboxSaveTask: Task<Void, Never>?
+
+    /// Written in order, off the main thread (a newer save waits for the one before).
+    private func saveOutbox() {
+        guard let config else { return }
+        let file = Self.directory(config.link.sheetID).appendingPathComponent("outbox.json")
+        let snapshot = outbox
+        let previous = outboxSaveTask
+        outboxSaveTask = Task.detached(priority: .utility) {
+            await previous?.value
+            try? FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
+            if snapshot.isEmpty { try? FileManager.default.removeItem(at: file) }
+            else if let data = try? JSONEncoder().encode(snapshot) { try? data.write(to: file, options: .atomic) }
         }
     }
 
-    /// Dropdown choices for the included tabs, after each full read and when the 10 s check's fingerprint moves
-    /// (validation edits don't move the change counter).
-    private func readLists(tabs: [PlanTab], link: PlanSheetLink) async {
-        guard let writer = config?.writer, (scriptVersion ?? 0) >= 4 else {
-            if !cellLists.isEmpty { cellLists = [:] }
-            return
-        }
-        let sigAtStart = lastListsSig
-        var lists: [String: [String: [String]]] = [:]
-        for tab in tabs {
-            guard let tabLists = try? await AppsScriptWriter.lists(writer, gid: tab.gid) else { return }   // keep the last
-            if !tabLists.isEmpty { lists[tab.gid] = tabLists }
-        }
-        guard config?.link == link else { return }
-        listsReadSig = sigAtStart
-        if lists != cellLists { cellLists = lists }
+    private func loadOutbox() async {
+        guard let config else { return }
+        let file = Self.directory(config.link.sheetID).appendingPathComponent("outbox.json")
+        let saved = await Task.detached(priority: .utility) {
+            (try? Data(contentsOf: file)).flatMap { try? JSONDecoder().decode(PlanOutbox.self, from: $0) }
+        }.value
+        guard let saved, self.config?.link == config.link else { return }
+        // Edits made since launch are newer than the saved ones.
+        for (key, record) in saved.records where outbox.records[key] == nil { outbox.records[key] = record }
+        outbox.cells = saved.cells.filter { old in !outbox.cells.contains { $0.id == old.id } } + outbox.cells
+        recomputeStates()
+        publishGrids()
+        scheduleFlush(after: 1)
     }
 
-    /// Dropdown choices by the Sheet view's column (0-based), matched by header: the view leaves hidden columns
-    /// out, so the sheet's column numbers can't be used.
+    // MARK: QCpie tab
+
+    @Published private(set) var settingUpQCTab = false
+
+    /// Adds the QCpie tab: one row per code with the values the plan tabs' QC columns hold today (plus edits waiting
+    /// in the outbox), then turns those columns into lookups of it (cleared, one formula each, dropdowns removed, a
+    /// warning when someone edits them in Sheets). The values are written before any column is cleared.
+    func setUpQCTab() async {
+        guard var config, !settingUpQCTab else { return }
+        settingUpQCTab = true
+        defer { settingUpQCTab = false }
+        let id = config.link.sheetID
+        do {
+            let meta = try await api.metadata(id)
+            if meta.tabs.contains(where: { $0.title == PlanQCTab.title }) {
+                config = try await readMetadata(config)
+                await refresh(full: true)
+                return
+            }
+            let tabs = meta.tabs.filter { $0.title != PlanQCTab.title }
+            let data = try await api.values(id, ranges: tabs.map { SheetsAPI.quoted($0.title) })
+            let pending = outbox.records.values.map { PlanQCTab.Change(code: $0.code, name: $0.name, values: $0.fields) }
+            let plan = try await Task.detached(priority: .userInitiated) { try Self.qcTabPlan(tabs: tabs, tables: SheetsAPI.tables(data), pending: pending) }.value
+
+            // One atomic batch: the tab with its values, header and dropdown, and the plan tabs' QC columns turned
+            // into lookups (cleared, one formula, no dropdown, a warning when edited by hand). All or nothing, so a
+            // failure can't leave columns cleared without the tab holding their values.
+            let used = Set(meta.tabs.compactMap { Int($0.gid) })
+            var gidNumber = Int.random(in: 1_000_000...2_000_000_000)
+            while used.contains(gidNumber) { gidNumber = Int.random(in: 1_000_000...2_000_000_000) }
+            let body = try JSONSerialization.data(withJSONObject: ["requests": Self.qcTabRequests(plan, sheetID: gidNumber)])
+            _ = try await api.batchUpdate(id, body: body)
+            // Waiting edits are in the tab now.
+            outbox.written(codes: pending.map(\.code), cells: [], sentAt: Date())
+            saveOutbox()
+            config.qcTab = String(gidNumber)
+            lastValues = nil
+            if self.config?.link == config.link { self.config = config; saveConfig() }
+            editState = .saved
+            await refresh(full: true)
+            scheduleFlush(after: 0)
+        } catch {
+            if case GoogleAuth.Failure.signedOut = error { GoogleAccount.shared.noteSignedOut() }
+            editState = .failed("Couldn't set up the QCpie tab: \(Self.describe(error))")
+        }
+    }
+
+    struct QCTabPlan: Sendable {
+        struct Lookup: Sendable { let gid: String; let title: String; let field: PlanField; let column: Int; let codeColumn: Int; let firstRow: Int }
+        /// The tab's rows under its header.
+        let rows: [[String]]
+        /// The plan tabs' QC columns that become lookups.
+        let lookups: [Lookup]
+    }
+
+    /// The `batchUpdate` requests that add the QCpie tab (`sheetID`) and turn the plan tabs' QC columns into lookups.
+    nonisolated static func qcTabRequests(_ plan: QCTabPlan, sheetID: Int) -> [[String: Any]] {
+        func text(_ value: String) -> [String: Any] { value.isEmpty ? [:] : ["userEnteredValue": ["stringValue": value]] }
+        let statusColumn = PlanQCTab.header.firstIndex(of: PlanField.qcStatus.title)!
+        var requests: [[String: Any]] = [
+            ["addSheet": ["properties": [
+                "sheetId": sheetID, "title": PlanQCTab.title,
+                // 26 columns: the lookups read A:Z (a range past the tab's last column is an error in Sheets).
+                "gridProperties": ["rowCount": plan.rows.count + 200, "columnCount": 26, "frozenRowCount": 1],
+            ]]],
+            // Strings as given (stringValue): "2", "2026-11-05 10:42 UTC" stay text.
+            ["updateCells": ["start": ["sheetId": sheetID, "rowIndex": 0, "columnIndex": 0],
+                             "rows": ([PlanQCTab.header] + plan.rows).map { ["values": $0.map(text)] },
+                             "fields": "userEnteredValue"]],
+            ["repeatCell": ["range": ["sheetId": sheetID, "startRowIndex": 0, "endRowIndex": 1],
+                            "cell": ["userEnteredFormat": ["textFormat": ["bold": true]]],
+                            "fields": "userEnteredFormat.textFormat.bold"]],
+            ["setDataValidation": ["range": ["sheetId": sheetID, "startRowIndex": 1, "startColumnIndex": statusColumn, "endColumnIndex": statusColumn + 1],
+                                   "rule": ["condition": ["type": "ONE_OF_LIST", "values": PlanQCStatus.allCases.map { ["userEnteredValue": $0.title] }],
+                                            "showCustomUi": true, "strict": false]]],
+        ]
+        for column in plan.lookups {
+            let range: [String: Any] = ["sheetId": Int(column.gid) ?? 0, "startRowIndex": column.firstRow - 1,
+                                        "startColumnIndex": column.column, "endColumnIndex": column.column + 1]
+            // With a range, cells the rows don't cover are cleared too: the formula in the first, the rest emptied.
+            requests.append(["updateCells": [
+                "range": range,
+                "rows": [["values": [["userEnteredValue": ["formulaValue": PlanQCTab.formula(column.field, codeColumn: column.codeColumn, firstRow: column.firstRow)]]]]],
+                "fields": "userEnteredValue,dataValidation",
+            ]])
+            requests.append(["addProtectedRange": ["protectedRange": [
+                "range": range, "warningOnly": true,
+                "description": "Filled from the QCpie tab: set \(column.field.title) there or in QCpie.",
+            ]]])
+        }
+        return requests
+    }
+
+    /// What setting up the QCpie tab writes, from every tab's values and the outbox (whose edits win).
+    nonisolated static func qcTabPlan(tabs: [SheetsAPI.Tab], tables: [[[String]]], pending: [PlanQCTab.Change]) -> QCTabPlan {
+        var rows: [PlanRow] = []
+        var lookups: [QCTabPlan.Lookup] = []
+        for (tab, table) in zip(tabs, tables) {
+            let parsed = PlanParser.parse(table: table, tab: tab.title)
+            rows += parsed.rows
+            guard let header = parsed.header, let codeColumn = header.columns[.id] else { continue }
+            for field in PlanQCTab.fields {
+                if let column = header.columns[field] {
+                    lookups.append(.init(gid: tab.gid, title: tab.title, field: field, column: column, codeColumn: codeColumn, firstRow: header.index + 2))
+                }
+            }
+        }
+        var changes = PlanQCTab.migrate(rows)
+        for edit in pending {
+            if let i = changes.firstIndex(where: { $0.code.lowercased() == edit.code.lowercased() }) {
+                changes[i] = PlanQCTab.Change(code: changes[i].code, name: changes[i].name,
+                                              values: changes[i].values.merging(edit.values) { _, new in new })
+            } else {
+                changes.append(edit)
+            }
+        }
+        let header = PlanQCTab.header
+        let out = changes.map { change -> [String] in
+            [change.code, change.name] + PlanQCTab.fields.map { change.values[$0] ?? "" }
+        }
+        precondition(header.count == 2 + PlanQCTab.fields.count)
+        return QCTabPlan(rows: out, lookups: lookups)
+    }
+
     /// The tab's header line (1-based), once read.
     func headerLine(gid: String) -> Int? { headers[gid]?.line }
 
+    /// Dropdown choices by the Sheet view's column (0-based), matched by header: the view leaves hidden columns
+    /// out, so the sheet's column numbers can't be used.
     func listColumns(gid: String) -> [Int: [String]] {
         guard let lists = cellLists[gid], !lists.isEmpty, let grid = grids[gid] else { return [:] }
         let headerLine = headers[gid]?.line
         var out: [Int: [String]] = [:]
         for column in grid.columnWidths.indices {
             let name = headerLine.flatMap { grid.text(line: $0, column: column) }.map { PlanGrid.normalized($0).lowercased() } ?? ""
-            if let list = (name.isEmpty ? nil : lists[name]) ?? lists["#\(column)"] { out[column] = list }
+            let sheetColumn = grid.sheetColumns.flatMap { column < $0.count ? $0[column] : nil } ?? column
+            if let list = (name.isEmpty ? nil : lists[name]) ?? lists["#\(sheetColumn)"] { out[column] = list }
         }
         return out
     }
-
-    private var versionCheck: Task<Void, Never>?
-    /// Frame.io updates (an upload's link, a deletion) that came while the script couldn't be reached: replayed once it
-    /// answers as version 4, so they aren't lost. Capped; dropped when the plan is relinked.
-    private var deferredTracking: [@MainActor () async -> Void] = []
-
-    private func deferTracking(_ work: @escaping @MainActor () async -> Void) {
-        guard config?.writer != nil, scriptVersion.map({ $0 >= 4 }) ?? true, deferredTracking.count < 500 else { return }
-        deferredTracking.append(work)
-    }
-
-    private func replayDeferredTracking() {
-        guard (scriptVersion ?? 0) >= 4, !deferredTracking.isEmpty else { return }
-        let work = deferredTracking
-        deferredTracking = []
-        Task { for item in work { await item() } }
-    }
-
-    /// Whether the script is known to write Batch / Frame.io / Uploaded (version 4). Asks it once when not known yet;
-    /// concurrent callers share the one request.
-    private func trackingWritable() async -> Bool {
-        guard config?.writer != nil else { return false }
-        if scriptVersion == nil {
-            if let failed = scriptCheckFailed, Date().timeIntervalSince(failed) < 60 { return false }
-            if versionCheck == nil { versionCheck = Task { await self.checkScript(); self.versionCheck = nil } }
-            await versionCheck?.value
-        }
-        return (scriptVersion ?? 0) >= 4
-    }
-
-    /// Asks the script its version (once per session, and after connecting).
-    func checkScript() async {
-        guard scriptVersion == nil || scriptOutdated, let writer = config?.writer, let sheetID = config?.link.sheetID else { return }
-        if let version = try? await AppsScriptWriter.ping(writer, sheetID: sheetID) {
-            scriptCheckFailed = nil
-            if version != scriptVersion { scriptVersion = version }
-            replayDeferredTracking()
-        } else {
-            scriptCheckFailed = Date()
-        }
-    }
-
-    /// When the last version check failed (offline, script not deployed): automatic writes don't ask again for a minute
-    /// (the favourites crawl lists hundreds of folders).
-    private var scriptCheckFailed: Date?
 
     // MARK: Disk
 
@@ -1624,23 +1709,15 @@ final class DeliveryPlanStore: ObservableObject {
             .appendingPathComponent("QCpie/DeliveryPlan/\(sheetID)", isDirectory: true)
     }
 
-    nonisolated private static func writeCache(_ cache: [String: String], grids: [String: PlanGrid], to dir: URL) {
+    nonisolated private static func writeCache(_ cache: [String: [[String]]], to dir: URL) {
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        if let data = try? JSONEncoder().encode(cache) { try? data.write(to: dir.appendingPathComponent("tabs.json"), options: .atomic) }
-        if let data = try? JSONEncoder().encode(grids) { try? data.write(to: dir.appendingPathComponent("grids.json"), options: .atomic) }
+        if let data = try? JSONEncoder().encode(cache) { try? data.write(to: dir.appendingPathComponent("values.json"), options: .atomic) }
+        // Files of the public-link reader, no longer used.
+        for old in ["tabs.json", "grids.json"] { try? FileManager.default.removeItem(at: dir.appendingPathComponent(old)) }
     }
-}
 
-private extension PlanStatusItem {
-    /// The columns this item writes, by field.
-    var fieldValues: [PlanField: String] {
-        var values: [PlanField: String] = [:]
-        if let status { values[.qcStatus] = status }
-        if let note { values[.qcNote] = note }
-        if let updated { values[.qcUpdated] = updated }
-        if let batch { values[.batch] = batch }
-        if let frameio { values[.frameio] = frameio }
-        if let uploaded { values[.uploaded] = uploaded }
-        return values
+    nonisolated private static func writeLayouts(_ layouts: [String: PlanGrid], to dir: URL) {
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        if let data = try? JSONEncoder().encode(layouts) { try? data.write(to: dir.appendingPathComponent("layouts.json"), options: .atomic) }
     }
 }

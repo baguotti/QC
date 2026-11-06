@@ -11,6 +11,7 @@ struct DeliveryPlanPanel: View {
     var onClose: (() -> Void)? = nil
 
     @ObservedObject private var store = DeliveryPlanStore.shared
+    @ObservedObject private var account = GoogleAccount.shared
     /// Published once per checked file (progress has its own object, observed by the strip only).
     @ObservedObject private var checks = PlanCheckQueue.shared
     @ObservedObject private var themeManager = ThemeManager.shared   // accent changes redraw
@@ -39,6 +40,7 @@ struct DeliveryPlanPanel: View {
     /// The tab the Sheet view shows when more than one is read.
     @State private var sheetTab: String? = nil
     @State private var showEditSetup = false
+    @State private var signInError: String?
     @State private var summaryCache = PlanChecksSummaryCache()
 
     private var palette: StudioPalette { StudioPalette(isLightMode) }
@@ -80,7 +82,7 @@ struct DeliveryPlanPanel: View {
             }
         }
         .sheet(isPresented: $showEditSetup) {
-            PlanEditSetupSheet(isLightMode: isLightMode) { showEditSetup = false }
+            PlanQCTabSetupSheet(isLightMode: isLightMode) { showEditSetup = false }
         }
     }
 
@@ -148,10 +150,11 @@ struct DeliveryPlanPanel: View {
             Text("Link a Google Sheet")
                 .font(.ui(size: 13, weight: .semibold))
                 .foregroundColor(palette.textMain)
-            Text("Paste the link of the sheet listing your deliverables. Share it as “Anyone with the link” (Viewer). QCpie re-reads it every minute while this panel is open and matches its rows to the files in Inspect.")
+            Text("Paste the link of the sheet listing your deliverables. QCpie reads it as your Google account (it must be shared with you) while this panel is open, and matches its rows to the files in Inspect.")
                 .font(.ui(size: 11))
                 .foregroundColor(palette.textMuted)
                 .fixedSize(horizontal: false, vertical: true)
+            if !account.signedIn { googleSignInButton }
             TextField("https://docs.google.com/spreadsheets/d/…", text: $linkText)
                 .textFieldStyle(.roundedBorder)
                 .font(.ui(size: 11))
@@ -166,13 +169,33 @@ struct DeliveryPlanPanel: View {
                 Spacer(minLength: 4)
                 if relinking { Button("Cancel") { relinking = false } }
                 Button(store.phase == .loading ? "Linking…" : "Link Sheet", action: linkNow)
-                    .disabled(PlanSheetLink.parse(linkText) == nil || store.phase == .loading)
+                    .disabled(PlanSheetLink.parse(linkText) == nil || store.phase == .loading || !account.signedIn)
             }
             .font(.ui(size: 11))
             Spacer()
         }
         .padding(16)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+    }
+
+    private var googleSignInButton: some View {
+        HStack(spacing: 8) {
+            Button(account.signingIn ? "Signing In…" : "Sign In with Google…") { signInWithGoogle() }
+                .disabled(account.signingIn || !GoogleAuth.isConfigured)
+            if let message = signInError {
+                Text(message).foregroundColor(palette.negative).fixedSize(horizontal: false, vertical: true)
+            } else if !GoogleAuth.isConfigured {
+                Text("Google sign-in isn't set up in this build.").foregroundColor(palette.textMuted)
+            }
+        }
+        .font(.ui(size: 11))
+    }
+
+    private func signInWithGoogle() {
+        signInError = nil
+        Task {
+            do { try await account.signIn() } catch { signInError = DeliveryPlanStore.describe(error) }
+        }
     }
 
     private func linkNow() {
@@ -238,25 +261,20 @@ struct DeliveryPlanPanel: View {
                 if let config = store.config {
                     Button("Open Sheet in Browser") { NSWorkspace.shared.open(config.link.webURL) }
                 }
-                if store.scriptOutdated {
-                    Button("Update Script…") { showEditSetup = true }
-                }
-                if store.canEdit, let writer = store.config?.writer {
-                    Button("Copy Editing Link for Another Mac") {
-                        NSPasteboard.general.clearContents()
-                        NSPasteboard.general.setString(AppsScriptWriter.editingLink(writer), forType: .string)
-                    }
-                    .help("Paste it in Set Up Editing… on another Mac: it joins this script (setting up again would replace the key and lock this Mac out). It holds the key: share it only with your team.")
-                    Button("Turn Off Editing") { Task { try? await store.setWriter(nil) } }
+                if account.signedIn {
+                    if !store.hasQCTab { Button("Set Up QCpie Tab…") { showEditSetup = true } }
                 } else {
-                    Button("Set Up Editing…") { showEditSetup = true }
+                    Button("Sign In with Google…") { signInWithGoogle() }
                 }
-                if store.canEdit {
+                if store.hasQCTab {
                     Button("Find Frame.io Links") { Task { await store.findFrameIOLinks() } }
                         .disabled(store.linkSearch == "Looking on Frame.io…")
                 }
                 Button("Link Another Sheet…") { relinking = true }
                 Divider()
+                if account.signedIn {
+                    Button("Sign Out of Google (\(account.email ?? "signed in"))") { Task { await account.signOut() } }
+                }
                 Button("Unlink Sheet", role: .destructive) { store.unlink() }
             } label: {
                 Image(systemName: "ellipsis.circle")
@@ -339,8 +357,13 @@ struct DeliveryPlanPanel: View {
                 Text("Not read yet").font(.ui(size: 10)).foregroundColor(palette.textSubtle)
             }
         }
-        if store.scriptOutdated {
-            Button("Update the sheet's script to set QC statuses…") { showEditSetup = true }
+        if !account.signedIn {
+            Button("Sign in with Google to read and edit the sheet…") { signInWithGoogle() }
+                .buttonStyle(.borderless)
+                .font(.ui(size: 10, weight: .semibold))
+                .foregroundColor(palette.accentSlotB)
+        } else if !store.hasQCTab {
+            Button("Set up the QCpie tab to save statuses and links…") { showEditSetup = true }
                 .buttonStyle(.borderless)
                 .font(.ui(size: 10, weight: .semibold))
                 .foregroundColor(palette.accentSlotB)
@@ -681,7 +704,7 @@ struct DeliveryPlanPanel: View {
                     menu: { line in byLine[line].map { sheetMenu($0, files: match.result($0).files, tab: tab) } },
                     canEdit: store.canEdit,
                     onEdit: { line, column, old, new in store.editCell(gid: tab.gid, line: line, column: column, old: old, new: new) },
-                    onEditUnavailable: { showEditSetup = true },
+                    onEditUnavailable: { signInWithGoogle() },
                     statusColumn: store.statusColumn(gid: tab.gid),
                     statusMenu: { line in byLine[line].map { statusNSMenu(statusTargets($0, match: match)) } },
                     listColumns: store.listColumns(gid: tab.gid),
@@ -1428,71 +1451,42 @@ struct PlanBottomDrawer<Content: View>: View {
     }
 }
 
-/// One-time set-up for editing: paste QCpie's script into the sheet, deploy it as a web app, paste its link back.
-struct PlanEditSetupSheet: View {
+/// Adding the QCpie tab: says what changes in the sheet before anything does.
+struct PlanQCTabSetupSheet: View {
     let isLightMode: Bool
     let onClose: () -> Void
 
     @ObservedObject private var store = DeliveryPlanStore.shared
-    /// Updating keeps the key and link: paste the new code over the old and deploy a new version of the same deployment.
-    @State private var token = DeliveryPlanStore.shared.config?.writer?.token ?? DeliveryPlanStore.shared.setupToken
-    @State private var urlText = DeliveryPlanStore.shared.config?.writer?.url.absoluteString ?? ""
-    @State private var copied = false
-    @State private var connecting = false
-    @State private var error: String? = nil
-
     private var palette: StudioPalette { StudioPalette(isLightMode) }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            Text("Edit the Sheet from QCpie")
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Set Up the QCpie Tab")
                 .font(.ui(size: 15, weight: .semibold))
                 .foregroundColor(palette.textMain)
-            Text("A shared link can only be read. To write cells, add QCpie's small script to the spreadsheet once. It runs as you and only accepts QCpie's secret key.")
+            Text("QCpie keeps QC Status, QC Note, QC Updated, Batch, Frame.io and Uploaded in one tab of this spreadsheet, called QCpie, with one row per code. Every tab listing a code shows the same values, so they can't disagree.")
                 .font(.ui(size: 11))
-                .foregroundColor(palette.textMuted)
+                .foregroundColor(palette.textMain)
                 .fixedSize(horizontal: false, vertical: true)
-            step(1, "Copy the script.") {
-                Button(copied ? "Copied" : "Copy Script") {
-                    NSPasteboard.general.clearContents()
-                    NSPasteboard.general.setString(AppsScriptWriter.script(token: token), forType: .string)
-                    copied = true
-                }
+            VStack(alignment: .leading, spacing: 6) {
+                bullet("Adds the QCpie tab, filled with what those columns hold today (the newest QC Updated wins when tabs disagree).")
+                bullet("Turns those columns on the other tabs into lookups of the QCpie tab: they show the same values but can't be typed in (Sheets warns). Anything else typed in them is cleared.")
+                bullet("From then on, set statuses in QCpie or on the QCpie tab. Clients who can see the sheet can see the QCpie tab too.")
             }
-            step(2, "In the spreadsheet: Extensions → Apps Script. Replace everything there with the script, then Save.") {
-                if let config = store.config {
-                    Button("Open Sheet") { NSWorkspace.shared.open(config.link.webURL) }
-                }
-            }
-            step(3, "Deploy → New deployment → Web app. Execute as: Me. Who has access: Anyone. Deploy, then allow access (if Google warns the app isn't verified: Advanced → Go to project).") { EmptyView() }
-            step(4, "Copy the web app URL (ends in /exec) and paste it here.") { EmptyView() }
-            if store.config?.writer == nil {
-                Text("Already set up on another Mac? Don't replace the script: there, ••• → Copy Editing Link for Another Mac, then paste that link here and Connect.")
-                    .font(.ui(size: 11))
-                    .foregroundColor(palette.textMuted)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            if store.config?.writer != nil {
-                Text("Updating: paste the new script over the old one, Save, then Deploy → Manage deployments → Edit (pencil) → Version: New version → Deploy. The link stays the same: just press Connect.")
-                    .font(.ui(size: 11))
-                    .foregroundColor(palette.accentSlotB)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            TextField("https://script.google.com/macros/s/…/exec", text: $urlText)
-                .textFieldStyle(.roundedBorder)
-                .font(.ui(size: 11))
-            if let error {
-                Text(error)
-                    .font(.ui(size: 11))
-                    .foregroundColor(palette.negative)
-                    .fixedSize(horizontal: false, vertical: true)
+            if case .failed(let message) = store.editState {
+                Text(message).font(.ui(size: 11)).foregroundColor(palette.negative).fixedSize(horizontal: false, vertical: true)
             }
             HStack {
                 Spacer()
                 Button("Cancel", action: onClose).keyboardShortcut(.cancelAction)
-                Button(connecting ? "Connecting…" : "Connect", action: connect)
-                    .keyboardShortcut(.defaultAction)
-                    .disabled(AppsScriptWriter.parseURL(urlText) == nil || connecting)
+                Button(store.settingUpQCTab ? "Setting Up…" : "Set Up") {
+                    Task {
+                        await store.setUpQCTab()
+                        if store.hasQCTab { onClose() }
+                    }
+                }
+                .keyboardShortcut(.defaultAction)
+                .disabled(store.settingUpQCTab)
             }
             .font(.ui(size: 11))
         }
@@ -1501,36 +1495,12 @@ struct PlanEditSetupSheet: View {
         .background(palette.bgPanel)
     }
 
-    private func step<Accessory: View>(_ n: Int, _ text: String, @ViewBuilder accessory: () -> Accessory) -> some View {
-        HStack(alignment: .firstTextBaseline, spacing: 8) {
-            Text("\(n)")
-                .font(.ui(size: 11, weight: .semibold))
-                .foregroundColor(palette.accentBlue)
-                .frame(width: 14)
-            Text(text)
-                .font(.ui(size: 11))
-                .foregroundColor(palette.textMain)
-                .fixedSize(horizontal: false, vertical: true)
-            Spacer(minLength: 4)
-            accessory().font(.ui(size: 11))
+    private func bullet(_ text: String) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 6) {
+            Text("•").foregroundColor(palette.textMuted)
+            Text(text).foregroundColor(palette.textMuted).fixedSize(horizontal: false, vertical: true)
         }
-    }
-
-    private func connect() {
-        guard let url = AppsScriptWriter.parseURL(urlText) else { return }
-        connecting = true
-        error = nil
-        // An editing link from another Mac carries the script's key: use it, not this Mac's new one.
-        let key = AppsScriptWriter.parseKey(urlText) ?? token
-        Task {
-            do {
-                try await store.setWriter(PlanWriteLink(url: url, token: key))
-                onClose()
-            } catch {
-                self.error = error.localizedDescription
-            }
-            connecting = false
-        }
+        .font(.ui(size: 11))
     }
 }
 

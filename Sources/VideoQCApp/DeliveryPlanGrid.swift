@@ -1,17 +1,16 @@
 import Foundation
 
 // The Delivery Plan's sheet as Google Sheets draws it: column widths, row heights, frozen rows, merges and each
-// cell's colours, weight, alignment and borders, read from the sheet's public HTML view
-// (`htmlview/sheet?headers=true&gid=`). The CSV export carries none of that; a grid built from CSV
-// (`PlanGrid.fromCSV`) is the fallback when the HTML can't be read.
+// cell's colours, weight, alignment and borders, read through the Sheets API (`SheetsAPI.layout`). A grid built from
+// the values alone (`PlanGrid.fromTable`) shows until the layout has been read.
 
-struct PlanGridBorder: Codable, Equatable, Sendable {
+struct PlanGridBorder: Codable, Hashable, Sendable {
     var width: Double
     /// 0xRRGGBB.
     var color: UInt32
 }
 
-struct PlanGridStyle: Codable, Equatable, Sendable {
+struct PlanGridStyle: Codable, Hashable, Sendable {
     enum Align: Int, Codable, Sendable { case left, center, right }
     enum VAlign: Int, Codable, Sendable { case top, middle, bottom }
 
@@ -56,8 +55,13 @@ struct PlanGrid: Codable, Equatable, Sendable {
     /// Index 0 is the sheet's default cell style.
     var styles: [PlanGridStyle]
     var rows: [PlanGridRow]
-    /// Read from the sheet's HTML (true) or rebuilt from its CSV (no formatting).
+    /// Read with Sheets' formatting (true) or rebuilt from the values alone.
     var formatted: Bool
+    /// Formatted grids: the sheet column (0-based) of each view column (hidden columns are left out), and the size
+    /// of the values table the layout was read with (a table of another size needs the layout read again).
+    var sheetColumns: [Int]? = nil
+    var sourceRows: Int? = nil
+    var sourceColumns: Int? = nil
 
     static func columnName(_ index: Int) -> String {
         var n = index + 1, name = ""
@@ -66,166 +70,147 @@ struct PlanGrid: Codable, Equatable, Sendable {
     }
 }
 
-// MARK: - HTML
+// MARK: - Sheets API layout
 
 extension PlanGrid {
-    /// Parses `htmlview/sheet?headers=true&gid=` output. Nil when it holds no grid (sign-in page, error page).
-    static func parseHTML(_ html: String) -> PlanGrid? {
-        let classes = parseStyles(html)
+    /// The Sheet view's grid from a `SheetsAPI.layout` reply (formats, sizes, merges, hidden rows/columns) with the
+    /// text of `table` (the tab's values). Rows and columns past the table's extent are left out; hidden ones too, as
+    /// Sheets' own view does. Nil when the reply holds no grid.
+    static func fromSheets(layout data: Data, table: [[String]]) -> PlanGrid? {
+        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let sheet = (json["sheets"] as? [[String: Any]])?.first,
+              let grid = (sheet["data"] as? [[String: Any]])?.first else { return nil }
+        let rowMeta = grid["rowMetadata"] as? [[String: Any]] ?? []
+        let columnMeta = grid["columnMetadata"] as? [[String: Any]] ?? []
+        let rowData = grid["rowData"] as? [[String: Any]] ?? []
+        let width = table.map(\.count).max() ?? 0
+        let height = table.count
+        guard width > 0, height > 0 else { return nil }
+        func hidden(_ meta: [[String: Any]], _ i: Int, filter: Bool) -> Bool {
+            guard i < meta.count else { return false }
+            return meta[i]["hiddenByUser"] as? Bool == true || (filter && meta[i]["hiddenByFilter"] as? Bool == true)
+        }
+        let sheetColumns = (0..<width).filter { !hidden(columnMeta, $0, filter: false) }
+        var viewColumn: [Int: Int] = [:]
+        for (view, sheetColumn) in sheetColumns.enumerated() { viewColumn[sheetColumn] = view }
+        let visibleRows = (0..<height).filter { !hidden(rowMeta, $0, filter: true) }
+        let visibleRowSet = Set(visibleRows)
+
+        // Merges: top-left → (rows, columns) spanned among the visible ones; other covered cells are skipped.
+        var spans: [Int: [Int: (rows: Int, columns: Int)]] = [:]
+        var covered = Set<Int>()   // row * 100_000 + column
+        for merge in (sheet["merges"] as? [[String: Any]]) ?? [] {
+            let r0 = merge["startRowIndex"] as? Int ?? 0, r1 = merge["endRowIndex"] as? Int ?? 0
+            let c0 = merge["startColumnIndex"] as? Int ?? 0, c1 = merge["endColumnIndex"] as? Int ?? 0
+            guard r1 > r0, c1 > c0 else { continue }
+            let rows = (r0..<r1).filter(visibleRowSet.contains).count
+            let columns = (c0..<c1).filter { viewColumn[$0] != nil }.count
+            spans[r0, default: [:]][c0] = (max(1, rows), max(1, columns))
+            for r in r0..<min(r1, height) { for c in c0..<min(c1, width) where r != r0 || c != c0 { covered.insert(r * 100_000 + c) } }
+        }
+
         var styles = [PlanGridStyle()]
-        var styleIndex: [String: Int] = [:]
-        for (name, style) in classes {
-            styleIndex[name] = styles.count
-            styles.append(style)
-        }
-
-        var widths: [Int: Double] = [:]
-        for m in matches(#"id="\d+C(\d+)" style="width:\s*(\d+(?:\.\d+)?)px"#, in: html) {
-            if let c = Int(m[1]), let w = Double(m[2]) { widths[c] = w }
-        }
-        guard let lastColumn = widths.keys.max() else { return nil }
-        var columnWidths = (0...lastColumn).map { widths[$0] ?? 100 }
-
-        let ns = html as NSString
-        let rowRegex = try! NSRegularExpression(pattern: #"<tr([^>]*)>(.*?)</tr>"#, options: [.dotMatchesLineSeparators])
-        let lineRegex = try! NSRegularExpression(pattern: #"<th id="\d+R(\d+)""#)
-        let cellRegex = try! NSRegularExpression(pattern: #"<td([^>]*)>(.*?)</td>"#, options: [.dotMatchesLineSeparators])
+        var styleIndex: [PlanGridStyle: Int] = [PlanGridStyle(): 0]
         var rows: [PlanGridRow] = []
-        var frozenRows = 0
-        var occupied: [Int: Int] = [:]   // column → rows still covered by a rowspan from above
-        for m in rowRegex.matches(in: html, range: NSRange(location: 0, length: ns.length)) {
-            let attributes = ns.substring(with: m.range(at: 1))
-            let body = ns.substring(with: m.range(at: 2))
-            if body.contains("freezebar-horizontal-handle") { frozenRows = rows.count; continue }
-            let bodyNS = body as NSString
-            guard let lm = lineRegex.firstMatch(in: body, range: NSRange(location: 0, length: bodyNS.length)),
-                  let index = Int(bodyNS.substring(with: lm.range(at: 1))) else { continue }
-            let height = firstNumber(#"height:\s*(\d+(?:\.\d+)?)px"#, in: attributes) ?? 21
+        rows.reserveCapacity(visibleRows.count)
+        for r in visibleRows {
+            let values = r < rowData.count ? (rowData[r]["values"] as? [[String: Any]] ?? []) : []
             var cells: [PlanGridCell] = []
-            var column = 0
-            for cm in cellRegex.matches(in: body, range: NSRange(location: 0, length: bodyNS.length)) {
-                let attrs = bodyNS.substring(with: cm.range(at: 1))
-                if attrs.contains("freezebar-cell") { continue }
-                while (occupied[column] ?? 0) > 0 { column += 1 }
-                let span = max(1, Int(firstNumber(#"colspan="(\d+)""#, in: attrs) ?? 1))
-                let rowSpan = max(1, Int(firstNumber(#"rowspan="(\d+)""#, in: attrs) ?? 1))
-                let className = matches(#"class="([^"]*)""#, in: attrs).first?[1]
-                    .split(separator: " ").first { $0.hasPrefix("s") && Int($0.dropFirst()) != nil }.map(String.init)
-                let style = className.flatMap { styleIndex[$0] } ?? 0
-                cells.append(PlanGridCell(column: column, span: span, rowSpan: rowSpan,
-                                          text: cellText(bodyNS.substring(with: cm.range(at: 2))), style: style))
-                if rowSpan > 1 { for c in column..<(column + span) { occupied[c] = rowSpan } }
-                column += span
+            cells.reserveCapacity(sheetColumns.count)
+            for (view, c) in sheetColumns.enumerated() {
+                if covered.contains(r * 100_000 + c) { continue }
+                let text = c < table[r].count ? table[r][c] : ""
+                var style = c < values.count ? Self.style(values[c]["effectiveFormat"] as? [String: Any]) : PlanGridStyle()
+                // Sheets right-aligns numbers that have no alignment of their own.
+                if c < values.count, (values[c]["effectiveFormat"] as? [String: Any])?["horizontalAlignment"] == nil,
+                   Double(text.replacingOccurrences(of: ",", with: "")) != nil { style.align = .right }
+                let index: Int
+                if let known = styleIndex[style] { index = known } else { index = styles.count; styles.append(style); styleIndex[style] = index }
+                let span = spans[r]?[c]
+                cells.append(PlanGridCell(column: view, span: span?.columns ?? 1, rowSpan: span?.rows ?? 1, text: text, style: index))
             }
-            for (c, n) in occupied { occupied[c] = n - 1 }   // rows below this one
-            occupied = occupied.filter { $0.value > 0 }
-            if column > columnWidths.count { columnWidths += Array(repeating: 100, count: column - columnWidths.count) }
-            rows.append(PlanGridRow(line: index + 1, height: height, cells: cells))
+            let pixel = r < rowMeta.count ? rowMeta[r]["pixelSize"] as? Double : nil
+            rows.append(PlanGridRow(line: r + 1, height: pixel ?? 21, cells: cells))
         }
-        guard !rows.isEmpty else { return nil }
-        return PlanGrid(columnWidths: columnWidths, frozenRows: frozenRows, styles: styles, rows: rows, formatted: true)
+        let widths = sheetColumns.map { c in (c < columnMeta.count ? columnMeta[c]["pixelSize"] as? Double : nil) ?? 100 }
+        let gridProps = ((sheet["properties"] as? [String: Any])?["gridProperties"] as? [String: Any])
+        let frozen = gridProps?["frozenRowCount"] as? Int ?? 0
+        let frozenVisible = visibleRows.filter { $0 < frozen }.count
+        var result = PlanGrid(columnWidths: widths, frozenRows: frozenVisible, styles: styles, rows: rows, formatted: true)
+        result.sheetColumns = sheetColumns
+        result.sourceRows = height
+        result.sourceColumns = width
+        return result
     }
 
-    /// `.ritz .waffle .s3{…}` rules → style per class name.
-    static func parseStyles(_ html: String) -> [(String, PlanGridStyle)] {
-        matches(#"\.ritz \.waffle \.(s\d+)\{([^}]*)\}"#, in: html).map { m in
-            var style = PlanGridStyle()
-            for declaration in m[2].split(separator: ";") {
-                let parts = declaration.split(separator: ":", maxSplits: 1).map { $0.trimmingCharacters(in: .whitespaces) }
-                guard parts.count == 2 else { continue }
-                let (key, value) = (parts[0].lowercased(), parts[1])
-                switch key {
-                case "background-color": style.background = color(value)
-                case "color": style.color = color(value)
-                case "font-weight": style.bold = value == "bold" || (Int(value) ?? 400) >= 600
-                case "font-style": style.italic = value == "italic"
-                case "text-decoration":
-                    style.underline = value.contains("underline")
-                    style.strike = value.contains("line-through")
-                case "text-align": style.align = value == "center" ? .center : value == "right" ? .right : .left
-                case "vertical-align": style.valign = value == "top" ? .top : value == "middle" ? .middle : .bottom
-                case "white-space": style.wrap = value == "normal"
-                case "font-size":
-                    if let n = Double(value.replacingOccurrences(of: "pt", with: "")) { style.fontSize = n }
-                case "border-top": style.top = border(value)
-                case "border-right": style.right = border(value)
-                case "border-bottom": style.bottom = border(value)
-                case "border-left": style.left = border(value)
-                default: break
-                }
+    /// Whether this layout was read for a table of this size (rows or columns added or removed: read it again).
+    func fits(_ table: [[String]]) -> Bool {
+        sheetColumns != nil && table.count == sourceRows && (table.map(\.count).max() ?? 0) == sourceColumns
+    }
+
+    /// The same layout with the texts of a newer read of the tab's values: formatting is read rarely (it's large),
+    /// values on every check. Cells the layout doesn't have (rows added since) wait for the next layout read.
+    func withTexts(_ table: [[String]]) -> PlanGrid {
+        guard let sheetColumns else { return self }
+        var grid = self
+        for i in grid.rows.indices {
+            let r = grid.rows[i].line - 1
+            let cells = r < table.count ? table[r] : []
+            for j in grid.rows[i].cells.indices {
+                let c = sheetColumns[grid.rows[i].cells[j].column]
+                grid.rows[i].cells[j].text = c < cells.count ? cells[c] : ""
             }
-            return (m[1], style)
         }
+        return grid
     }
 
-    /// "#rrggbb" / "#rgb" → 0xRRGGBB.
-    static func color(_ text: String) -> UInt32? {
-        guard let hash = text.firstIndex(of: "#") else { return nil }
-        let hex = text[text.index(after: hash)...].prefix { $0.isHexDigit }
-        if hex.count == 6 { return UInt32(hex, radix: 16) }
-        if hex.count == 3 {
-            return UInt32(hex.map { "\($0)\($0)" }.joined(), radix: 16)
+    private static func rgb(_ value: Any?) -> UInt32? {
+        guard let color = value as? [String: Any] else { return nil }
+        func channel(_ key: String) -> UInt32 { UInt32(((color[key] as? Double) ?? 0) * 255 + 0.5) & 0xFF }
+        return channel("red") << 16 | channel("green") << 8 | channel("blue")
+    }
+
+    static func style(_ format: [String: Any]?) -> PlanGridStyle {
+        var style = PlanGridStyle()
+        guard let format else { return style }
+        // White fills and black text are the sheet's defaults: left unset, as in Sheets' own HTML.
+        if let fill = rgb(format["backgroundColor"]), fill != 0xFFFFFF { style.background = fill }
+        if let text = format["textFormat"] as? [String: Any] {
+            if let color = rgb(text["foregroundColor"]), color != 0 { style.color = color }
+            style.bold = text["bold"] as? Bool ?? false
+            style.italic = text["italic"] as? Bool ?? false
+            style.underline = text["underline"] as? Bool ?? false
+            style.strike = text["strikethrough"] as? Bool ?? false
+            if let size = text["fontSize"] as? Double { style.fontSize = size }
         }
-        return nil
-    }
-
-    /// "2px SOLID #999999".
-    private static func border(_ text: String) -> PlanGridBorder? {
-        let lower = text.lowercased()
-        guard !lower.contains("none"), let width = firstNumber(#"(\d+(?:\.\d+)?)px"#, in: lower) else { return nil }
-        return PlanGridBorder(width: width, color: color(text) ?? 0)
-    }
-
-    /// Cell HTML → its text: line breaks kept, tags dropped, entities decoded.
-    static func cellText(_ html: String) -> String {
-        guard html.contains("<") || html.contains("&") else { return html }
-        var text = html.replacingOccurrences(of: #"<br\s*/?>"#, with: "\n", options: .regularExpression)
-        text = text.replacingOccurrences(of: #"<[^>]+>"#, with: "", options: .regularExpression)
-        guard text.contains("&") else { return text }
-        let named = ["&amp;": "&", "&lt;": "<", "&gt;": ">", "&quot;": "\"", "&#39;": "'", "&nbsp;": " "]
-        var out = ""
-        var rest = Substring(text)
-        while let amp = rest.firstIndex(of: "&") {
-            out += rest[..<amp]
-            let tail = rest[amp...]
-            if let semi = tail.prefix(10).firstIndex(of: ";") {
-                let entity = String(tail[...semi])
-                if let value = named[entity] {
-                    out += value; rest = tail[tail.index(after: semi)...]; continue
-                }
-                if entity.hasPrefix("&#") {
-                    let digits = entity.dropFirst(2).dropLast()
-                    let code = digits.hasPrefix("x") ? UInt32(digits.dropFirst(), radix: 16) : UInt32(digits)
-                    if let code, let scalar = UnicodeScalar(code) {
-                        out.unicodeScalars.append(scalar); rest = tail[tail.index(after: semi)...]; continue
-                    }
-                }
+        switch format["horizontalAlignment"] as? String {
+        case "CENTER": style.align = .center
+        case "RIGHT": style.align = .right
+        default: break
+        }
+        switch format["verticalAlignment"] as? String {
+        case "TOP": style.valign = .top
+        case "MIDDLE": style.valign = .middle
+        default: break
+        }
+        style.wrap = format["wrapStrategy"] as? String == "WRAP"
+        if let borders = format["borders"] as? [String: Any] {
+            func border(_ key: String) -> PlanGridBorder? {
+                guard let b = borders[key] as? [String: Any], let kind = b["style"] as? String, kind != "NONE" else { return nil }
+                let width: Double = kind == "SOLID_MEDIUM" ? 2 : (kind == "SOLID_THICK" || kind == "DOUBLE") ? 3 : 1
+                return PlanGridBorder(width: width, color: rgb(b["color"]) ?? 0)
             }
-            out += "&"
-            rest = tail.dropFirst()
+            style.top = border("top"); style.right = border("right"); style.bottom = border("bottom"); style.left = border("left")
         }
-        return out + rest
-    }
-
-    private static func matches(_ pattern: String, in text: String) -> [[String]] {
-        guard let regex = try? NSRegularExpression(pattern: pattern) else { return [] }
-        let ns = text as NSString
-        return regex.matches(in: text, range: NSRange(location: 0, length: ns.length)).map { m in
-            (0..<m.numberOfRanges).map { m.range(at: $0).location == NSNotFound ? "" : ns.substring(with: m.range(at: $0)) }
-        }
-    }
-
-    private static func firstNumber(_ pattern: String, in text: String) -> Double? {
-        matches(pattern, in: text).first.flatMap { Double($0[1]) }
+        return style
     }
 }
 
-// MARK: - CSV fallback
+// MARK: - Unformatted fallback
 
 extension PlanGrid {
     /// The same rows without formatting: widths from the longest text, the header row frozen.
-    static func fromCSV(_ text: String) -> PlanGrid {
-        let table = PlanParser.csv(text)
+    static func fromTable(_ table: [[String]]) -> PlanGrid {
         let columns = table.map(\.count).max() ?? 0
         var widths = [Double](repeating: 60, count: columns)
         for row in table {

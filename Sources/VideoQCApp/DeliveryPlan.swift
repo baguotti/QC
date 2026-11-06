@@ -162,6 +162,16 @@ struct PlanRow: Identifiable, Sendable, Equatable {
     var matchSignature: [String: String] { content.merging(["#id": id], uniquingKeysWith: { a, _ in a }) }
     /// The code (ID column), if the sheet has one.
     var code: String? { values[.id] }
+
+    /// The row with QCpie's columns taken from the QCpie tab (`values`; a field it lacks is cleared).
+    func withTracking(_ tracked: [PlanField: String]) -> PlanRow {
+        var merged = values.filter { !$0.key.isTracking }
+        for (field, value) in tracked where field.isTracking && !value.isEmpty { merged[field] = value }
+        guard merged != values else { return self }
+        return PlanRow(id: id, tab: tab, line: line, section: section, values: merged, width: width, height: height,
+                       aspect: aspect, seconds: seconds, maxBytes: maxBytes, format: format, fps: fps, issues: issues,
+                       searchText: merged.values.joined(separator: " ").lowercased())
+    }
 }
 
 // MARK: - Parsing
@@ -225,7 +235,11 @@ enum PlanParser {
 
     /// Rows and the header (index, columns) from one CSV parse (the store needs both on every read).
     static func parse(csv text: String, tab: String) -> (rows: [PlanRow], header: (index: Int, columns: [PlanField: Int])?) {
-        let table = csv(text)
+        parse(table: csv(text), tab: tab)
+    }
+
+    /// Rows and the header from a tab's values (Sheets API: rows of formatted strings).
+    static func parse(table: [[String]], tab: String) -> (rows: [PlanRow], header: (index: Int, columns: [PlanField: Int])?) {
         guard let found = header(table) else { return ([], nil) }
         let (headerIndex, columns) = found
         return (buildRows(table, headerIndex: headerIndex, columns: columns, tab: tab), found)

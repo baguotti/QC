@@ -57,14 +57,6 @@ struct DeliveryPlanTests {
         #expect(PlanSheetLink.parse("not a link") == nil)
     }
 
-    @Test("Tabs from the htmlview page")
-    func htmlView() {
-        let html = #"<title>1100 - Deliverables - Google Sheets</title> items.push({name: "Placement", pageUrl: "https:\/\/x", gid: "1810111647"}); items.push({name: "Edits \"v2\"", pageUrl: "https:\/\/y", gid: "1049261921"});"#
-        let (title, tabs) = PublicSheetSource.parseHTMLView(html)
-        #expect(title == "1100 - Deliverables")
-        #expect(tabs == [PlanTab(gid: "1810111647", name: "Placement"), PlanTab(gid: "1049261921", name: "Edits \"v2\"")])
-    }
-
     private func file(_ name: String, _ w: Int, _ h: Int, seconds: Double = 15, bytes: Int64 = 1_000_000,
                       codec: String = "H.264", audio: Bool = true) -> PlanFile {
         PlanFile(url: URL(fileURLWithPath: "/d/" + name), width: w, height: h, seconds: seconds, fps: 25, bytes: bytes,
@@ -131,45 +123,14 @@ extension DeliveryPlanTests {
 }
 
 extension DeliveryPlanTests {
-    // Shaped like `htmlview/sheet?headers=true&gid=` output.
-    static let html = #"""
-    <style>.ritz .waffle .s0{background-color:#bdbdbd;text-align:left;font-weight:bold;color:#000000;font-size:8pt;white-space:normal;}.ritz .waffle .s1{border-bottom:2px SOLID #999999;background-color:#f3f3f3;text-align:right;text-decoration:line-through;color:#1155cc;white-space:nowrap;vertical-align:middle;}</style>
-    <table class="waffle"><thead><tr><th class="row-header freezebar-vertical-handle"></th><th id="9C0" style="width:49px;">A</th><th id="9C1" style="width:360px;">B</th><th id="9C2" style="width:97px;">C</th></tr></thead><tbody>
-    <tr style="height: 31px"><th id="9R0" style="height: 31px;"><div>1</div></th><td class="s0">Code</td><td class="s0">File Name</td><td class="s0">Length</td></tr>
-    <tr><th style="height:3px;" class="freezebar-cell freezebar-horizontal-handle"></th><td class="freezebar-cell"></td><td class="freezebar-cell"></td><td class="freezebar-cell"></td></tr>
-    <tr style="height: 40px"><th id="9R1" style="height: 40px;"><div>2</div></th><td class="s1" colspan="2" rowspan="2">Karl.com &amp; <a href="x">Top</a><br>Banner</td><td class="s1">30s</td></tr>
-    <tr style="height: 21px"><th id="9R2" style="height: 21px;"><div>3</div></th><td>&lt;6s&#39;</td></tr>
-    </tbody></table>
-    """#
-
-    @Test("The sheet's HTML view: widths, frozen rows, styles, merges, text")
-    func gridHTML() throws {
-        let grid = try #require(PlanGrid.parseHTML(Self.html))
-        #expect(grid.columnWidths == [49, 360, 97])
-        #expect(grid.frozenRows == 1)
-        #expect(grid.rows.map(\.line) == [1, 2, 3])
-        #expect(grid.rows[1].height == 40)
-        let merged = grid.rows[1].cells[0]
-        #expect(merged.span == 2 && merged.rowSpan == 2 && merged.text == "Karl.com & Top\nBanner")
-        #expect(grid.rows[1].cells[1].column == 2)
-        // Row 3's only cell sits right of the rowspan.
-        #expect(grid.rows[2].cells.map(\.column) == [2])
-        #expect(grid.rows[2].cells[0].text == "<6s'")
-        let header = grid.styles[grid.rows[0].cells[0].style]
-        #expect(header.background == 0xBDBDBD && header.bold && header.wrap && header.fontSize == 8)
-        let body = grid.styles[merged.style]
-        #expect(body.align == .right && body.valign == .middle && body.strike && !body.wrap && body.color == 0x1155CC)
-        #expect(body.bottom == PlanGridBorder(width: 2, color: 0x999999))
-        #expect(PlanGrid.parseHTML("<html>Sign in</html>") == nil)
-        #expect(PlanGrid.columnName(0) == "A" && PlanGrid.columnName(25) == "Z" && PlanGrid.columnName(26) == "AA")
-    }
-
-    @Test("Without the HTML, the CSV gives the same rows unformatted, header frozen")
-    func gridCSV() {
-        let grid = PlanGrid.fromCSV(Self.csv)
-        #expect(grid.rows.count == PlanParser.csv(Self.csv).count)
+    @Test("Without a layout, the values give the same rows unformatted, header frozen")
+    func gridTable() {
+        let table = PlanParser.csv(Self.csv)
+        let grid = PlanGrid.fromTable(table)
+        #expect(grid.rows.count == table.count)
         #expect(grid.frozenRows == 2)
         #expect(!grid.formatted)
+        #expect(PlanGrid.columnName(0) == "A" && PlanGrid.columnName(25) == "Z" && PlanGrid.columnName(26) == "AA")
     }
 }
 
@@ -216,18 +177,11 @@ extension DeliveryPlanTests {
 }
 
 extension DeliveryPlanTests {
-    @Test("Edits: script holds the key, links parse, pending text lays over the grid")
-    func editing() throws {
-        let script = AppsScriptWriter.script(token: "abc123")
-        #expect(script.contains("const TOKEN = 'abc123';"))
-        try script.write(toFile: NSTemporaryDirectory() + "qcpie-plan-script.js", atomically: true, encoding: .utf8)
-        #expect(AppsScriptWriter.parseURL("https://script.google.com/macros/s/AKfy123/exec") != nil)
-        #expect(AppsScriptWriter.parseURL("https://script.google.com/a/macros/wildislandfilms.com/s/AKfy/exec") != nil)
-        #expect(AppsScriptWriter.parseURL("https://docs.google.com/spreadsheets/d/x") == nil)
-        let grid = try #require(PlanGrid.parseHTML(Self.html))
-        #expect(grid.text(line: 2, column: 1) == "Karl.com & Top\nBanner")   // inside the merge
-        let edited = grid.applying([DeliveryPlanStore.CellKey(line: 2, column: 2): "20s"])
-        #expect(edited.text(line: 2, column: 2) == "20s" && grid.text(line: 2, column: 2) == "30s")
+    @Test("Pending text lays over the grid")
+    func editing() {
+        let grid = PlanGrid.fromTable([["Code", "Name"], ["KL1", "A"]])
+        let edited = grid.applying([DeliveryPlanStore.CellKey(line: 2, column: 1): "B"])
+        #expect(edited.text(line: 2, column: 1) == "B" && grid.text(line: 2, column: 1) == "A")
         #expect(PlanGrid.normalized(" Karl.com\nTop  Banner ") == "Karl.com Top Banner")
     }
 }
@@ -342,13 +296,6 @@ extension DeliveryPlanTests {
     // Saved before heads were recorded: still decodes.
     let old = try? JSONDecoder().decode(DeliveryPlanStore.ListedFile.self, from: Data(#"{"name":"a","url":"u/x","size":1}"#.utf8))
     #expect(old?.head == nil && old?.ids == ["x"])
-}
-
-@Test func editingLinkCarriesTheKey() throws {
-    let link = PlanWriteLink(url: URL(string: "https://script.google.com/macros/s/ABC/exec")!, token: "k3y")
-    let text = AppsScriptWriter.editingLink(link)
-    #expect(AppsScriptWriter.parseURL(text) == link.url && AppsScriptWriter.parseKey(text) == "k3y")
-    #expect(AppsScriptWriter.parseKey(link.url.absoluteString) == nil)
 }
 
 @Test func dismissedMismatchesComeBackWhenTheyChange() {

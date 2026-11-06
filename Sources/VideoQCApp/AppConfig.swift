@@ -17,6 +17,10 @@ public struct AppConfig {
     /// Notes sync Worker (`server/notes-sync`), e.g. "https://qcpie-notes-sync.<account>.workers.dev". Empty hides sync.
     public static let notesSyncServer = "https://qcpie-notes-sync.fusetti-riccardo.workers.dev"
 
+    /// Google OAuth client (type iOS, bundle id com.studio.qcpie, in the studio's Workspace project, consent screen
+    /// "Internal"), e.g. "1234-abc.apps.googleusercontent.com". Empty: Delivery Plan sign-in is off.
+    public static let googleClientID = "914513363042-tje7tifpim8u4egdpvcgnh2pl8lcbrd2.apps.googleusercontent.com"
+
     public static var notesSyncServerURL: URL? {
         notesSyncServer.isEmpty ? nil : URL(string: notesSyncServer)
     }
