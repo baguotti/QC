@@ -11,7 +11,8 @@ import Foundation
 actor GoogleAuth {
     static let shared = GoogleAuth()
 
-    static let scopes = "openid email https://www.googleapis.com/auth/spreadsheets"
+    /// `drive.metadata.readonly`: only the sheet's version number (a cheap "did anything change?" before reading it).
+    static let scopes = "openid email https://www.googleapis.com/auth/spreadsheets https://www.googleapis.com/auth/drive.metadata.readonly"
 
     enum Failure: LocalizedError, Equatable {
         case notConfigured

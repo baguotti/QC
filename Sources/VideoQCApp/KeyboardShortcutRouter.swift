@@ -603,6 +603,15 @@ extension KeyboardShortcutRouter {
                 guard let event = NSApp.currentEvent, let n = [18: 1, 19: 2, 20: 3, 21: 4, 23: 5, 22: 6, 29: 0][Int(event.keyCode)] else { return false }
                 return DeliveryPlanStore.shared.setStatusForSelection(n == 0 ? nil : PlanQCStatus.allCases[n - 1])
             },
+            // ⌘Z in Inspect: undoes the last Delivery Plan edit (status, note, batch, Frame.io link). Returns false when
+            // there's nothing to undo, so the key goes on.
+            Rule(
+                id: "planUndo",
+                trigger: ShortcutTrigger(characters: ["z"], modifiers: [.command]),
+                scope: .specsOnly
+            ) {
+                DeliveryPlanStore.shared.undoLastEdit()
+            },
             Rule(
                 id: "frameioDelete",
                 trigger: ShortcutTrigger(keyCode: 51, modifiers: [.command]),

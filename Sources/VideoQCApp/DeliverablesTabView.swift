@@ -272,22 +272,18 @@ extension ContentView {
                 }
             }
             PlanBarDivider(isLightMode: isLightMode)
-            if batchItems.contains(where: { !$0.name.isEmpty }) || inspectPlanBatch != nil {
-                PlanBatchFilter(items: batchItems.filter { !$0.name.isEmpty },
-                                unbatched: batchItems.first { $0.name.isEmpty }?.count ?? 0,
-                                selection: $inspectPlanBatch, isLightMode: isLightMode)
-            }
-            // Shown with the plan's: when the sheet has a Frame.io column (read here, not observed: `planFiles` redraws).
-            if DeliveryPlanStore.shared.hasFrameIOColumn || inspectPlanUpload != nil {
-                let counts = summary.uploads
-                PlanUploadFilter(none: counts.none, on: counts.on, selection: $inspectPlanUpload, isLightMode: isLightMode)
-            }
             // Kinds a file here can have; files not in the plan have their own chip.
-            if DeliveryPlanStore.shared.hasFrameIOColumn || summary.mismatchTotal > 0 || (inspectPlanUpload ?? 0) > 1 {
-                PlanMismatchFilter(counts: summary.mismatches, total: summary.mismatchTotal,
-                                   kinds: PlanMismatch.allCases.filter { $0.isLocal && $0 != .localExtra },
-                                   selection: $inspectPlanUpload, isLightMode: isLightMode,
-                                   dismissed: DeliveryPlanStore.shared.planCounts.dismissed)
+            PlanFiltersMenu(batches: batchItems.filter { !$0.name.isEmpty },
+                            unbatched: batchItems.first { $0.name.isEmpty }?.count ?? 0, batch: $inspectPlanBatch,
+                            uploads: DeliveryPlanStore.shared.hasFrameIOColumn ? (summary.uploads.none, summary.uploads.on) : nil,
+                            mismatches: summary.mismatches, mismatchTotal: summary.mismatchTotal,
+                            kinds: PlanMismatch.allCases.filter { $0.isLocal && $0 != .localExtra }, upload: $inspectPlanUpload,
+                            dismissed: DeliveryPlanStore.shared.planCounts.dismissed, isLightMode: isLightMode)
+            if let batch = inspectPlanBatch {
+                PlanActiveFilterChip(title: batch.isEmpty ? "No Batch" : PlanBatch.title(batch), isLightMode: isLightMode) { inspectPlanBatch = nil }
+            }
+            if let upload = inspectPlanUpload {
+                PlanActiveFilterChip(title: PlanMismatch.filterTitle(upload), alert: upload > 1, isLightMode: isLightMode) { inspectPlanUpload = nil }
             }
         }
         // No Spacer: FlowChips takes the width it's offered, and a Spacer would split it in half.

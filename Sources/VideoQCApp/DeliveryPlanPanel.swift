@@ -19,7 +19,6 @@ struct DeliveryPlanPanel: View {
     @Environment(\.openWindow) private var openWindow
     @Environment(\.dismissWindow) private var dismissWindow
 
-    @State private var linkText = ""
     @State private var search = ""
     @State private var statusFilter: PlanState? = nil
     /// nil: every batch; "": rows without one; else a batch name.
@@ -47,6 +46,7 @@ struct DeliveryPlanPanel: View {
     @State private var sheetTab: String? = nil
     @State private var showEditSetup = false
     @State private var showFrameIORoot = false
+    @State private var showSetupGuide = false
     @State private var signInError: String?
     @State private var summaryCache = PlanChecksSummaryCache()
 
@@ -82,6 +82,15 @@ struct DeliveryPlanPanel: View {
         .background {
             // The plan window gets every key itself (the router passes them through): ⌥1–⌥6 / ⌥0 here.
             if placement == .window {
+                // ⌘Z: the plan's last edit; in a text field, the field's own undo.
+                Button("") {
+                    if NSApp.keyWindow?.firstResponder is NSTextView { NSApp.sendAction(Selector(("undo:")), to: nil, from: nil) }
+                    else { store.undoLastEdit() }
+                }
+                    .keyboardShortcut("z", modifiers: .command)
+                    .opacity(0)
+                    .allowsHitTesting(false)
+                    .disabled(store.undoTitle == nil)
                 ForEach(0...PlanQCStatus.allCases.count, id: \.self) { n in
                     Button("") { _ = store.setStatusForSelection(n == 0 ? nil : PlanQCStatus.allCases[n - 1]) }
                         .keyboardShortcut(KeyEquivalent(Character("\(n)")), modifiers: .option)
@@ -89,6 +98,9 @@ struct DeliveryPlanPanel: View {
                         .allowsHitTesting(false)
                 }
             }
+        }
+        .sheet(isPresented: $showSetupGuide) {
+            PlanSetupGuide(isLightMode: isLightMode) { showSetupGuide = false }
         }
         .sheet(isPresented: $showFrameIORoot) {
             PlanFrameIORootSheet(isLightMode: isLightMode) { showFrameIORoot = false }
@@ -157,50 +169,27 @@ struct DeliveryPlanPanel: View {
 
     // MARK: Linking
 
+    /// Before a sheet is linked (or while relinking): the setup steps, inline.
     private var linkView: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text("Link a Google Sheet")
-                .font(.ui(size: 13, weight: .semibold))
-                .foregroundColor(palette.textMain)
-            Text("Paste the link of the sheet listing your deliverables. QCpie reads it as your Google account (it must be shared with you) while this panel is open, and matches its rows to the files in Inspect.")
-                .font(.ui(size: 11))
-                .foregroundColor(palette.textMuted)
-                .fixedSize(horizontal: false, vertical: true)
-            if !account.signedIn { googleSignInButton }
-            TextField("https://docs.google.com/spreadsheets/d/…", text: $linkText)
-                .textFieldStyle(.roundedBorder)
-                .font(.ui(size: 11))
-                .onSubmit(linkNow)
-            HStack {
-                if case .failed(let message) = store.phase {
-                    Text(message)
-                        .font(.ui(size: 11))
-                        .foregroundColor(palette.negative)
-                        .fixedSize(horizontal: false, vertical: true)
+        ScrollView {
+            VStack(alignment: .leading, spacing: 0) {
+                PlanSetupGuide(isLightMode: isLightMode, relinking: relinking) {
+                    // Relinking the same sheet doesn't change its id: leave the guide here, not only on a new link.
+                    relinking = false
+                    if !store.hasQCTab || store.config?.frameioRoot == nil { showSetupGuide = true }
                 }
-                Spacer(minLength: 4)
-                if relinking { Button("Cancel") { relinking = false } }
-                Button(store.phase == .loading ? "Linking…" : "Link Sheet", action: linkNow)
-                    .disabled(PlanSheetLink.parse(linkText) == nil || store.phase == .loading || !account.signedIn)
+                if relinking {
+                    Button("Cancel") { relinking = false }.font(.ui(size: 11)).padding(.horizontal, 16)
+                }
             }
-            .font(.ui(size: 11))
-            Spacer()
         }
-        .padding(16)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-    }
-
-    private var googleSignInButton: some View {
-        HStack(spacing: 8) {
-            Button(account.signingIn ? "Signing In…" : "Sign In with Google…") { signInWithGoogle() }
-                .disabled(account.signingIn || !GoogleAuth.isConfigured)
-            if let message = signInError {
-                Text(message).foregroundColor(palette.negative).fixedSize(horizontal: false, vertical: true)
-            } else if !GoogleAuth.isConfigured {
-                Text("Google sign-in isn't set up in this build.").foregroundColor(palette.textMuted)
-            }
+        // Linked from here: the remaining steps (QCpie tab, Frame.io folder) open as a sheet over the plan.
+        .onChange(of: store.config?.link.sheetID) { _, id in
+            guard id != nil else { return }
+            relinking = false
+            if !store.hasQCTab || store.config?.frameioRoot == nil { showSetupGuide = true }
         }
-        .font(.ui(size: 11))
     }
 
     private func signInWithGoogle() {
@@ -210,17 +199,6 @@ struct DeliveryPlanPanel: View {
         }
     }
 
-    private func linkNow() {
-        guard PlanSheetLink.parse(linkText) != nil else { return }
-        let text = linkText
-        Task {
-            await store.link(text)
-            if store.config?.link.sheetID == PlanSheetLink.parse(text)?.sheetID {
-                relinking = false
-                linkText = ""
-            }
-        }
-    }
 
     // MARK: Plan
 
@@ -289,6 +267,7 @@ struct DeliveryPlanPanel: View {
                 } else {
                     Button("Sign In with Google…") { signInWithGoogle() }
                 }
+                Button("Set Up Plan…") { showSetupGuide = true }
                 Button(store.config?.frameioRoot == nil ? "Set Frame.io Folder…" : "Frame.io Folder…") { showFrameIORoot = true }
                 if store.hasQCTab {
                     Button(store.config?.frameioRoot == nil ? "Find Frame.io Links" : "Read Frame.io Folder Now") { Task { await store.findFrameIOLinks() } }
@@ -383,6 +362,9 @@ struct DeliveryPlanPanel: View {
                 Text("Not read yet").font(.ui(size: 10)).foregroundColor(palette.textSubtle)
             }
         }
+        if let signInError {
+            Text(signInError).font(.ui(size: 10)).foregroundColor(palette.negative).lineLimit(2)
+        }
         if !account.signedIn {
             Button("Sign in with Google to read and edit the sheet…") { signInWithGoogle() }
                 .buttonStyle(.borderless)
@@ -399,7 +381,16 @@ struct DeliveryPlanPanel: View {
         case .saving(let n):
             Text(n == 1 ? "Saving to the sheet…" : "Saving \(n) edits to the sheet…").font(.ui(size: 10)).foregroundColor(palette.textSubtle)
         case .saved:
-            Text("Saved to the sheet").font(.ui(size: 10)).foregroundColor(palette.positive)
+            HStack(spacing: 6) {
+                Text("Saved to the sheet").font(.ui(size: 10)).foregroundColor(palette.positive)
+                if let undo = store.undoTitle {
+                    Button("Undo \(undo)") { store.undoLastEdit() }
+                        .buttonStyle(.borderless)
+                        .font(.ui(size: 10, weight: .semibold))
+                        .foregroundColor(palette.accentBlue)
+                        .tip("Put back what the last edit changed (⌘Z).")
+                }
+            }
         case .failed(let message):
             Text(message).font(.ui(size: 10)).foregroundColor(palette.negative).lineLimit(3)
         }
@@ -439,26 +430,19 @@ struct DeliveryPlanPanel: View {
             }
             PlanBarDivider(isLightMode: isLightMode)
             // Also while their filter is on (set from Inspect through the link): a hidden active filter hides rows silently.
-            if store.hasBatchColumn || !store.batches.isEmpty || batchFilter != nil { batchFilterMenu }
-            if let channelFilter {
-                Button { self.channelFilter = nil } label: {
-                    HStack(spacing: 4) {
-                        Text(channelFilter).font(.ui(size: 10, weight: .semibold)).foregroundColor(palette.textMain).lineLimit(1)
-                        Image(systemName: "xmark").font(.system(size: StudioTheme.scaleFont(8), weight: .semibold)).foregroundColor(palette.textMuted)
-                    }
-                    .planBarItem(selected: true, palette: palette)
-                }
-                .buttonStyle(.plain)
-                .tip("Showing the \(channelFilter) channel only. Click to show every channel.")
+            PlanFiltersMenu(batches: store.planCounts.batches, unbatched: store.planCounts.unbatched, batch: $batchFilter,
+                            uploads: store.hasFrameIOColumn ? (store.planCounts.uploads.none, store.planCounts.uploads.on) : nil,
+                            mismatches: store.planCounts.mismatches, mismatchTotal: store.planCounts.mismatchTotal,
+                            kinds: PlanMismatch.allCases, upload: $uploadFilter, dismissed: store.planCounts.dismissed,
+                            isLightMode: isLightMode)
+            if let batch = batchFilter {
+                PlanActiveFilterChip(title: batch.isEmpty ? "No Batch" : PlanBatch.title(batch), isLightMode: isLightMode) { batchFilter = nil }
             }
-            if store.hasFrameIOColumn || uploadFilter != nil {
-                let counts = store.planCounts.uploads
-                PlanUploadFilter(none: counts.none, on: counts.on, selection: $uploadFilter, isLightMode: isLightMode)
+            if let upload = uploadFilter {
+                PlanActiveFilterChip(title: PlanMismatch.filterTitle(upload), alert: upload > 1, isLightMode: isLightMode) { uploadFilter = nil }
             }
-            if store.hasFrameIOColumn || store.planCounts.mismatchTotal > 0 || store.planCounts.dismissed > 0 || (uploadFilter ?? 0) > 1 {
-                PlanMismatchFilter(counts: store.planCounts.mismatches, total: store.planCounts.mismatchTotal,
-                                   kinds: PlanMismatch.allCases, selection: $uploadFilter, isLightMode: isLightMode,
-                                   dismissed: store.planCounts.dismissed)
+            if let channel = channelFilter {
+                PlanActiveFilterChip(title: channel, isLightMode: isLightMode) { channelFilter = nil }
             }
         }
             // Always in the tree: Accept All empties the list, and removing the button would yank its open sheet.
@@ -469,9 +453,6 @@ struct DeliveryPlanPanel: View {
     }
 
     /// Batches with their row counts and % done (QC Passed, Approved, Delivered of rows not dropped).
-    private var batchFilterMenu: some View {
-        PlanBatchFilter(items: store.planCounts.batches, unbatched: store.planCounts.unbatched, selection: $batchFilter, isLightMode: isLightMode)
-    }
 
     private func chip(_ title: String, count: Int, selected: Bool, color: Color?, action: @escaping () -> Void) -> some View {
         PlanFilterChip(title: title, count: count, selected: selected, color: color, isLightMode: isLightMode, action: action)
@@ -1793,35 +1774,9 @@ struct PlanBarMenuLabel: View {
 
 /// The batch filter shared by the plan and Inspect: a chip-styled menu (All Batches, each batch with its progress,
 /// No Batch).
-struct PlanBatchFilter: View {
+enum PlanBatchFilter {
+    /// A batch with its row counts (filter menus, Summary).
     struct Item: Equatable { let name: String; let count: Int; let done: Int; let live: Int }
-    let items: [Item]
-    let unbatched: Int
-    @Binding var selection: String?
-    let isLightMode: Bool
-
-    var body: some View {
-        Menu {
-            Button(selection == nil ? "✓ All Batches" : "All Batches") { selection = nil }
-            Divider()
-            ForEach(items, id: \.name) { item in
-                let pct = item.live > 0 ? "  ·  \(Int((Double(item.done) / Double(item.live) * 100).rounded(.down)))% done" : ""
-                Button("\(selection == item.name ? "✓ " : "")\(PlanBatch.title(item.name))  ·  \(item.count)\(pct)") { selection = item.name }
-            }
-            if unbatched > 0 {
-                Divider()
-                Button("\(selection == "" ? "✓ " : "")No Batch  ·  \(unbatched)") { selection = "" }
-            }
-        } label: {
-            PlanBarMenuLabel(title: selection.map { $0.isEmpty ? "No Batch" : PlanBatch.title($0) } ?? "Batch",
-                             active: selection != nil, isLightMode: isLightMode)
-        }
-        .menuStyle(.button)
-        .buttonStyle(.plain)   // borderlessButton redraws the label its own way (chevron first, system font)
-        .menuIndicator(.hidden)
-        .fixedSize()
-        .tip("Show one delivery batch.")
-    }
 }
 
 /// Set Batch: each batch in the plan, New Batch…, Clear Batch. `rowIDs` is read when an item is chosen.
@@ -1898,15 +1853,9 @@ enum PlanFrameIOLinker {
     }
 }
 
-/// The Frame.io filter shared by the plan and Inspect: All, On Frame.io, Not on Frame.io. Mismatches have their own
-/// menu (`PlanMismatchFilter`), on the same selection.
-struct PlanUploadFilter: View {
-    let none: Int
-    let on: Int
-    @Binding var selection: Int?
-    let isLightMode: Bool
-
-    /// The three counts in one pass.
+/// Frame.io presence counts for the Filters menu (`PlanFiltersMenu`) and the Summary.
+enum PlanUploadFilter {
+    /// The three Frame.io counts in one pass.
     nonisolated static func counts(_ uploads: some Sequence<PlanUpload>) -> (none: Int, on: Int, stale: Int) {
         var none = 0, on = 0, stale = 0
         for upload in uploads {
@@ -1917,91 +1866,5 @@ struct PlanUploadFilter: View {
             }
         }
         return (none, on, stale)
-    }
-
-    var body: some View {
-        let active = selection == 0 || selection == 1
-        Menu {
-            Button(selection == nil ? "✓ All Files" : "All Files") { selection = nil }
-            Divider()
-            option(1, on)
-            option(0, none)
-        } label: {
-            PlanBarMenuLabel(title: active ? PlanMismatch.filterTitle(selection!) : "Frame.io", active: active, isLightMode: isLightMode)
-        }
-        .menuStyle(.button)
-        .buttonStyle(.plain)   // borderlessButton redraws the label its own way (chevron first, system font)
-        .menuIndicator(.hidden)
-        .fixedSize()
-        .tip("Show files by whether they're on Frame.io.")
-    }
-
-    private func option(_ value: Int, _ count: Int) -> some View {
-        Button("\(selection == value ? "✓ " : "")\(PlanMismatch.filterTitle(value))  ·  \(count)") { selection = value }
-    }
-}
-
-/// Where the plan, this Mac and Frame.io disagree: a quiet "In Sync", or an amber count that opens the list of
-/// mismatches (each one a filter). `kinds`: the ones this view can show.
-struct PlanMismatchFilter: View {
-    let counts: [PlanMismatch: Int]
-    let total: Int
-    let kinds: [PlanMismatch]
-    @Binding var selection: Int?
-    let isLightMode: Bool
-    /// Dismissed mismatches that would show now (Show Dismissed brings them all back).
-    var dismissed = 0
-
-    var body: some View {
-        let palette = StudioPalette(isLightMode)
-        let amber = TagTone.amber.color(palette.isLight)
-        let chosen = selection.flatMap(PlanMismatch.init(rawValue:))
-        // The chosen one too, even from the other view (linked filters): an active filter is never hidden.
-        let shown = PlanMismatch.allCases.filter { (kinds.contains($0) && (counts[$0] ?? 0) > 0) || $0 == chosen }
-        if shown.isEmpty {
-            HStack(spacing: 3) {
-                Image(systemName: "checkmark")
-                    .font(.system(size: StudioTheme.scaleFont(7), weight: .bold))
-                Text("In Sync").font(.ui(size: 10, weight: .medium))
-            }
-            .foregroundColor(palette.textSubtle)
-            .planBarItem(selected: false, palette: palette)
-            .tip(dismissed > 0 ? "In sync, with \(dismissed) dismissed mismatch\(dismissed == 1 ? "" : "es"). Right-click to show them again."
-                 : "The plan, this Mac's files and Frame.io agree (as far as QCpie has seen Frame.io's folders).")
-            .contextMenu {
-                if dismissed > 0 { Button("Show Dismissed Mismatches (\(dismissed))") { DeliveryPlanStore.shared.restoreDismissedMismatches() } }
-            }
-        } else {
-            Menu {
-                Button(chosen == nil ? "✓ All Files" : "All Files") { selection = nil }
-                Divider()
-                ForEach(shown, id: \.self) { kind in
-                    Button("\(chosen == kind ? "✓ " : "")\(kind.title)  ·  \(counts[kind] ?? 0)") { selection = kind.rawValue }
-                        .help(kind.explanation)
-                }
-                if dismissed > 0 {
-                    Divider()
-                    Button("Show Dismissed (\(dismissed))") { DeliveryPlanStore.shared.restoreDismissedMismatches() }
-                }
-            } label: {
-                HStack(spacing: 4) {
-                    Image(systemName: "exclamationmark.triangle.fill")
-                        .font(.system(size: StudioTheme.scaleFont(8)))
-                        .foregroundColor(amber)
-                    Text(chosen?.title ?? "\(total) Mismatch\(total == 1 ? "" : "es")")
-                        .font(.ui(size: 10, weight: chosen != nil ? .semibold : .medium))
-                        .foregroundColor(chosen != nil ? palette.textMain : palette.textMuted)
-                    Image(systemName: "chevron.down")
-                        .font(.system(size: StudioTheme.scaleFont(7), weight: .semibold))
-                        .foregroundColor(palette.textSubtle)
-                }
-                .planBarItem(selected: chosen != nil, palette: palette)
-            }
-            .menuStyle(.button)
-            .buttonStyle(.plain)   // borderlessButton redraws the label its own way (chevron first, system font)
-            .menuIndicator(.hidden)
-            .fixedSize()
-            .tip(shown.map { "\($0.title): \(counts[$0] ?? 0)" }.joined(separator: "\n"))
-        }
     }
 }

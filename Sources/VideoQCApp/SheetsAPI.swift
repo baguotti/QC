@@ -131,10 +131,22 @@ struct SheetsAPI: Sendable {
         try await send("POST", id + ":batchUpdate", body: body)
     }
 
+    /// The spreadsheet's Drive version: it moves on every edit (in Sheets or through the API). A few bytes, where
+    /// reading the values is hundreds of KB. Needs the Drive API on in the Cloud project and the Drive metadata scope
+    /// (signed in after it was added): otherwise 403, and the plan reads the values every time as before.
+    func version(_ id: String) async throws -> String {
+        let data = try await send("GET", id, query: [.init(name: "fields", value: "version"), .init(name: "supportsAllDrives", value: "true")],
+                                  base: "https://www.googleapis.com/drive/v3/files/")
+        struct Reply: Decodable { let version: String? }
+        guard let version = try JSONDecoder().decode(Reply.self, from: data).version else { throw Failure.http(0, "no version") }
+        return version
+    }
+
     // MARK: Transport
 
-    private func send(_ method: String, _ path: String, query: [URLQueryItem] = [], body: Data? = nil) async throws -> Data {
-        var components = URLComponents(string: Self.base + path)!
+    private func send(_ method: String, _ path: String, query: [URLQueryItem] = [], body: Data? = nil,
+                      base: String = SheetsAPI.base) async throws -> Data {
+        var components = URLComponents(string: base + path)!
         if !query.isEmpty { components.queryItems = query }
         // "+" in a query value is read as a space by Google: encode it (tab names, A1 ranges).
         components.percentEncodedQuery = components.percentEncodedQuery?.replacingOccurrences(of: "+", with: "%2B")

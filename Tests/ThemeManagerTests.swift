@@ -259,11 +259,11 @@ struct SpecsAndScannerTests {
         #expect(res5 == nil)
         #expect(rightSleeveCalled == true)
         
-        // 6. Cmd + Shift + Right Arrow in Specs tab -> not active
+        // 6. Cmd + Shift + Right Arrow in Specs (Inspect) tab -> its Delivery Plan drawer
         rightSleeveCalled = false
         let res6 = router.handle(cmdShiftRightEvent, currentTab: .specs, isModalActive: false, onEscape: { false })
-        #expect(res6 != nil)
-        #expect(rightSleeveCalled == false)
+        #expect(res6 == nil)
+        #expect(rightSleeveCalled == true)
         
         // 7. Cmd + I (keyCode 34) in Player and Specs tabs -> properties
         let cmdIEvent = NSEvent.keyEvent(

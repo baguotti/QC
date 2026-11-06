@@ -121,6 +121,17 @@ final class DeliveryPlanStore: ObservableObject {
     private var tables: [String: [[String]]] = [:]
     /// The last values reply as received: an identical one means nothing changed (no parse, no matching).
     private var lastValues: Data?
+    /// The sheet's Drive version at the last values read; the 10 s check reads the values only when it moved
+    /// (and every 3 minutes regardless). `versionCheck` false: not available (Drive API off, or signed in before the
+    /// scope was added); tried again after `versionCheckRetry`.
+    private var lastVersion: String?
+    private var lastValuesRead = Date.distantPast
+    /// The ranges of that read: other tabs on or off (or the QCpie tab added) need a read even if the sheet didn't change.
+    private var lastRanges: [String] = []
+    private var versionCheck: Bool?
+    private var versionCheckRetry = Date.distantPast
+    /// Grows ×2 (to ×12) while Google answers 429 (too many requests, e.g. many Macs on one plan), back to 1 on success.
+    private var readBackoff: Double = 1
     private var lastMetadata = Date.distantPast
     private var reading = false
     /// The QCpie tab as last read (nil: none, or not read yet).
@@ -209,6 +220,8 @@ final class DeliveryPlanStore: ObservableObject {
         cellLists = [:]; frameioFolders = [:]; frameioExtras = []; foldersSaveTask?.cancel(); dismissedMismatches = []
         localExtras = []; changes = [:]; removed = []; editState = .idle; loadedFromDisk = false
         statesRevision &+= 1   // the Summary mustn't show the old sheet's figures
+        undoValues = []; undoTitle = nil
+        lastVersion = nil; lastValuesRead = .distantPast; readBackoff = 1
         health = PlanHealth()
         linkSuggestions = [:]
         rootScanTask?.cancel(); rootScanTask = nil; rootFolders = []; lastRootScan = nil; rootScan = .idle
@@ -255,7 +268,7 @@ final class DeliveryPlanStore: ObservableObject {
             while !Task.isCancelled {
                 // Every 10 s while QCpie is in front, every minute behind other apps. One call returns every included
                 // tab's values (a few hundred KB for a big plan, gzipped on the wire); an unchanged reply isn't parsed.
-                try? await Task.sleep(for: .seconds(NSApp.isActive ? 10 : 60))
+                try? await Task.sleep(for: .seconds((NSApp.isActive ? 10 : 60) * (self?.readBackoff ?? 1)))
                 guard !Task.isCancelled, let self else { return }
                 await self.refresh()
                 self.scanFrameIORootIfDue()
@@ -272,6 +285,7 @@ final class DeliveryPlanStore: ObservableObject {
     func signedIn() {
         guard config != nil else { return }
         setHealth { $0.canWrite = nil; $0.writeError = nil }   // another account may have other rights
+        versionCheck = nil; versionCheckRetry = .distantPast   // a new sign-in may carry the Drive scope
         Task { await refresh(full: true); scheduleFlush(after: 0) }
     }
 
@@ -309,6 +323,32 @@ final class DeliveryPlanStore: ObservableObject {
         let started = Date()
         do {
             if full || Date().timeIntervalSince(lastMetadata) > 180 { config = try await readMetadata(config) }
+            // Cheap check first: nothing changed since the last read → no read (at most 3 minutes apart).
+            var version: String?
+            if versionCheck != false || Date() > versionCheckRetry {
+                do {
+                    version = try await api.version(config.link.sheetID)
+                    versionCheck = true
+                } catch SheetsAPI.Failure.noAccess(_) {
+                    versionCheck = false
+                    versionCheckRetry = Date().addingTimeInterval(1800)
+                } catch SheetsAPI.Failure.notFound {
+                    versionCheck = false
+                    versionCheckRetry = Date().addingTimeInterval(1800)
+                } catch {
+                    // Anything else (offline, Google busy): the values read below says what's wrong, if anything.
+                }
+            }
+            if !full, !adoptAsSeen, let version, version == lastVersion, lastValues != nil, ranges(config) == lastRanges,
+               Date().timeIntervalSince(lastValuesRead) < 180 {
+                if outbox.settle(readStart: started) { saveOutbox(); recomputeStates(); publishGrids() }
+                readBackoff = 1
+                if phase != .idle { phase = .idle }
+                setHealth { $0.readError = nil }
+                if lastUpdated.map({ Date().timeIntervalSince($0) > 60 }) ?? true { lastUpdated = Date() }
+                if !outbox.unsent.records.isEmpty || !outbox.unsent.cells.isEmpty { scheduleFlush(after: 0) }
+                return
+            }
             var data: Data
             do {
                 // Every tab left out and no QCpie tab: nothing to read (Google refuses a read of no ranges).
@@ -319,6 +359,10 @@ final class DeliveryPlanStore: ObservableObject {
                 data = try await api.values(config.link.sheetID, ranges: ranges(config))
             }
             guard self.config?.link == config.link else { return }   // relinked meanwhile
+            lastVersion = version
+            lastValuesRead = Date()
+            lastRanges = ranges(config)
+            readBackoff = 1
             // Edits Google took before this read started are in it: they leave the overlay now, with the new values.
             let settled = outbox.settle(readStart: started)
             if settled { saveOutbox() }
@@ -351,6 +395,12 @@ final class DeliveryPlanStore: ObservableObject {
             if phase != .idle { phase = .idle }
         } catch {
             if case GoogleAuth.Failure.signedOut = error { GoogleAccount.shared.noteSignedOut() }
+            if case SheetsAPI.Failure.http(429, _) = error {
+                // Too many requests for the project (several Macs on the plan): read less often until Google answers.
+                readBackoff = min(readBackoff * 2, 12)
+                setHealth { $0.readError = "Google Sheets is busy: reading every \(Int(10 * self.readBackoff)) s for now." }
+                return
+            }
             phase = .failed(Self.describe(error))
             setHealth { $0.readError = Self.describe(error) }
         }
@@ -1732,7 +1782,39 @@ final class DeliveryPlanStore: ObservableObject {
     /// 0.3 s after the last change. A status change is stamped (QC Updated) with time and reviewer.
     /// `quiet`: automatic writes (Frame.io links) say nothing when they can't be saved.
     /// `refresh: false` leaves the recompute and redraw to the caller (several rows queued in a row).
-    private func queueQC(_ targets: [PlanRow], quiet: Bool = false, refresh: Bool = true, _ change: (inout [PlanField: String]) -> Void) {
+    // MARK: Undo
+
+    /// The last edit made by hand (status, note, batch, Frame.io link), as each code's values before it: ⌘Z in Inspect,
+    /// the plan window, or the status line's Undo puts them back. One level, like the Frame.io browser's Undo.
+    private var undoValues: [(code: String, name: String, values: [PlanField: String])] = []
+    /// What ⌘Z would undo ("Status", "Batch"…), nil when nothing.
+    @Published private(set) var undoTitle: String?
+
+    @discardableResult
+    func undoLastEdit() -> Bool {
+        guard undoTitle != nil, !undoValues.isEmpty else { return false }
+        let entries = undoValues
+        undoValues = []
+        undoTitle = nil
+        for entry in entries {
+            guard let row = rows.first(where: { $0.code?.lowercased() == entry.code.lowercased() }) else { continue }   // row gone
+            queueQC([row], refresh: false, undoable: false, stamp: false) { $0 = entry.values }
+        }
+        recomputeStates()
+        publishGrids()
+        return true
+    }
+
+    private static func undoTitle(_ fields: Set<PlanField>) -> String {
+        if fields.contains(.qcStatus) { return "Status" }
+        if fields.contains(.frameio) { return "Frame.io Link" }
+        if fields.contains(.batch) { return "Batch" }
+        if fields.contains(.qcNote) { return "Note" }
+        return "Edit"
+    }
+
+    private func queueQC(_ targets: [PlanRow], quiet: Bool = false, refresh: Bool = true, undoable: Bool = true, stamp: Bool = true,
+                         _ change: (inout [PlanField: String]) -> Void) {
         guard config != nil else { return }
         let coded = targets.filter { !($0.code ?? "").isEmpty }
         guard !coded.isEmpty else { if !quiet { editState = .failed("Statuses need a Code column in the sheet.") }; return }
@@ -1741,9 +1823,18 @@ final class DeliveryPlanStore: ObservableObject {
         guard !values.isEmpty else { return }
         // Only a status change is stamped: QC Updated dates the review, and a note edited later must not hide a new
         // version that arrived before it.
-        if values[.qcStatus] != nil {
+        if stamp, values[.qcStatus] != nil {
             let reviewer = UserDefaults.standard.string(forKey: "reviewerName").flatMap { $0.isEmpty ? nil : $0 } ?? NSFullUserName()
             values[.qcUpdated] = PlanStatusResolver.stamp(Date(), by: reviewer)
+        }
+        // A hand edit can be undone: each code's values before it (automatic writes don't replace the last undo).
+        if !quiet, undoable {
+            var seen = Set<String>()
+            undoValues = coded.compactMap { row in
+                guard seen.insert(row.code!.lowercased()).inserted else { return nil }
+                return (row.code!, row.name, Dictionary(uniqueKeysWithValues: values.keys.map { ($0, shown($0, row)) }))
+            }
+            undoTitle = Self.undoTitle(Set(values.keys))
         }
         for row in coded { outbox.set(code: row.code!, name: row.name, values, quiet: quiet) }
         if let link = values[.frameio], !link.isEmpty {

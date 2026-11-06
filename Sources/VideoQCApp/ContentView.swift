@@ -615,19 +615,8 @@ struct ContentView: View {
         HStack(spacing: 8) {
             // Update Badge (if update available, keep prominent banner)
             if updateManager.hasUpdate {
-                Button(action: { updateManager.showModal = true }) {
-                    HStack(spacing: 5) {
-                        Image(systemName: "arrow.down.circle.fill")
-                            .font(.system(size: StudioTheme.scaleFont(10)))
-                        Text("UPDATE v\(updateManager.latestVersion)")
-                            .font(.ui(size: 11, weight: .semibold))
-                    }
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 5)
-                    .studioBox(background: accentPositive, border: borderStrong)
-                }
-                .buttonStyle(.plain)
-                .explain("New update v\(updateManager.latestVersion) available! Click to update.")
+                UpdatePill(version: updateManager.latestVersion, isLightMode: isLightMode) { updateManager.showModal = true }
+                    .explain("QCpie \(updateManager.latestVersion) is available. Click to see what's new and update.")
             }
             
             // Theme Toggle (Square button with Sun / Moon icon)
@@ -2672,3 +2661,36 @@ struct StudioStatusBarView: View {
     }
 }
 
+/// The top bar's "update available" control: quiet like its neighbours (a soft positive tint, the version in
+/// muted figures), stronger on hover. Same height as the icon buttons beside it.
+struct UpdatePill: View {
+    let version: String
+    let isLightMode: Bool
+    let action: () -> Void
+    @State private var hovering = false
+
+    var body: some View {
+        let palette = StudioPalette(isLightMode)
+        Button(action: action) {
+            HStack(spacing: 5) {
+                Image(systemName: "arrow.down.circle")
+                    .font(.system(size: StudioTheme.scaleFont(11), weight: .semibold))
+                    .foregroundColor(palette.positive)
+                Text("Update")
+                    .font(.ui(size: 11, weight: .semibold))
+                    .foregroundColor(palette.textMain)
+                Text(version)
+                    .font(.ui(size: 11, weight: .medium))
+                    .monospacedDigit()
+                    .foregroundColor(palette.textMuted)
+            }
+            .padding(.horizontal, 9)
+            .frame(height: StudioTheme.scale(26))
+            .background(RoundedRectangle(cornerRadius: Radius.segment).fill(palette.positive.opacity(hovering ? 0.22 : 0.12)))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .onHover { hovering = $0 }
+        .animation(Motion.hover, value: hovering)
+    }
+}
