@@ -336,6 +336,11 @@ struct ContentView: View {
                 if inspectPlanUpload != filter.upload { inspectPlanUpload = filter.upload }
                 if specsState.specsFilterText != filter.search { specsState.specsFilterText = filter.search }
             }
+            // A status, batch or link set from Inspect that the sheet refused: the reason is otherwise only in the plan
+            // panel's status line, so a change made with the panel closed seemed to do nothing.
+            .onReceive(DeliveryPlanStore.shared.$editState) { state in
+                if selectedTab == .specs, case .failed(let message) = state { showToast(message) }
+            }
             .onReceive(DeliveryPlanStore.shared.$fileIndex) { index in
                 guard index != planFiles else { return }
                 planFiles = index

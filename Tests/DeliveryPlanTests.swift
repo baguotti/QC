@@ -343,3 +343,10 @@ extension DeliveryPlanTests {
     let old = try? JSONDecoder().decode(DeliveryPlanStore.ListedFile.self, from: Data(#"{"name":"a","url":"u/x","size":1}"#.utf8))
     #expect(old?.head == nil && old?.ids == ["x"])
 }
+
+@Test func editingLinkCarriesTheKey() throws {
+    let link = PlanWriteLink(url: URL(string: "https://script.google.com/macros/s/ABC/exec")!, token: "k3y")
+    let text = AppsScriptWriter.editingLink(link)
+    #expect(AppsScriptWriter.parseURL(text) == link.url && AppsScriptWriter.parseKey(text) == "k3y")
+    #expect(AppsScriptWriter.parseKey(link.url.absoluteString) == nil)
+}

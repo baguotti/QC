@@ -410,8 +410,19 @@ enum AppsScriptWriter {
     }
 
     /// `https://script.google.com/macros/s/<id>/exec` (also accepts `/dev` and `script.googleusercontent.com` links).
+    /// The editing link another Mac pastes into Set Up Editing: the web app URL with the key after "#qcpie-key=", so a
+    /// second Mac joins the same script instead of replacing it (a new key would lock the first Mac out).
+    static func editingLink(_ link: PlanWriteLink) -> String { link.url.absoluteString + "#qcpie-key=" + link.token }
+
+    /// The key carried by an editing link, if any.
+    static func parseKey(_ text: String) -> String? {
+        guard let range = text.range(of: "#qcpie-key=") else { return nil }
+        let key = text[range.upperBound...].trimmingCharacters(in: .whitespacesAndNewlines)
+        return key.isEmpty ? nil : key
+    }
+
     static func parseURL(_ text: String) -> URL? {
-        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmed = (text.components(separatedBy: "#").first ?? text).trimmingCharacters(in: .whitespacesAndNewlines)
         guard let url = URL(string: trimmed), url.scheme == "https", let host = url.host,
               host == "script.google.com" || host.hasSuffix(".googleusercontent.com"),
               url.path.contains("/macros/") else { return nil }

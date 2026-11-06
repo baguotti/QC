@@ -241,7 +241,12 @@ struct DeliveryPlanPanel: View {
                 if store.scriptOutdated {
                     Button("Update Script…") { showEditSetup = true }
                 }
-                if store.canEdit {
+                if store.canEdit, let writer = store.config?.writer {
+                    Button("Copy Editing Link for Another Mac") {
+                        NSPasteboard.general.clearContents()
+                        NSPasteboard.general.setString(AppsScriptWriter.editingLink(writer), forType: .string)
+                    }
+                    .help("Paste it in Set Up Editing… on another Mac: it joins this script (setting up again would replace the key and lock this Mac out). It holds the key: share it only with your team.")
                     Button("Turn Off Editing") { Task { try? await store.setWriter(nil) } }
                 } else {
                     Button("Set Up Editing…") { showEditSetup = true }
@@ -684,20 +689,20 @@ struct DeliveryPlanPanel: View {
                     headerLine: store.headerLine(gid: tab.gid))
                 if (store.config?.included.count ?? 0) > 1 { sheetTabs }
                 if let selected, (uploadFilter ?? 0) < PlanMismatch.frameioExtra.rawValue {
-                    Rectangle().fill(palette.borderLine).frame(height: 1)
-                    VStack(spacing: 0) {
-                        statusBar(selected, targets: statusTargets(selected, match: match))
-                        ScrollView {
-                            PlanRowView(row: selected, result: match.result(selected), state: store.state(selected),
-                                        note: store.note(selected), checkLines: checkSummary(selected).lines,
-                                        change: store.changes[selected.id], frameio: store.frameioLink(selected),
-                                        selected: false, wide: true, isLightMode: isLightMode,
-                                        themeRevision: ThemeManager.shared.revision)
+                    PlanBottomDrawer(isLightMode: isLightMode) { maxHeight in
+                        VStack(spacing: 0) {
+                            statusBar(selected, targets: statusTargets(selected, match: match))
+                            ScrollView {
+                                PlanRowView(row: selected, result: match.result(selected), state: store.state(selected),
+                                            note: store.note(selected), checkLines: checkSummary(selected).lines,
+                                            change: store.changes[selected.id], frameio: store.frameioLink(selected),
+                                            selected: false, wide: true, isLightMode: isLightMode,
+                                            themeRevision: ThemeManager.shared.revision)
+                            }
+                            .frame(maxHeight: maxHeight)
+                            .fixedSize(horizontal: false, vertical: true)
                         }
-                        .frame(maxHeight: 150)
-                        .fixedSize(horizontal: false, vertical: true)
                     }
-                    .background(palette.bgCardSubtle)
                 } else {
                     sheetExtrasFooter(match)
                 }
@@ -1007,14 +1012,14 @@ struct DeliveryPlanPanel: View {
     private func sheetExtrasFooter(_ match: PlanMatch) -> some View {
         let frameio = store.frameioExtras
         if uploadFilter == PlanMismatch.localExtra.rawValue || uploadFilter == PlanMismatch.frameioExtra.rawValue {
-            Rectangle().fill(palette.borderLine).frame(height: 1)
-            ScrollView {
-                if uploadFilter == PlanMismatch.localExtra.rawValue { extrasView(match.extras) } else { frameioExtrasView(frameio) }
+            PlanBottomDrawer(isLightMode: isLightMode) { maxHeight in
+                ScrollView {
+                    if uploadFilter == PlanMismatch.localExtra.rawValue { extrasView(match.extras) } else { frameioExtrasView(frameio) }
+                }
+                .padding(.bottom, 8)
+                .frame(maxHeight: maxHeight)
+                .fixedSize(horizontal: false, vertical: true)
             }
-            .padding(.bottom, 8)
-            .frame(maxHeight: 220)
-            .fixedSize(horizontal: false, vertical: true)
-            .background(palette.bgCardSubtle)
         } else if !match.extras.isEmpty || !frameio.isEmpty {
             Rectangle().fill(palette.borderLine).frame(height: 1)
             HStack(spacing: 10) {
@@ -1325,6 +1330,62 @@ extension DeliveryPlanStore {
     }
 }
 
+/// The drawer under the plan's Sheet view (the selected row's card, files not in the plan): drag its top edge to
+/// resize it (double-click: back to 180 pt). Owns its height, so dragging redraws only the drawer, not the panel.
+struct PlanBottomDrawer<Content: View>: View {
+    let isLightMode: Bool
+    @ViewBuilder let content: (CGFloat) -> Content
+    @AppStorage("planDrawerHeight") private var height = 180.0
+    @State private var startHeight: Double?
+    @State private var hovering = false
+
+    @State private var cursorPushed = false
+
+    private static var range: ClosedRange<Double> { 80...700 }
+
+    /// Pushed once while over or dragging the edge (leaving and coming back mid-drag mustn't stack cursors).
+    private func pushCursor() { if !cursorPushed { NSCursor.resizeUpDown.push(); cursorPushed = true } }
+    private func popCursor() { if cursorPushed { NSCursor.pop(); cursorPushed = false } }
+
+    var body: some View {
+        let palette = StudioPalette(isLightMode)
+        VStack(spacing: 0) {
+            Rectangle()
+                .fill(startHeight != nil ? palette.accentBlue : hovering ? PanelResizeHandle.hoverLine(isLightMode) : palette.borderLine)
+                .frame(height: startHeight != nil ? 2 : 1)
+                .frame(maxWidth: .infinity)
+                .overlay(
+                    Color.clear
+                        .frame(height: 9)
+                        .contentShape(Rectangle())
+                        .onHover { inside in
+                            hovering = inside
+                            if inside { pushCursor() } else if startHeight == nil { popCursor() }
+                        }
+                        .onTapGesture(count: 2) { withAnimation(Motion.sleeve) { height = 180 } }
+                        .gesture(
+                            DragGesture(minimumDistance: 1, coordinateSpace: .global)
+                                .onChanged { value in
+                                    let start = startHeight ?? height
+                                    if startHeight == nil { startHeight = start }
+                                    let next = min(Self.range.upperBound, max(Self.range.lowerBound, start - Double(value.translation.height)))
+                                    if abs(next - height) > 0.5 { height = next }
+                                }
+                                .onEnded { _ in
+                                    startHeight = nil
+                                    if !hovering { popCursor() }
+                                }
+                        )
+                        .help("Drag to resize. Double-click to reset.")
+                )
+                .zIndex(1)
+            content(CGFloat(height))
+        }
+        .background(palette.bgCardSubtle)
+        .animation(Motion.hover, value: hovering)
+    }
+}
+
 /// One-time set-up for editing: paste QCpie's script into the sheet, deploy it as a web app, paste its link back.
 struct PlanEditSetupSheet: View {
     let isLightMode: Bool
@@ -1363,6 +1424,12 @@ struct PlanEditSetupSheet: View {
             }
             step(3, "Deploy → New deployment → Web app. Execute as: Me. Who has access: Anyone. Deploy, then allow access (if Google warns the app isn't verified: Advanced → Go to project).") { EmptyView() }
             step(4, "Copy the web app URL (ends in /exec) and paste it here.") { EmptyView() }
+            if store.config?.writer == nil {
+                Text("Already set up on another Mac? Don't replace the script: there, ••• → Copy Editing Link for Another Mac, then paste that link here and Connect.")
+                    .font(.ui(size: 11))
+                    .foregroundColor(palette.textMuted)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
             if store.config?.writer != nil {
                 Text("Updating: paste the new script over the old one, Save, then Deploy → Manage deployments → Edit (pencil) → Version: New version → Deploy. The link stays the same: just press Connect.")
                     .font(.ui(size: 11))
@@ -1411,9 +1478,11 @@ struct PlanEditSetupSheet: View {
         guard let url = AppsScriptWriter.parseURL(urlText) else { return }
         connecting = true
         error = nil
+        // An editing link from another Mac carries the script's key: use it, not this Mac's new one.
+        let key = AppsScriptWriter.parseKey(urlText) ?? token
         Task {
             do {
-                try await store.setWriter(PlanWriteLink(url: url, token: token))
+                try await store.setWriter(PlanWriteLink(url: url, token: key))
                 onClose()
             } catch {
                 self.error = error.localizedDescription

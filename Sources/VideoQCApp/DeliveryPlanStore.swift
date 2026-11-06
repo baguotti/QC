@@ -1337,7 +1337,7 @@ final class DeliveryPlanStore: ObservableObject {
     /// `quiet`: automatic writes (Frame.io links) say nothing when the sheet can't take them.
     /// `refresh: false` leaves the recompute and redraw to the caller (several rows queued in a row).
     private func queueQC(_ targets: [PlanRow], quiet: Bool = false, refresh: Bool = true, _ change: (inout PlanStatusItem) -> Void) {
-        guard config?.writer != nil else { if !quiet { editState = .failed("Set up editing (••• menu) to set statuses.") }; return }
+        guard config?.writer != nil else { if !quiet { editState = .failed("This Mac can't edit the sheet yet: Delivery Plan ••• → Set Up Editing… (on a second Mac, paste the editing link copied from the first).") }; return }
         guard !scriptOutdated else { if !quiet { editState = .failed("Update the script (••• → Update Script…) to set statuses.") }; return }
         let coded = targets.filter { !($0.code ?? "").isEmpty }
         guard !coded.isEmpty else { if !quiet { editState = .failed("Statuses need a Code column in the sheet.") }; return }
