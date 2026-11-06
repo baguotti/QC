@@ -85,12 +85,13 @@ enum PlanQCTab {
         "\(SheetsAPI.quoted(title))!\(PlanGrid.columnName(column))\(row)"
     }
 
-    /// The lookup a plan tab's column holds: the field for each row's code, "" when the code has none.
+    /// The lookup a plan tab's column holds: the field for each row's code, "" when the code has none. The code is
+    /// looked up as text (`&""`): the QCpie tab stores codes as text, and a numeric code wouldn't match otherwise.
     /// `codeColumn` is the plan tab's Code column (0-based), `firstRow` the first row under its header (1-based).
     static func formula(_ field: PlanField, codeColumn: Int, firstRow: Int) -> String {
         let codes = "\(PlanGrid.columnName(codeColumn))\(firstRow):\(PlanGrid.columnName(codeColumn))"
         let tab = SheetsAPI.quoted(title)
-        return "=ARRAYFORMULA(IF(LEN(\(codes)), IFERROR(VLOOKUP(\(codes), \(tab)!$A:$Z, MATCH(\"\(field.title)\", \(tab)!$1:$1, 0), FALSE)&\"\", \"\"), \"\"))"
+        return "=ARRAYFORMULA(IF(LEN(\(codes)), IFERROR(VLOOKUP(\(codes)&\"\", \(tab)!$A:$Z, MATCH(\"\(field.title)\", \(tab)!$1:$1, 0), FALSE)&\"\", \"\"), \"\"))"
     }
 
     /// The values to start the tab with, from the QC columns plan tabs hold today (before they become lookups). Per

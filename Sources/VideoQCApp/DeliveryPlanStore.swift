@@ -168,7 +168,10 @@ final class DeliveryPlanStore: ObservableObject {
             }.value
             let chosen = link.gid.flatMap { gid in tabs.contains { $0.gid == gid } ? gid : nil }
                 ?? tabs.max { (counts[$0.gid] ?? 0) < (counts[$1.gid] ?? 0) }?.gid
+            // Relinking the same sheet keeps the edits waiting to be sent.
+            let kept = config?.link.sheetID == link.sheetID ? outbox : PlanOutbox()
             resetState()
+            outbox = kept
             tabCounts = counts
             var config = Config(link: link, title: meta.title.isEmpty ? "Delivery Plan" : meta.title, tabs: tabs)
             config.excluded = Set(tabs.map(\.gid).filter { $0 != chosen })
@@ -176,6 +179,8 @@ final class DeliveryPlanStore: ObservableObject {
             self.config = config
             saveConfig()
             lastMetadata = Date()
+            // Edits saved for this sheet before (linked earlier, or before quitting) go out too.
+            await loadOutbox()
             await refresh(adoptAsSeen: true)
         } catch {
             phase = .failed(Self.describe(error))
@@ -197,6 +202,7 @@ final class DeliveryPlanStore: ObservableObject {
         tables = [:]; lastValues = nil; qcTable = nil; outbox = PlanOutbox(); states = [:]; fileIndex = [:]; headers = [:]
         cellLists = [:]; frameioFolders = [:]; frameioExtras = []; foldersSaveTask?.cancel(); dismissedMismatches = []
         localExtras = []; changes = [:]; removed = []; editState = .idle; loadedFromDisk = false
+        statesRevision &+= 1   // the Summary mustn't show the old sheet's figures
     }
 
     func unlink() {
@@ -288,7 +294,7 @@ final class DeliveryPlanStore: ObservableObject {
         if rows.isEmpty || adoptAsSeen { phase = .loading }
         let started = Date()
         do {
-            if full || adoptAsSeen || Date().timeIntervalSince(lastMetadata) > 180 { config = try await readMetadata(config) }
+            if full || Date().timeIntervalSince(lastMetadata) > 180 { config = try await readMetadata(config) }
             var data: Data
             do {
                 data = try await api.values(config.link.sheetID, ranges: ranges(config))
@@ -329,7 +335,12 @@ final class DeliveryPlanStore: ObservableObject {
         }
     }
 
+    /// Bumped by each apply: a slower one that started earlier (the disk cache) mustn't overwrite a newer read.
+    private var applyGeneration = 0
+
     private func apply(tabs: [PlanTab], tables: [[[String]]], qc: [[String]]?, adoptAsSeen: Bool) async {
+        applyGeneration += 1
+        let generation = applyGeneration
         let oldRows = rows
         let parsed = await Task.detached(priority: .userInitiated) { () -> ([PlanRow], [String], [String: (line: Int, columns: [PlanField: Int])], PlanQCTab.Table?, Bool, Bool) in
             var all: [PlanRow] = []
@@ -354,6 +365,7 @@ final class DeliveryPlanStore: ObservableObject {
             let matchChanged = rowsChanged && all.map(\.matchSignature) != oldRows.map(\.matchSignature)
             return (all, unread, headers, qcTable, rowsChanged, matchChanged)
         }.value
+        guard generation == applyGeneration else { return }
         let (newRows, unread, newHeaders, newQC, rowsChanged, matchChanged) = parsed
         headers = newHeaders
         stampSheetsEdits(old: qcTable, new: newQC, adoptAsSeen: adoptAsSeen)
@@ -391,23 +403,46 @@ final class DeliveryPlanStore: ObservableObject {
     /// the values unformatted (or the last grid) until the layout has been read again. Layouts are read in the
     /// background every 5 minutes, and when rows or columns were added or removed.
     private func applyGrids(tabs: [PlanTab], tables newTables: [[[String]]]) async {
+        let generation = applyGeneration
+        let oldTables = tables
         for (tab, table) in zip(tabs, newTables) { tables[tab.gid] = table }
         let layouts = layouts
-        let built = await Task.detached(priority: .userInitiated) { () -> ([String: PlanGrid], [String]) in
+        let built = await Task.detached(priority: .userInitiated) { () -> ([String: PlanGrid], [String], [String: [ClosedRange<Int>]]) in
             var out: [String: PlanGrid] = [:]
             var stale: [String] = []
+            var changed: [String: [ClosedRange<Int>]] = [:]
             for (tab, table) in zip(tabs, newTables) {
                 guard let layout = layouts[tab.gid] else { out[tab.gid] = PlanGrid.fromTable(table); stale.append(tab.gid); continue }
                 // A layout of another size still shows the values it has cells for, until it's read again.
-                if !layout.fits(table) { stale.append(tab.gid) }
+                if !layout.fits(table) { stale.append(tab.gid) } else if let old = oldTables[tab.gid], old.count == table.count {
+                    // Same size, some values changed: their rows' formats are read again (conditional colours).
+                    let lines = PlanGrid.changedLines(old, table)
+                    if lines.count > 40 { stale.append(tab.gid) } else if !lines.isEmpty { changed[tab.gid] = lines }
+                }
                 out[tab.gid] = layout.withTexts(table)
             }
-            return (out, stale)
+            return (out, stale, changed)
         }.value
+        guard generation == applyGeneration else { return }
         readGrids = built.0
         publishGrids()
         let due = tabs.filter { tab in built.1.contains(tab.gid) || layoutRead[tab.gid].map { Date().timeIntervalSince($0) > 300 } ?? true }
         if !due.isEmpty, layoutTask == nil { layoutTask = Task { await self.readLayouts(due); self.layoutTask = nil } }
+        for tab in tabs where !due.contains(tab) {
+            if let lines = built.2[tab.gid] { Task { await self.readRowFormats(tab, lines: lines) } }
+        }
+    }
+
+    /// Re-reads the formats of rows whose values changed (a status set: Sheets' conditional formatting recolours the
+    /// cell) and lays them into the tab's layout. A few KB per row range, only after a read that changed them.
+    private func readRowFormats(_ tab: PlanTab, lines: [ClosedRange<Int>]) async {
+        guard let config, let data = try? await api.rowFormats(config.link.sheetID, tab: tab.name, rows: lines),
+              self.config?.link == config.link, let layout = layouts[tab.gid] else { return }
+        let patched = await Task.detached(priority: .userInitiated) { layout.patchingFormats(data) }.value
+        guard layouts[tab.gid] == layout else { return }   // re-read meanwhile: that one is newer
+        layouts[tab.gid] = patched
+        if let table = tables[tab.gid] { readGrids[tab.gid] = patched.withTexts(table) }
+        publishGrids()
     }
 
     /// Reads tabs' formatting and dropdown choices (one tab at a time, off the main thread). ~1–3 MB per 1,000-row
@@ -550,10 +585,11 @@ final class DeliveryPlanStore: ObservableObject {
         frameioFolders = folders.merging(frameioFolders) { _, listed in listed }
         if layouts.isEmpty { layouts = layoutCache }
         let tabs = config.included.filter { cache[$0.gid] != nil }
-        if !tabs.isEmpty, rows.isEmpty {
+        // Only before the first read of the sheet: the cache is older than any read.
+        if !tabs.isEmpty, rows.isEmpty, lastValues == nil {
             let planTables = tabs.map { cache[$0.gid]! }
             await apply(tabs: tabs, tables: planTables, qc: cache["qc"], adoptAsSeen: false)
-            if grids.isEmpty {
+            if grids.isEmpty, lastValues == nil {
                 for (tab, table) in zip(tabs, planTables) { tables[tab.gid] = table }
                 readGrids = Dictionary(uniqueKeysWithValues: zip(tabs, planTables).map { tab, table in
                     (tab.gid, layouts[tab.gid]?.withTexts(table) ?? PlanGrid.fromTable(table))
@@ -666,7 +702,11 @@ final class DeliveryPlanStore: ObservableObject {
     // MARK: States
 
     /// Row states and the per-file index for Inspect. ~1 ms for 1,100 rows; publishes only what changed.
+    /// Bumped by every recompute of the states (the Summary rebuilds its figures only then).
+    private(set) var statesRevision = 0
+
     private func recomputeStates() {
+        statesRevision &+= 1
         let dates = Dictionary(files.compactMap { f in f.modified.map { (f.url, $0) } }, uniquingKeysWith: { a, _ in a })
         var newStates: [String: PlanRowState] = [:]
         var index: [URL: PlanFileInfo] = [:]
@@ -739,7 +779,7 @@ final class DeliveryPlanStore: ObservableObject {
                 }
                 // Only for rows checked here (a file on this Mac, or marked Needs Fix): on a machine without the files a
                 // linked row is just Missing locally, not uploaded too early.
-                if [.toQC, .check, .wrongSpec, .needsFix].contains(state.state), !result.files.isEmpty || state.state == .needsFix {
+                if [.toQC, .check, .needsFix].contains(state.state), !result.files.isEmpty || state.state == .needsFix {
                     found.append((.early, "On Frame.io before passing QC."))
                 }
             } else if tracksFrameIO, state.state.isDone {
@@ -836,6 +876,10 @@ final class DeliveryPlanStore: ObservableObject {
         let value = PlanGrid.normalized(batch)
         queueQC(rows.filter { ids.contains($0.id) }) { item in item[.batch] = value }
     }
+
+    /// QC Updated as shown (a pending edit wins).
+    func qcUpdated(_ row: PlanRow) -> String { shown(.qcUpdated, row) }
+    func qcStatusText(_ row: PlanRow) -> String { shown(.qcStatus, row) }
 
     /// The batch as shown (a pending edit wins), normalised; "" when none.
     func batch(_ row: PlanRow) -> String {
@@ -1415,17 +1459,25 @@ final class DeliveryPlanStore: ObservableObject {
         }
         flushing = true
         defer { flushing = false }
+        let before = outbox
         let id = config.link.sheetID
         let sentAt = Date()
         var refused: [String] = []
         do {
             if !records.isEmpty {
                 let data = try await api.values(id, ranges: [SheetsAPI.quoted(PlanQCTab.title)])
-                let table = try await Task.detached(priority: .userInitiated) { () -> PlanQCTab.Table? in
-                    PlanQCTab.parse(try SheetsAPI.tables(data).first ?? [])
+                let (table, hasValues) = try await Task.detached(priority: .userInitiated) { () -> (PlanQCTab.Table?, Bool) in
+                    let values = try SheetsAPI.tables(data).first ?? []
+                    return (PlanQCTab.parse(values), values.contains { $0.contains { !$0.isEmpty } })
                 }.value
                 var updates: [(range: String, values: [[String]])] = []
                 let current: PlanQCTab.Table
+                if table == nil, hasValues {
+                    // Something else is in row 1 (a title added above the header?): writing there would overwrite it.
+                    // Kept until the tab's first row is its header again.
+                    if loud { editState = .failed("Not saved yet: the QCpie tab's first row must be its header (Code, Deliverable, QC Status…).") }
+                    return
+                }
                 if let table { current = table } else {
                     // The header row was cleared: put it back.
                     updates.append((PlanQCTab.cell(row: 1, column: 0), [PlanQCTab.header]))
@@ -1488,6 +1540,8 @@ final class DeliveryPlanStore: ObservableObject {
                 scheduleFlush(after: retryDelay)
             }
         }
+        // Nothing sent or refused (offline, retrying): no save, recompute or read.
+        guard outbox != before else { return }
         saveOutbox()
         recomputeStates()
         publishGrids()
@@ -1568,8 +1622,10 @@ final class DeliveryPlanStore: ObservableObject {
     /// Adds the QCpie tab: one row per code with the values the plan tabs' QC columns hold today (plus edits waiting
     /// in the outbox), then turns those columns into lookups of it (cleared, one formula each, dropdowns removed, a
     /// warning when someone edits them in Sheets). The values are written before any column is cleared.
-    func setUpQCTab() async {
-        guard var config, !settingUpQCTab else { return }
+    /// Returns why it failed, nil when the tab is there.
+    @discardableResult
+    func setUpQCTab() async -> String? {
+        guard var config, !settingUpQCTab else { return nil }
         settingUpQCTab = true
         defer { settingUpQCTab = false }
         let id = config.link.sheetID
@@ -1578,10 +1634,11 @@ final class DeliveryPlanStore: ObservableObject {
             if meta.tabs.contains(where: { $0.title == PlanQCTab.title }) {
                 config = try await readMetadata(config)
                 await refresh(full: true)
-                return
+                return nil
             }
             let tabs = meta.tabs.filter { $0.title != PlanQCTab.title }
             let data = try await api.values(id, ranges: tabs.map { SheetsAPI.quoted($0.title) })
+            let pendingAt = Date()
             let pending = outbox.records.values.map { PlanQCTab.Change(code: $0.code, name: $0.name, values: $0.fields) }
             let plan = try await Task.detached(priority: .userInitiated) { try Self.qcTabPlan(tabs: tabs, tables: SheetsAPI.tables(data), pending: pending) }.value
 
@@ -1594,7 +1651,7 @@ final class DeliveryPlanStore: ObservableObject {
             let body = try JSONSerialization.data(withJSONObject: ["requests": Self.qcTabRequests(plan, sheetID: gidNumber)])
             _ = try await api.batchUpdate(id, body: body)
             // Waiting edits are in the tab now.
-            outbox.written(codes: pending.map(\.code), cells: [], sentAt: Date())
+            outbox.written(codes: pending.map(\.code), cells: [], sentAt: pendingAt)
             saveOutbox()
             config.qcTab = String(gidNumber)
             lastValues = nil
@@ -1602,9 +1659,12 @@ final class DeliveryPlanStore: ObservableObject {
             editState = .saved
             await refresh(full: true)
             scheduleFlush(after: 0)
+            return nil
         } catch {
             if case GoogleAuth.Failure.signedOut = error { GoogleAccount.shared.noteSignedOut() }
-            editState = .failed("Couldn't set up the QCpie tab: \(Self.describe(error))")
+            let message = "Couldn't set up the QCpie tab: \(Self.describe(error))"
+            editState = .failed(message)
+            return message
         }
     }
 

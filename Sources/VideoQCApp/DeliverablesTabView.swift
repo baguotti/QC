@@ -236,7 +236,7 @@ extension ContentView {
 
     /// A spec mismatch Inspect shows (not dismissed), or a plan state that needs a look.
     private func needsAttention(_ url: URL, assets: [URL: DeliverableAsset]) -> Bool {
-        if let state = planFiles[url]?.state, [.wrongSpec, .check, .needsFix].contains(state) { return true }
+        if let state = planFiles[url]?.state, [.check, .needsFix].contains(state) { return true }
         guard let asset = assets[url] else { return false }
         return (asset.validation.hasAnyMismatch || specsState.hasSubtitleMismatch(url)) && !specsState.isMismatchDismissed(for: url)
     }
@@ -2026,7 +2026,7 @@ enum InspectGrouping: String, CaseIterable {
     var needsPlan: Bool { self == .batch || self == .status || self == .channel }
 
     /// Status groups, problems first: what needs a look, then what's waiting, then what's done.
-    static let statusOrder: [PlanState] = [.wrongSpec, .needsFix, .check, .toQC, .missing, .onHold, .passed, .approved, .delivered, .dropped]
+    static let statusOrder: [PlanState] = [.needsFix, .check, .toQC, .missing, .onHold, .passed, .approved, .delivered, .dropped]
 }
 
 extension ContentView {

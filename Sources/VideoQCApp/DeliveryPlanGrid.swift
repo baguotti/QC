@@ -102,7 +102,8 @@ extension PlanGrid {
         for merge in (sheet["merges"] as? [[String: Any]]) ?? [] {
             let r0 = merge["startRowIndex"] as? Int ?? 0, r1 = merge["endRowIndex"] as? Int ?? 0
             let c0 = merge["startColumnIndex"] as? Int ?? 0, c1 = merge["endColumnIndex"] as? Int ?? 0
-            guard r1 > r0, c1 > c0 else { continue }
+            // Merges can sit below or right of the values (formatting only): those don't touch the grid.
+            guard r1 > r0, c1 > c0, r0 < height, c0 < width else { continue }
             let rows = (r0..<r1).filter(visibleRowSet.contains).count
             let columns = (c0..<c1).filter { viewColumn[$0] != nil }.count
             spans[r0, default: [:]][c0] = (max(1, rows), max(1, columns))
@@ -120,10 +121,7 @@ extension PlanGrid {
             for (view, c) in sheetColumns.enumerated() {
                 if covered.contains(r * 100_000 + c) { continue }
                 let text = c < table[r].count ? table[r][c] : ""
-                var style = c < values.count ? Self.style(values[c]["effectiveFormat"] as? [String: Any]) : PlanGridStyle()
-                // Sheets right-aligns numbers that have no alignment of their own.
-                if c < values.count, (values[c]["effectiveFormat"] as? [String: Any])?["horizontalAlignment"] == nil,
-                   Double(text.replacingOccurrences(of: ",", with: "")) != nil { style.align = .right }
+                let style = Self.cellStyle(c < values.count ? values[c] : nil, text: text)
                 let index: Int
                 if let known = styleIndex[style] { index = known } else { index = styles.count; styles.append(style); styleIndex[style] = index }
                 let span = spans[r]?[c]
@@ -162,6 +160,52 @@ extension PlanGrid {
             }
         }
         return grid
+    }
+
+    /// A cell's style from its grid data; Sheets right-aligns numbers that have no alignment of their own.
+    static func cellStyle(_ cell: [String: Any]?, text: String) -> PlanGridStyle {
+        let format = cell?["effectiveFormat"] as? [String: Any]
+        var style = Self.style(format)
+        if cell != nil, format?["horizontalAlignment"] == nil, Double(text.replacingOccurrences(of: ",", with: "")) != nil { style.align = .right }
+        return style
+    }
+
+    /// The formats of some rows re-read (`SheetsAPI.rowFormats`), laid into this layout: conditional formatting
+    /// (a status cell's colour) follows the values.
+    func patchingFormats(_ data: Data) -> PlanGrid {
+        guard let sheetColumns,
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let sheet = (json["sheets"] as? [[String: Any]])?.first,
+              let ranges = sheet["data"] as? [[String: Any]] else { return self }
+        var grid = self
+        var index = Dictionary(grid.styles.enumerated().map { ($1, $0) }, uniquingKeysWith: { a, _ in a })
+        var rowAt: [Int: Int] = [:]
+        for (i, row) in grid.rows.enumerated() { rowAt[row.line] = i }
+        for range in ranges {
+            let start = range["startRow"] as? Int ?? 0
+            for (offset, row) in ((range["rowData"] as? [[String: Any]]) ?? []).enumerated() {
+                guard let i = rowAt[start + offset + 1] else { continue }
+                let values = row["values"] as? [[String: Any]] ?? []
+                for j in grid.rows[i].cells.indices {
+                    let c = sheetColumns[grid.rows[i].cells[j].column]
+                    let style = Self.cellStyle(c < values.count ? values[c] : nil, text: grid.rows[i].cells[j].text)
+                    let n: Int
+                    if let known = index[style] { n = known } else { n = grid.styles.count; grid.styles.append(style); index[style] = n }
+                    grid.rows[i].cells[j].style = n
+                }
+            }
+        }
+        return grid
+    }
+
+    /// 0-based rows whose values differ between two reads of the same size, as 1-based line ranges.
+    static func changedLines(_ old: [[String]], _ new: [[String]]) -> [ClosedRange<Int>] {
+        var ranges: [ClosedRange<Int>] = []
+        for r in 0..<min(old.count, new.count) where old[r] != new[r] {
+            let line = r + 1
+            if let last = ranges.last, last.upperBound == line - 1 { ranges[ranges.count - 1] = last.lowerBound...line } else { ranges.append(line...line) }
+        }
+        return ranges
     }
 
     private static func rgb(_ value: Any?) -> UInt32? {

@@ -49,6 +49,21 @@ struct DeliveryPlanSheetsTests {
         #expect(PlanGrid.fromSheets(layout: Data("{}".utf8), table: Self.table) == nil)
     }
 
+    @Test("Changed rows get their formats read again (conditional colours follow the values)")
+    func rowFormats() throws {
+        let grid = try #require(PlanGrid.fromSheets(layout: Data(Self.layout.utf8), table: Self.table))
+        var newer = Self.table
+        newer[2][2] = "16"
+        #expect(PlanGrid.changedLines(Self.table, newer) == [3...3])
+        #expect(PlanGrid.changedLines([["a"], ["b"], ["c"], ["d"]], [["x"], ["y"], ["c"], ["z"]]) == [1...2, 4...4])
+        // Row 3 turned green by a rule: only its cells change style.
+        let reply = #"{"sheets":[{"data":[{"startRow":2,"rowData":[{"values":[{},{},{"effectiveFormat":{"backgroundColor":{"red":0,"green":1,"blue":0}}}]}]}]}]}"#
+        let patched = grid.withTexts(newer).patchingFormats(Data(reply.utf8))
+        #expect(patched.styles[patched.rows[2].cells[0].style].background == 0x00FF00)
+        #expect(patched.rows[0].cells.map(\.style) == grid.rows[0].cells.map(\.style))
+        #expect(patched.rows[1].cells.map(\.style) == grid.rows[1].cells.map(\.style))
+    }
+
     @Test("Dropdowns: lists by column, ranges to read")
     func validations() {
         let json = #"{"sheets":[{"data":[{"rowData":[{"values":[{},{"dataValidation":{"condition":{"type":"ONE_OF_LIST","values":[{"userEnteredValue":"Yes"},{"userEnteredValue":" No "}]}}},{"dataValidation":{"condition":{"type":"ONE_OF_RANGE","values":[{"userEnteredValue":"=Lists!A1:A5"}]}}}]}]}]}]}"#
@@ -112,7 +127,7 @@ extension DeliveryPlanSheetsTests {
         #expect(plan.lookups.map { "\($0.title):\($0.field.rawValue):\($0.column):\($0.firstRow)" }
                 == ["Placement:qcStatus:3:2", "Placement:qcUpdated:4:2", "Placement:batch:5:2", "Edits:qcStatus:3:3", "Edits:qcUpdated:4:3"])
         #expect(PlanQCTab.formula(.qcStatus, codeColumn: 0, firstRow: 3)
-                == #"=ARRAYFORMULA(IF(LEN(A3:A), IFERROR(VLOOKUP(A3:A, 'QCpie'!$A:$Z, MATCH("QC Status", 'QCpie'!$1:$1, 0), FALSE)&"", ""), ""))"#)
+                == #"=ARRAYFORMULA(IF(LEN(A3:A), IFERROR(VLOOKUP(A3:A&"", 'QCpie'!$A:$Z, MATCH("QC Status", 'QCpie'!$1:$1, 0), FALSE)&"", ""), ""))"#)
 
         let requests = DeliveryPlanStore.qcTabRequests(plan, sheetID: 77)
         // addSheet, values, bold header, dropdown, then a lookup and a warning per column: one atomic batch.
@@ -151,7 +166,12 @@ extension DeliveryPlanSheetsTests {
         box.add(cell)
         box.add(PlanOutbox.Cell(gid: "1", line: 2, column: 1, sheetColumn: 2, code: "KL1", header: "Length", value: "25s", expect: "15s", changed: t0))
         #expect(box.cells.count == 1 && box.cellOverlay(gid: "1") == [DeliveryPlanStore.CellKey(line: 2, column: 1): "25s"])
-        box.drop(codes: ["KL2"], cells: Set(box.cells.map(\.id)), sentAt: t0.addingTimeInterval(10))
+        // Refused for good: dropped, but a record already written stays until a read shows it.
+        box.set(code: "KL4", name: "D", [.qcNote: "n"], quiet: true, at: t0)
+        box.written(codes: ["KL4"], cells: [], sentAt: t0.addingTimeInterval(1), at: t0.addingTimeInterval(2))
+        box.drop(codes: ["KL2", "KL4"], cells: Set(box.cells.map(\.id)), sentAt: t0.addingTimeInterval(10))
+        #expect(box.records.keys.sorted() == ["kl4"] && box.cells.isEmpty)
+        box.settle(readStart: t0.addingTimeInterval(3))
         #expect(box.isEmpty)
         // Saved and read back.
         box.set(code: "KL3", name: "C", [.frameio: "u"], quiet: true, at: t0)
@@ -237,4 +257,36 @@ final class StubSheets: URLProtocol, @unchecked Sendable {
         client?.urlProtocolDidFinishLoading(self)
     }
     override func stopLoading() {}
+}
+
+extension DeliveryPlanSheetsTests {
+    @Test("Summary: states, batches, Frame.io as the filters count them, newest reviews once per code")
+    func summary() {
+        let csv = """
+        "Code","File Name","Channel"
+        "KL1","A_KL1","Web"
+        "KL2","B_KL2","Social"
+        "KL3","C_KL3","Social"
+        "KL1","A_KL1","Web"
+        """
+        let rows = PlanParser.rows(csv: csv, tab: "P")
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        let states: [PlanState] = [.approved, .missing, .dropped, .approved]
+        let stamps = [PlanStatusResolver.stamp(now.addingTimeInterval(-60), by: "Ric"), "", "",
+                      PlanStatusResolver.stamp(now.addingTimeInterval(-60), by: "Ric")]
+        let index = Dictionary(uniqueKeysWithValues: rows.enumerated().map { ($1.id, $0) })
+        let summary = PlanSummary.build(
+            rows: rows, batchNames: ["1"],
+            state: { r in var s = PlanRowState(state: states[index[r.id]!]); if index[r.id]! == 2 { s.upload = .uploaded }; return s },
+            batch: { index[$0.id]! == 0 ? "1" : "" },
+            status: { index[$0.id]! == 0 || index[$0.id]! == 3 ? "Approved" : "" },
+            updated: { stamps[index[$0.id]!] }, now: now)
+        #expect(summary.total == 4 && summary.done == 2 && summary.dropped == 1 && summary.live == 3)
+        #expect(summary.batches.map(\.name) == ["1", ""] && summary.batches[0].done == 1)
+        #expect(summary.channels.map(\.name) == ["Social", "Web"])
+        // Dropped rows count too: the Frame.io filter shows them.
+        #expect(summary.uploads.on == 1 && summary.uploads.none == 3)
+        // KL1 is listed twice: one review.
+        #expect(summary.recent.map(\.code) == ["KL1"] && summary.reviewedToday == 1 && summary.recent[0].who == "Ric")
+    }
 }

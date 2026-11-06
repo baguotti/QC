@@ -43,6 +43,8 @@ actor GoogleAuth {
     nonisolated static var redirectURI: String { callbackScheme + ":/oauth2redirect" }
 
     private var tokens: Tokens?
+    /// Bumped on sign-in and sign-out: a refresh that started before either is thrown away.
+    private var generation = 0
     private var loaded = false
     private var refreshing: Task<Tokens, Error>?
     private let session: URLSession
@@ -84,6 +86,7 @@ actor GoogleAuth {
             "code_verifier": verifier, "redirect_uri": Self.redirectURI,
         ], keeping: nil)
         loaded = true
+        generation += 1
         save()
     }
 
@@ -92,12 +95,14 @@ actor GoogleAuth {
             var request = URLRequest(url: URL(string: "https://oauth2.googleapis.com/revoke")!)
             request.httpMethod = "POST"
             request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
-            request.httpBody = Data("token=\(token)".utf8)
+            request.httpBody = Data("token=\(Self.formEncode(token))".utf8)
             let session = session
             Task.detached { _ = try? await session.data(for: request) }
         }
         tokens = nil
         loaded = true
+        generation += 1
+        refreshing = nil
         try? FileManager.default.removeItem(at: Self.tokenFile)
     }
 
@@ -108,20 +113,36 @@ actor GoogleAuth {
         load()
         guard let current = tokens else { throw Self.isConfigured ? Failure.signedOut : Failure.notConfigured }
         if !forceRefresh, current.expires.timeIntervalSinceNow > 60 { return current.access }
-        if let refreshing { return try await refreshing.value.access }
-        guard let refresh = current.refresh else { tokens = nil; save(); throw Failure.signedOut }
-        let task = Task { try await self.requestTokens(["grant_type": "refresh_token", "client_id": Self.clientID, "refresh_token": refresh], keeping: current) }
-        refreshing = task
-        defer { refreshing = nil }
-        do {
-            tokens = try await task.value
-            save()
-            return tokens!.access
-        } catch Failure.denied {
-            // Revoked or expired refresh token: signed out (an offline Mac keeps its tokens: URL errors aren't `denied`).
+        if let refreshing {
+            do { return try await refreshing.value.access } catch Failure.denied { throw Failure.signedOut }
+        }
+        guard let refresh = current.refresh else {
             tokens = nil
             try? FileManager.default.removeItem(at: Self.tokenFile)
             throw Failure.signedOut
+        }
+        let started = generation
+        let task = Task { try await self.requestTokens(["grant_type": "refresh_token", "client_id": Self.clientID, "refresh_token": refresh], keeping: current) }
+        refreshing = task
+        do {
+            let fresh = try await task.value
+            if refreshing == task { refreshing = nil }
+            // Signed out or in again meanwhile: this refresh belongs to the old sign-in.
+            guard generation == started else { throw Failure.signedOut }
+            tokens = fresh
+            save()
+            return fresh.access
+        } catch Failure.denied {
+            if refreshing == task { refreshing = nil }
+            // Revoked or expired refresh token: signed out (an offline Mac keeps its tokens: URL errors aren't `denied`).
+            if generation == started {
+                tokens = nil
+                try? FileManager.default.removeItem(at: Self.tokenFile)
+            }
+            throw Failure.signedOut
+        } catch {
+            if refreshing == task { refreshing = nil }
+            throw error
         }
     }
 

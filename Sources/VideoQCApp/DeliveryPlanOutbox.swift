@@ -73,12 +73,13 @@ struct PlanOutbox: Codable, Equatable, Sendable {
         for i in cells.indices where ids.contains(cells[i].id) && cells[i].changed <= sentAt { cells[i].written = now }
     }
 
+    /// Refused for good: dropped, unless already written (a read will show those) or changed since they were sent.
     mutating func drop(codes: [String], cells ids: Set<UUID>, sentAt: Date) {
         for code in codes {
             let key = code.lowercased()
-            if let record = records[key], record.changed <= sentAt { records[key] = nil }
+            if let record = records[key], record.changed <= sentAt, record.written == nil { records[key] = nil }
         }
-        cells.removeAll { ids.contains($0.id) && $0.changed <= sentAt }
+        cells.removeAll { ids.contains($0.id) && $0.changed <= sentAt && $0.written == nil }
     }
 
     /// A read that started at `readStart` came back: written edits older than it are in it, so they leave.

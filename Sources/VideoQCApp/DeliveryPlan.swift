@@ -709,13 +709,13 @@ enum PlanQCStatus: String, CaseIterable, Sendable, Codable {
 
 /// One status per row: the manual one when set, else what the files say.
 enum PlanState: Int, CaseIterable, Sendable, Hashable {
-    case missing, toQC, wrongSpec, check, needsFix, passed, approved, delivered, onHold, dropped
+    /// Wrong Spec (a spec that doesn't match) and an unsure match both read as Check: the row's flags say which.
+    case missing, toQC, check, needsFix, passed, approved, delivered, onHold, dropped
 
     var title: String {
         switch self {
         case .missing: return "Missing"
         case .toQC: return "To QC"
-        case .wrongSpec: return "Wrong Spec"
         case .check: return "Check"
         case .needsFix: return "Needs Fix"
         case .passed: return "QC Passed"
@@ -853,13 +853,12 @@ enum PlanStatusResolver {
             switch match {
             case .missing: return PlanRowState(state: .missing)
             case .delivered: return PlanRowState(state: .toQC)
-            case .wrongSpec: return PlanRowState(state: .wrongSpec)
-            case .check: return PlanRowState(state: .check)
+            case .wrongSpec, .check: return PlanRowState(state: .check)
             }
         }
         if manual == .onHold || manual == .dropped { return PlanRowState(state: manual.state) }
         if let set = date(fromStamp: updated), let newest = fileDates.max(), newest > set.addingTimeInterval(2) {
-            return PlanRowState(state: match == .wrongSpec ? .wrongSpec : .toQC,
+            return PlanRowState(state: match == .wrongSpec ? .check : .toQC,
                                 flags: ["New file since “\(manual.title)” (\(updated))."])
         }
         var flags: [String] = []

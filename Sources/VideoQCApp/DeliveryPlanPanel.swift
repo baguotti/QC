@@ -35,7 +35,11 @@ struct DeliveryPlanPanel: View {
     @State private var selectedRow: String? = nil
     @State private var relinking = false
     /// "sheet" (the tab as Google Sheets draws it) or "list" (one card per deliverable).
+    /// "summary": where the delivery stands (`PlanSummaryView`).
     @AppStorage("deliveryPlanView") private var viewMode = "sheet"
+    /// The Sheet or List view the Summary's clicks open.
+    @AppStorage("deliveryPlanDataView") private var dataView = "sheet"
+    @State private var planSummary = PlanSummaryCache()
     @AppStorage("deliveryPlanZoom") private var zoom = 1.0
     /// The tab the Sheet view shows when more than one is read.
     @State private var sheetTab: String? = nil
@@ -215,18 +219,25 @@ struct DeliveryPlanPanel: View {
     private var planView: some View {
         let rows = store.rows
         let match = store.match
-        let counts = Dictionary(grouping: rows, by: { store.state($0).state }).mapValues(\.count)
         return VStack(spacing: 0) {
             toolbar
-            VStack(alignment: .leading, spacing: 8) {
-                chips(counts: counts, total: rows.count)
-                searchBar
+            if viewMode != "summary" {
+                // Counted only where the chips show (the Summary has its own cached figures).
+                let counts = Dictionary(grouping: rows, by: { store.state($0).state }).mapValues(\.count)
+                VStack(alignment: .leading, spacing: 8) {
+                    chips(counts: counts, total: rows.count)
+                    searchBar
+                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
             }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 8)
             Rectangle().fill(palette.borderLine).frame(height: 1)
             if rows.isEmpty {
                 emptyRows
+            } else if viewMode == "summary" {
+                PlanSummaryView(summary: planSummary.summary(store), showsFrameIO: store.hasFrameIOColumn,
+                                mismatches: store.planCounts.mismatches, isLightMode: isLightMode, open: openFromSummary)
+                    .equatable()
             } else if viewMode == "sheet" {
                 sheetArea(rows: rows, match: match)
             } else {
@@ -330,13 +341,15 @@ struct DeliveryPlanPanel: View {
                 .tip("Zoom the sheet.")
             }
             Picker("", selection: $viewMode) {
+                Image(systemName: "chart.bar.xaxis").tag("summary")
                 Image(systemName: "tablecells").tag("sheet")
                 Image(systemName: "list.bullet").tag("list")
             }
             .pickerStyle(.segmented)
             .labelsHidden()
             .fixedSize()
-            .tip("Show the plan as the sheet looks in Google Sheets, or as a list of deliverables.")
+            .onChange(of: viewMode) { _, mode in if mode != "summary" { dataView = mode } }
+            .tip("Show where the delivery stands, the plan as the sheet looks in Google Sheets, or a list of deliverables.")
         }
     }
 
@@ -498,6 +511,23 @@ struct DeliveryPlanPanel: View {
     }
 
     /// A row clicked in the plan: Inspect selects its files (or nothing, for a row without one); double-click plays.
+    /// A Summary figure was clicked: its rows in the Sheet or List view, with only that filter on.
+    private func openFromSummary(_ target: PlanSummaryTarget) {
+        statusFilter = nil; batchFilter = nil; uploadFilter = nil; changedOnly = false; search = ""
+        switch target {
+        case .state(let state): statusFilter = state
+        case .batch(let batch): batchFilter = batch
+        case .channel(let channel): search = channel
+        case .upload(let filter): uploadFilter = filter
+        case .row(let id):
+            if let row = store.rows.first(where: { $0.id == id }) {
+                if let tab = store.config?.tabs.first(where: { $0.name == row.tab }) { sheetTab = tab.gid }
+                select(row, match: store.match, play: false)
+            }
+        }
+        viewMode = dataView == "list" ? "list" : "sheet"
+    }
+
     private func select(_ row: PlanRow, match: PlanMatch, play: Bool) {
         selectedRow = row.id
         store.focusedRowID = row.id
@@ -646,7 +676,8 @@ struct DeliveryPlanPanel: View {
                     noteDraft = store.note(row)
                     noteRowID = new
                 }
-                .onChange(of: store.note(row)) { _, new in noteDraft = new }
+                // A read while typing mustn't replace the text being typed.
+                .onChange(of: store.note(row)) { _, new in if !noteFocused { noteDraft = new } }
                 .focused($noteFocused)
                 .onSubmit { commitNote(row) }
                 // Clicking away saves; Esc (which the shortcut router turns into "unfocus") puts it back.
@@ -1158,7 +1189,6 @@ struct PlanRowView: View, Equatable {
         switch state {
         case .missing: tone = .grey
         case .toQC: tone = .blue
-        case .wrongSpec: tone = .red
         case .check: tone = .amber
         case .needsFix: tone = .orange
         case .passed: tone = .mint
@@ -1457,6 +1487,7 @@ struct PlanQCTabSetupSheet: View {
     let onClose: () -> Void
 
     @ObservedObject private var store = DeliveryPlanStore.shared
+    @State private var error: String?
     private var palette: StudioPalette { StudioPalette(isLightMode) }
 
     var body: some View {
@@ -1473,15 +1504,16 @@ struct PlanQCTabSetupSheet: View {
                 bullet("Turns those columns on the other tabs into lookups of the QCpie tab: they show the same values but can't be typed in (Sheets warns). Anything else typed in them is cleared.")
                 bullet("From then on, set statuses in QCpie or on the QCpie tab. Clients who can see the sheet can see the QCpie tab too.")
             }
-            if case .failed(let message) = store.editState {
-                Text(message).font(.ui(size: 11)).foregroundColor(palette.negative).fixedSize(horizontal: false, vertical: true)
+            if let error {
+                Text(error).font(.ui(size: 11)).foregroundColor(palette.negative).fixedSize(horizontal: false, vertical: true)
             }
             HStack {
                 Spacer()
                 Button("Cancel", action: onClose).keyboardShortcut(.cancelAction)
                 Button(store.settingUpQCTab ? "Setting Up…" : "Set Up") {
+                    error = nil
                     Task {
-                        await store.setUpQCTab()
+                        error = await store.setUpQCTab()
                         if store.hasQCTab { onClose() }
                     }
                 }

@@ -76,12 +76,22 @@ struct SheetsAPI: Sendable {
     }
 
     /// One tab's layout for the Sheet view: sizes, hidden rows/columns, merges, frozen rows and each cell's format.
+    static let cellFormat = "effectiveFormat(backgroundColor,horizontalAlignment,verticalAlignment,wrapStrategy,"
+        + "textFormat(foregroundColor,fontSize,bold,italic,underline,strikethrough),borders)"
+
     func layout(_ id: String, tab title: String) async throws -> Data {
-        let format = "effectiveFormat(backgroundColor,horizontalAlignment,verticalAlignment,wrapStrategy,"
-            + "textFormat(foregroundColor,fontSize,bold,italic,underline,strikethrough),borders)"
+        let format = Self.cellFormat
         let fields = "sheets(properties(gridProperties(frozenRowCount)),merges,data(rowMetadata(pixelSize,hiddenByUser,hiddenByFilter),"
             + "columnMetadata(pixelSize,hiddenByUser),rowData(values(\(format)))))"
         return try await send("GET", id, query: [.init(name: "ranges", value: Self.quoted(title)), .init(name: "fields", value: fields)])
+    }
+
+    /// The formats of some rows of a tab (`rows`: 1-based, inclusive ranges): conditional formatting follows the
+    /// values, so rows whose values changed are read again (a few KB) instead of the whole layout.
+    func rowFormats(_ id: String, tab title: String, rows: [ClosedRange<Int>]) async throws -> Data {
+        var query = rows.map { URLQueryItem(name: "ranges", value: "\(Self.quoted(title))!\($0.lowerBound):\($0.upperBound)") }
+        query.append(.init(name: "fields", value: "sheets(data(startRow,rowData(values(\(Self.cellFormat)))))"))
+        return try await send("GET", id, query: query)
     }
 
     /// The data validation of one row of a tab (dropdown choices), `row` 1-based.

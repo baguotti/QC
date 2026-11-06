@@ -195,7 +195,7 @@ extension DeliveryPlanTests {
         }
         #expect(r(.missing, files: false).state == .missing)
         #expect(r(.delivered).state == .toQC)
-        #expect(r(.wrongSpec).state == .wrongSpec && r(.check).state == .check)
+        #expect(r(.wrongSpec).state == .check && r(.check).state == .check)
         #expect(r(.delivered, qc: "QC Passed", updated: "2026-11-04 14:00:00 · Ric", dates: [set.addingTimeInterval(-60)]).state == .passed)
         let newer = r(.delivered, qc: "QC Passed", updated: "2026-11-04 14:00:00 · Ric", dates: [set.addingTimeInterval(600)])
         #expect(newer.state == .toQC && newer.flags.first?.contains("New file since") == true)
