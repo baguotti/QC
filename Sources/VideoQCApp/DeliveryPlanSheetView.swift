@@ -12,8 +12,10 @@ struct PlanSheetMark: Equatable {
     var changed: Bool
     /// Plan checks of the row's files: a ring around the dot (green all passed, red one failed).
     var checks: PlanChecksSummary.Result = .notRun
-    /// On Frame.io: a small arrow by the dot (amber when the local file changed after the upload).
+    /// On Frame.io: a small arrow by the dot.
     var upload: PlanUpload = .none
+    /// The plan, this Mac and Frame.io disagree: the arrow turns amber (outlined when the row isn't on Frame.io).
+    var mismatch = false
 }
 
 /// App colours for the chrome around the sheet (gutter, column letters, selection). The cells use the sheet's own.
@@ -685,15 +687,16 @@ final class PlanSheetGutter: PlanSheetPart {
                 path.stroke()
             }
         }
-        if let mark, mark.upload != .none {
-            (mark.upload == .stale ? chrome.statusColors[.check] ?? chrome.accent : chrome.accent).setFill()
+        if let mark, mark.upload != .none || mark.mismatch {
+            let color = mark.mismatch ? chrome.statusColors[.check] ?? chrome.accent : chrome.accent
             let s: CGFloat = 3, x = rect.minX + 19, y = rect.midY
             let arrow = NSBezierPath()
             arrow.move(to: CGPoint(x: x, y: y - s))
             arrow.line(to: CGPoint(x: x + s, y: y + 1))
             arrow.line(to: CGPoint(x: x - s, y: y + 1))
             arrow.close()
-            arrow.fill()
+            color.setFill(); color.setStroke()
+            if mark.upload != .none { arrow.fill() } else { arrow.lineWidth = 1; arrow.stroke() }
             CGRect(x: x - 0.75, y: y + 1, width: 1.5, height: s).fill()
         }
         let right = NSMutableParagraphStyle()

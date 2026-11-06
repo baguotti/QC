@@ -310,8 +310,36 @@ extension DeliveryPlanTests {
     func uploadState() {
         #expect(PlanUpload.date("2026-11-05 10:42 UTC") == Date(timeIntervalSince1970: 1_793_875_320))
         #expect(PlanUpload.date("2026-11-05 10:42:00 UTC") != nil && PlanUpload.date("yesterday") == nil)
-        #expect(PlanUpload.uploaded.passes(1) && PlanUpload.stale.passes(1) && !PlanUpload.none.passes(1))
-        #expect(PlanUpload.none.passes(0) && !PlanUpload.uploaded.passes(0))
-        #expect(PlanUpload.stale.passes(2) && !PlanUpload.uploaded.passes(2))
+        func row(_ upload: PlanUpload) -> PlanRowState { PlanRowState(state: .toQC, upload: upload, mismatches: upload == .stale ? [.differs] : []) }
+        #expect(row(.uploaded).passes(1) && row(.stale).passes(1) && !row(.none).passes(1))
+        #expect(row(.none).passes(0) && !row(.uploaded).passes(0))
+        #expect(row(.stale).passes(2) && !row(.uploaded).passes(2))
     }
+}
+
+@Test func mismatchFilters() {
+    let differs = PlanRowState(state: .toQC, upload: .stale, mismatches: [.differs, .early])
+    #expect(differs.passes(1) && !differs.passes(0))
+    #expect(differs.passes(PlanMismatch.differs.rawValue) && differs.passes(PlanMismatch.early.rawValue))
+    #expect(!differs.passes(PlanMismatch.noLocalFile.rawValue))
+    let notUploaded = PlanRowState(state: .passed, mismatches: [.notUploaded])
+    #expect(notUploaded.passes(0) && notUploaded.passes(PlanMismatch.notUploaded.rawValue))
+    // Files: "here, not in the plan" passes only files without a row; row kinds need a row.
+    let extra = PlanFileInfo(code: "", line: 0, rowID: nil, state: nil)
+    #expect(extra.passes(PlanMismatch.localExtra.rawValue) && !extra.passes(0) && !extra.passes(PlanMismatch.differs.rawValue))
+    let file = PlanFileInfo(code: "KL1", line: 3, rowID: "r", state: .toQC, upload: .stale, mismatches: [.differs])
+    #expect(file.passes(PlanMismatch.differs.rawValue) && file.passes(1) && !file.passes(PlanMismatch.localExtra.rawValue))
+    #expect(PlanMismatch.filterTitle(0) == "Not on Frame.io" && PlanMismatch.filterTitle(6) == PlanMismatch.frameioExtra.title)
+}
+
+@Test func frameIOIDsMatchLinks() {
+    #expect(DeliveryPlanStore.frameIOID("https://next.frame.io/project/p1/view/ABC-1?share=x") == "abc-1")
+    #expect(DeliveryPlanStore.frameIOID("https://next.frame.io/project/p1/view/abc/") == "abc")
+    #expect(DeliveryPlanStore.frameIOID("") == nil)
+    // A stack is linked when a row links it or its current version.
+    let stack = DeliveryPlanStore.ListedFile(name: "A.mp4", url: "https://next.frame.io/project/p/view/s1", size: 10, head: "v9")
+    #expect(stack.isLinked(in: ["v9"]) && stack.isLinked(in: ["s1"]) && !stack.isLinked(in: ["v8"]))
+    // Saved before heads were recorded: still decodes.
+    let old = try? JSONDecoder().decode(DeliveryPlanStore.ListedFile.self, from: Data(#"{"name":"a","url":"u/x","size":1}"#.utf8))
+    #expect(old?.head == nil && old?.ids == ["x"])
 }

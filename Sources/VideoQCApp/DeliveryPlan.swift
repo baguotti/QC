@@ -721,20 +721,71 @@ struct PlanRowState: Equatable, Sendable {
     var state: PlanState
     var flags: [String] = []
     var upload: PlanUpload = .none
+    /// Where the row, this Mac's file and Frame.io disagree.
+    var mismatches: [PlanMismatch] = []
+
+    /// A Frame.io filter value (`PlanMismatch.filterTitle`): 0 not on Frame.io, 1 on, else a mismatch.
+    func passes(_ filter: Int) -> Bool {
+        switch filter {
+        case 0: return upload == .none
+        case 1: return upload != .none
+        default: return mismatches.contains { $0.rawValue == filter }
+        }
+    }
+}
+
+/// Where the plan, this Mac's files and Frame.io disagree. The row kinds come with each row's state; the two "not in
+/// the plan" kinds are files: local ones (Inspect's extras) and Frame.io ones (files in the plan's Frame.io folders that
+/// no row links to). Raw values are the Frame.io filter's values (0 and 1 are "not on" / "on Frame.io").
+enum PlanMismatch: Int, CaseIterable, Sendable {
+    case differs = 2, noLocalFile = 3, early = 4, notUploaded = 5, frameioExtra = 6, localExtra = 7
+
+    var title: String {
+        switch self {
+        case .differs: return "Frame.io Has Another Version"
+        case .noLocalFile: return "On Frame.io, No File Here"
+        case .early: return "On Frame.io Before QC"
+        case .notUploaded: return "Passed, Not on Frame.io"
+        case .frameioExtra: return "On Frame.io, Not in the Plan"
+        case .localExtra: return "Here, Not in the Plan"
+        }
+    }
+
+    var explanation: String {
+        switch self {
+        case .differs: return "The local file changed after its upload, or Frame.io's file is another size."
+        case .noLocalFile: return "Linked to a Frame.io file, but no file on this Mac matches the row."
+        case .early: return "On Frame.io while the row isn't QC Passed, Approved or Delivered yet."
+        case .notUploaded: return "QC Passed, Approved or Delivered, but the row has no Frame.io link."
+        case .frameioExtra: return "Files in the plan's Frame.io folders that no row links to."
+        case .localExtra: return "Inspect files that don't match any row."
+        }
+    }
+
+    /// Kinds a file on this Mac can have (Inspect's menu).
+    var isLocal: Bool { self == .differs || self == .early || self == .notUploaded || self == .localExtra }
+
+    /// Filter values → title: the two presence filters, then the mismatches.
+    static func filterTitle(_ value: Int) -> String {
+        switch value {
+        case 0: return "Not on Frame.io"
+        case 1: return "On Frame.io"
+        default: return PlanMismatch(rawValue: value)?.title ?? "Frame.io"
+        }
+    }
+}
+
+/// A file in the plan's Frame.io folders that no row links to, and why.
+struct PlanFrameIOExtra: Equatable, Sendable, Identifiable {
+    let name: String
+    let url: String
+    let note: String
+    var id: String { url }
 }
 
 /// Whether a row's file is on Frame.io (its Frame.io column), and whether the local file changed after the upload.
 enum PlanUpload: Int, Equatable, Sendable {
     case none = 0, uploaded = 1, stale = 2
-
-    /// Filter values (`uploadFilter`): 0 not on Frame.io, 1 on Frame.io (stale included), 2 changed since upload.
-    func passes(_ filter: Int) -> Bool {
-        switch filter {
-        case 0: return self == .none
-        case 1: return self != .none
-        default: return self == .stale
-        }
-    }
 
     /// "2026-11-05 10:42 UTC" (the Uploaded column) → date. Formatters are made once: this runs per linked row on
     /// every state recompute.
@@ -815,6 +866,14 @@ struct PlanFileInfo: Equatable, Sendable {
     /// The row's Frame.io link ("" when none).
     var frameio: String = ""
     var upload: PlanUpload = .none
+    var mismatches: [PlanMismatch] = []
+
+    /// The Frame.io filter on a file: "Here, Not in the Plan" passes files without a row; the rest need one.
+    func passes(_ filter: Int) -> Bool {
+        if filter == PlanMismatch.localExtra.rawValue { return rowID == nil }
+        guard rowID != nil else { return false }
+        return PlanRowState(state: state ?? .missing, upload: upload, mismatches: mismatches).passes(filter)
+    }
     /// The row's channel ("" when none), for Inspect's Group By.
     var channel: String = ""
     /// The row's values, lower-cased, for Inspect's search (channel, placement, resolution…).

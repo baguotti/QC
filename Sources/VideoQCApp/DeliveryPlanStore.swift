@@ -183,8 +183,12 @@ final class DeliveryPlanStore: ObservableObject {
         var batches: [PlanBatchFilter.Item] = []
         var unbatched = 0
         var uploads = (none: 0, on: 0, stale: 0)
+        /// Rows or files per mismatch, and how many rows / files have any.
+        var mismatches: [PlanMismatch: Int] = [:]
+        var mismatchTotal = 0
         static func == (a: PlanCounts, b: PlanCounts) -> Bool {
             a.batches == b.batches && a.unbatched == b.unbatched && a.uploads == b.uploads
+                && a.mismatches == b.mismatches && a.mismatchTotal == b.mismatchTotal
         }
     }
     @Published private(set) var planCounts = PlanCounts()
@@ -274,7 +278,7 @@ final class DeliveryPlanStore: ObservableObject {
             saveConfig()
             seen = [:]
             rows = []
-            grids = [:]; readGrids = [:]; pending = [:]; pendingQC = [:]; queuedQC = [:]; states = [:]; fileIndex = [:]; headers = [:]; scriptVersion = nil; lastCounter = nil; cellLists = [:]; lastListsSig = nil; listsReadSig = nil; deferredTracking = []
+            grids = [:]; readGrids = [:]; pending = [:]; pendingQC = [:]; queuedQC = [:]; states = [:]; fileIndex = [:]; headers = [:]; scriptVersion = nil; lastCounter = nil; cellLists = [:]; lastListsSig = nil; listsReadSig = nil; deferredTracking = []; frameioFolders = [:]; frameioExtras = []; foldersSaveTask?.cancel()
             changes = [:]
             removed = []
             await refresh(adoptAsSeen: true)
@@ -301,7 +305,7 @@ final class DeliveryPlanStore: ObservableObject {
         self.config = nil
         UserDefaults.standard.removeObject(forKey: Self.configKey)
         rows = []
-        grids = [:]; readGrids = [:]; pending = [:]; pendingQC = [:]; queuedQC = [:]; states = [:]; fileIndex = [:]; headers = [:]; scriptVersion = nil; lastCounter = nil; cellLists = [:]; lastListsSig = nil; listsReadSig = nil; deferredTracking = []
+        grids = [:]; readGrids = [:]; pending = [:]; pendingQC = [:]; queuedQC = [:]; states = [:]; fileIndex = [:]; headers = [:]; scriptVersion = nil; lastCounter = nil; cellLists = [:]; lastListsSig = nil; listsReadSig = nil; deferredTracking = []; frameioFolders = [:]; frameioExtras = []; foldersSaveTask?.cancel()
         match = .empty
         changes = [:]
         removed = []
@@ -592,16 +596,20 @@ final class DeliveryPlanStore: ObservableObject {
         guard !loadedFromDisk, let config else { return }
         loadedFromDisk = true
         let dir = Self.directory(config.link.sheetID)
-        let (cache, seen, gridCache) = await Task.detached(priority: .userInitiated) { () -> ([String: String], [String: SeenRow], [String: PlanGrid]) in
+        let (cache, seen, gridCache, folders) = await Task.detached(priority: .userInitiated) { () -> ([String: String], [String: SeenRow], [String: PlanGrid], [String: [ListedFile]]) in
             let cache = (try? Data(contentsOf: dir.appendingPathComponent("tabs.json")))
                 .flatMap { try? JSONDecoder().decode([String: String].self, from: $0) } ?? [:]
             let seen = (try? Data(contentsOf: dir.appendingPathComponent("seen.json")))
                 .flatMap { try? JSONDecoder().decode([String: SeenRow].self, from: $0) } ?? [:]
             let grids = (try? Data(contentsOf: dir.appendingPathComponent("grids.json")))
                 .flatMap { try? JSONDecoder().decode([String: PlanGrid].self, from: $0) } ?? [:]
-            return (cache, seen, grids)
+            let folders = (try? Data(contentsOf: dir.appendingPathComponent("frameio-folders.json")))
+                .flatMap { try? JSONDecoder().decode([String: [ListedFile]].self, from: $0) } ?? [:]
+            return (cache, seen, grids, folders)
         }.value
         self.seen = seen
+        // Listings that came in before this read are newer than the saved ones.
+        frameioFolders = folders.merging(frameioFolders) { _, listed in listed }
         let tabs = config.included.filter { cache[$0.gid] != nil }
         if !tabs.isEmpty, rows.isEmpty {
             let csvs = tabs.map { cache[$0.gid]! }
@@ -721,15 +729,41 @@ final class DeliveryPlanStore: ObservableObject {
         var perBatch: [String: (total: Int, done: Int, dropped: Int)] = [:]
         var uploads: [PlanUpload] = []
         uploads.reserveCapacity(rows.count)
-        for row in rows {
+        var mismatchCounts: [PlanMismatch: Int] = [:]
+        var mismatchTotal = 0
+        // Links first (pending writes win): the listed folders' extras and Frame.io's sizes depend on all of them.
+        let links = rows.map { row in
+            PlanGrid.normalized(row.code.flatMap { pendingQC[$0.lowercased()]?.values[.frameio] } ?? row.value(.frameio))
+        }
+        // By Frame.io id, not URL text: links pasted by hand can differ in form, and a row may link a stack's current
+        // version while the folder lists the stack.
+        let linked = Set(links.compactMap(Self.frameIOID))
+        var listed: [String: ListedFile] = [:]
+        var unlinked: [ListedFile] = []
+        for files in frameioFolders.values where files.contains(where: { $0.isLinked(in: linked) }) {
+            for file in files {
+                for id in file.ids { listed[id] = file }
+                if !file.isLinked(in: linked) { unlinked.append(file) }
+            }
+        }
+        var linkedCodes: [String: Bool] = [:]
+        if !unlinked.isEmpty {
+            for (row, link) in zip(rows, links) {
+                guard let code = row.code?.lowercased() else { continue }
+                linkedCodes[code] = (linkedCodes[code] ?? true) && !link.isEmpty
+            }
+        }
+        var extras = unlinked.map { PlanFrameIOExtra(name: $0.name, url: $0.url, note: extraNote($0.name, linkedCodes: linkedCodes)) }
+        extras.sort { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+        // "No file here" only on a Mac holding some of the plan's files (not one that only has other projects loaded).
+        let hasLocalFiles = files.count > match.extras.count, tracksFrameIO = hasFrameIOColumn
+        for (row, link) in zip(rows, links) {
             let result = match.result(row)
             let pending = row.code.flatMap { pendingQC[$0.lowercased()] }
             var state = PlanStatusResolver.resolve(match: result.status, hasFiles: !result.files.isEmpty,
                                                    qc: pending?.values[.qcStatus] ?? row.value(.qcStatus),
                                                    updated: pending?.values[.qcUpdated] ?? row.value(.qcUpdated),
                                                    fileDates: result.files.compactMap { dates[$0] })
-            // Pending writes are already in hand (`pending`): no per-field lookups.
-            let link = PlanGrid.normalized(pending?.values[.frameio] ?? row.value(.frameio))
             if !link.isEmpty {
                 state.upload = .uploaded
                 // The local file changed after the upload (a minute's grace: the upload stamp has no seconds).
@@ -738,13 +772,31 @@ final class DeliveryPlanStore: ObservableObject {
                    newest > when.addingTimeInterval(60) {
                     state.upload = .stale
                     state.flags.append("Changed after its upload to Frame.io (\(uploadedOn)): Frame.io has an older version.")
+                } else if result.files.count == 1, let local = result.files.first, QCUtilities.mediaKind(of: local) != .image,
+                          let remote = Self.frameIOID(link).flatMap({ listed[$0] }), remote.size > 0,
+                          let bytes = filesByURL[local]?.bytes, bytes > 0, bytes != remote.size,
+                          (remote.name as NSString).pathExtension.lowercased() == local.pathExtension.lowercased() {
+                    // Same kind of file, another size: Frame.io holds another version (or another file).
+                    state.upload = .stale
+                    state.flags.append("Frame.io's file is \(Self.byteText(remote.size)), this one \(Self.byteText(bytes)): Frame.io has another version.")
+                }
+                if state.state != .dropped, result.files.isEmpty, hasLocalFiles {
+                    state.mismatches.append(.noLocalFile)
+                    state.flags.append("On Frame.io, but no file on this Mac matches the row.")
                 }
                 // Only for rows checked here (a file on this Mac, or marked Needs Fix): on a machine without the files a
                 // linked row is just Missing locally, not uploaded too early.
                 if [.toQC, .check, .wrongSpec, .needsFix].contains(state.state), !result.files.isEmpty || state.state == .needsFix {
+                    state.mismatches.append(.early)
                     state.flags.append("On Frame.io before passing QC.")
                 }
+                if state.upload == .stale { state.mismatches.insert(.differs, at: 0) }
+            } else if tracksFrameIO, state.state.isDone {
+                state.mismatches.append(.notUploaded)
+                state.flags.append("\(state.state.title), but not on Frame.io.")
             }
+            for kind in state.mismatches { mismatchCounts[kind, default: 0] += 1 }
+            if !state.mismatches.isEmpty { mismatchTotal += 1 }
             newStates[row.id] = state
             let rowBatch = PlanGrid.normalized(pending?.values[.batch] ?? row.value(.batch))
             if !rowBatch.isEmpty { batchNames.insert(rowBatch) }
@@ -754,21 +806,26 @@ final class DeliveryPlanStore: ObservableObject {
             uploads.append(state.upload)
             for url in result.files where index[url] == nil {
                 index[url] = PlanFileInfo(code: row.code ?? "", line: row.line, rowID: row.id, state: state.state,
-                                          batch: rowBatch, frameio: link, upload: state.upload,
+                                          batch: rowBatch, frameio: link, upload: state.upload, mismatches: state.mismatches,
                                           channel: PlanGrid.normalized(row.value(.channel)), text: row.searchText)
             }
         }
         let sortedBatches = PlanBatch.sorted(batchNames)
         if sortedBatches != batches { batches = sortedBatches }
         // The filter menus' counts, once per recompute rather than on every redraw of the plan (each Inspect selection).
-        let counts = PlanCounts(
+        var counts = PlanCounts(
             batches: sortedBatches.map { name in
                 let c = perBatch[name] ?? (0, 0, 0)
                 return PlanBatchFilter.Item(name: name, count: c.total, done: c.done, live: c.total - c.dropped)
             },
             unbatched: perBatch[""]?.total ?? 0,
             uploads: PlanUploadFilter.counts(uploads))
+        if !extras.isEmpty { mismatchCounts[.frameioExtra] = extras.count }
+        if !match.extras.isEmpty { mismatchCounts[.localExtra] = match.extras.count }
+        counts.mismatches = mismatchCounts
+        counts.mismatchTotal = mismatchTotal + extras.count + match.extras.count
         if counts != planCounts { planCounts = counts }
+        if extras != frameioExtras { frameioExtras = extras }
         for url in match.extras { index[url] = PlanFileInfo(code: "", line: 0, rowID: nil, state: nil) }
         if newStates != states { states = newStates }
         if index != fileIndex { fileIndex = index }
@@ -857,6 +914,10 @@ final class DeliveryPlanStore: ObservableObject {
 
     private func rows(withCode code: String) -> [PlanRow] { rows.filter { $0.code?.lowercased() == code } }
 
+    nonisolated static func byteText(_ bytes: Int64) -> String {
+        ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file)
+    }
+
     /// "2026-11-05 10:42 UTC": the Uploaded column.
     nonisolated static func uploadStamp(_ date: Date) -> String {
         PlanUpload.stampFormatter.string(from: date) + " UTC"
@@ -907,19 +968,21 @@ final class DeliveryPlanStore: ObservableObject {
     /// Files listed on Frame.io (the browser, the favourites crawl): a row without a link gets the file whose name holds
     /// its code, when exactly one such file was in the listing (stacks: the stack, so the link survives new versions).
     /// Only into a sheet that has a Frame.io column, and never over a link already there.
-    func frameIOListed(_ items: [FrameIO.Item]) {
-        guard config?.writer != nil else { return }
+    func frameIOListed(_ items: [FrameIO.Item], folder: String?) {
+        guard config != nil else { return }
         // Browsing before the plan was opened this session: load its cached rows once, then look again.
         if rows.isEmpty, !loadedFromDisk {
-            Task { await self.loadCachedIfNeeded(); if !self.rows.isEmpty { self.frameIOListed(items) } }
+            Task { await self.loadCachedIfNeeded(); if !self.rows.isEmpty { self.frameIOListed(items, folder: folder) } }
             return
         }
+        recordListing(items, folder: folder)
+        guard config?.writer != nil else { return }
         // Found while browsing: only into a sheet that already has the column. Find Frame.io Links may add it.
         guard hasFrameIOColumn || searchingLinks, !rows.isEmpty else { return }
         // Only into a script known to write the Frame.io column (an older one answers "ok" and drops it). Listings can
         // come before any plan panel has asked the script its version (browsing in the Upload tab): ask, then go on.
         guard (scriptVersion ?? 0) >= 4 else {
-            if scriptVersion == nil { Task { if await self.trackingWritable() { self.frameIOListed(items) } } }
+            if scriptVersion == nil { Task { if await self.trackingWritable() { self.frameIOListed(items, folder: folder) } } }
             return
         }
         // Candidates per code: files whose name holds the code, plus files named exactly like a row without its code
@@ -982,6 +1045,73 @@ final class DeliveryPlanStore: ObservableObject {
         }
         // One recompute and redraw for the whole listing, not one per row.
         if queued { recomputeStates(); publishGrids() }
+    }
+
+    // MARK: Frame.io folders
+
+    /// A file seen in a Frame.io folder listing (stacks: the stack's link with its current version's name and size).
+    struct ListedFile: Codable, Equatable, Sendable {
+        let name: String
+        let url: String
+        let size: Int64
+        /// Stacks: the current version's id (a row may link the version rather than the stack).
+        var head: String? = nil
+        var ids: [String] { [DeliveryPlanStore.frameIOID(url), head].compactMap { $0 } }
+        func isLinked(in linked: Set<String>) -> Bool { ids.contains(where: linked.contains) }
+    }
+
+    /// The Frame.io id a link ends with ("…/view/<id>?…"), nil for an empty link.
+    nonisolated static func frameIOID(_ link: String) -> String? {
+        let path = link.split(separator: "?").first.map(String.init) ?? link
+        let id = path.split(separator: "/").last.map(String.init) ?? ""
+        return id.isEmpty ? nil : id.lowercased()
+    }
+    /// The files of listed Frame.io folders that hold plan files (a plan code or a linked file), by folder id: what
+    /// "On Frame.io, not in the plan" and Frame.io's file sizes come from. Replaced by each new listing of the folder,
+    /// saved with the plan.
+    private var frameioFolders: [String: [ListedFile]] = [:]
+    /// Files in the plan's Frame.io folders that no row links to (folders holding at least one linked file).
+    @Published private(set) var frameioExtras: [PlanFrameIOExtra] = []
+
+    private func recordListing(_ items: [FrameIO.Item], folder: String?) {
+        guard let folder = folder ?? items.first(where: { !$0.isFolder })?.parentID else { return }
+        let files = items.filter { !$0.isFolder }.compactMap { item -> ListedFile? in
+            guard let url = item.viewURL else { return nil }
+            return ListedFile(name: Self.listedName(item), url: PlanGrid.normalized(url), size: item.displaySize ?? 0,
+                              head: item.isVersionStack ? item.headVersion?.id.lowercased() : nil)
+        }
+        let links = Set(rows.compactMap { Self.frameIOID(frameioLink($0)) })
+        let holdsPlanFiles = files.contains { $0.isLinked(in: links) || !codes(inFileNamed: $0.name).isEmpty }
+        let next: [ListedFile]? = holdsPlanFiles ? files : nil
+        guard frameioFolders[folder] != next else { return }
+        frameioFolders[folder] = next
+        saveFrameIOFolders()
+        scheduleRecompute()
+    }
+
+    private var foldersSaveTask: Task<Void, Never>?
+    private func saveFrameIOFolders() {
+        guard let config else { return }
+        let dir = Self.directory(config.link.sheetID)
+        foldersSaveTask?.cancel()
+        foldersSaveTask = Task {
+            try? await Task.sleep(for: .seconds(2))
+            guard !Task.isCancelled else { return }
+            let folders = frameioFolders
+            await Task.detached(priority: .utility) {
+                try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+                if let data = try? JSONEncoder().encode(folders) { try? data.write(to: dir.appendingPathComponent("frameio-folders.json"), options: .atomic) }
+            }.value
+        }
+    }
+
+    /// Why a Frame.io file in a plan folder has no row: none has its code, its row links another file, or it's unlinked.
+    /// `linkedCodes`: lower-case code → whether every row with it has a link.
+    private func extraNote(_ name: String, linkedCodes: [String: Bool]) -> String {
+        guard let code = codes(inFileNamed: name).sorted().first else { return "No row has this file's code." }
+        return linkedCodes[code] == true
+            ? "Another file for \(code.uppercased()): its row links a different one."
+            : "Looks like \(code.uppercased())'s file: link it from the row."
     }
 
     /// When a listed item last reached Frame.io: a file's creation; a stack's last change (its newest version).
@@ -1092,7 +1222,18 @@ final class DeliveryPlanStore: ObservableObject {
 
     /// Frame.io files or stacks deleted (in the browser, or found gone): rows linked to them lose the link.
     func frameIOGone(_ ids: Set<String>) {
-        guard config?.writer != nil, !ids.isEmpty else { return }
+        guard !ids.isEmpty else { return }
+        // Out of the listed folders too, or the file would show as "on Frame.io, not in the plan" until relisted.
+        let goneIDs = Set(ids.map { $0.lowercased() })
+        var dropped = false
+        // By the item's own id: a stack's current version going doesn't take the stack with it.
+        func gone(_ file: ListedFile) -> Bool { Self.frameIOID(file.url).map(goneIDs.contains) ?? false }
+        for (folder, files) in frameioFolders where files.contains(where: gone) {
+            frameioFolders[folder] = files.filter { !gone($0) }
+            dropped = true
+        }
+        if dropped { saveFrameIOFolders(); scheduleRecompute() }
+        guard config?.writer != nil else { return }
         guard (scriptVersion ?? 0) >= 4 else {
             if scriptVersion == nil {
                 Task { if await self.trackingWritable() { self.frameIOGone(ids) } else { self.deferTracking { self.frameIOGone(ids) } } }

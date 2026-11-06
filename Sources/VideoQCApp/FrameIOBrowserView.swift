@@ -490,7 +490,7 @@ final class FrameIOBrowser: ObservableObject {
                 isLoading = false
                 isRestoringStart = false
                 if let account = crumbs.first?.id, crumbs.last?.level == .folder || crumbs.last?.level == .project {
-                    FrameIOCommentSync.shared.linkQueueClips(to: items, account: account)
+                    FrameIOCommentSync.shared.linkQueueClips(to: items, account: account, folder: crumbs.last?.listedFolder)
                 }
                 if crumbs.last?.level == .stack, let stack = crumbs.last { versionCounts[stack.id] = loaded.count }
                 loadVersionCounts(items.filter(\.isVersionStack))

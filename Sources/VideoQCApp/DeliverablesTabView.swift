@@ -252,7 +252,8 @@ extension ContentView {
         let live = total - (counts[.dropped] ?? 0) - (counts[nil] ?? 0)
         let palette = StudioPalette(isLightMode)
         let batchItems = summary.batches
-        return FlowChips(spacing: 2) {
+        return HStack(alignment: .top, spacing: 4) {
+        FlowChips(spacing: 2) {
             if live > 0 { PlanProgressMeter(done: done, live: live, isLightMode: isLightMode) }
             PlanFilterChip(title: "All", count: total, selected: inspectPlanFilter == -1, color: nil, isLightMode: isLightMode) {
                 inspectPlanFilter = -1
@@ -279,11 +280,19 @@ extension ContentView {
             // Shown with the plan's: when the sheet has a Frame.io column (read here, not observed: `planFiles` redraws).
             if DeliveryPlanStore.shared.hasFrameIOColumn || inspectPlanUpload != nil {
                 let counts = summary.uploads
-                PlanUploadFilter(none: counts.none, on: counts.on, stale: counts.stale, selection: $inspectPlanUpload, isLightMode: isLightMode)
+                PlanUploadFilter(none: counts.none, on: counts.on, selection: $inspectPlanUpload, isLightMode: isLightMode)
+            }
+            // Kinds a file here can have; files not in the plan have their own chip.
+            if DeliveryPlanStore.shared.hasFrameIOColumn || summary.mismatchTotal > 0 || (inspectPlanUpload ?? 0) > 1 {
+                PlanMismatchFilter(counts: summary.mismatches, total: summary.mismatchTotal,
+                                   kinds: PlanMismatch.allCases.filter { $0.isLocal && $0 != .localExtra },
+                                   selection: $inspectPlanUpload, isLightMode: isLightMode)
             }
         }
-        .planBarLinkMenu {
+        // No Spacer: FlowChips takes the width it's offered, and a Spacer would split it in half.
+        PlanFilterLinkToggle(isLightMode: isLightMode) { [specsState, inspectPlanFilter, inspectPlanBatch, inspectPlanUpload] in
             DeliveryPlanStore.SharedFilter(state: inspectPlanFilter, search: specsState.specsFilterText, batch: inspectPlanBatch, upload: inspectPlanUpload)
+        }
         }
     }
 
@@ -1082,7 +1091,7 @@ extension ContentView {
             planAllows: (filter == -1 && batch == nil && upload == nil) || files.isEmpty ? nil : { url in
                 let info = files[url]
                 if let batch, info?.rowID == nil || info?.batch != batch { return false }
-                if let upload, info?.rowID == nil || info?.upload.passes(upload) != true { return false }
+                if let upload, !(info?.passes(upload) ?? (upload == PlanMismatch.localExtra.rawValue)) { return false }
                 guard filter != -1 else { return true }
                 guard let info else { return filter == -2 }
                 return filter == -2 ? info.state == nil : info.state?.rawValue == filter
@@ -1960,6 +1969,9 @@ final class InspectPlanCounts {
         var states: [PlanState?: Int] = [:]
         var batches: [PlanBatchFilter.Item] = []
         var uploads = (none: 0, on: 0, stale: 0)
+        var mismatches: [PlanMismatch: Int] = [:]
+        /// Files with any mismatch (not-in-plan files count under their own chip).
+        var mismatchTotal = 0
     }
     private var key: (Int, Int)?
     private var cached = Summary()
@@ -1977,6 +1989,8 @@ final class InspectPlanCounts {
             if info.state?.isDone == true { done[info.batch, default: 0] += 1 }
             if info.state == .dropped { dropped[info.batch, default: 0] += 1 }
             uploads.append(info.upload)
+            for kind in info.mismatches { summary.mismatches[kind, default: 0] += 1 }
+            if !info.mismatches.isEmpty { summary.mismatchTotal += 1 }
         }
         let names = PlanBatch.sorted(total.keys) + (total[""] != nil ? [""] : [])
         summary.batches = names.map { PlanBatchFilter.Item(name: $0, count: total[$0] ?? 0, done: done[$0] ?? 0, live: (total[$0] ?? 0) - (dropped[$0] ?? 0)) }

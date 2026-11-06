@@ -104,8 +104,8 @@ actor FrameIOLinks {
     }
 
     /// Records the files of a listing (stacks: their current version) for matching clips by name and size later.
-    func remember(_ items: [FrameIO.Item], account: String) {
-        Task { @MainActor in DeliveryPlanStore.shared.frameIOListed(items) }
+    func remember(_ items: [FrameIO.Item], account: String, folder: String? = nil) {
+        Task { @MainActor in DeliveryPlanStore.shared.frameIOListed(items, folder: folder) }
         var seen = state.seen ?? [:]
         var changed = false
         for item in items where !item.isFolder {
@@ -496,8 +496,8 @@ final class FrameIOCommentSync: ObservableObject {
     /// A folder was listed in the browser: queue clips with the same name and size as a file there (a stack: its current
     /// version) are linked to it. The listing already has names and sizes, so this costs no API calls. The clip open in
     /// the Player is checked at once when it gets linked.
-    func linkQueueClips(to items: [FrameIO.Item], account: String) {
-        Task { await FrameIOLinks.shared.remember(items, account: account) }
+    func linkQueueClips(to items: [FrameIO.Item], account: String, folder: String?) {
+        Task { await FrameIOLinks.shared.remember(items, account: account, folder: folder) }
         guard FrameIOLinks.autoLink else { return }
         var clips: [String: [URL]] = [:]
         for job in UploadQueue.shared.jobs where job.files.count == 1 {
@@ -688,7 +688,7 @@ final class FrameIOCommentSync: ObservableObject {
             let (account, folder) = queue.removeFirst()
             guard visited.insert(folder).inserted else { continue }
             guard let items = try? await FrameIO.shared.children(account: account, folder: folder, thumbnails: false) else { continue }
-            await FrameIOLinks.shared.remember(items, account: account)
+            await FrameIOLinks.shared.remember(items, account: account, folder: folder)
             for (stack, head) in await FrameIOLinks.shared.updateHeads(items) where !Notifier.shared.ownUploads.contains(head.id) {
                 newVersions.append((stack.title, head.name ?? stack.title))
             }
