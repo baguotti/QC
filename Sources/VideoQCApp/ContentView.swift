@@ -847,8 +847,6 @@ struct ContentView: View {
     }
 
     
-    /// Width of the Specs tab's control panel.
-    static let specsPanelWidth: CGFloat = 380
     
     /// Window controls and the app's sections as plain labels (active: accent icon, bright bold text), like Premiere Pro.
     private var tabBarStrip: some View {

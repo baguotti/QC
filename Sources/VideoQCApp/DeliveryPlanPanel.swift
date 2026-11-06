@@ -1747,29 +1747,6 @@ struct PlanFilterLinkToggle: View {
     private static var other: String { "the other view (Delivery Plan ⇄ Inspect)" }
 }
 
-/// A filter bar menu's label: text, a small chevron, a dot when something needs a look.
-struct PlanBarMenuLabel: View {
-    let title: String
-    let active: Bool
-    var alert: Color? = nil
-    let isLightMode: Bool
-
-    var body: some View {
-        let palette = StudioPalette(isLightMode)
-        HStack(spacing: 3) {
-            Text(title)
-                .font(.ui(size: 10, weight: active ? .semibold : .medium))
-                .foregroundColor(active ? palette.textMain : palette.textMuted)
-            if let alert { Circle().fill(alert).frame(width: 5, height: 5) }
-            Image(systemName: "chevron.down")
-                .font(.system(size: StudioTheme.scaleFont(7), weight: .semibold))
-                .foregroundColor(palette.textSubtle)
-        }
-        .planBarItem(selected: active, palette: palette)
-    }
-}
-
-
 // MARK: - Batches
 
 /// The batch filter shared by the plan and Inspect: a chip-styled menu (All Batches, each batch with its progress,

@@ -113,8 +113,13 @@ struct ResizableSidePanel<Content: View>: View {
     }
 
     var body: some View {
+        // Its width is a preference, not a demand: when the window is too narrow for every column, the panel gives way
+        // down to its minimum (the content in the middle keeps the rest), and anything wider than the panel is cut on the
+        // side away from its edge instead of being centred and cut on both (content slid half out of the panel).
         content()
-            .frame(width: min(range.upperBound, max(range.lowerBound, width)))
+            .frame(minWidth: range.lowerBound, idealWidth: min(range.upperBound, max(range.lowerBound, width)),
+                   maxWidth: min(range.upperBound, max(range.lowerBound, width)), alignment: .leading)
+            .clipped()
             .overlay(alignment: edge == .trailing ? .trailing : .leading) {
                 PanelResizeHandle(width: $width, range: range, defaultWidth: defaultWidth, isLightMode: isLightMode,
                                   help: help, edge: edge == .trailing ? .trailing : .leading, reach: 6)

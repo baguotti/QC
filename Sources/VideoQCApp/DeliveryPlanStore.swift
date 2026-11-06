@@ -149,7 +149,6 @@ final class DeliveryPlanStore: ObservableObject {
     private var loadedFromDisk = false
     private let api = SheetsAPI.shared
 
-    static let refreshInterval: Duration = .seconds(60)
     private static let configKey = "deliveryPlanConfig"
 
     private init() {
@@ -1040,7 +1039,18 @@ final class DeliveryPlanStore: ObservableObject {
         return found
     }
 
-    private func rows(withCode code: String) -> [PlanRow] { rows.filter { $0.code?.lowercased() == code } }
+    /// Rows by lower-cased code, built once per set of rows: listings ask for every file's code (a filter over 1,100
+    /// rows each time added up).
+    private var rowsByCode: (version: Int, map: [String: [PlanRow]])?
+
+    private func rows(withCode code: String) -> [PlanRow] {
+        if rowsByCode?.version != rowsVersion {
+            var map: [String: [PlanRow]] = [:]
+            for row in rows { if let key = row.code?.lowercased() { map[key, default: []].append(row) } }
+            rowsByCode = (rowsVersion, map)
+        }
+        return rowsByCode?.map[code.lowercased()] ?? []
+    }
 
     nonisolated static func byteText(_ bytes: Int64) -> String {
         ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file)
@@ -1797,7 +1807,7 @@ final class DeliveryPlanStore: ObservableObject {
         undoValues = []
         undoTitle = nil
         for entry in entries {
-            guard let row = rows.first(where: { $0.code?.lowercased() == entry.code.lowercased() }) else { continue }   // row gone
+            guard let row = rows(withCode: entry.code).first else { continue }   // row gone
             queueQC([row], refresh: false, undoable: false, stamp: false) { $0 = entry.values }
         }
         recomputeStates()

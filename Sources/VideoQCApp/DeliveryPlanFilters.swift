@@ -116,5 +116,4 @@ struct PlanActiveFilterChip: View {
         .tip("Showing \(title) only. Click to remove this filter.")
     }
 
-    static func uploadTitle(_ value: Int) -> String { PlanMismatch.filterTitle(value) }
 }
