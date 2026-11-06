@@ -290,3 +290,35 @@ extension DeliveryPlanSheetsTests {
         #expect(summary.recent.map(\.code) == ["KL1"] && summary.reviewedToday == 1 && summary.recent[0].who == "Ric")
     }
 }
+
+extension DeliveryPlanSheetsTests {
+    @Test("Health: the badge names the most pressing problem first")
+    func health() {
+        var h = PlanHealth()
+        #expect(h.status(signedIn: false, hasQCTab: true).text == "Signed out")
+        #expect(h.status(signedIn: true, hasQCTab: true) == (.good, "Synced"))
+        #expect(h.status(signedIn: true, hasQCTab: false).text == "No QCpie tab")
+        h.waiting = 3
+        #expect(h.status(signedIn: true, hasQCTab: true) == (.busy, "Saving 3"))
+        h.retrying = true; h.writeError = "offline"
+        #expect(h.status(signedIn: true, hasQCTab: true) == (.warning, "3 waiting"))
+        h.canWrite = false
+        #expect(h.status(signedIn: true, hasQCTab: true).text == "View only")
+        h.readError = "403"
+        #expect(h.status(signedIn: true, hasQCTab: true) == (.problem, "Can't read"))
+    }
+}
+
+extension DeliveryPlanSheetsTests {
+    @Test("Frame.io folder: titled by project and folders, account and workspace left out")
+    func frameIORootTitle() {
+        let path: [FrameIOBrowser.Crumb] = [
+            .init(level: .account, id: "a", title: "Studio", folderID: nil),
+            .init(level: .workspace, id: "w", title: "Clients", folderID: nil),
+            .init(level: .project, id: "p", title: "KARL SS27", folderID: "root"),
+            .init(level: .folder, id: "f", title: "Deliveries", folderID: nil),
+        ]
+        #expect(DeliveryPlanStore.rootTitle(path) == "KARL SS27 › Deliveries")
+        #expect(PlanFrameIORootSheet.scanText(.scanning(20)) == "Reading… 20 folders")
+    }
+}

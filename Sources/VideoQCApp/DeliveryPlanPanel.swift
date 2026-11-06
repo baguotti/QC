@@ -26,6 +26,8 @@ struct DeliveryPlanPanel: View {
     @State private var batchFilter: String? = nil
     /// nil: all; else a `PlanUpload.passes` value (0 not on Frame.io, 1 on, 2 changed since upload).
     @State private var uploadFilter: Int? = nil
+    /// A channel picked in the Summary (nil: all). Shown as a removable chip in the filter bar.
+    @State private var channelFilter: String? = nil
     @State private var noteDraft = ""
     /// The row the note being typed belongs to (the field shows another row's note once the selection moves).
     @State private var noteRowID: String? = nil
@@ -44,6 +46,7 @@ struct DeliveryPlanPanel: View {
     /// The tab the Sheet view shows when more than one is read.
     @State private var sheetTab: String? = nil
     @State private var showEditSetup = false
+    @State private var showFrameIORoot = false
     @State private var signInError: String?
     @State private var summaryCache = PlanChecksSummaryCache()
 
@@ -84,6 +87,9 @@ struct DeliveryPlanPanel: View {
                         .allowsHitTesting(false)
                 }
             }
+        }
+        .sheet(isPresented: $showFrameIORoot) {
+            PlanFrameIORootSheet(isLightMode: isLightMode) { showFrameIORoot = false }
         }
         .sheet(isPresented: $showEditSetup) {
             PlanQCTabSetupSheet(isLightMode: isLightMode) { showEditSetup = false }
@@ -251,10 +257,14 @@ struct DeliveryPlanPanel: View {
     private var toolbar: some View {
         HStack(spacing: 8) {
             VStack(alignment: .leading, spacing: 1) {
-                Text(store.config?.title ?? "")
-                    .font(.ui(size: 12, weight: .semibold))
-                    .foregroundColor(palette.textMain)
-                    .lineLimit(1)
+                HStack(spacing: 6) {
+                    Text(store.config?.title ?? "")
+                        .font(.ui(size: 12, weight: .semibold))
+                        .foregroundColor(palette.textMain)
+                        .lineLimit(1)
+                    PlanHealthBadge(isLightMode: isLightMode, signIn: signInWithGoogle, setUpQCTab: { showEditSetup = true },
+                                    chooseFrameIOFolder: { showFrameIORoot = true })
+                }
                 if let config = store.config { tabPicker(config) }
                 statusLine
             }
@@ -277,9 +287,10 @@ struct DeliveryPlanPanel: View {
                 } else {
                     Button("Sign In with Google…") { signInWithGoogle() }
                 }
+                Button(store.config?.frameioRoot == nil ? "Set Frame.io Folder…" : "Frame.io Folder…") { showFrameIORoot = true }
                 if store.hasQCTab {
-                    Button("Find Frame.io Links") { Task { await store.findFrameIOLinks() } }
-                        .disabled(store.linkSearch == "Looking on Frame.io…")
+                    Button(store.config?.frameioRoot == nil ? "Find Frame.io Links" : "Read Frame.io Folder Now") { Task { await store.findFrameIOLinks() } }
+                        .disabled(store.linkSearch != nil && store.linkSearch!.hasSuffix("…"))
                 }
                 Button("Link Another Sheet…") { relinking = true }
                 Divider()
@@ -427,6 +438,17 @@ struct DeliveryPlanPanel: View {
             PlanBarDivider(isLightMode: isLightMode)
             // Also while their filter is on (set from Inspect through the link): a hidden active filter hides rows silently.
             if store.hasBatchColumn || !store.batches.isEmpty || batchFilter != nil { batchFilterMenu }
+            if let channelFilter {
+                Button { self.channelFilter = nil } label: {
+                    HStack(spacing: 4) {
+                        Text(channelFilter).font(.ui(size: 10, weight: .semibold)).foregroundColor(palette.textMain).lineLimit(1)
+                        Image(systemName: "xmark").font(.system(size: StudioTheme.scaleFont(8), weight: .semibold)).foregroundColor(palette.textMuted)
+                    }
+                    .planBarItem(selected: true, palette: palette)
+                }
+                .buttonStyle(.plain)
+                .tip("Showing the \(channelFilter) channel only. Click to show every channel.")
+            }
             if store.hasFrameIOColumn || uploadFilter != nil {
                 let counts = store.planCounts.uploads
                 PlanUploadFilter(none: counts.none, on: counts.on, selection: $uploadFilter, isLightMode: isLightMode)
@@ -513,11 +535,11 @@ struct DeliveryPlanPanel: View {
     /// A row clicked in the plan: Inspect selects its files (or nothing, for a row without one); double-click plays.
     /// A Summary figure was clicked: its rows in the Sheet or List view, with only that filter on.
     private func openFromSummary(_ target: PlanSummaryTarget) {
-        statusFilter = nil; batchFilter = nil; uploadFilter = nil; changedOnly = false; search = ""
+        statusFilter = nil; batchFilter = nil; uploadFilter = nil; channelFilter = nil; changedOnly = false; search = ""
         switch target {
         case .state(let state): statusFilter = state
         case .batch(let batch): batchFilter = batch
-        case .channel(let channel): search = channel
+        case .channel(let channel): channelFilter = channel
         case .upload(let filter): uploadFilter = filter
         case .row(let id):
             if let row = store.rows.first(where: { $0.id == id }) {
@@ -768,12 +790,13 @@ struct DeliveryPlanPanel: View {
     /// Lines passing the chips and the filter field; nil when nothing filters (every row shows, as in the sheet).
     private func shownLines(_ rows: [PlanRow], match: PlanMatch) -> Set<Int>? {
         let terms = PlanMatcher.tokens(search)
-        guard statusFilter != nil || changedOnly || !terms.isEmpty || batchFilter != nil || uploadFilter != nil else { return nil }
+        guard statusFilter != nil || changedOnly || !terms.isEmpty || batchFilter != nil || uploadFilter != nil || channelFilter != nil else { return nil }
         var lines = Set<Int>()
         for row in rows {
             if let statusFilter, store.state(row).state != statusFilter { continue }
             if let batchFilter, store.batch(row) != batchFilter { continue }
             if let uploadFilter, !store.state(row).passes(uploadFilter) { continue }
+            if let channelFilter, PlanGrid.normalized(row.value(.channel)) != channelFilter { continue }
             if changedOnly, store.changes[row.id] == nil { continue }
             if !terms.isEmpty {
                 let haystack = row.searchText + " " + match.result(row).files.map(\.lastPathComponent).joined(separator: " ").lowercased()
@@ -873,6 +896,7 @@ struct DeliveryPlanPanel: View {
             if let statusFilter, store.state(row).state != statusFilter { continue }
             if let batchFilter, store.batch(row) != batchFilter { continue }
             if let uploadFilter, !store.state(row).passes(uploadFilter) { continue }
+            if let channelFilter, PlanGrid.normalized(row.value(.channel)) != channelFilter { continue }
             if changedOnly, store.changes[row.id] == nil { continue }
             if !terms.isEmpty {
                 let haystack = row.searchText + " " + match.result(row).files.map(\.lastPathComponent).joined(separator: " ").lowercased()
@@ -885,7 +909,7 @@ struct DeliveryPlanPanel: View {
             }
             items.append(.row(row))
         }
-        let unfiltered = statusFilter == nil && batchFilter == nil && uploadFilter == nil && !changedOnly && terms.isEmpty
+        let unfiltered = statusFilter == nil && batchFilter == nil && uploadFilter == nil && channelFilter == nil && !changedOnly && terms.isEmpty
         if unfiltered || uploadFilter == PlanMismatch.localExtra.rawValue, !store.localExtras.isEmpty { items.append(.extras(store.localExtras)) }
         if unfiltered || uploadFilter == PlanMismatch.frameioExtra.rawValue, !store.frameioExtras.isEmpty {
             items.append(.frameioExtras(store.frameioExtras))

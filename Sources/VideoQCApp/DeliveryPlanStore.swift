@@ -18,6 +18,8 @@ final class DeliveryPlanStore: ObservableObject {
         var excluded: Set<String> = []
         /// The QCpie tab's gid, once the sheet has one.
         var qcTab: String? = nil
+        /// The Frame.io project or folder holding the plan's files (`FrameIORoot`).
+        var frameioRoot: FrameIORoot? = nil
 
         var included: [PlanTab] { tabs.filter { !excluded.contains($0.gid) } }
     }
@@ -203,6 +205,8 @@ final class DeliveryPlanStore: ObservableObject {
         cellLists = [:]; frameioFolders = [:]; frameioExtras = []; foldersSaveTask?.cancel(); dismissedMismatches = []
         localExtras = []; changes = [:]; removed = []; editState = .idle; loadedFromDisk = false
         statesRevision &+= 1   // the Summary mustn't show the old sheet's figures
+        health = PlanHealth()
+        rootScanTask?.cancel(); rootScanTask = nil; rootFolders = []; lastRootScan = nil; rootScan = .idle
     }
 
     func unlink() {
@@ -242,12 +246,14 @@ final class DeliveryPlanStore: ObservableObject {
             await self?.loadCachedIfNeeded()
             // Coming back to Inspect or the plan within a minute of the last read: no re-read.
             if let last = self?.lastUpdated, Date().timeIntervalSince(last) < 60 {} else { await self?.refresh() }
+            self?.scanFrameIORootIfDue()
             while !Task.isCancelled {
                 // Every 10 s while QCpie is in front, every minute behind other apps. One call returns every included
                 // tab's values (a few hundred KB for a big plan, gzipped on the wire); an unchanged reply isn't parsed.
                 try? await Task.sleep(for: .seconds(NSApp.isActive ? 10 : 60))
                 guard !Task.isCancelled, let self else { return }
                 await self.refresh()
+                self.scanFrameIORootIfDue()
             }
         }
     }
@@ -260,6 +266,7 @@ final class DeliveryPlanStore: ObservableObject {
     /// Google sign-in finished: read the sheet and send what the outbox holds.
     func signedIn() {
         guard config != nil else { return }
+        setHealth { $0.canWrite = nil; $0.writeError = nil }   // another account may have other rights
         Task { await refresh(full: true); scheduleFlush(after: 0) }
     }
 
@@ -326,12 +333,14 @@ final class DeliveryPlanStore: ObservableObject {
                 if lastUpdated.map({ Date().timeIntervalSince($0) > 60 }) ?? true { lastUpdated = Date() }
             }
             if phase != .idle { phase = .idle }
+            setHealth { $0.readError = nil }
             if !outbox.unsent.records.isEmpty || !outbox.unsent.cells.isEmpty { scheduleFlush(after: 0) }
         } catch is CancellationError {
             if phase != .idle { phase = .idle }
         } catch {
             if case GoogleAuth.Failure.signedOut = error { GoogleAccount.shared.noteSignedOut() }
             phase = .failed(Self.describe(error))
+            setHealth { $0.readError = Self.describe(error) }
         }
     }
 
@@ -570,16 +579,20 @@ final class DeliveryPlanStore: ObservableObject {
         guard !loadedFromDisk, let config else { return }
         loadedFromDisk = true
         let dir = Self.directory(config.link.sheetID)
-        let (cache, seen, layoutCache, folders, dismissed) = await Task.detached(priority: .userInitiated) { () -> ([String: [[String]]], [String: SeenRow], [String: PlanGrid], [String: [ListedFile]], [String]) in
+        let (cache, seen, layoutCache, folders, dismissed, tree) = await Task.detached(priority: .userInitiated) { () -> ([String: [[String]]], [String: SeenRow], [String: PlanGrid], [String: [ListedFile]], [String], RootTree?) in
             func read<T: Decodable>(_ name: String, _ type: T.Type) -> T? {
                 (try? Data(contentsOf: dir.appendingPathComponent(name))).flatMap { try? JSONDecoder().decode(T.self, from: $0) }
             }
             return (read("values.json", [String: [[String]]].self) ?? [:], read("seen.json", [String: SeenRow].self) ?? [:],
                     read("layouts.json", [String: PlanGrid].self) ?? [:], read("frameio-folders.json", [String: [ListedFile]].self) ?? [:],
-                    read("dismissed-mismatches.json", [String].self) ?? [])
+                    read("dismissed-mismatches.json", [String].self) ?? [], read("frameio-tree.json", RootTree.self))
         }.value
         guard self.config?.link == config.link else { return }
         if !dismissed.isEmpty { dismissedMismatches.formUnion(dismissed); scheduleRecompute() }
+        if let tree, tree.root == config.frameioRoot?.folder {
+            rootFolders.formUnion(tree.folders)
+            if lastRootScan == nil { lastRootScan = tree.scanned; rootScan = .done(tree.scanned) }
+        }
         self.seen = seen
         // Listings that came in before this read are newer than the saved ones.
         frameioFolders = folders.merging(frameioFolders) { _, listed in listed }
@@ -702,6 +715,32 @@ final class DeliveryPlanStore: ObservableObject {
     // MARK: States
 
     /// Row states and the per-file index for Inspect. ~1 ms for 1,100 rows; publishes only what changed.
+    /// The connection at a glance (`PlanHealthBadge`); published only when it changes.
+    @Published private(set) var health = PlanHealth()
+
+    private func setHealth(_ change: (inout PlanHealth) -> Void) {
+        var next = health
+        change(&next)
+        if next != health { health = next }
+    }
+
+    /// The outbox's counts in `health` (after every change to it).
+    private func noteOutbox() {
+        let unsent = outbox.unsent
+        let written = outbox.records.values.filter { $0.written != nil }.count + outbox.cells.filter { $0.written != nil }.count
+        setHealth {
+            $0.waiting = unsent.records.count + unsent.cells.count
+            $0.confirming = written
+            if $0.waiting == 0 { $0.retrying = false }
+        }
+    }
+
+    /// The health popover's Try Again.
+    func retrySending() {
+        retryDelay = 0
+        scheduleFlush(after: 0)
+    }
+
     /// Bumped by every recompute of the states (the Summary rebuilds its figures only then).
     private(set) var statesRevision = 0
 
@@ -726,7 +765,10 @@ final class DeliveryPlanStore: ObservableObject {
         let linked = Set(links.compactMap(Self.frameIOID))
         var listed: [String: ListedFile] = [:]
         var unlinked: [ListedFile] = []
-        for files in frameioFolders.values where files.contains(where: { $0.isLinked(in: linked) }) {
+        // Bound to a Frame.io folder: every folder of its tree (it was scanned whole). Otherwise only folders holding a
+        // linked file (whatever happened to be browsed).
+        let bound = config?.frameioRoot != nil
+        for files in frameioFolders.values where bound || files.contains(where: { $0.isLinked(in: linked) }) {
             for file in files {
                 for id in file.ids { listed[id] = file }
                 if !file.isLinked(in: linked) { unlinked.append(file) }
@@ -984,6 +1026,8 @@ final class DeliveryPlanStore: ObservableObject {
             Task { await self.loadCachedIfNeeded(); if !self.rows.isEmpty { self.frameIOListed(items, folder: folder) } }
             return
         }
+        // Bound to a Frame.io folder: listings outside its tree aren't the plan's (no links, no extras from them).
+        guard inPlanTree(folder) else { return }
         recordListing(items, folder: folder)
         // Found while browsing: only into a sheet with the QCpie tab (it's set up on purpose; links wait in the outbox
         // while this Mac is signed out).
@@ -1048,6 +1092,157 @@ final class DeliveryPlanStore: ObservableObject {
         }
         // One recompute and redraw for the whole listing, not one per row.
         if queued { recomputeStates(); publishGrids() }
+    }
+
+    // MARK: Frame.io folder
+
+    /// The Frame.io project or folder that holds the plan's files. Only its tree is read for the plan: links found while
+    /// listing, "on Frame.io" and "on Frame.io, not in the plan" come from it alone, so they don't depend on what was
+    /// browsed or favourited. Set once per plan (••• → Frame.io Folder…).
+    struct FrameIORoot: Codable, Equatable, Sendable {
+        let account: String
+        /// The folder listed (a project: its root folder).
+        let folder: String
+        /// "Project › Folder", for display.
+        let title: String
+    }
+
+    /// The tree's folders as of the last full scan (`frameio-tree.json`).
+    struct RootTree: Codable, Sendable {
+        let root: String
+        let folders: [String]
+        let scanned: Date
+    }
+
+    enum RootScan: Equatable { case idle, scanning(Int), done(Date), failed(String) }
+
+    /// Published at the start and end of a scan and every 10 folders.
+    @Published private(set) var rootScan: RootScan = .idle
+    /// Folders known to be in the tree (filled as a scan goes; a full scan replaces it).
+    private var rootFolders: Set<String> = []
+    private var lastRootScan: Date?
+    private var rootScanTask: Task<Void, Never>?
+    private var rootScanToken: UUID?
+
+    static let rootScanInterval: TimeInterval = 15 * 60
+    static let rootScanFolderLimit = 1000
+
+    /// Binds the plan to a Frame.io folder (nil: none). What was listed elsewhere is dropped and the tree is read.
+    func setFrameIORoot(_ root: FrameIORoot?) {
+        guard var config, config.frameioRoot != root else { return }
+        config.frameioRoot = root
+        self.config = config
+        saveConfig()
+        rootScanTask?.cancel(); rootScanTask = nil
+        rootFolders = root.map { [$0.folder] } ?? []
+        lastRootScan = nil
+        rootScan = .idle
+        frameioFolders = [:]
+        saveFrameIOFolders()
+        saveRootTree(nil)
+        scheduleRecompute()
+        if root != nil { scanFrameIORoot() }
+    }
+
+    /// Whether a listing of `folder` is the plan's: anything without a bound folder, else only its tree.
+    private func inPlanTree(_ folder: String?) -> Bool {
+        guard let root = config?.frameioRoot else { return true }
+        guard let folder else { return false }
+        return folder == root.folder || rootFolders.contains(folder)
+    }
+
+    /// Every 15 minutes while a plan panel is on screen (and on opening one).
+    private func scanFrameIORootIfDue() {
+        guard config?.frameioRoot != nil, rootScanTask == nil else { return }
+        if let last = lastRootScan, Date().timeIntervalSince(last) < Self.rootScanInterval { return }
+        scanFrameIORoot()
+    }
+
+    func scanFrameIORoot() {
+        guard let root = config?.frameioRoot, let link = config?.link, rootScanTask == nil else { return }
+        let token = UUID()
+        rootScanToken = token
+        rootScanTask = Task { [weak self] in
+            await self?.runRootScan(root, link: link)
+            // A scan cancelled for a new folder mustn't clear the new scan's handle.
+            if self?.rootScanToken == token { self?.rootScanTask = nil }
+        }
+    }
+
+    /// Lists the tree breadth-first, one folder at a time (0.4 s apart: Frame.io's rate limits, and the browser shares
+    /// them). Each listing goes through `FrameIOLinks.remember` like a browsed one (link index, plan links, extras).
+    /// A complete scan replaces the tree, so folders moved out or deleted leave the plan.
+    private func runRootScan(_ root: FrameIORoot, link: PlanSheetLink) async {
+        guard await FrameIO.shared.isSignedIn else {
+            rootScan = .failed("Sign in to Frame.io (Upload tab) to read the plan's folder.")
+            return
+        }
+        rootScan = .scanning(0)
+        var queue = [root.folder]
+        var tree: Set<String> = [root.folder]
+        var listed = 0
+        while !queue.isEmpty, listed < Self.rootScanFolderLimit {
+            if Task.isCancelled { return }
+            let folder = queue.removeFirst()
+            let items: [FrameIO.Item]
+            do {
+                items = try await FrameIO.shared.children(account: root.account, folder: folder, thumbnails: false)
+            } catch {
+                guard config?.frameioRoot == root else { return }
+                if folder == root.folder {
+                    rootScan = .failed("Couldn't read the plan's Frame.io folder: \(UploadEngine.describe(error))")
+                    return
+                }
+                continue   // one unreadable subfolder doesn't stop the scan (its old listing stays)
+            }
+            guard config?.frameioRoot == root, config?.link == link else { return }
+            for item in items where item.isFolder && tree.insert(item.id).inserted {
+                queue.append(item.id)
+                rootFolders.insert(item.id)
+            }
+            await FrameIOLinks.shared.remember(items, account: root.account, folder: folder)
+            listed += 1
+            if listed % 10 == 0 { rootScan = .scanning(listed) }
+            try? await Task.sleep(for: .milliseconds(400))
+        }
+        guard !Task.isCancelled, config?.frameioRoot == root else { return }
+        let complete = queue.isEmpty
+        if complete {
+            rootFolders = tree
+            frameioFolders = frameioFolders.filter { tree.contains($0.key) }
+            saveFrameIOFolders()
+        }
+        let now = Date()
+        lastRootScan = now
+        saveRootTree(RootTree(root: root.folder, folders: Array(rootFolders), scanned: now))
+        rootScan = complete ? .done(now) : .failed("The plan's Frame.io folder has more than \(Self.rootScanFolderLimit) folders: only those were read. Pick a smaller folder.")
+        scheduleRecompute()
+    }
+
+    private func saveRootTree(_ tree: RootTree?) {
+        guard let config else { return }
+        let file = Self.directory(config.link.sheetID).appendingPathComponent("frameio-tree.json")
+        Task.detached(priority: .utility) {
+            try? FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
+            if let tree, let data = try? JSONEncoder().encode(tree) { try? data.write(to: file, options: .atomic) }
+            else { try? FileManager.default.removeItem(at: file) }
+        }
+    }
+
+    /// "Project › Folder" for a browser path.
+    nonisolated static func rootTitle(_ path: [FrameIOBrowser.Crumb]) -> String {
+        path.filter { $0.level == .project || $0.level == .folder }.map(\.title).joined(separator: " › ")
+    }
+
+    /// The folder a pasted Frame.io project or folder link points to (a file link: the folder holding it).
+    func frameIORoot(fromLink text: String) async throws -> FrameIORoot {
+        let link = try FrameIOLink.parse(await FrameIOLink.expand(text))
+        let (path, _) = try await FrameIOLink.resolve(link, preferredAccount: FrameIOBrowser.shared.accountID)
+        guard let account = path.first?.id, let folder = path.last(where: { $0.listedFolder != nil })?.listedFolder else {
+            throw FrameIOLink.Failure.notFound
+        }
+        let folders = path.prefix { $0.listedFolder != nil || $0.level == .account || $0.level == .workspace }
+        return FrameIORoot(account: account, folder: folder, title: Self.rootTitle(Array(folders)))
     }
 
     // MARK: Dismissed mismatches
@@ -1147,9 +1342,14 @@ final class DeliveryPlanStore: ObservableObject {
             return ListedFile(name: Self.listedName(item), url: PlanGrid.normalized(url), size: item.displaySize ?? 0,
                               head: item.isVersionStack ? item.headVersion?.id.lowercased() : nil)
         }
-        let links = Set(rows.compactMap { Self.frameIOID(frameioLink($0)) })
-        let holdsPlanFiles = files.contains { $0.isLinked(in: links) || !codes(inFileNamed: $0.name).isEmpty }
-        let next: [ListedFile]? = holdsPlanFiles ? files : nil
+        let next: [ListedFile]?
+        if config?.frameioRoot != nil {
+            next = files   // every folder of the plan's tree, plan files or not
+        } else {
+            let links = Set(rows.compactMap { Self.frameIOID(frameioLink($0)) })
+            let holdsPlanFiles = files.contains { $0.isLinked(in: links) || !codes(inFileNamed: $0.name).isEmpty }
+            next = holdsPlanFiles ? files : nil
+        }
         guard frameioFolders[folder] != next else { return }
         frameioFolders[folder] = next
         saveFrameIOFolders()
@@ -1242,6 +1442,17 @@ final class DeliveryPlanStore: ObservableObject {
         guard !searchingLinks else { return }
         guard hasQCTab else {
             showLinkSearch("Set up the QCpie tab first (Delivery Plan ••• menu).")
+            return
+        }
+        if config?.frameioRoot != nil {
+            let before = linkedCodes()
+            linkSearch = "Reading the plan's Frame.io folder…"
+            scanFrameIORoot()
+            await rootScanTask?.value
+            try? await Task.sleep(for: .milliseconds(500))   // the last listings reach the plan on the main actor
+            if case .failed(let message) = rootScan { showLinkSearch(message); return }
+            let found = linkedCodes().subtracting(before).count
+            showLinkSearch(found == 0 ? "No new Frame.io links found." : "Found \(found) Frame.io link\(found == 1 ? "" : "s").")
             return
         }
         searchingLinks = true
@@ -1476,6 +1687,7 @@ final class DeliveryPlanStore: ObservableObject {
                     // Something else is in row 1 (a title added above the header?): writing there would overwrite it.
                     // Kept until the tab's first row is its header again.
                     if loud { editState = .failed("Not saved yet: the QCpie tab's first row must be its header (Code, Deliverable, QC Status…).") }
+                    setHealth { $0.writeError = "The QCpie tab's first row must be its header (Code, Deliverable, QC Status…)."; $0.retrying = true }
                     return
                 }
                 if let table { current = table } else {
@@ -1517,6 +1729,7 @@ final class DeliveryPlanStore: ObservableObject {
             }
             retryDelay = 0
             if loud { editState = refused.isEmpty ? .saved : .failed("Not saved: \(refused[0]).") }
+            setHealth { $0.canWrite = true; $0.retrying = false; $0.writeError = refused.first.map { "Not saved: \($0)." } }
         } catch {
             switch error {
             case GoogleAuth.Failure.signedOut:
@@ -1527,16 +1740,22 @@ final class DeliveryPlanStore: ObservableObject {
                 // QCpie tab is gone they wait for it to be set up again.
                 _ = try? await readMetadata(config)
                 retryDelay = min(max(5, retryDelay * 2), 120)
+                setHealth { $0.writeError = Self.describe(error); $0.retrying = true }
                 if loud { editState = .failed("Not saved yet (\(Self.describe(error))): trying again in \(Int(retryDelay)) s.") }
                 scheduleFlush(after: retryDelay)
             case let failure as SheetsAPI.Failure where !failure.isTransient:
                 // Google won't take these however often they're sent (no edit access, bad range): drop them.
                 outbox.drop(codes: records.map(\.code), cells: Set(cells.map(\.id)), sentAt: sentAt)
                 if loud { editState = .failed("Not saved: \(Self.describe(error))") }
+                setHealth {
+                    if case .noAccess = failure { $0.canWrite = false }
+                    $0.writeError = Self.describe(error); $0.retrying = false
+                }
             default:
                 // Offline or Google busy: kept, tried again later (and on the next read).
                 retryDelay = min(max(5, retryDelay * 2), 120)
                 if loud { editState = .failed("Not saved yet (\(Self.describe(error))): trying again in \(Int(retryDelay)) s.") }
+                setHealth { $0.writeError = Self.describe(error); $0.retrying = true }
                 scheduleFlush(after: retryDelay)
             }
         }
@@ -1588,6 +1807,7 @@ final class DeliveryPlanStore: ObservableObject {
 
     /// Written in order, off the main thread (a newer save waits for the one before).
     private func saveOutbox() {
+        noteOutbox()
         guard let config else { return }
         let file = Self.directory(config.link.sheetID).appendingPathComponent("outbox.json")
         let snapshot = outbox
@@ -1610,6 +1830,7 @@ final class DeliveryPlanStore: ObservableObject {
         // Edits made since launch are newer than the saved ones.
         for (key, record) in saved.records where outbox.records[key] == nil { outbox.records[key] = record }
         outbox.cells = saved.cells.filter { old in !outbox.cells.contains { $0.id == old.id } } + outbox.cells
+        noteOutbox()
         recomputeStates()
         publishGrids()
         scheduleFlush(after: 1)
