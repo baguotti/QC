@@ -272,10 +272,10 @@ extension DeliveryPlanTests {
 }
 
 @Test func mismatchFilters() {
-    let differs = PlanRowState(state: .toQC, upload: .stale, mismatches: [.differs, .early])
+    let differs = PlanRowState(state: .toQC, upload: .stale, mismatches: [.differs])
     #expect(differs.passes(1) && !differs.passes(0))
-    #expect(differs.passes(PlanMismatch.differs.rawValue) && differs.passes(PlanMismatch.early.rawValue))
-    #expect(!differs.passes(PlanMismatch.noLocalFile.rawValue))
+    #expect(differs.passes(PlanMismatch.differs.rawValue))
+    #expect(!differs.passes(PlanMismatch.notUploaded.rawValue))
     let notUploaded = PlanRowState(state: .passed, mismatches: [.notUploaded])
     #expect(notUploaded.passes(0) && notUploaded.passes(PlanMismatch.notUploaded.rawValue))
     // Files: "here, not in the plan" passes only files without a row; row kinds need a row.
@@ -303,7 +303,7 @@ extension DeliveryPlanTests {
     let a = DeliveryPlanStore.mismatchKey("r1", .differs, link: link, newest: Date(timeIntervalSince1970: 100))
     #expect(a == DeliveryPlanStore.mismatchKey("r1", .differs, link: link + "?x=1", newest: Date(timeIntervalSince1970: 100)))
     #expect(a != DeliveryPlanStore.mismatchKey("r1", .differs, link: link, newest: Date(timeIntervalSince1970: 200)))   // newer file
-    #expect(DeliveryPlanStore.mismatchKey("r1", .early, link: link, newest: nil) != DeliveryPlanStore.mismatchKey("r1", .early, link: link + "2", newest: nil))
+    #expect(DeliveryPlanStore.mismatchKey("r1", .notUploaded, link: link, newest: nil) != DeliveryPlanStore.mismatchKey("r1", .notUploaded, link: link + "2", newest: nil))
     // Only "another version" depends on the file's date.
-    #expect(DeliveryPlanStore.mismatchKey("r1", .early, link: link, newest: .now) == DeliveryPlanStore.mismatchKey("r1", .early, link: link, newest: nil))
+    #expect(DeliveryPlanStore.mismatchKey("r1", .notUploaded, link: link, newest: .now) == DeliveryPlanStore.mismatchKey("r1", .notUploaded, link: link, newest: nil))
 }

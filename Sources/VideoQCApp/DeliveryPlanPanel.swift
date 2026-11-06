@@ -69,6 +69,8 @@ struct DeliveryPlanPanel: View {
         .onChange(of: store.scrollRequest) { _, _ in selectedRow = nil }   // Inspect chose: its rows lead
         // Linked filters: this side's chip / search goes to Inspect, Inspect's comes here.
         .onChange(of: currentFilter) { _, filter in store.publishFilter(filter, fromPlan: true) }
+        // Another sheet: a batch or channel picked in the old one would hide every row with no visible reason.
+        .onChange(of: store.config?.link.sheetID) { _, _ in channelFilter = nil; batchFilter = nil; selectedRow = nil }
         .onReceive(store.$sharedFilter) { filter in
             guard store.linkFilters, filter != currentFilter else { return }
             statusFilter = filter.state >= 0 ? PlanState(rawValue: filter.state) : nil
@@ -459,7 +461,8 @@ struct DeliveryPlanPanel: View {
                                    dismissed: store.planCounts.dismissed)
             }
         }
-            if !store.linkSuggestions.isEmpty { PlanSuggestionsButton(count: store.linkSuggestions.count, isLightMode: isLightMode) }
+            // Always in the tree: Accept All empties the list, and removing the button would yank its open sheet.
+            PlanSuggestionsButton(count: store.linkSuggestions.count, isLightMode: isLightMode)
         // No Spacer: FlowChips takes the width it's offered, and a Spacer would split it in half.
         PlanFilterLinkToggle(isLightMode: isLightMode) { currentFilter }
         }

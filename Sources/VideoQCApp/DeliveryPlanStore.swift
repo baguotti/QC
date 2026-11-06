@@ -114,6 +114,9 @@ final class DeliveryPlanStore: ObservableObject {
     private var layouts: [String: PlanGrid] = [:]
     private var layoutRead: [String: Date] = [:]
     private var layoutTask: Task<Void, Never>?
+    /// `readLayouts` reading again what outgrew its layout meanwhile: at most twice, so a sheet edited non-stop can't
+    /// keep it busy.
+    private var rereadDepth = 0
     /// The last values read, by gid: the layout is filled with them.
     private var tables: [String: [[String]]] = [:]
     /// The last values reply as received: an identical one means nothing changed (no parse, no matching).
@@ -174,6 +177,7 @@ final class DeliveryPlanStore: ObservableObject {
             let kept = config?.link.sheetID == link.sheetID ? outbox : PlanOutbox()
             resetState()
             outbox = kept
+            outboxLoaded = false   // the new sheet's saved outbox is read below
             tabCounts = counts
             var config = Config(link: link, title: meta.title.isEmpty ? "Delivery Plan" : meta.title, tabs: tabs)
             config.excluded = Set(tabs.map(\.gid).filter { $0 != chosen })
@@ -274,12 +278,14 @@ final class DeliveryPlanStore: ObservableObject {
     /// The tab list and title (tabs added, renamed or hidden in the sheet show up without relinking).
     private func readMetadata(_ config: Config) async throws -> Config {
         let meta = try await api.metadata(config.link.sheetID)
-        var updated = config
+        // Applied to the config as it is now, not as it was when the call went out: a Frame.io folder set or a tab
+        // turned off meanwhile mustn't be undone by this answer.
+        guard var updated = self.config, updated.link == config.link else { return config }
         updated.tabs = Self.planTabs(meta.tabs)
         if !meta.title.isEmpty { updated.title = meta.title }
         updated.qcTab = meta.tabs.first { $0.title == PlanQCTab.title }?.gid
         lastMetadata = Date()
-        if updated != self.config, self.config?.link == config.link {
+        if updated != self.config {
             self.config = updated
             saveConfig()
         }
@@ -305,7 +311,8 @@ final class DeliveryPlanStore: ObservableObject {
             if full || Date().timeIntervalSince(lastMetadata) > 180 { config = try await readMetadata(config) }
             var data: Data
             do {
-                data = try await api.values(config.link.sheetID, ranges: ranges(config))
+                // Every tab left out and no QCpie tab: nothing to read (Google refuses a read of no ranges).
+                data = ranges(config).isEmpty ? Data(#"{"valueRanges":[]}"#.utf8) : try await api.values(config.link.sheetID, ranges: ranges(config))
             } catch SheetsAPI.Failure.http(400, _) {
                 // A tab renamed or deleted since the last tab list.
                 config = try await readMetadata(config)
@@ -335,6 +342,10 @@ final class DeliveryPlanStore: ObservableObject {
             }
             if phase != .idle { phase = .idle }
             setHealth { $0.readError = nil }
+            // Tabs turned on or off while this read was out (its own refresh was skipped): read them now.
+            if let now = self.config, now.link == config.link, now.included != config.included {
+                Task { await self.refresh() }
+            }
             if !outbox.unsent.records.isEmpty || !outbox.unsent.cells.isEmpty { scheduleFlush(after: 0) }
         } catch is CancellationError {
             if phase != .idle { phase = .idle }
@@ -477,6 +488,20 @@ final class DeliveryPlanStore: ObservableObject {
             if let header = headers[tab.gid] { await readLists(tab: tab, headerLine: header.line, table: table) }
         }
         publishGrids()
+        // Rows or columns added while this read was out (or while another tab's was): read those once more, or new rows
+        // would stay out of the Sheet view until the sheet changed again.
+        let outgrown = tabs.filter { tab in
+            guard let layout = layouts[tab.gid], let table = tables[tab.gid] else { return false }
+            return !layout.fits(table)
+        }
+        let others = config.included.filter { tab in
+            !tabs.contains(tab) && layouts[tab.gid].map { layout in tables[tab.gid].map { !layout.fits($0) } ?? false } ?? false
+        }
+        if !outgrown.isEmpty || !others.isEmpty, !Task.isCancelled, rereadDepth < 2 {
+            rereadDepth += 1
+            await readLayouts(outgrown + others)
+            rereadDepth -= 1
+        }
         let dir = Self.directory(id), cache = layouts
         Task.detached(priority: .utility) { Self.writeLayouts(cache, to: dir) }
     }
@@ -761,6 +786,14 @@ final class DeliveryPlanStore: ObservableObject {
         let links = rows.map { row in
             PlanGrid.normalized(row.code.flatMap { overlay[$0.lowercased()]?[.frameio] } ?? row.value(.frameio))
         }
+        // Suggestions for rows linked since (by hand, an upload, another Mac through the sheet) leave: accepting one
+        // would replace that link.
+        if !linkSuggestions.isEmpty {
+            var linkedCodes = Set<String>()
+            for (row, link) in zip(rows, links) where !link.isEmpty { if let code = row.code?.lowercased() { linkedCodes.insert(code) } }
+            let kept = linkSuggestions.filter { !linkedCodes.contains($0.key) }
+            if kept.count != linkSuggestions.count { linkSuggestions = kept }
+        }
         // By Frame.io id, not URL text: links pasted by hand can differ in form, and a row may link a stack's current
         // version while the folder lists the stack.
         let linked = Set(links.compactMap(Self.frameIOID))
@@ -789,8 +822,6 @@ final class DeliveryPlanStore: ObservableObject {
             return false
         }.map { PlanFrameIOExtra(name: $0.name, url: $0.url, note: extraNote($0.name, linkedCodes: linkedCodes)) }
         extras.sort { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
-        // "No file here" only on a Mac holding some of the plan's files (not one that only has other projects loaded).
-        let hasLocalFiles = files.count > match.extras.count
         // "Done but not on Frame.io" only for plans that use Frame.io links at all.
         let tracksFrameIO = links.contains { !$0.isEmpty }
         for (row, link) in zip(rows, links) {
@@ -816,14 +847,6 @@ final class DeliveryPlanStore: ObservableObject {
                     // Same kind of file, another size: Frame.io holds another version (or another file).
                     state.upload = .stale
                     found.append((.differs, "Frame.io's file is \(Self.byteText(remote.size)), this one \(Self.byteText(bytes)): Frame.io has another version."))
-                }
-                if state.state != .dropped, result.files.isEmpty, hasLocalFiles {
-                    found.append((.noLocalFile, "On Frame.io, but no file on this Mac matches the row."))
-                }
-                // Only for rows checked here (a file on this Mac, or marked Needs Fix): on a machine without the files a
-                // linked row is just Missing locally, not uploaded too early.
-                if [.toQC, .check, .needsFix].contains(state.state), !result.files.isEmpty || state.state == .needsFix {
-                    found.append((.early, "On Frame.io before passing QC."))
                 }
             } else if tracksFrameIO, state.state.isDone {
                 found.append((.notUploaded, "\(state.state.title), but not on Frame.io."))
@@ -1036,61 +1059,25 @@ final class DeliveryPlanStore: ObservableObject {
         // Candidates per code: files whose name holds the code, plus files named exactly like a row without its code
         // ("…_20s" for "…_20s_KL0140") or exactly like the local file matched to the row: names without a code.
         let names = exactNameIndex()
-        var candidates: [String: [FrameIO.Item]] = [:]
-        /// Files found by name alone (no code in it): never linked without a review.
-        var byNameOnly = Set<String>()
-        for item in items where !item.isFolder && item.viewURL != nil {
-            let name = Self.listedName(item)
-            var codes = codes(inFileNamed: name)
-            if codes.isEmpty {
-                byNameOnly.insert(item.id)
-                // The local file matched to a row settles look-alike names; else the row's name without its code, if
-                // only one row has it.
-                let key = Self.nameKey(name)
-                if let local = names.local[key], local.count == 1 { codes = local }
-                else if let bare = names.bare[key], bare.count == 1 { codes = bare }
-            }
-            for code in codes { candidates[code, default: []].append(item) }
-        }
+        let listed = items.filter { !$0.isFolder && $0.viewURL != nil }
+        let byID = Dictionary(listed.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
+        let decisions = Self.linkDecisions(
+            files: listed.map { (id: $0.id, name: Self.listedName($0)) },
+            codesInName: { self.codes(inFileNamed: $0) }, localNames: names.local, bareNames: names.bare,
+            rows: { self.rows(withCode: $0) }, isLinked: { !self.frameioLink($0).isEmpty },
+            localFiles: { self.match.result($0).files.map(\.lastPathComponent) })
         var queued = false
-        for (code, files) in candidates {
-            let targets = rows(withCode: code)
-            guard !targets.isEmpty, targets.allSatisfy({ frameioLink($0).isEmpty }) else { continue }
-            // The code alone could be another project's (codes repeat across campaigns): the file's name must also hold
-            // the row's name (it ends with the code), be the row's name without the code, or be the name of the local
-            // file matched to the row.
-            func fits(_ item: FrameIO.Item, exactly: Bool) -> Bool {
-                let name = Self.listedName(item)
-                let key = Self.nameKey(name)
-                return targets.contains { row in
-                    let rowKey = Self.nameKey(row.name)
-                    let local = match.result(row).files.contains { $0.lastPathComponent.caseInsensitiveCompare(name) == .orderedSame }
-                    if exactly { return key == rowKey || key == Self.nameKey(Self.strippingCode(row)) || local }
-                    return PlanMatcher.contains(PlanMatcher.tokens(key), PlanMatcher.tokens(rowKey)) || key == Self.nameKey(Self.strippingCode(row)) || local
-                }
-            }
-            // One file: it must fit. Several (a "_v2" beside the original): only one named exactly like the row.
-            let chosen: FrameIO.Item?
-            if files.count == 1 { chosen = fits(files[0], exactly: false) ? files[0] : nil } else {
-                let exact = files.filter { fits($0, exactly: true) }
-                chosen = exact.count == 1 ? exact[0] : nil
-            }
-            guard let item = chosen, let url = item.viewURL else { continue }
+        for decision in decisions {
+            guard let item = byID[decision.fileID], let url = item.viewURL else { continue }
+            let targets = rows(withCode: decision.code)
             let date = Self.listedDate(item)
-            // Linked without asking only when certain: one file, its name holds the code and the row's name. Anything
-            // else (found by name alone, a stripped code, the local file's name, one of several versions) is suggested.
-            let certain = files.count == 1 && !byNameOnly.contains(item.id) && targets.contains { row in
-                PlanMatcher.contains(PlanMatcher.tokens(Self.nameKey(Self.listedName(item))), PlanMatcher.tokens(Self.nameKey(row.name)))
-            }
-            guard certain else {
-                suggest(LinkSuggestion(code: targets[0].code ?? code, rowName: targets[0].name, fileName: Self.listedName(item),
-                                       url: url, fileID: item.id.lowercased(), date: date,
-                                       reason: byNameOnly.contains(item.id) ? "Same name, no code in the file's name."
-                                           : files.count > 1 ? "One of \(files.count) files with this code: the one named like the row."
-                                           : "The file's name holds the code but not the row's name."))
+            guard decision.certain else {
+                suggest(LinkSuggestion(code: targets.first?.code ?? decision.code, rowName: targets.first?.name ?? "",
+                                       fileName: Self.listedName(item), url: url, fileID: item.id.lowercased(), date: date,
+                                       reason: decision.reason))
                 continue
             }
-            linkSuggestions[code] = nil
+            if linkSuggestions[decision.code] != nil { linkSuggestions[decision.code] = nil }   // a dictionary write publishes even when nothing changes
             queueQC(targets, quiet: true, refresh: false) { entry in
                 entry[.frameio] = url
                 if let date, targets.allSatisfy({ self.shown(.uploaded, $0).isEmpty }) { entry[.uploaded] = Self.uploadStamp(date) }
@@ -1153,6 +1140,7 @@ final class DeliveryPlanStore: ObservableObject {
         saveConfig()
         rootScanTask?.cancel(); rootScanTask = nil
         rootFolders = root.map { [$0.folder] } ?? []
+        linkSuggestions = [:]   // found in the old folder
         lastRootScan = nil
         rootScan = .idle
         frameioFolders = [:]
@@ -1192,7 +1180,9 @@ final class DeliveryPlanStore: ObservableObject {
     /// A complete scan replaces the tree, so folders moved out or deleted leave the plan.
     private func runRootScan(_ root: FrameIORoot, link: PlanSheetLink) async {
         guard await FrameIO.shared.isSignedIn else {
-            rootScan = .failed("Sign in to Frame.io (Upload tab) to read the plan's folder.")
+            let failure = RootScan.failed("Sign in to Frame.io (Upload tab) to read the plan's folder.")
+            if rootScan != failure { rootScan = failure }
+            lastRootScan = Date().addingTimeInterval(60 - Self.rootScanInterval)   // look again in a minute
             return
         }
         rootScan = .scanning(0)
@@ -1209,6 +1199,7 @@ final class DeliveryPlanStore: ObservableObject {
                 guard config?.frameioRoot == root else { return }
                 if folder == root.folder {
                     rootScan = .failed("Couldn't read the plan's Frame.io folder: \(UploadEngine.describe(error))")
+                    lastRootScan = Date().addingTimeInterval(120 - Self.rootScanInterval)   // again in two minutes
                     return
                 }
                 continue   // one unreadable subfolder doesn't stop the scan (its old listing stays)
@@ -1265,6 +1256,68 @@ final class DeliveryPlanStore: ObservableObject {
 
     // MARK: Suggested links
 
+    struct LinkDecision: Equatable, Sendable {
+        /// Lower-cased code of the row(s).
+        let code: String
+        let fileID: String
+        /// Linked by itself; otherwise suggested with `reason`.
+        let certain: Bool
+        let reason: String
+    }
+
+    /// Which rows a Frame.io listing's files belong to (pure: the fixture tests run real names through it). Candidates
+    /// per code: files whose name holds the code, plus files without a code named exactly like the local file matched
+    /// to a row (`localNames`) or a row's name without its code (`bareNames`), when that points to one row. Rows that
+    /// already have a link are left alone. One file must fit the row (its name holds the row's name, is the row's name
+    /// without the code, or is its local file's name); of several (a "_v2" beside the original), only one named
+    /// exactly like the row. Certain = one file, a code in its name, and the row's name in it; anything else is a
+    /// suggestion. Codes repeat across campaigns, so a code alone never links.
+    nonisolated static func linkDecisions(files: [(id: String, name: String)], codesInName: (String) -> Set<String>,
+                                          localNames: [String: Set<String>], bareNames: [String: Set<String>],
+                                          rows: (String) -> [PlanRow], isLinked: (PlanRow) -> Bool,
+                                          localFiles: (PlanRow) -> [String]) -> [LinkDecision] {
+        var candidates: [String: [(id: String, name: String)]] = [:]
+        var byNameOnly = Set<String>()
+        for file in files {
+            var codes = codesInName(file.name)
+            if codes.isEmpty {
+                byNameOnly.insert(file.id)
+                let key = nameKey(file.name)
+                if let local = localNames[key], local.count == 1 { codes = local }
+                else if let bare = bareNames[key], bare.count == 1 { codes = bare }
+            }
+            for code in codes { candidates[code, default: []].append(file) }
+        }
+        var out: [LinkDecision] = []
+        for (code, list) in candidates.sorted(by: { $0.key < $1.key }) {
+            let targets = rows(code)
+            guard !targets.isEmpty, !targets.contains(where: isLinked) else { continue }
+            func fits(_ name: String, exactly: Bool) -> Bool {
+                let key = nameKey(name)
+                return targets.contains { row in
+                    let rowKey = nameKey(row.name)
+                    let local = localFiles(row).contains { $0.caseInsensitiveCompare(name) == .orderedSame }
+                    if exactly { return key == rowKey || key == nameKey(strippingCode(row)) || local }
+                    return PlanMatcher.contains(PlanMatcher.tokens(key), PlanMatcher.tokens(rowKey)) || key == nameKey(strippingCode(row)) || local
+                }
+            }
+            let chosen: (id: String, name: String)?
+            if list.count == 1 { chosen = fits(list[0].name, exactly: false) ? list[0] : nil } else {
+                let exact = list.filter { fits($0.name, exactly: true) }
+                chosen = exact.count == 1 ? exact[0] : nil
+            }
+            guard let file = chosen else { continue }
+            let certain = list.count == 1 && !byNameOnly.contains(file.id) && targets.contains { row in
+                PlanMatcher.contains(PlanMatcher.tokens(nameKey(file.name)), PlanMatcher.tokens(nameKey(row.name)))
+            }
+            let reason = certain ? "" : byNameOnly.contains(file.id) ? "Same name, no code in the file's name."
+                : list.count > 1 ? "One of \(list.count) files with this code: the one named like the row."
+                : "The file's name holds the code but not the row's name."
+            out.append(LinkDecision(code: code, fileID: file.id, certain: certain, reason: reason))
+        }
+        return out
+    }
+
     /// A Frame.io file that probably belongs to a row, waiting for a click (`PlanLinkSuggestionsSheet`).
     struct LinkSuggestion: Identifiable, Equatable, Sendable {
         let code: String
@@ -1296,7 +1349,8 @@ final class DeliveryPlanStore: ObservableObject {
             guard let s = linkSuggestions[id] else { continue }
             let targets = rows(withCode: id)
             linkSuggestions[id] = nil
-            guard !targets.isEmpty else { continue }
+            // Never over a link that came in meanwhile.
+            guard !targets.isEmpty, targets.allSatisfy({ frameioLink($0).isEmpty }) else { continue }
             queueQC(targets, refresh: false) { entry in
                 entry[.frameio] = s.url
                 if let date = s.date, targets.allSatisfy({ self.shown(.uploaded, $0).isEmpty }) { entry[.uploaded] = Self.uploadStamp(date) }
@@ -1578,6 +1632,8 @@ final class DeliveryPlanStore: ObservableObject {
             dropped = true
         }
         if dropped { saveFrameIOFolders(); scheduleRecompute() }
+        let staleSuggestions = linkSuggestions.filter { goneIDs.contains($0.value.fileID) }.map(\.key)
+        for key in staleSuggestions { linkSuggestions[key] = nil }
         let targets = rows.filter { row in
             let link = frameioLink(row)
             return !link.isEmpty && ids.contains { link.hasSuffix("/" + $0) || link.contains("/" + $0 + "?") }
@@ -1728,12 +1784,12 @@ final class DeliveryPlanStore: ObservableObject {
         guard !records.isEmpty || !cells.isEmpty else { return }
         let loud = records.contains { !$0.quiet } || !cells.isEmpty
         guard await GoogleAuth.shared.isSignedIn else {
-            if loud { editState = .failed("Saved on this Mac: sign in with Google (Delivery Plan ••• menu) to send it to the sheet.") }
+            if loud { report(.failed("Saved on this Mac: sign in with Google (Delivery Plan ••• menu) to send it to the sheet.")) }
             return
         }
         if config.qcTab == nil {
             if records.contains(where: { !$0.quiet }) {
-                editState = .failed("Saved on this Mac: set up the QCpie tab (Delivery Plan ••• menu) to send statuses to the sheet.")
+                report(.failed("Saved on this Mac: set up the QCpie tab (Delivery Plan ••• menu) to send statuses to the sheet."))
             }
             records = []
             guard !cells.isEmpty else { return }
@@ -1756,7 +1812,7 @@ final class DeliveryPlanStore: ObservableObject {
                 if table == nil, hasValues {
                     // Something else is in row 1 (a title added above the header?): writing there would overwrite it.
                     // Kept until the tab's first row is its header again.
-                    if loud { editState = .failed("Not saved yet: the QCpie tab's first row must be its header (Code, Deliverable, QC Status…).") }
+                    if loud { report(.failed("Not saved yet: the QCpie tab's first row must be its header (Code, Deliverable, QC Status…).")) }
                     setHealth { $0.writeError = "The QCpie tab's first row must be its header (Code, Deliverable, QC Status…)."; $0.retrying = true }
                     return
                 }
@@ -1798,25 +1854,25 @@ final class DeliveryPlanStore: ObservableObject {
                 outbox.drop(codes: [], cells: conflicts, sentAt: sentAt)
             }
             retryDelay = 0
-            if loud { editState = refused.isEmpty ? .saved : .failed("Not saved: \(refused[0]).") }
+            if loud { report(refused.isEmpty ? .saved : .failed("Not saved: \(refused[0]).")) }
             setHealth { $0.canWrite = true; $0.retrying = false; $0.writeError = refused.first.map { "Not saved: \($0)." } }
         } catch {
             switch error {
             case GoogleAuth.Failure.signedOut:
                 GoogleAccount.shared.noteSignedOut()
-                if loud { editState = .failed("Saved on this Mac: sign in with Google (Delivery Plan ••• menu) to send it to the sheet.") }
+                if loud { report(.failed("Saved on this Mac: sign in with Google (Delivery Plan ••• menu) to send it to the sheet.")) }
             case SheetsAPI.Failure.http(400, _):
                 // Usually a tab renamed or deleted (the QCpie tab too): read the tab list and keep the edits; if the
                 // QCpie tab is gone they wait for it to be set up again.
                 _ = try? await readMetadata(config)
                 retryDelay = min(max(5, retryDelay * 2), 120)
                 setHealth { $0.writeError = Self.describe(error); $0.retrying = true }
-                if loud { editState = .failed("Not saved yet (\(Self.describe(error))): trying again in \(Int(retryDelay)) s.") }
+                if loud { report(.failed("Not saved yet (\(Self.describe(error))): trying again in \(Int(retryDelay)) s.")) }
                 scheduleFlush(after: retryDelay)
             case let failure as SheetsAPI.Failure where !failure.isTransient:
                 // Google won't take these however often they're sent (no edit access, bad range): drop them.
                 outbox.drop(codes: records.map(\.code), cells: Set(cells.map(\.id)), sentAt: sentAt)
-                if loud { editState = .failed("Not saved: \(Self.describe(error))") }
+                if loud { report(.failed("Not saved: \(Self.describe(error))")) }
                 setHealth {
                     if case .noAccess = failure { $0.canWrite = false }
                     $0.writeError = Self.describe(error); $0.retrying = false
@@ -1824,7 +1880,7 @@ final class DeliveryPlanStore: ObservableObject {
             default:
                 // Offline or Google busy: kept, tried again later (and on the next read).
                 retryDelay = min(max(5, retryDelay * 2), 120)
-                if loud { editState = .failed("Not saved yet (\(Self.describe(error))): trying again in \(Int(retryDelay)) s.") }
+                if loud { report(.failed("Not saved yet (\(Self.describe(error))): trying again in \(Int(retryDelay)) s.")) }
                 setHealth { $0.writeError = Self.describe(error); $0.retrying = true }
                 scheduleFlush(after: retryDelay)
             }
@@ -1844,6 +1900,10 @@ final class DeliveryPlanStore: ObservableObject {
         }
     }
     private var refreshAfterEdit: Task<Void, Never>?
+
+    /// The outbox's messages, published only when they change: a send retried after every read (no QCpie tab yet,
+    /// offline) would otherwise redraw the plan and toast in Inspect every 10 s.
+    private func report(_ state: EditState) { if editState != state { editState = state } }
 
     struct CellRefusal: Error { let message: String }
 
@@ -1876,9 +1936,13 @@ final class DeliveryPlanStore: ObservableObject {
     private var outboxSaveTask: Task<Void, Never>?
 
     /// Written in order, off the main thread (a newer save waits for the one before).
+    /// False until the saved outbox has been read: a save before that would overwrite edits saved before quitting
+    /// (the load merges, then saves).
+    private var outboxLoaded = false
+
     private func saveOutbox() {
         noteOutbox()
-        guard let config else { return }
+        guard let config, outboxLoaded else { return }
         let file = Self.directory(config.link.sheetID).appendingPathComponent("outbox.json")
         let snapshot = outbox
         let previous = outboxSaveTask
@@ -1896,11 +1960,13 @@ final class DeliveryPlanStore: ObservableObject {
         let saved = await Task.detached(priority: .utility) {
             (try? Data(contentsOf: file)).flatMap { try? JSONDecoder().decode(PlanOutbox.self, from: $0) }
         }.value
-        guard let saved, self.config?.link == config.link else { return }
+        guard self.config?.link == config.link else { return }
+        outboxLoaded = true
+        guard let saved else { if !outbox.isEmpty { saveOutbox() }; return }
         // Edits made since launch are newer than the saved ones.
         for (key, record) in saved.records where outbox.records[key] == nil { outbox.records[key] = record }
         outbox.cells = saved.cells.filter { old in !outbox.cells.contains { $0.id == old.id } } + outbox.cells
-        noteOutbox()
+        saveOutbox()
         recomputeStates()
         publishGrids()
         scheduleFlush(after: 1)
@@ -1944,9 +2010,13 @@ final class DeliveryPlanStore: ObservableObject {
             // Waiting edits are in the tab now.
             outbox.written(codes: pending.map(\.code), cells: [], sentAt: pendingAt)
             saveOutbox()
-            config.qcTab = String(gidNumber)
+            // Onto the config as it is now (settings changed during the set-up stay).
+            if var current = self.config, current.link == config.link {
+                current.qcTab = String(gidNumber)
+                self.config = current
+                saveConfig()
+            }
             lastValues = nil
-            if self.config?.link == config.link { self.config = config; saveConfig() }
             editState = .saved
             await refresh(full: true)
             scheduleFlush(after: 0)

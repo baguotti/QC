@@ -752,13 +752,13 @@ struct PlanRowState: Equatable, Sendable {
 /// the plan" kinds are files: local ones (Inspect's extras) and Frame.io ones (files in the plan's Frame.io folders that
 /// no row links to). Raw values are the Frame.io filter's values (0 and 1 are "not on" / "on Frame.io").
 enum PlanMismatch: Int, CaseIterable, Sendable {
-    case differs = 2, noLocalFile = 3, early = 4, notUploaded = 5, frameioExtra = 6, localExtra = 7
+    /// Only kinds someone acts on. ("No file here" and "on Frame.io before QC" were dropped: the first is normal on a
+    /// Mac without the delivery, the second is often on purpose, client previews.) Raw values stay: filters store them.
+    case differs = 2, notUploaded = 5, frameioExtra = 6, localExtra = 7
 
     var title: String {
         switch self {
         case .differs: return "Frame.io Has Another Version"
-        case .noLocalFile: return "On Frame.io, No File Here"
-        case .early: return "On Frame.io Before QC"
         case .notUploaded: return "Passed, Not on Frame.io"
         case .frameioExtra: return "On Frame.io, Not in the Plan"
         case .localExtra: return "Here, Not in the Plan"
@@ -768,8 +768,6 @@ enum PlanMismatch: Int, CaseIterable, Sendable {
     var explanation: String {
         switch self {
         case .differs: return "The local file changed after its upload, or Frame.io's file is another size."
-        case .noLocalFile: return "Linked to a Frame.io file, but no file on this Mac matches the row."
-        case .early: return "On Frame.io while the row isn't QC Passed, Approved or Delivered yet."
         case .notUploaded: return "QC Passed, Approved or Delivered, but the row has no Frame.io link."
         case .frameioExtra: return "Files in the plan's Frame.io folders that no row links to."
         case .localExtra: return "Inspect files that don't match any row."
@@ -777,7 +775,7 @@ enum PlanMismatch: Int, CaseIterable, Sendable {
     }
 
     /// Kinds a file on this Mac can have (Inspect's menu).
-    var isLocal: Bool { self == .differs || self == .early || self == .notUploaded || self == .localExtra }
+    var isLocal: Bool { self == .differs || self == .notUploaded || self == .localExtra }
 
     /// Filter values → title: the two presence filters, then the mismatches.
     static func filterTitle(_ value: Int) -> String {

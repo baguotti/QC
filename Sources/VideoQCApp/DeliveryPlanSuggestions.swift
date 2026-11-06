@@ -7,8 +7,12 @@ struct PlanSuggestionsButton: View {
     @State private var showing = false
 
     var body: some View {
+        if count > 0 || showing { button }
+    }
+
+    private var button: some View {
         let palette = StudioPalette(isLightMode)
-        Button { showing = true } label: {
+        return Button { showing = true } label: {
             HStack(spacing: 4) {
                 Image(systemName: "link.badge.plus").font(.system(size: StudioTheme.scaleFont(9), weight: .semibold))
                 Text("\(count) Suggested").font(.ui(size: 10, weight: .medium)).monospacedDigit()

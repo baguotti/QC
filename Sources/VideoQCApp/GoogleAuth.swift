@@ -114,7 +114,10 @@ actor GoogleAuth {
         guard let current = tokens else { throw Self.isConfigured ? Failure.signedOut : Failure.notConfigured }
         if !forceRefresh, current.expires.timeIntervalSinceNow > 60 { return current.access }
         if let refreshing {
-            do { return try await refreshing.value.access } catch Failure.denied { throw Failure.signedOut }
+            do { _ = try await refreshing.value } catch Failure.denied { throw Failure.signedOut }
+            // The shared refresh may have been for a sign-in that ended meanwhile: use what's current.
+            guard let current = tokens else { throw Failure.signedOut }
+            return current.access
         }
         guard let refresh = current.refresh else {
             tokens = nil
@@ -272,7 +275,8 @@ final class GoogleSignIn: NSObject, ASWebAuthenticationPresentationContextProvid
             }
             session.presentationContextProvider = flow
             flow.session = session
-            session.start()
+            // No window to show it on (or another sign-in already open): fail now instead of waiting forever.
+            if !session.start() { continuation.resume(throwing: GoogleAuth.Failure.denied("the sign-in window couldn't open")) }
         }
         let items = URLComponents(url: callback, resolvingAgainstBaseURL: false)?.queryItems ?? []
         guard let code = items.first(where: { $0.name == "code" })?.value else {

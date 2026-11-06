@@ -338,7 +338,7 @@ struct ContentView: View {
             }
             // A status, batch or link set from Inspect that the sheet refused: the reason is otherwise only in the plan
             // panel's status line, so a change made with the panel closed seemed to do nothing.
-            .onReceive(DeliveryPlanStore.shared.$editState.dropFirst()) { state in
+            .onReceive(DeliveryPlanStore.shared.$editState.dropFirst().removeDuplicates()) { state in
                 if selectedTab == .specs, case .failed(let message) = state { showToast(message) }
             }
             .onReceive(DeliveryPlanStore.shared.$fileIndex) { index in
