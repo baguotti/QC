@@ -206,6 +206,7 @@ final class DeliveryPlanStore: ObservableObject {
         localExtras = []; changes = [:]; removed = []; editState = .idle; loadedFromDisk = false
         statesRevision &+= 1   // the Summary mustn't show the old sheet's figures
         health = PlanHealth()
+        linkSuggestions = [:]
         rootScanTask?.cancel(); rootScanTask = nil; rootFolders = []; lastRootScan = nil; rootScan = .idle
     }
 
@@ -1036,10 +1037,13 @@ final class DeliveryPlanStore: ObservableObject {
         // ("…_20s" for "…_20s_KL0140") or exactly like the local file matched to the row: names without a code.
         let names = exactNameIndex()
         var candidates: [String: [FrameIO.Item]] = [:]
+        /// Files found by name alone (no code in it): never linked without a review.
+        var byNameOnly = Set<String>()
         for item in items where !item.isFolder && item.viewURL != nil {
             let name = Self.listedName(item)
             var codes = codes(inFileNamed: name)
             if codes.isEmpty {
+                byNameOnly.insert(item.id)
                 // The local file matched to a row settles look-alike names; else the row's name without its code, if
                 // only one row has it.
                 let key = Self.nameKey(name)
@@ -1073,6 +1077,20 @@ final class DeliveryPlanStore: ObservableObject {
             }
             guard let item = chosen, let url = item.viewURL else { continue }
             let date = Self.listedDate(item)
+            // Linked without asking only when certain: one file, its name holds the code and the row's name. Anything
+            // else (found by name alone, a stripped code, the local file's name, one of several versions) is suggested.
+            let certain = files.count == 1 && !byNameOnly.contains(item.id) && targets.contains { row in
+                PlanMatcher.contains(PlanMatcher.tokens(Self.nameKey(Self.listedName(item))), PlanMatcher.tokens(Self.nameKey(row.name)))
+            }
+            guard certain else {
+                suggest(LinkSuggestion(code: targets[0].code ?? code, rowName: targets[0].name, fileName: Self.listedName(item),
+                                       url: url, fileID: item.id.lowercased(), date: date,
+                                       reason: byNameOnly.contains(item.id) ? "Same name, no code in the file's name."
+                                           : files.count > 1 ? "One of \(files.count) files with this code: the one named like the row."
+                                           : "The file's name holds the code but not the row's name."))
+                continue
+            }
+            linkSuggestions[code] = nil
             queueQC(targets, quiet: true, refresh: false) { entry in
                 entry[.frameio] = url
                 if let date, targets.allSatisfy({ self.shown(.uploaded, $0).isEmpty }) { entry[.uploaded] = Self.uploadStamp(date) }
@@ -1243,6 +1261,55 @@ final class DeliveryPlanStore: ObservableObject {
         }
         let folders = path.prefix { $0.listedFolder != nil || $0.level == .account || $0.level == .workspace }
         return FrameIORoot(account: account, folder: folder, title: Self.rootTitle(Array(folders)))
+    }
+
+    // MARK: Suggested links
+
+    /// A Frame.io file that probably belongs to a row, waiting for a click (`PlanLinkSuggestionsSheet`).
+    struct LinkSuggestion: Identifiable, Equatable, Sendable {
+        let code: String
+        let rowName: String
+        let fileName: String
+        let url: String
+        let fileID: String
+        let date: Date?
+        let reason: String
+        var id: String { code.lowercased() }
+        var dismissKey: String { "sx|\(code.lowercased())|\(fileID)" }
+    }
+
+    /// One per code (the latest listing's), not dismissed, for rows still without a link.
+    @Published private(set) var linkSuggestions: [String: LinkSuggestion] = [:]
+
+    /// Rows that get a link any way (accepted, by hand, by an upload) leave the list in `queueQC`.
+    var pendingSuggestions: [LinkSuggestion] {
+        linkSuggestions.values.sorted { $0.code.localizedStandardCompare($1.code) == .orderedAscending }
+    }
+
+    private func suggest(_ suggestion: LinkSuggestion) {
+        guard !dismissedMismatches.contains(suggestion.dismissKey), linkSuggestions[suggestion.id] != suggestion else { return }
+        linkSuggestions[suggestion.id] = suggestion
+    }
+
+    func acceptSuggestions(_ ids: [String]) {
+        for id in ids {
+            guard let s = linkSuggestions[id] else { continue }
+            let targets = rows(withCode: id)
+            linkSuggestions[id] = nil
+            guard !targets.isEmpty else { continue }
+            queueQC(targets, refresh: false) { entry in
+                entry[.frameio] = s.url
+                if let date = s.date, targets.allSatisfy({ self.shown(.uploaded, $0).isEmpty }) { entry[.uploaded] = Self.uploadStamp(date) }
+            }
+        }
+        recomputeStates()
+        publishGrids()
+    }
+
+    func dismissSuggestions(_ ids: [String]) {
+        let keys = ids.compactMap { linkSuggestions[$0]?.dismissKey }
+        for id in ids { linkSuggestions[id] = nil }
+        dismiss(keys)
     }
 
     // MARK: Dismissed mismatches
@@ -1623,6 +1690,9 @@ final class DeliveryPlanStore: ObservableObject {
             values[.qcUpdated] = PlanStatusResolver.stamp(Date(), by: reviewer)
         }
         for row in coded { outbox.set(code: row.code!, name: row.name, values, quiet: quiet) }
+        if let link = values[.frameio], !link.isEmpty {
+            for row in coded where linkSuggestions[row.code!.lowercased()] != nil { linkSuggestions[row.code!.lowercased()] = nil }
+        }
         saveOutbox()
         if refresh {
             recomputeStates()

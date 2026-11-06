@@ -459,6 +459,7 @@ struct DeliveryPlanPanel: View {
                                    dismissed: store.planCounts.dismissed)
             }
         }
+            if !store.linkSuggestions.isEmpty { PlanSuggestionsButton(count: store.linkSuggestions.count, isLightMode: isLightMode) }
         // No Spacer: FlowChips takes the width it's offered, and a Spacer would split it in half.
         PlanFilterLinkToggle(isLightMode: isLightMode) { currentFilter }
         }
