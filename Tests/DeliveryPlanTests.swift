@@ -325,7 +325,7 @@ extension DeliveryPlanTests {
     let notUploaded = PlanRowState(state: .passed, mismatches: [.notUploaded])
     #expect(notUploaded.passes(0) && notUploaded.passes(PlanMismatch.notUploaded.rawValue))
     // Files: "here, not in the plan" passes only files without a row; row kinds need a row.
-    let extra = PlanFileInfo(code: "", line: 0, rowID: nil, state: nil)
+    let extra = PlanFileInfo(code: "", line: 0, rowID: nil, state: nil, mismatches: [.localExtra])
     #expect(extra.passes(PlanMismatch.localExtra.rawValue) && !extra.passes(0) && !extra.passes(PlanMismatch.differs.rawValue))
     let file = PlanFileInfo(code: "KL1", line: 3, rowID: "r", state: .toQC, upload: .stale, mismatches: [.differs])
     #expect(file.passes(PlanMismatch.differs.rawValue) && file.passes(1) && !file.passes(PlanMismatch.localExtra.rawValue))
@@ -349,4 +349,14 @@ extension DeliveryPlanTests {
     let text = AppsScriptWriter.editingLink(link)
     #expect(AppsScriptWriter.parseURL(text) == link.url && AppsScriptWriter.parseKey(text) == "k3y")
     #expect(AppsScriptWriter.parseKey(link.url.absoluteString) == nil)
+}
+
+@Test func dismissedMismatchesComeBackWhenTheyChange() {
+    let link = "https://next.frame.io/project/p/view/F1"
+    let a = DeliveryPlanStore.mismatchKey("r1", .differs, link: link, newest: Date(timeIntervalSince1970: 100))
+    #expect(a == DeliveryPlanStore.mismatchKey("r1", .differs, link: link + "?x=1", newest: Date(timeIntervalSince1970: 100)))
+    #expect(a != DeliveryPlanStore.mismatchKey("r1", .differs, link: link, newest: Date(timeIntervalSince1970: 200)))   // newer file
+    #expect(DeliveryPlanStore.mismatchKey("r1", .early, link: link, newest: nil) != DeliveryPlanStore.mismatchKey("r1", .early, link: link + "2", newest: nil))
+    // Only "another version" depends on the file's date.
+    #expect(DeliveryPlanStore.mismatchKey("r1", .early, link: link, newest: .now) == DeliveryPlanStore.mismatchKey("r1", .early, link: link, newest: nil))
 }

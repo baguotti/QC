@@ -286,7 +286,8 @@ extension ContentView {
             if DeliveryPlanStore.shared.hasFrameIOColumn || summary.mismatchTotal > 0 || (inspectPlanUpload ?? 0) > 1 {
                 PlanMismatchFilter(counts: summary.mismatches, total: summary.mismatchTotal,
                                    kinds: PlanMismatch.allCases.filter { $0.isLocal && $0 != .localExtra },
-                                   selection: $inspectPlanUpload, isLightMode: isLightMode)
+                                   selection: $inspectPlanUpload, isLightMode: isLightMode,
+                                   dismissed: DeliveryPlanStore.shared.planCounts.dismissed)
             }
         }
         // No Spacer: FlowChips takes the width it's offered, and a Spacer would split it in half.
@@ -1670,6 +1671,11 @@ extension ContentView {
                 }
                 PlanBatchMenu(title: isMulti ? "Set Plan Batch (Selection)" : "Set Plan Batch",
                               rowIDs: { DeliveryPlanStore.shared.rowIDs(forFiles: targetFiles()) })
+                if planFiles[asset.fileURL]?.mismatches.isEmpty == false {
+                    Button(isMulti ? "Dismiss Plan Mismatches (Selection)" : "Dismiss Plan Mismatch") {
+                        DeliveryPlanStore.shared.dismissMismatches(rowIDs: DeliveryPlanStore.shared.rowIDs(forFiles: targetFiles()))
+                    }
+                }
                 if let link = planFiles[asset.fileURL]?.frameio, let web = URL(string: link), !link.isEmpty {
                     Button("Open in Frame.io") { NSWorkspace.shared.open(web) }
                 } else {

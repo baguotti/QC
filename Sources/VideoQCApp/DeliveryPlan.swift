@@ -870,7 +870,7 @@ struct PlanFileInfo: Equatable, Sendable {
 
     /// The Frame.io filter on a file: "Here, Not in the Plan" passes files without a row; the rest need one.
     func passes(_ filter: Int) -> Bool {
-        if filter == PlanMismatch.localExtra.rawValue { return rowID == nil }
+        if filter == PlanMismatch.localExtra.rawValue { return rowID == nil && mismatches.contains(.localExtra) }
         guard rowID != nil else { return false }
         return PlanRowState(state: state ?? .missing, upload: upload, mismatches: mismatches).passes(filter)
     }

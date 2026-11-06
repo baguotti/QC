@@ -186,9 +186,11 @@ final class DeliveryPlanStore: ObservableObject {
         /// Rows or files per mismatch, and how many rows / files have any.
         var mismatches: [PlanMismatch: Int] = [:]
         var mismatchTotal = 0
+        /// Mismatches dismissed that would show now.
+        var dismissed = 0
         static func == (a: PlanCounts, b: PlanCounts) -> Bool {
             a.batches == b.batches && a.unbatched == b.unbatched && a.uploads == b.uploads
-                && a.mismatches == b.mismatches && a.mismatchTotal == b.mismatchTotal
+                && a.mismatches == b.mismatches && a.mismatchTotal == b.mismatchTotal && a.dismissed == b.dismissed
         }
     }
     @Published private(set) var planCounts = PlanCounts()
@@ -278,7 +280,7 @@ final class DeliveryPlanStore: ObservableObject {
             saveConfig()
             seen = [:]
             rows = []
-            grids = [:]; readGrids = [:]; pending = [:]; pendingQC = [:]; queuedQC = [:]; states = [:]; fileIndex = [:]; headers = [:]; scriptVersion = nil; lastCounter = nil; cellLists = [:]; lastListsSig = nil; listsReadSig = nil; deferredTracking = []; frameioFolders = [:]; frameioExtras = []; foldersSaveTask?.cancel()
+            grids = [:]; readGrids = [:]; pending = [:]; pendingQC = [:]; queuedQC = [:]; states = [:]; fileIndex = [:]; headers = [:]; scriptVersion = nil; lastCounter = nil; cellLists = [:]; lastListsSig = nil; listsReadSig = nil; deferredTracking = []; frameioFolders = [:]; frameioExtras = []; foldersSaveTask?.cancel(); dismissedMismatches = []; localExtras = []
             changes = [:]
             removed = []
             await refresh(adoptAsSeen: true)
@@ -305,7 +307,7 @@ final class DeliveryPlanStore: ObservableObject {
         self.config = nil
         UserDefaults.standard.removeObject(forKey: Self.configKey)
         rows = []
-        grids = [:]; readGrids = [:]; pending = [:]; pendingQC = [:]; queuedQC = [:]; states = [:]; fileIndex = [:]; headers = [:]; scriptVersion = nil; lastCounter = nil; cellLists = [:]; lastListsSig = nil; listsReadSig = nil; deferredTracking = []; frameioFolders = [:]; frameioExtras = []; foldersSaveTask?.cancel()
+        grids = [:]; readGrids = [:]; pending = [:]; pendingQC = [:]; queuedQC = [:]; states = [:]; fileIndex = [:]; headers = [:]; scriptVersion = nil; lastCounter = nil; cellLists = [:]; lastListsSig = nil; listsReadSig = nil; deferredTracking = []; frameioFolders = [:]; frameioExtras = []; foldersSaveTask?.cancel(); dismissedMismatches = []; localExtras = []
         match = .empty
         changes = [:]
         removed = []
@@ -596,7 +598,7 @@ final class DeliveryPlanStore: ObservableObject {
         guard !loadedFromDisk, let config else { return }
         loadedFromDisk = true
         let dir = Self.directory(config.link.sheetID)
-        let (cache, seen, gridCache, folders) = await Task.detached(priority: .userInitiated) { () -> ([String: String], [String: SeenRow], [String: PlanGrid], [String: [ListedFile]]) in
+        let (cache, seen, gridCache, folders, dismissed) = await Task.detached(priority: .userInitiated) { () -> ([String: String], [String: SeenRow], [String: PlanGrid], [String: [ListedFile]], [String]) in
             let cache = (try? Data(contentsOf: dir.appendingPathComponent("tabs.json")))
                 .flatMap { try? JSONDecoder().decode([String: String].self, from: $0) } ?? [:]
             let seen = (try? Data(contentsOf: dir.appendingPathComponent("seen.json")))
@@ -605,8 +607,11 @@ final class DeliveryPlanStore: ObservableObject {
                 .flatMap { try? JSONDecoder().decode([String: PlanGrid].self, from: $0) } ?? [:]
             let folders = (try? Data(contentsOf: dir.appendingPathComponent("frameio-folders.json")))
                 .flatMap { try? JSONDecoder().decode([String: [ListedFile]].self, from: $0) } ?? [:]
-            return (cache, seen, grids, folders)
+            let dismissed = (try? Data(contentsOf: dir.appendingPathComponent("dismissed-mismatches.json")))
+                .flatMap { try? JSONDecoder().decode([String].self, from: $0) } ?? []
+            return (cache, seen, grids, folders, dismissed)
         }.value
+        if !dismissed.isEmpty { dismissedMismatches.formUnion(dismissed); scheduleRecompute() }
         self.seen = seen
         // Listings that came in before this read are newer than the saved ones.
         frameioFolders = folders.merging(frameioFolders) { _, listed in listed }
@@ -753,7 +758,12 @@ final class DeliveryPlanStore: ObservableObject {
                 linkedCodes[code] = (linkedCodes[code] ?? true) && !link.isEmpty
             }
         }
-        var extras = unlinked.map { PlanFrameIOExtra(name: $0.name, url: $0.url, note: extraNote($0.name, linkedCodes: linkedCodes)) }
+        var dismissedNow = 0
+        var extras = unlinked.filter { file in
+            guard dismissedMismatches.contains("fx|" + (Self.frameIOID(file.url) ?? file.url)) else { return true }
+            dismissedNow += 1
+            return false
+        }.map { PlanFrameIOExtra(name: $0.name, url: $0.url, note: extraNote($0.name, linkedCodes: linkedCodes)) }
         extras.sort { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
         // "No file here" only on a Mac holding some of the plan's files (not one that only has other projects loaded).
         let hasLocalFiles = files.count > match.extras.count, tracksFrameIO = hasFrameIOColumn
@@ -764,6 +774,7 @@ final class DeliveryPlanStore: ObservableObject {
                                                    qc: pending?.values[.qcStatus] ?? row.value(.qcStatus),
                                                    updated: pending?.values[.qcUpdated] ?? row.value(.qcUpdated),
                                                    fileDates: result.files.compactMap { dates[$0] })
+            var found: [(kind: PlanMismatch, flag: String)] = []
             if !link.isEmpty {
                 state.upload = .uploaded
                 // The local file changed after the upload (a minute's grace: the upload stamp has no seconds).
@@ -771,29 +782,35 @@ final class DeliveryPlanStore: ObservableObject {
                 if let when = PlanUpload.date(uploadedOn), let newest = result.files.compactMap({ dates[$0] }).max(),
                    newest > when.addingTimeInterval(60) {
                     state.upload = .stale
-                    state.flags.append("Changed after its upload to Frame.io (\(uploadedOn)): Frame.io has an older version.")
+                    found.append((.differs, "Changed after its upload to Frame.io (\(uploadedOn)): Frame.io has an older version."))
                 } else if result.files.count == 1, let local = result.files.first, QCUtilities.mediaKind(of: local) != .image,
                           let remote = Self.frameIOID(link).flatMap({ listed[$0] }), remote.size > 0,
                           let bytes = filesByURL[local]?.bytes, bytes > 0, bytes != remote.size,
                           (remote.name as NSString).pathExtension.lowercased() == local.pathExtension.lowercased() {
                     // Same kind of file, another size: Frame.io holds another version (or another file).
                     state.upload = .stale
-                    state.flags.append("Frame.io's file is \(Self.byteText(remote.size)), this one \(Self.byteText(bytes)): Frame.io has another version.")
+                    found.append((.differs, "Frame.io's file is \(Self.byteText(remote.size)), this one \(Self.byteText(bytes)): Frame.io has another version."))
                 }
                 if state.state != .dropped, result.files.isEmpty, hasLocalFiles {
-                    state.mismatches.append(.noLocalFile)
-                    state.flags.append("On Frame.io, but no file on this Mac matches the row.")
+                    found.append((.noLocalFile, "On Frame.io, but no file on this Mac matches the row."))
                 }
                 // Only for rows checked here (a file on this Mac, or marked Needs Fix): on a machine without the files a
                 // linked row is just Missing locally, not uploaded too early.
                 if [.toQC, .check, .wrongSpec, .needsFix].contains(state.state), !result.files.isEmpty || state.state == .needsFix {
-                    state.mismatches.append(.early)
-                    state.flags.append("On Frame.io before passing QC.")
+                    found.append((.early, "On Frame.io before passing QC."))
                 }
-                if state.upload == .stale { state.mismatches.insert(.differs, at: 0) }
             } else if tracksFrameIO, state.state.isDone {
-                state.mismatches.append(.notUploaded)
-                state.flags.append("\(state.state.title), but not on Frame.io.")
+                found.append((.notUploaded, "\(state.state.title), but not on Frame.io."))
+            }
+            // Dismissed ones stay quiet until what they were about changes (another link, a newer local file).
+            let newest = result.files.compactMap { dates[$0] }.max()
+            for (kind, flag) in found {
+                if !dismissedMismatches.isEmpty, dismissedMismatches.contains(Self.mismatchKey(row.id, kind, link: link, newest: newest)) {
+                    dismissedNow += 1
+                    continue
+                }
+                state.mismatches.append(kind)
+                state.flags.append(flag)
             }
             for kind in state.mismatches { mismatchCounts[kind, default: 0] += 1 }
             if !state.mismatches.isEmpty { mismatchTotal += 1 }
@@ -821,12 +838,20 @@ final class DeliveryPlanStore: ObservableObject {
             unbatched: perBatch[""]?.total ?? 0,
             uploads: PlanUploadFilter.counts(uploads))
         if !extras.isEmpty { mismatchCounts[.frameioExtra] = extras.count }
-        if !match.extras.isEmpty { mismatchCounts[.localExtra] = match.extras.count }
+        let local = match.extras.filter { !dismissedMismatches.contains("lx|" + $0.path) }
+        dismissedNow += match.extras.count - local.count
+        if !local.isEmpty { mismatchCounts[.localExtra] = local.count }
         counts.mismatches = mismatchCounts
-        counts.mismatchTotal = mismatchTotal + extras.count + match.extras.count
+        counts.mismatchTotal = mismatchTotal + extras.count + local.count
+        counts.dismissed = dismissedNow
+        if local != localExtras { localExtras = local }
         if counts != planCounts { planCounts = counts }
         if extras != frameioExtras { frameioExtras = extras }
-        for url in match.extras { index[url] = PlanFileInfo(code: "", line: 0, rowID: nil, state: nil) }
+        // Inspect's "Here, Not in the Plan" filter skips the dismissed ones too.
+        let flagged = Set(local)
+        for url in match.extras {
+            index[url] = PlanFileInfo(code: "", line: 0, rowID: nil, state: nil, mismatches: flagged.contains(url) ? [.localExtra] : [])
+        }
         if newStates != states { states = newStates }
         if index != fileIndex { fileIndex = index }
     }
@@ -1045,6 +1070,70 @@ final class DeliveryPlanStore: ObservableObject {
         }
         // One recompute and redraw for the whole listing, not one per row.
         if queued { recomputeStates(); publishGrids() }
+    }
+
+    // MARK: Dismissed mismatches
+
+    /// Mismatches set aside (per plan, saved beside its cache): rows by row, kind and what the flag was about; files on
+    /// Frame.io ("fx|" + id) or here ("lx|" + path) not in the plan.
+    @Published private(set) var dismissedMismatches: Set<String> = []
+    /// Inspect files not in the plan, without the dismissed ones.
+    @Published private(set) var localExtras: [URL] = []
+
+    nonisolated static func mismatchKey(_ rowID: String, _ kind: PlanMismatch, link: String, newest: Date?) -> String {
+        let id = frameIOID(link) ?? ""
+        // "Another version" comes back when the local file changes again.
+        let stamp = kind == .differs ? newest.map { String(Int($0.timeIntervalSince1970)) } ?? "" : ""
+        return "\(rowID)|\(kind.rawValue)|\(id)|\(stamp)"
+    }
+
+    /// Dismisses the rows' current mismatches (`kind` nil: all of them).
+    func dismissMismatches(_ kind: PlanMismatch? = nil, rowIDs: [String]) {
+        let ids = Set(rowIDs)
+        let dates = Dictionary(files.compactMap { f in f.modified.map { (f.url, $0) } }, uniquingKeysWith: { a, _ in a })
+        var keys: [String] = []
+        for row in rows where ids.contains(row.id) {
+            let newest = match.result(row).files.compactMap { dates[$0] }.max()
+            for found in state(row).mismatches where kind == nil || found == kind {
+                keys.append(Self.mismatchKey(row.id, found, link: frameioLink(row), newest: newest))
+            }
+        }
+        dismiss(keys)
+    }
+
+    func dismissFrameIOExtras(_ urls: [String]) { dismiss(urls.map { "fx|" + (Self.frameIOID($0) ?? $0) }) }
+    func dismissLocalExtras(_ urls: [URL]) { dismiss(urls.map { "lx|" + $0.path }) }
+
+    func restoreDismissedMismatches() {
+        guard !dismissedMismatches.isEmpty else { return }
+        dismissedMismatches = []
+        saveDismissed()
+        scheduleRecompute()
+    }
+
+    private func dismiss(_ keys: [String]) {
+        let before = dismissedMismatches.count
+        dismissedMismatches.formUnion(keys)
+        guard dismissedMismatches.count != before else { return }
+        saveDismissed()
+        recomputeStates()
+        publishGrids()
+    }
+
+    private var dismissedSaveTask: Task<Void, Never>?
+    /// One write at a time, the latest set (separate detached writes could land out of order).
+    private func saveDismissed() {
+        guard let config else { return }
+        let dir = Self.directory(config.link.sheetID)
+        let previous = dismissedSaveTask
+        let keys = dismissedMismatches.sorted()
+        dismissedSaveTask = Task {
+            await previous?.value
+            await Task.detached(priority: .utility) {
+                try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+                if let data = try? JSONEncoder().encode(keys) { try? data.write(to: dir.appendingPathComponent("dismissed-mismatches.json"), options: .atomic) }
+            }.value
+        }
     }
 
     // MARK: Frame.io folders

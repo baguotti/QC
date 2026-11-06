@@ -255,8 +255,6 @@ struct DeliveryPlanPanel: View {
                     Button("Find Frame.io Links") { Task { await store.findFrameIOLinks() } }
                         .disabled(store.linkSearch == "Looking on Frame.io…")
                 }
-                Toggle("Link Filters with Inspect", isOn: Binding(get: { store.linkFilters },
-                                                                  set: { _ in store.toggleLinkFilters(from: currentFilter) }))
                 Button("Link Another Sheet…") { relinking = true }
                 Divider()
                 Button("Unlink Sheet", role: .destructive) { store.unlink() }
@@ -397,9 +395,10 @@ struct DeliveryPlanPanel: View {
                 let counts = store.planCounts.uploads
                 PlanUploadFilter(none: counts.none, on: counts.on, selection: $uploadFilter, isLightMode: isLightMode)
             }
-            if store.hasFrameIOColumn || store.planCounts.mismatchTotal > 0 || (uploadFilter ?? 0) > 1 {
+            if store.hasFrameIOColumn || store.planCounts.mismatchTotal > 0 || store.planCounts.dismissed > 0 || (uploadFilter ?? 0) > 1 {
                 PlanMismatchFilter(counts: store.planCounts.mismatches, total: store.planCounts.mismatchTotal,
-                                   kinds: PlanMismatch.allCases, selection: $uploadFilter, isLightMode: isLightMode)
+                                   kinds: PlanMismatch.allCases, selection: $uploadFilter, isLightMode: isLightMode,
+                                   dismissed: store.planCounts.dismissed)
             }
         }
         // No Spacer: FlowChips takes the width it's offered, and a Spacer would split it in half.
@@ -775,6 +774,9 @@ struct DeliveryPlanPanel: View {
         }
         menu.addItem(link.isEmpty ? "Link Frame.io File…" : "Change Frame.io Link…") { [store] in PlanFrameIOLinker.ask(store: store, rowIDs: targets) }
         if !link.isEmpty { menu.addItem("Clear Frame.io Link") { [store] in store.clearFrameIO(rowIDs: targets) } }
+        if !store.state(row).mismatches.isEmpty {
+            menu.addItem(targets.count > 1 ? "Dismiss Mismatches (\(targets.count) Rows)" : "Dismiss Mismatch") { [store] in store.dismissMismatches(rowIDs: targets) }
+        }
         menu.addItem(.separator())
         for url in files {
             menu.addItem("Show \(url.lastPathComponent) in Inspect") { DeliveryPlanStore.post(.reveal, url) }
@@ -830,7 +832,7 @@ struct DeliveryPlanPanel: View {
             items.append(.row(row))
         }
         let unfiltered = statusFilter == nil && batchFilter == nil && uploadFilter == nil && !changedOnly && terms.isEmpty
-        if unfiltered || uploadFilter == PlanMismatch.localExtra.rawValue, !match.extras.isEmpty { items.append(.extras(match.extras)) }
+        if unfiltered || uploadFilter == PlanMismatch.localExtra.rawValue, !store.localExtras.isEmpty { items.append(.extras(store.localExtras)) }
         if unfiltered || uploadFilter == PlanMismatch.frameioExtra.rawValue, !store.frameioExtras.isEmpty {
             items.append(.frameioExtras(store.frameioExtras))
         }
@@ -905,6 +907,9 @@ struct DeliveryPlanPanel: View {
         }
         Button(link.isEmpty ? "Link Frame.io File…" : "Change Frame.io Link…") { PlanFrameIOLinker.ask(store: store, rowIDs: targets) }
         if !link.isEmpty { Button("Clear Frame.io Link") { store.clearFrameIO(rowIDs: targets) } }
+        if !store.state(row).mismatches.isEmpty {
+            Button(targets.count > 1 ? "Dismiss Mismatches (\(targets.count) Rows)" : "Dismiss Mismatch") { store.dismissMismatches(rowIDs: targets) }
+        }
         Divider()
         ForEach(files, id: \.self) { url in
             Button("Show \(url.lastPathComponent) in Inspect") { DeliveryPlanStore.post(.reveal, url) }
@@ -923,10 +928,7 @@ struct DeliveryPlanPanel: View {
 
     private func extrasView(_ urls: [URL]) -> some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text("NOT IN THE PLAN (\(urls.count))")
-                .font(.ui(size: 10, weight: .semibold))
-                .foregroundColor(palette.textMuted)
-                .padding(.top, 12)
+            extrasHeader("NOT IN THE PLAN (\(urls.count))") { store.dismissLocalExtras(urls) }
             Text("Inspect files whose names don't contain any row's file name, or whose rows already have a matching file.")
                 .font(.ui(size: 10))
                 .foregroundColor(palette.textSubtle)
@@ -945,9 +947,12 @@ struct DeliveryPlanPanel: View {
                             .fixedSize(horizontal: false, vertical: true)
                     }
                 }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .overlay(alignment: .topTrailing) { DismissButton(isLightMode: isLightMode) { store.dismissLocalExtras([url]) } }
                     .contentShape(Rectangle())
                     .onTapGesture(count: 2) { DeliveryPlanStore.post(.play, url) }   // before the single tap, or it never fires
                     .onTapGesture { DeliveryPlanStore.post(.reveal, url) }
+                    .contextMenu { Button("Dismiss") { store.dismissLocalExtras([url]) } }
             }
         }
         .padding(.horizontal, 12)
@@ -956,10 +961,7 @@ struct DeliveryPlanPanel: View {
     /// Files in the plan's Frame.io folders that no row links to. Double-click opens one in Frame.io.
     private func frameioExtrasView(_ files: [PlanFrameIOExtra]) -> some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text("ON FRAME.IO, NOT IN THE PLAN (\(files.count))")
-                .font(.ui(size: 10, weight: .semibold))
-                .foregroundColor(palette.textMuted)
-                .padding(.top, 12)
+            extrasHeader("ON FRAME.IO, NOT IN THE PLAN (\(files.count))") { store.dismissFrameIOExtras(files.map(\.url)) }
             Text("Files in the plan's Frame.io folders that no row links to (as of the last time QCpie listed them).")
                 .font(.ui(size: 10))
                 .foregroundColor(palette.textSubtle)
@@ -987,6 +989,7 @@ struct DeliveryPlanPanel: View {
                         .buttonStyle(.plain)
                         .tip("Open in Frame.io")
                     }
+                    DismissButton(isLightMode: isLightMode) { store.dismissFrameIOExtras([file.url]) }
                 }
                 .contentShape(Rectangle())
                 .onTapGesture(count: 2) { if let url = URL(string: file.url) { NSWorkspace.shared.open(url) } }
@@ -1000,10 +1003,28 @@ struct DeliveryPlanPanel: View {
                         NSPasteboard.general.clearContents()
                         NSPasteboard.general.setString(file.name, forType: .string)
                     }
+                    Divider()
+                    Button("Dismiss") { store.dismissFrameIOExtras([file.url]) }
                 }
             }
         }
         .padding(.horizontal, 12)
+    }
+
+    /// A "not in the plan" list's title, with Dismiss All.
+    private func extrasHeader(_ title: String, dismissAll: @escaping () -> Void) -> some View {
+        HStack {
+            Text(title)
+                .font(.ui(size: 10, weight: .semibold))
+                .foregroundColor(palette.textMuted)
+            Spacer(minLength: 4)
+            Button("Dismiss All", action: dismissAll)
+                .buttonStyle(.borderless)
+                .font(.ui(size: 10))
+                .foregroundColor(palette.textMuted)
+                .tip("Stop flagging these files. The mismatch menu's Show Dismissed brings them back.")
+        }
+        .padding(.top, 12)
     }
 
     /// Under the Sheet view: the files a "not in the plan" filter shows (they have no sheet line), else a quiet line
@@ -1014,17 +1035,17 @@ struct DeliveryPlanPanel: View {
         if uploadFilter == PlanMismatch.localExtra.rawValue || uploadFilter == PlanMismatch.frameioExtra.rawValue {
             PlanBottomDrawer(isLightMode: isLightMode) { maxHeight in
                 ScrollView {
-                    if uploadFilter == PlanMismatch.localExtra.rawValue { extrasView(match.extras) } else { frameioExtrasView(frameio) }
+                    if uploadFilter == PlanMismatch.localExtra.rawValue { extrasView(store.localExtras) } else { frameioExtrasView(frameio) }
                 }
                 .padding(.bottom, 8)
                 .frame(maxHeight: maxHeight)
                 .fixedSize(horizontal: false, vertical: true)
             }
-        } else if !match.extras.isEmpty || !frameio.isEmpty {
+        } else if !store.localExtras.isEmpty || !frameio.isEmpty {
             Rectangle().fill(palette.borderLine).frame(height: 1)
             HStack(spacing: 10) {
                 Text("Not in the plan:").foregroundColor(palette.textSubtle)
-                if !match.extras.isEmpty { extrasLink("\(match.extras.count) here", .localExtra) }
+                if !store.localExtras.isEmpty { extrasLink("\(store.localExtras.count) here", .localExtra) }
                 if !frameio.isEmpty { extrasLink("\(frameio.count) on Frame.io", .frameioExtra) }
                 Spacer(minLength: 0)
             }
@@ -1330,6 +1351,27 @@ extension DeliveryPlanStore {
     }
 }
 
+/// A small × that dismisses a flagged file.
+struct DismissButton: View {
+    let isLightMode: Bool
+    let action: () -> Void
+    @State private var hovering = false
+
+    var body: some View {
+        let palette = StudioPalette(isLightMode)
+        Button(action: action) {
+            Image(systemName: "xmark")
+                .font(.system(size: StudioTheme.scaleFont(8), weight: .semibold))
+                .foregroundColor(hovering ? palette.textMain : palette.textSubtle)
+                .frame(width: 16, height: 16)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .onHover { hovering = $0 }
+        .tip("Dismiss: stop flagging this file.")
+    }
+}
+
 /// The drawer under the plan's Sheet view (the selected row's card, files not in the plan): drag its top edge to
 /// resize it (double-click: back to 180 pt). Owns its height, so dragging redraws only the drawer, not the panel.
 struct PlanBottomDrawer<Content: View>: View {
@@ -1619,10 +1661,15 @@ extension View {
     func planBarItem(selected: Bool, palette: StudioPalette) -> some View {
         self
             .padding(.horizontal, 6)
-            .padding(.vertical, 3)
+            .frame(height: PlanBar.itemHeight)
             .background(RoundedRectangle(cornerRadius: Radius.segment).fill(selected ? palette.bgSubtle : Color.clear))
             .contentShape(Rectangle())
     }
+}
+
+/// Every item in the filter bar is this tall, so a line's chips, menus, meter and divider share one centre line.
+@MainActor enum PlanBar {
+    static var itemHeight: CGFloat { StudioTheme.scaleFont(20) }
 }
 
 /// "% done" as a slim bar and a figure (QC Passed, Approved, Delivered of everything not dropped).
@@ -1646,7 +1693,7 @@ struct PlanProgressMeter: View {
                 .foregroundColor(palette.textMuted)
         }
         .padding(.trailing, 4)
-        .padding(.vertical, 3)
+        .frame(height: PlanBar.itemHeight)
         .tip("\(done) of \(live) done (QC Passed, Approved or Delivered; dropped rows don't count).")
     }
 }
@@ -1656,7 +1703,7 @@ struct PlanBarDivider: View {
     let isLightMode: Bool
 
     var body: some View {
-        Rectangle().fill(StudioPalette(isLightMode).borderLine).frame(width: 1, height: 12).padding(.horizontal, 4).padding(.vertical, 4)
+        Rectangle().fill(StudioPalette(isLightMode).borderLine).frame(width: 1, height: 12).padding(.horizontal, 4).frame(height: PlanBar.itemHeight)
     }
 }
 
@@ -1675,7 +1722,7 @@ struct PlanFilterLinkToggle: View {
             Image(systemName: "link")
                 .font(.system(size: StudioTheme.scaleFont(9), weight: on ? .bold : .medium))
                 .foregroundColor(on ? palette.accentBlue : hovering ? palette.textMuted : palette.textSubtle.opacity(0.7))
-                .frame(width: 20, height: 20)
+                .frame(width: PlanBar.itemHeight, height: PlanBar.itemHeight)
                 .background(RoundedRectangle(cornerRadius: Radius.segment).fill(on ? palette.accentBlue.opacity(0.12) : hovering ? palette.bgSubtle : .clear))
                 .contentShape(Rectangle())
         }
@@ -1739,7 +1786,8 @@ struct PlanBatchFilter: View {
             PlanBarMenuLabel(title: selection.map { $0.isEmpty ? "No Batch" : PlanBatch.title($0) } ?? "Batch",
                              active: selection != nil, isLightMode: isLightMode)
         }
-        .menuStyle(.borderlessButton)
+        .menuStyle(.button)
+        .buttonStyle(.plain)   // borderlessButton redraws the label its own way (chevron first, system font)
         .menuIndicator(.hidden)
         .fixedSize()
         .tip("Show one delivery batch.")
@@ -1851,7 +1899,8 @@ struct PlanUploadFilter: View {
         } label: {
             PlanBarMenuLabel(title: active ? PlanMismatch.filterTitle(selection!) : "Frame.io", active: active, isLightMode: isLightMode)
         }
-        .menuStyle(.borderlessButton)
+        .menuStyle(.button)
+        .buttonStyle(.plain)   // borderlessButton redraws the label its own way (chevron first, system font)
         .menuIndicator(.hidden)
         .fixedSize()
         .tip("Show files by whether they're on Frame.io.")
@@ -1870,6 +1919,8 @@ struct PlanMismatchFilter: View {
     let kinds: [PlanMismatch]
     @Binding var selection: Int?
     let isLightMode: Bool
+    /// Dismissed mismatches that would show now (Show Dismissed brings them all back).
+    var dismissed = 0
 
     var body: some View {
         let palette = StudioPalette(isLightMode)
@@ -1885,7 +1936,11 @@ struct PlanMismatchFilter: View {
             }
             .foregroundColor(palette.textSubtle)
             .planBarItem(selected: false, palette: palette)
-            .tip("The plan, this Mac's files and Frame.io agree (as far as QCpie has seen Frame.io's folders).")
+            .tip(dismissed > 0 ? "In sync, with \(dismissed) dismissed mismatch\(dismissed == 1 ? "" : "es"). Right-click to show them again."
+                 : "The plan, this Mac's files and Frame.io agree (as far as QCpie has seen Frame.io's folders).")
+            .contextMenu {
+                if dismissed > 0 { Button("Show Dismissed Mismatches (\(dismissed))") { DeliveryPlanStore.shared.restoreDismissedMismatches() } }
+            }
         } else {
             Menu {
                 Button(chosen == nil ? "✓ All Files" : "All Files") { selection = nil }
@@ -1893,6 +1948,10 @@ struct PlanMismatchFilter: View {
                 ForEach(shown, id: \.self) { kind in
                     Button("\(chosen == kind ? "✓ " : "")\(kind.title)  ·  \(counts[kind] ?? 0)") { selection = kind.rawValue }
                         .help(kind.explanation)
+                }
+                if dismissed > 0 {
+                    Divider()
+                    Button("Show Dismissed (\(dismissed))") { DeliveryPlanStore.shared.restoreDismissedMismatches() }
                 }
             } label: {
                 HStack(spacing: 4) {
@@ -1908,7 +1967,8 @@ struct PlanMismatchFilter: View {
                 }
                 .planBarItem(selected: chosen != nil, palette: palette)
             }
-            .menuStyle(.borderlessButton)
+            .menuStyle(.button)
+            .buttonStyle(.plain)   // borderlessButton redraws the label its own way (chevron first, system font)
             .menuIndicator(.hidden)
             .fixedSize()
             .tip(shown.map { "\($0.title): \(counts[$0] ?? 0)" }.joined(separator: "\n"))
