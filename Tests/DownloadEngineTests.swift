@@ -257,6 +257,13 @@ struct DownloadEngineTests {
     func safeNamesAndProgress() async throws {
         #expect(DownloadEngine.safeName("cut/v2: final.mov") == "cut-v2- final.mov")
         #expect(DownloadEngine.safeName("..") == "Untitled")
+        // Past macOS's 255-byte limit (2 bytes per "é"): shortened, extension kept, and a real file can take the name.
+        let long = DownloadEngine.safeName(String(repeating: "é", count: 200) + ".mov")
+        #expect(long.utf8.count <= 240 && long.hasSuffix(".mov"))
+        let longFolder = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: longFolder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: longFolder) }
+        #expect(FileManager.default.createFile(atPath: longFolder.appendingPathComponent(long).path, contents: Data()))
         StubCDN.reset()
         let body = data(Int(Self.chunk) + 100)
         StubCDN.serve("/file1", body)

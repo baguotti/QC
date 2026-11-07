@@ -279,9 +279,20 @@ final class DownloadEngine: Sendable {
         }
     }
 
-    /// Frame.io names can hold "/" and ":", which would make subfolders (or fail) on disk.
+    /// Frame.io names can hold "/" and ":", which would make subfolders (or fail) on disk, and run past macOS's 255-byte
+    /// file name limit (long titles, accented or non-Latin text at 2–4 bytes a character): the rename at the end then
+    /// failed after the whole file had come down. Long names keep their extension and lose the end of the title,
+    /// leaving room for a " 999" duplicate number.
     nonisolated static func safeName(_ name: String) -> String {
-        let cleaned = name.replacingOccurrences(of: "/", with: "-").replacingOccurrences(of: ":", with: "-")
+        var cleaned = name.replacingOccurrences(of: "/", with: "-").replacingOccurrences(of: ":", with: "-")
+        let limit = 240
+        if cleaned.utf8.count > limit {
+            let ext = (cleaned as NSString).pathExtension
+            let suffix = ext.isEmpty || ext.utf8.count > 16 ? "" : "." + ext
+            var base = suffix.isEmpty ? cleaned : (cleaned as NSString).deletingPathExtension
+            while base.utf8.count + suffix.utf8.count > limit { base.removeLast() }
+            cleaned = base.trimmingCharacters(in: .whitespaces) + suffix
+        }
         return cleaned.isEmpty || cleaned == "." || cleaned == ".." ? "Untitled" : cleaned
     }
 

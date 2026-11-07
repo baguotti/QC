@@ -282,6 +282,7 @@ public struct IngestDITParser: Sendable {
         csv += "Ingested By,\(QCUtilities.escapeCSV(manifest.ingestedBy))\n"
         
         let df = DateFormatter()
+        df.locale = Locale(identifier: "en_US_POSIX")   // Gregorian, 24 h on every Mac
         df.dateFormat = "yyyy-MM-dd HH:mm"
         csv += "Date Ingested,\(QCUtilities.escapeCSV(df.string(from: manifest.dateIngested)))\n"
         csv += "Received Via,\(QCUtilities.escapeCSV(manifest.receivedVia))\n"
@@ -345,6 +346,7 @@ public struct IngestDITParser: Sendable {
     
     public static func generateManifestHTML(manifest: IngestManifest, flags: [IngestFlag] = []) -> String {
         let df = DateFormatter()
+        df.locale = Locale(identifier: "en_US_POSIX")   // Gregorian, 24 h on every Mac
         df.dateFormat = "yyyy-MM-dd HH:mm"
         let dateStr = df.string(from: manifest.dateIngested)
         

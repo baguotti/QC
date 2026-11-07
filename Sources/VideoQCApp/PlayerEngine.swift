@@ -892,6 +892,8 @@ public final class PlayerEngine: ObservableObject {
     private var pendingInitialSeekFrame: Int? = nil
     private var pendingAutoplay: Bool = false
     private var pendingAutoplayB: Bool = false
+    /// Set by a swap: slot B's clip keeps the position it had in A instead of jumping to A's on load.
+    private var slotBKeepsPosition = false
     
     // Autoplay on selection
     @Published public var isAutoplayEnabled: Bool = {
@@ -939,6 +941,8 @@ public final class PlayerEngine: ObservableObject {
     private var itemPresentationSizeCancellableB: AnyCancellable? = nil
     
     public private(set) var isSeeking: Bool = false
+    /// Bumped by `pause()`: a seek's completion only runs if nothing paused since it was issued.
+    private var seekGeneration: Int = 0
     private var pendingSeekTime: CMTime? = nil
     private var pendingSeekTolerance: CMTime? = nil
     private var pendingSeekCompletion: (@MainActor @Sendable () -> Void)? = nil
@@ -1132,6 +1136,21 @@ public final class PlayerEngine: ObservableObject {
         }
     }
     
+    /// A file the player couldn't open (still being rendered or copied, damaged, an unsupported codec): shown as a
+    /// message instead of an empty viewport. Published once per failed load.
+    public struct LoadFailure: Equatable {
+        public let id = UUID()
+        public let message: String
+    }
+    @Published public private(set) var loadFailure: LoadFailure?
+
+    private func reportLoadFailure(_ url: URL, error: Error?) {
+        let reason = ProVideoFormats.needsInstall(for: url)
+            ? "it needs Apple Pro Video Formats"
+            : (error as NSError?)?.localizedFailureReason ?? "it may still be rendering or copying, or be damaged"
+        loadFailure = LoadFailure(message: "Can't play \(url.lastPathComponent): \(reason)")
+    }
+
     /// Read from disk each time (URL resource values are cached per URL and would hide a re-export).
     private static func modificationDate(of url: URL) -> Date? {
         (try? FileManager.default.attributesOfItem(atPath: url.path))?[.modificationDate] as? Date
@@ -1152,13 +1171,17 @@ public final class PlayerEngine: ObservableObject {
             }
         let statusSink = item.publisher(for: \.status)
             .receive(on: DispatchQueue.main)
-            .filter { $0 == .readyToPlay }
+            .filter { $0 != .unknown }
             .first()
-            .sink { [weak self] _ in
+            .sink { [weak self] status in
                 guard let self = self else { return }
+                guard status == .readyToPlay else {
+                    if slot.url == url, let url { self.reportLoadFailure(url, error: item.error) }
+                    return
+                }
                 slot.player.automaticallyWaitsToMinimizeStalling = false
                 slot.player.preroll(atRate: 1.0) { _ in }
-                if target == .slotB { self.syncSlotBToMaster() }
+                if target == .slotB, !self.slotBKeepsPosition { self.syncSlotBToMaster() }
                 // A replaced item for the same clip (sequence rate change) keeps the In–Out loop.
                 if target == .slotA { self.applyInOutRange() }
                 let autoplay = (target == .slotA) ? self.pendingAutoplay : self.pendingAutoplayB
@@ -1179,7 +1202,7 @@ public final class PlayerEngine: ObservableObject {
     }
     
     /// Builds an image sequence's item off the main thread, then installs it like a freshly loaded video.
-    private func installSequenceItem(_ seq: ImageSequence, for target: SlotTarget) async {
+    private func installSequenceItem(_ seq: ImageSequence, for target: SlotTarget, startAt: CMTime? = nil) async {
         let slot = (target == .slotA) ? slotA : slotB
         let box = exposureBox
         guard let item = await ImageSequencePlayback.makeItem(for: seq, fps: ImageSequenceStore.shared.fps(for: seq), exposure: { box.value }),
@@ -1188,12 +1211,16 @@ public final class PlayerEngine: ObservableObject {
         slot.attachVideoOutput(to: item)
         slot.player.replaceCurrentItem(with: item)
         slot.player.automaticallyWaitsToMinimizeStalling = false
+        // Swapping slots keeps each clip's position: the sequence's item only exists now.
+        if let startAt, startAt.isNumeric {
+            if target == .slotA { seek(toTime: startAt) } else { seekSlotB(to: startAt) }
+        }
         observeItem(item, for: target)
         await extractMetadata(url: seq.firstURL, asset: item.asset, for: target)
     }
     
     /// Images get no item (no player, no timeline); audio plays without video output, frame extractor or exposure.
-    private func makePlayerItem(url: URL, for slot: PlayerSlot) -> AVPlayerItem? {
+    private func makePlayerItem(url: URL, for slot: PlayerSlot, startAt: CMTime? = nil) -> AVPlayerItem? {
         slot.detachVideoOutput()
         let isVideo = slot.mediaKind == .video && slot.sequence == nil
         Task { [slot] in
@@ -1203,7 +1230,7 @@ public final class PlayerEngine: ObservableObject {
         if let seq = slot.sequence {
             slot.player.replaceCurrentItem(with: nil)
             let target: SlotTarget = (slot === slotA) ? .slotA : .slotB
-            Task { await installSequenceItem(seq, for: target) }
+            Task { await installSequenceItem(seq, for: target, startAt: startAt) }
             return nil
         }
         guard slot.mediaKind != .image else {
@@ -1236,10 +1263,12 @@ public final class PlayerEngine: ObservableObject {
         
         self.pendingAutoplayB = autoplay
         self.pendingAutoplay = false
+        self.slotBKeepsPosition = false
         pause()
         
         isSeekingB = false
         pendingSeekTimeB = nil
+        pendingSeekCompletionB = nil
         
         if !wasInABMode {
             self.compareMode = UserPreferences.defaultCompare
@@ -1282,7 +1311,7 @@ public final class PlayerEngine: ObservableObject {
         let sequence = slot.sequence
         // A sequence's item is built asynchronously; its metadata comes from `installSequenceItem`.
         if sequence != nil && asset == nil { return }
-        let kind = slot.mediaKind
+        var kind = slot.mediaKind
         let fileSizeText = await Task.detached(priority: .utility) { PlayerSlot.fileSizeText(for: fileURL) }.value
         do {
             var dur = CMTime.zero
@@ -1304,6 +1333,10 @@ public final class PlayerEngine: ObservableObject {
             } else if let asset {
                 dur = try await asset.load(.duration)
                 tracks = try await asset.loadTracks(withMediaType: .video)
+                // An .mp4 / .mov holding only sound (music, podcast exports): played as audio, with the info card.
+                if kind == .video, tracks.isEmpty, !(try await asset.loadTracks(withMediaType: .audio)).isEmpty {
+                    kind = .audio
+                }
             } else {
                 guard let decoded = await Task.detached(priority: .userInitiated, operation: { MediaStills.decodeImage(at: fileURL) }).value else {
                     print("[PlayerEngine] Could not decode image: \(fileURL.lastPathComponent)")
@@ -1324,6 +1357,11 @@ public final class PlayerEngine: ObservableObject {
             }
             // A newer load replaced this file while its metadata was loading.
             guard slot.url?.path == fileURL.standardizedFileURL.path, slot.sequence == sequence else { return }
+            if kind != slot.mediaKind {
+                slot.mediaKind = kind
+                slot.detachVideoOutput()
+                Task { [slot] in await slot.frameExtractor.setURL(nil) }
+            }
             slot.stillImage = still
             
             if kind == .video, let vTrack = tracks.first {
@@ -1342,7 +1380,8 @@ public final class PlayerEngine: ObservableObject {
                 
                 let nominalRate = try await vTrack.load(.nominalFrameRate)
                 let minFrameDur = try? await vTrack.load(.minFrameDuration)
-                detectedFps = resolveAccurateFramerate(nominal: nominalRate, minFrameDuration: minFrameDur)
+                // Frame math clamps rates to ≥ 1 fps throughout: a slower clip is counted at 1 fps (frames shown twice).
+                detectedFps = max(1, resolveAccurateFramerate(nominal: nominalRate, minFrameDuration: minFrameDur))
                 
                 let descriptions = try await vTrack.load(.formatDescriptions)
                 if let firstDesc = descriptions.first {
@@ -1394,7 +1433,7 @@ public final class PlayerEngine: ObservableObject {
                 self.slotB.videoSize = detectedSize
                 self.slotB.totalFrames = totFrames
                 self.slotB.formattedFileSize = fileSizeText
-                self.syncSlotBToMaster()
+                if !self.slotBKeepsPosition { self.syncSlotBToMaster() }
                 self.enforceCompatibleCompareMode()
             }
         } catch {
@@ -1419,9 +1458,16 @@ public final class PlayerEngine: ObservableObject {
     private func resolveAccurateFramerate(nominal: Float, minFrameDuration: CMTime?) -> Double {
         var rawFps = Double(nominal)
         if let minDur = minFrameDuration, minDur.isValid && minDur.seconds > 0 {
-            rawFps = 1.0 / minDur.seconds
+            let minFps = 1.0 / minDur.seconds
+            // Variable frame rate (phone clips, screen recordings): one short frame interval makes the minimum duration
+            // tiny (measured: a 30 fps clip with one 1.7 ms gap read 600 fps), so the average rate is the clip's rate.
+            if nominal > 0, abs(minFps - Double(nominal)) / Double(nominal) > 0.01 {
+                return FrameRate.counting(nominal: Double(nominal))
+            }
+            rawFps = minFps
         }
-        guard rawFps > 1.0 else { return 25.0 }
+        // Slideshows and timelapses can run at 1 fps or slower: only a missing rate falls back to 25.
+        guard rawFps.isFinite, rawFps > 0.01 else { return 25.0 }
         
         // Snap to standard broadcast framerates with high precision to eliminate fractional drift
         if abs(rawFps - (24000.0 / 1001.0)) < 0.005 || abs(Double(nominal) - 23.976) < 0.005 { return 24000.0 / 1001.0 }
@@ -1531,11 +1577,13 @@ public final class PlayerEngine: ObservableObject {
         self.isSeeking = false
         self.pendingSeekTime = nil
         self.pendingSeekCompletion = nil
+        self.pendingSeekTolerance = nil
         self.isSeekingB = false
         self.pendingSeekTimeB = nil
+        self.pendingSeekCompletionB = nil
         
         snapB.apply(to: slotA)
-        if let urlA = snapB.url, let itemA = makePlayerItem(url: urlA, for: slotA) {
+        if let urlA = snapB.url, let itemA = makePlayerItem(url: urlA, for: slotA, startAt: snapB.currentTime) {
             slotA.player.seek(to: snapB.currentTime, toleranceBefore: .zero, toleranceAfter: .zero)
             
             itemPresentationSizeCancellable = itemA.publisher(for: \.presentationSize)
@@ -1561,7 +1609,8 @@ public final class PlayerEngine: ObservableObject {
         self.objectWillChange.send()
         snapA.apply(to: slotB)
         slotB.slipOffsetFrames = -tempSlip
-        if let urlB = snapA.url, let itemB = makePlayerItem(url: urlB, for: slotB) {
+        slotBKeepsPosition = true
+        if let urlB = snapA.url, let itemB = makePlayerItem(url: urlB, for: slotB, startAt: snapA.currentTime) {
             slotB.player.seek(to: snapA.currentTime, toleranceBefore: .zero, toleranceAfter: .zero)
             
             itemPresentationSizeCancellableB = itemB.publisher(for: \.presentationSize)
@@ -1649,6 +1698,7 @@ public final class PlayerEngine: ObservableObject {
         }
         isSeekingB = false
         pendingSeekTimeB = nil
+        pendingSeekCompletionB = nil
         compareMode = .single
         audioSlot = .slotA
         isBlinkCompareB = false
@@ -1938,7 +1988,9 @@ public final class PlayerEngine: ObservableObject {
                                 let now = Date()
                                 if now.timeIntervalSince(self.lastDriftCorrectionTime) >= 0.25 {
                                     self.lastDriftCorrectionTime = now
-                                    let correctionFactor: Float = (drift < 0) ? 1.015 : 0.985
+                                    // Behind means further back along the direction of play (reverse: B later than A).
+                                    let isBehind = (drift < 0) == (baseRate > 0)
+                                    let correctionFactor: Float = isBehind ? 1.015 : 0.985
                                     let adjustedRate = baseRate * correctionFactor
                                     if abs(slotB.player.rate - adjustedRate) > 0.003 {
                                         slotB.player.rate = adjustedRate
@@ -1993,6 +2045,25 @@ public final class PlayerEngine: ObservableObject {
                 guard let self = self else { return }
                 if let item = notification.object as? AVPlayerItem, item == self.slotA.player.currentItem {
                     self.handlePlaybackEnded()
+                }
+            }
+            .store(in: &cancellables)
+        // Playback that dies mid-clip (a network drive dropping, a file still being written running out of data) leaves
+        // the player stopped: without this the engine stayed "playing" (display link ticking at 120 Hz, display kept
+        // awake, uploads throttled, the transport showing PLAY).
+        NotificationCenter.default.publisher(for: .AVPlayerItemFailedToPlayToEndTime)
+            .merge(with: NotificationCenter.default.publisher(for: .AVPlayerItemPlaybackStalled))
+            .receive(on: RunLoop.main)
+            .sink { [weak self] notification in
+                guard let self, let item = notification.object as? AVPlayerItem, item == self.slotA.player.currentItem,
+                      self.isPlaying, !self.isScrubbing, !self.isSlowStepping else { return }
+                // A stall the player rides out (fast-forward through heavy media) isn't a stop.
+                if notification.name == .AVPlayerItemPlaybackStalled, self.slotA.player.timeControlStatus == .playing { return }
+                self.pause()
+                if notification.name == .AVPlayerItemFailedToPlayToEndTime, let url = self.slotA.url {
+                    // AVFoundation's own reason is technical ("Sample cursor was invalid…").
+                    self.loadFailure = LoadFailure(message: "Playback of \(url.lastPathComponent) stopped: the file couldn't be "
+                        + "read past here (still being written, damaged, or its drive disconnected)")
                 }
             }
             .store(in: &cancellables)
@@ -2247,14 +2318,20 @@ public final class PlayerEngine: ObservableObject {
         if rate != 0.0 { rate = 0.0 }
         if isPlaying { isPlaying = false }
         if isScrubbing { isScrubbing = false }
-        self.isSeeking = false
         self.isScrubSeekingA = false
         self.pendingScrubTimeA = nil
         self.isScrubSeekingB = false
         self.pendingScrubTimeB = nil
         self.wasPlayingBeforeScrub = false
         if shuttleStateText != "PAUSE" { shuttleStateText = "PAUSE" }
-        if let currentItem = slotA.player.currentItem, currentItem.status == .readyToPlay {
+        // A seek in flight owns the playhead: the player reports the previous landed frame until it lands (re-reading
+        // it here stepped back a frame during held-key stepping, and resetting `isSeeking` made the next step cancel
+        // the in-flight seek instead of queueing behind it). Pausing drops its follow-up (e.g. play after a loop wrap).
+        seekGeneration &+= 1
+        self.pendingSeekTime = nil
+        self.pendingSeekTolerance = nil
+        self.pendingSeekCompletion = nil
+        if !isSeeking, let currentItem = slotA.player.currentItem, currentItem.status == .readyToPlay {
             let pausedTime = slotA.player.currentTime()
             if pausedTime.isValid && pausedTime.isNumeric {
                 updateCurrentTime(time: pausedTime)
@@ -2679,6 +2756,7 @@ public final class PlayerEngine: ObservableObject {
         
         isSeeking = true
         let curCompletion = completion
+        let generation = seekGeneration
         
         // Exact frame accuracy by default unless explicit tolerance is provided
         let tol: CMTime = tolerance ?? .zero
@@ -2703,8 +2781,8 @@ public final class PlayerEngine: ObservableObject {
                 self.notifySeekSettled()
             }
             
-            curCompletion?()
-            
+            if generation == self.seekGeneration { curCompletion?() }
+
             #if DEBUG
             QCScrubDiagnostic.shared.recordSeekCompleted()
             #endif
@@ -2777,7 +2855,9 @@ public final class PlayerEngine: ObservableObject {
     
     // MARK: - Frame-Accurate Seeking & Scan Markers
     
-    public func seek(toFrame frameIndex: Int, completion: (@MainActor @Sendable () -> Void)? = nil) {
+    public func seek(toFrame requestedFrame: Int, completion: (@MainActor @Sendable () -> Void)? = nil) {
+        // A remembered position or note can lie past the end of a clip re-exported shorter.
+        let frameIndex = totalFrames > 0 ? min(max(0, requestedFrame), totalFrames - 1) : max(0, requestedFrame)
         let fps = max(1.0, activeFps)
         let durSecs = CMTimeGetSeconds(duration)
         // Center the timestamp squarely in the middle of the frame window (+0.5/fps)

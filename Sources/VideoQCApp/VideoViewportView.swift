@@ -11,6 +11,8 @@ public struct VideoViewportView: NSViewRepresentable {
     @ObservedObject var engine: PlayerEngine
     var isLightMode: Bool
     var allowScrollZoom: Bool
+    /// Covered by the fullscreen overlay's own viewport: presents nothing until uncovered.
+    var isSuspended: Bool = false
     var onSingleClick: (() -> Void)?
     var onDoubleClick: (() -> Void)?
     
@@ -18,12 +20,14 @@ public struct VideoViewportView: NSViewRepresentable {
         engine: PlayerEngine,
         isLightMode: Bool,
         allowScrollZoom: Bool = true,
+        isSuspended: Bool = false,
         onSingleClick: (() -> Void)? = nil,
         onDoubleClick: (() -> Void)? = nil
     ) {
         self.engine = engine
         self.isLightMode = isLightMode
         self.allowScrollZoom = allowScrollZoom
+        self.isSuspended = isSuspended
         self.onSingleClick = onSingleClick
         self.onDoubleClick = onDoubleClick
     }
@@ -41,12 +45,22 @@ public struct VideoViewportView: NSViewRepresentable {
         nsView.allowScrollZoom = allowScrollZoom
         nsView.onSingleClick = onSingleClick
         nsView.onDoubleClick = onDoubleClick
+        nsView.isSuspended = isSuspended
         nsView.update(engine: engine, isLightMode: isLightMode)
     }
 }
 
 public final class PlayerContainerNSView: NSView {
     public var allowScrollZoom: Bool = true
+    /// The Player tab's viewport under the fullscreen overlay: both were converting and committing every frame.
+    public var isSuspended: Bool = false {
+        didSet {
+            guard isSuspended != oldValue else { return }
+            if isSuspended { cancelPendingStills() }
+            syncDisplayLinkState()
+            if !isSuspended { checkStillFrameDisplay() }
+        }
+    }
     public var onSingleClick: (() -> Void)? = nil
     public var onDoubleClick: (() -> Void)? = nil
     
@@ -605,7 +619,7 @@ public final class PlayerContainerNSView: NSView {
     }
     
     public func displayImmediateDecodedFrame(slot: SlotTarget, at time: CMTime) {
-        guard let engine = engine else { return }
+        guard let engine = engine, !isSuspended else { return }
         // During active scrubbing, AVPlayerLayer displays frames directly via hardware.
         // Avoid expensive CPU pixel buffer copying and CGImage conversion while scrubbing.
         if engine.isScrubbing { return }
@@ -724,7 +738,7 @@ public final class PlayerContainerNSView: NSView {
         let isScrubbing = engine?.isScrubbing ?? false
         let isLive = (engine?.isPlaying ?? false) && !isScrubbing
         let hasPendingStills = (pendingStillTimeA != nil || pendingStillTimeB != nil) && !isScrubbing
-        let shouldRun = isLive || hasPendingStills
+        let shouldRun = (isLive || hasPendingStills) && !isSuspended
         if link.isPaused == shouldRun {
             link.isPaused = !shouldRun
         }
@@ -1903,6 +1917,7 @@ public final class PlayerContainerNSView: NSView {
     }
     
     private func checkStillFrameDisplay() {
+        guard !isSuspended else { return }
         defer { updateZebra() }
         guard let engine = engine, engine.slotA.url != nil else { return }
         

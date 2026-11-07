@@ -243,6 +243,9 @@ struct ContentView: View {
                     loadNotesForActiveURL(newURL ?? playerEngine.slotA.url)
                 }
             }
+            .onChange(of: playerEngine.loadFailure) { _, failure in
+                if let failure { showToast(failure.message) }
+            }
             .onChange(of: playerEngine.activeTarget) { _, newTarget in
                 let targetURL = (newTarget == .slotB && playerEngine.slotB.url != nil) ? playerEngine.slotB.url : playerEngine.slotA.url
                 loadNotesForActiveURL(targetURL)
@@ -2048,19 +2051,16 @@ struct ContentView: View {
     }
     
     func toggleFinderTag(_ tag: FinderTagColor, for url: URL) {
-        tagsVersion &+= 1
-        if fileTagsMap[url] == tag {
-            FinderTagManager.setTag(nil, for: url)
-            fileTagsMap.removeValue(forKey: url)
-        } else {
-            FinderTagManager.setTag(tag, for: url)
-            fileTagsMap[url] = tag
-        }
+        setFinderTag(fileTagsMap[url] == tag ? nil : tag, for: url)
     }
     
     func setFinderTag(_ tag: FinderTagColor?, for url: URL) {
+        // A read-only volume refuses tags: showing one the file doesn't have made it vanish on the next scan.
+        guard FinderTagManager.setTag(tag, for: url) else {
+            showToast("Couldn't tag \(url.lastPathComponent): the file is read-only")
+            return
+        }
         tagsVersion &+= 1
-        FinderTagManager.setTag(tag, for: url)
         if let tag = tag {
             fileTagsMap[url] = tag
         } else {
@@ -2529,8 +2529,11 @@ struct ContentView: View {
             playerEngine.loadVideo(url: seq.firstURL, into: .slotB)
         }
         if playerEngine.slotA.url?.path == first {
+            // Same frame after a rate change (clearing the slot dropped the playhead back to the first frame).
+            let stillASequence = ImageSequenceStore.shared.sequence(for: seq.firstURL) != nil
+            let frame = playerEngine.currentFrame
             playerEngine.clearSlotA()
-            playerEngine.loadVideo(url: seq.firstURL)
+            playerEngine.loadVideo(url: seq.firstURL, initialSeekFrame: stillASequence && frame > 0 ? frame : nil)
         }
         guard !specsState.deliverableAssets.isEmpty else { return }
         let paths = Set(seq.frameURLs.map(\.path))
@@ -2541,7 +2544,10 @@ struct ContentView: View {
     func saveNotes(_ notes: [QCFileNote], for url: URL) {
         let fps = isSameURL(url, playerEngine.slotB.url) ? playerEngine.slotB.fps : playerEngine.activeFps
         Task {
-            await QCNotesManager.shared.saveNotes(notes, for: url, fps: fps)
+            guard await QCNotesManager.shared.saveNotes(notes, for: url, fps: fps) else {
+                showToast("Couldn't save the notes for \(url.lastPathComponent): its notes file can't be read or written")
+                return
+            }
             await NotesSync.shared.push(url)
         }
     }

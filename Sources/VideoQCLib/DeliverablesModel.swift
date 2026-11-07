@@ -265,6 +265,8 @@ public struct EndFrameCheck: Equatable, Sendable {
         case black = "BLACK"
         case notBlack = "NOT BLACK"
         case unavailable = "—"
+        /// A video whose last frame can't be decoded: cut short (copy or render stopped early) or damaged.
+        case unreadable = "CAN'T READ"
     }
     public let verdict: Verdict
     /// Mean luma 0…255 of the last frame.
@@ -282,4 +284,5 @@ public struct EndFrameCheck: Equatable, Sendable {
     }
     
     public static let unavailable = EndFrameCheck(verdict: .unavailable, meanLuma: 0, litPercent: 0, timecode: "--")
+    public static let unreadable = EndFrameCheck(verdict: .unreadable, meanLuma: 0, litPercent: 0, timecode: "--")
 }

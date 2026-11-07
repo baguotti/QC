@@ -99,8 +99,10 @@ public struct FinderTagManager: Sendable {
         return nil
     }
     
-    /// Applies or removes the Finder tag on disk and updates Finder UI
-    public static func setTag(_ tag: FinderTagColor?, for url: URL) {
+    /// Applies or removes the Finder tag on disk and updates Finder UI. False when the file couldn't be tagged
+    /// (a read-only volume or share).
+    @discardableResult
+    public static func setTag(_ tag: FinderTagColor?, for url: URL) -> Bool {
         let nsURL = url as NSURL
         // Only the colour tags are replaced: the file's other tags ("Approved", client names…) are kept.
         var val: AnyObject?
@@ -108,17 +110,18 @@ public struct FinderTagManager: Sendable {
         let kept = ((val as? [String]) ?? []).filter { FinderTagColor(rawValue: $0.components(separatedBy: "\n").first ?? $0) == nil }
         if let tag = tag {
             let tagString = "\(tag.rawValue)\n\(tag.labelNumber)"
-            try? nsURL.setResourceValue((kept + [tagString]) as NSArray, forKey: .tagNamesKey)
+            guard (try? nsURL.setResourceValue((kept + [tagString]) as NSArray, forKey: .tagNamesKey)) != nil else { return false }
             var mut = url
             var res = URLResourceValues()
             res.labelNumber = tag.labelNumber
             try? mut.setResourceValues(res)
         } else {
-            try? nsURL.setResourceValue(kept as NSArray, forKey: .tagNamesKey)
+            guard (try? nsURL.setResourceValue(kept as NSArray, forKey: .tagNamesKey)) != nil else { return false }
             var mut = url
             var res = URLResourceValues()
             res.labelNumber = 0
             try? mut.setResourceValues(res)
         }
+        return true
     }
 }

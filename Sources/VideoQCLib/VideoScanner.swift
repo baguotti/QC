@@ -180,7 +180,7 @@ public actor VideoScanner {
         let size = (try? await videoTrack.load(.naturalSize)) ?? .zero
         let transform = (try? await videoTrack.load(.preferredTransform)) ?? .identity
         let nominalFps = (try? await videoTrack.load(.nominalFrameRate)) ?? 25.0
-        let fps = Double(nominalFps > 0 ? nominalFps : 25.0)
+        let fps = FrameRate.counting(nominal: Double(nominalFps))
         let duration = (try? await asset.load(.duration)) ?? .zero
         // Indefinite / invalid durations (files still being written, broken headers) read as NaN: treat as unknown.
         let durationSeconds = CMTimeGetSeconds(duration).isFinite ? CMTimeGetSeconds(duration) : 0

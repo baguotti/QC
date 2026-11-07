@@ -428,21 +428,25 @@ public struct TimelineScrubberView: View {
                         let currentProg = dragProgress ?? engine.currentProgress
                         let newProg = min(1.0, max(0.0, currentProg + progressDelta))
                         
+                        // Fingers resting on the trackpad (.mayBegin, then .cancelled when lifted) must not scrub:
+                        // starting and ending a scrub pauses playback and seeks.
                         if phase.contains(.began) {
                             isDragging = true
                             dragProgress = newProg
                             engine.startScrubbing()
                             engine.scrubTo(progress: newProg)
                         } else if phase.contains(.changed) {
+                            guard isDragging else { return }
                             dragProgress = newProg
                             engine.scrubTo(progress: newProg)
                         } else if phase.contains(.ended) || phase.contains(.cancelled) {
+                            guard isDragging else { return }
                             isDragging = false
                             dragProgress = nil
                             engine.endScrubbing(at: newProg)
-                        } else {
-                            dragProgress = newProg
-                            engine.scrubTo(progress: newProg)
+                        } else if phase.isEmpty {
+                            // A precise device without gesture phases: one exact seek per event (a scrub would never end).
+                            engine.seek(toProgress: newProg)
                         }
                     } else {
                         let forward = delta > 0

@@ -762,7 +762,7 @@ final class FrameIOCommentSync: ObservableObject {
         let asset = AVURLAsset(url: url)
         if let track = try? await asset.loadTracks(withMediaType: .video).first,
            let rate = try? await track.load(.nominalFrameRate), rate > 0 {
-            return Double(rate)
+            return FrameRate.counting(nominal: Double(rate))
         }
         return 25
     }

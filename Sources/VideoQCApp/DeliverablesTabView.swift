@@ -1939,7 +1939,11 @@ extension ContentView {
         if let check {
             // Neutral on purpose: ending on black is a fact, not a pass or fail. A black swatch for BLACK, an empty one otherwise.
             HStack(spacing: 5) {
-                if check.verdict != .unavailable {
+                if check.verdict == .unreadable {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .font(.system(size: StudioTheme.scaleFont(8), weight: .bold))
+                        .foregroundColor(alertRed)
+                } else if check.verdict != .unavailable {
                     RoundedRectangle(cornerRadius: 1.5)
                         .fill(check.verdict == .black ? Color.black : Color.clear)
                         .frame(width: 8, height: 8)
@@ -1947,11 +1951,13 @@ extension ContentView {
                 }
                 Text(check.verdict.rawValue)
                     .font(.ui(size: 10, weight: .semibold))
-                    .foregroundColor(check.verdict == .unavailable ? textMuted : textMain)
+                    .foregroundColor(check.verdict == .unavailable ? textMuted : check.verdict == .unreadable ? alertRed : textMain)
                     .lineLimit(1)
             }
-            .help(check.verdict == .unavailable
-                  ? "No last frame to check (still image, audio, or the frame couldn't be decoded)"
+            .help(check.verdict == .unreadable
+                  ? "The last frame couldn't be decoded: the file may be cut short (a copy or render that stopped early) or damaged"
+                  : check.verdict == .unavailable
+                  ? "No last frame to check (still image or audio)"
                   : "Last frame \(check.timecode): \(String(format: "%.2f", 100 - check.litPercent))% black, \(String(format: "%.2f", check.litPercent))% picture/content (mean luma \(String(format: "%.1f", check.meanLuma)) / 255)")
         } else {
             Text("—")

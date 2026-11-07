@@ -476,8 +476,9 @@ public final class SpecsState: ObservableObject {
                     switch asset.endFrame?.verdict {
                     case .black: return 0
                     case .notBlack: return 1
-                    case .unavailable: return 2
-                    case nil: return 3
+                    case .unreadable: return 2
+                    case .unavailable: return 3
+                    case nil: return 4
                     }
                 }
                 order = rank(a) == rank(b) ? .orderedSame : (rank(a) < rank(b) ? .orderedAscending : .orderedDescending)

@@ -426,8 +426,7 @@ public actor FrameCheckScanner {
                                     flashFrames: [], offline: [], legalRange: [], legalSpec: legalSpec, readError: ProVideoFormats.openError(for: url))
         }
         let natural = (try? await track.load(.naturalSize)) ?? CGSize(width: 1920, height: 1080)
-        let nominal = Double((try? await track.load(.nominalFrameRate)) ?? 25)
-        let fps = nominal > 0 ? nominal : 25
+        let fps = FrameRate.counting(nominal: Double((try? await track.load(.nominalFrameRate)) ?? 25))
         let loadedDuration = CMTimeGetSeconds((try? await asset.load(.duration)) ?? .zero)
         let duration = loadedDuration.isFinite ? loadedDuration : 0
         let estimatedFrames = max(1, Int((duration * fps).rounded()))

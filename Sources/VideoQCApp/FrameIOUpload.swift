@@ -222,12 +222,14 @@ final class UploadQueue: ObservableObject {
         isChecking = true
         Task {
             async let writing = UploadPreflight.stillWriting(rows)
+            async let unreadable = UploadPreflight.unreadable(rows)
             var report = UploadPreflight.Report()
             if let items = try? await FrameIO.shared.children(account: destination.account, folder: destination.folder, thumbnails: false) {
                 report.duplicates = UploadPreflight.duplicates(rows, existing: UploadPreflight.existing(items))
             }
             report.odd = UploadPreflight.odd(rows)
             report.writing = await writing
+            report.unreadable = await unreadable
             isChecking = false
             guard !isRunning else { return }
             guard !report.isEmpty else { return begin(to: destination, targets: targets, keepStructure: keep) }

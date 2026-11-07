@@ -7,19 +7,21 @@ import Testing
 // local and git-ignored: without it the test does nothing.
 @Suite("Delivery Plan · fixtures")
 struct DeliveryPlanFixtureTests {
-    static let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
-        .appendingPathComponent("_TEST/DeliveryPlanMock")
+    static let tests = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+        .appendingPathComponent("_TEST")
 
-    @Test("Mock delivery as a Frame.io listing: right files link by themselves, doubtful ones are only suggested")
-    func linking() throws {
-        guard let csv = try? String(contentsOf: Self.root.appendingPathComponent("_PLAN.csv"), encoding: .utf8),
-              let key = try? String(contentsOf: Self.root.appendingPathComponent("_ANSWER_KEY.csv"), encoding: .utf8) else { return }
+    @Test("Mock delivery as a Frame.io listing: right files link by themselves, doubtful ones are only suggested",
+          arguments: ["DeliveryPlanMock", "DeliveryPlanMock_v2"])
+    func linking(_ folder: String) throws {
+        let root = Self.tests.appendingPathComponent(folder)
+        guard let csv = try? String(contentsOf: root.appendingPathComponent("_PLAN.csv"), encoding: .utf8),
+              let key = try? String(contentsOf: root.appendingPathComponent("_ANSWER_KEY.csv"), encoding: .utf8) else { return }
         // Placeholder data: the real naming isn't final, so this checks the rules' behaviour per case, not any count.
         let rows = PlanParser.rows(csv: csv, tab: "Plan")
         guard !rows.isEmpty else { return }
         var byCode: [String: [PlanRow]] = [:]
         for row in rows { if let code = row.code?.lowercased() { byCode[code, default: []].append(row) } }
-        let names = (FileManager.default.enumerator(atPath: Self.root.path)?.allObjects as? [String] ?? [])
+        let names = (FileManager.default.enumerator(atPath: root.path)?.allObjects as? [String] ?? [])
             .map { ($0 as NSString).lastPathComponent }.filter { !$0.hasPrefix("_") && !$0.hasPrefix(".") && ($0 as NSString).pathExtension != "" }
         let files = names.map { (id: $0, name: $0) }
         let decisions = DeliveryPlanStore.linkDecisions(
@@ -52,6 +54,6 @@ struct DeliveryPlanFixtureTests {
             default: break
             }
         }
-        print("Fixture linking:", counts.sorted { $0.key < $1.key }.map { "\($0.key) \($0.value)" }.joined(separator: " · "))
+        print("Fixture linking (\(folder)):", counts.sorted { $0.key < $1.key }.map { "\($0.key) \($0.value)" }.joined(separator: " · "))
     }
 }

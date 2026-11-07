@@ -1,6 +1,7 @@
 import Foundation
 import Testing
 @testable import QCpie
+@testable import VideoQCLib
 
 @Suite("Pre-upload checks")
 struct UploadPreflightTests {
@@ -59,5 +60,22 @@ struct UploadPreflightTests {
         #expect(text.title == "3 files need a look before uploading")
         #expect(text.detail.contains("1 file named like a different file already in “Selects”: Frame.io will keep both (A.mov)."))
         #expect(text.detail.contains("2 files still being written (B.mov, C.mov)."))
+    }
+
+    @Test("Media that can't be opened is flagged: an empty file, an export that stopped before its header; a real clip isn't")
+    func unreadable() async throws {
+        let clip = try await TestClips.ntscOn600TimeBase(SyntheticFrame(width: 64, height: 64), frames: 3)
+        let folder = clip.deletingLastPathComponent()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let empty = folder.appendingPathComponent("empty.mov")
+        let unfinished = folder.appendingPathComponent("unfinished.mp4")
+        try Data().write(to: empty)
+        try Data((0..<4096).map { UInt8(truncatingIfNeeded: $0 &* 31) }).write(to: unfinished)
+        func row(_ url: URL) -> UploadPreflight.Row {
+            let size = (try? FileManager.default.attributesOfItem(atPath: url.path)[.size] as? Int64) ?? 0
+            return .init(path: url.path, name: url.lastPathComponent, files: [url], sizes: [size ?? 0], topLevel: true)
+        }
+        let flagged = await UploadPreflight.unreadable([row(clip), row(empty), row(unfinished)])
+        #expect(Set(flagged) == [empty.path, unfinished.path])
     }
 }

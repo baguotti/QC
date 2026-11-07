@@ -382,7 +382,7 @@ extension ContentView {
                 GeometryReader { vpGeo in
                     ZStack(alignment: .topLeading) {
                         if playerEngine.slotA.url != nil || playerEngine.slotB.url != nil {
-                            VideoViewportView(engine: playerEngine, isLightMode: isLightMode)
+                            VideoViewportView(engine: playerEngine, isLightMode: isLightMode, isSuspended: fullscreenMode != .none)
                                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                         } else {
                             VStack(spacing: 12) {
@@ -1185,6 +1185,8 @@ extension ContentView {
     }
     
     private func exportCurrentFrameScreenshot(preset initialPreset: ScreenshotPreset = .jpgMedium) {
+        // The frame is captured once the save panel closes: playing on meanwhile saved a later frame under this one's name.
+        playerEngine.pause()
         playerEngine.lastScreenshotPreset = initialPreset
         let isABActive = playerEngine.slotB.url != nil && (playerEngine.compareMode != .single || playerEngine.isBlinkCompareB)
         let currentTarget = playerEngine.activeTarget
@@ -1297,7 +1299,7 @@ extension ContentView {
                     try data.write(to: targetURL, options: .atomic)
                     ScreenshotSoundPlayer.shared.play()
                 } catch {
-                    print("[Screenshot] Export error: \(error.localizedDescription)")
+                    showToast("Couldn't save the screenshot: \(error.localizedDescription)")
                 }
             }
         }

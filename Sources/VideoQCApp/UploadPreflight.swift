@@ -1,4 +1,5 @@
 import Foundation
+import AVFoundation
 import VideoQCLib
 
 /// Checks run before an upload starts (`UploadQueue.start`). Each flags queue rows worth a second look:
@@ -7,6 +8,8 @@ import VideoQCLib
 /// - **Still being written**: its size or modification time changed over a moment (an export in progress), or it has
 ///   a partial-download name (`.part`, `.crdownload`, …).
 /// - **Odd files**: no extension, hidden or temporary, or neither media nor a usual deliverable sidecar.
+/// - **Can't be opened**: a video or audio file AVFoundation can't read (an export that stopped before finishing, an
+///   empty file): uploading it would send the client a broken file.
 /// Only rows uploaded straight into the target folder are checked for duplicates (with Keep Subfolders, rows inside
 /// subfolders would need those folders listed too). Image sequences are checked for being written only.
 enum UploadPreflight {
@@ -23,7 +26,8 @@ enum UploadPreflight {
         var duplicates: [String] = []
         var writing: [String] = []
         var odd: [String] = []
-        var flagged: Set<String> { Set(duplicates + writing + odd) }
+        var unreadable: [String] = []
+        var flagged: Set<String> { Set(duplicates + writing + odd + unreadable) }
         var isEmpty: Bool { flagged.isEmpty }
     }
 
@@ -86,6 +90,36 @@ enum UploadPreflight {
         }.map(\.0.path)
     }
 
+    /// Single video / audio files AVFoundation can't open, checked in parallel (opening reads only the header).
+    static func unreadable(_ rows: [Row]) async -> [String] {
+        let candidates = rows.filter { row in
+            row.files.count == 1 && !isPartial(row.name)
+                && [MediaKind.video, .audio].contains(QCUtilities.mediaKind(of: URL(fileURLWithPath: row.name)))
+        }
+        @Sendable func check(_ row: Row) async -> String? {
+            if (row.sizes.first ?? 0) == 0 { return row.path }
+            let tracks = (try? await AVURLAsset(url: row.files[0]).load(.tracks)) ?? []
+            return tracks.isEmpty ? row.path : nil
+        }
+        // Eight at a time: a big queue on a network drive mustn't open hundreds of files at once.
+        return await withTaskGroup(of: String?.self) { group in
+            var next = 0
+            for _ in 0..<min(8, candidates.count) {
+                let row = candidates[next]; next += 1
+                group.addTask { await check(row) }
+            }
+            var found: [String] = []
+            for await path in group {
+                if let path { found.append(path) }
+                if next < candidates.count {
+                    let row = candidates[next]; next += 1
+                    group.addTask { await check(row) }
+                }
+            }
+            return found
+        }
+    }
+
     static func odd(_ rows: [Row]) -> [String] {
         rows.filter { row in row.files.count == 1 && isOdd(row.name) }.map(\.path)
     }
@@ -103,6 +137,9 @@ enum UploadPreflight {
         }
         if !report.writing.isEmpty {
             lines.append("\(count(report.writing.count)) still being written (\(list(report.writing))).")
+        }
+        if !report.unreadable.isEmpty {
+            lines.append("\(count(report.unreadable.count)) can't be opened: unfinished or damaged (\(list(report.unreadable))).")
         }
         if !report.odd.isEmpty {
             lines.append("\(count(report.odd.count)) not a media file or deliverable (\(list(report.odd))).")

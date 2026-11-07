@@ -156,6 +156,7 @@ final class KeyboardShortcutRouter {
         // 2. Pre-Modal Global Shortcuts (e.g. Button Zoom)
         for rule in rules where rule.scope == .preModalGlobal {
             if rule.trigger.matches(event: event) {
+                if event.isARepeat && Self.ignoresRepeat(rule.id) { return nil }
                 if rule.action() {
                     return nil
                 }
@@ -199,6 +200,7 @@ final class KeyboardShortcutRouter {
             guard isScopeActive else { continue }
             
             if rule.trigger.matches(event: event) {
+                if event.isARepeat && Self.ignoresRepeat(rule.id) { return nil }
                 if rule.action() {
                     return nil
                 }
@@ -208,6 +210,22 @@ final class KeyboardShortcutRouter {
         return event
     }
     
+    /// Toggles and shuttle presses act once per press: a held key's auto-repeat would flip them back and forth
+    /// (Space, TAB, a Finder tag) or ramp the shuttle to 16×. Stepping, zoom, navigation and undo still repeat.
+    private static let nonRepeatingRules: Set<String> = [
+        "toggleLightDark", "cycleAccentTheme",
+        "shuttleSlowJ", "shuttleJ", "shuttleK", "shuttleSlowL", "shuttleL", "shuttleLoop", "playPause",
+        "autoplayToggle", "waveformToggle", "fullscreenReview", "fullscreenVideo", "addNote",
+        "swapSlots", "cycleCompare", "blinkCompare", "userGuideQuestion", "userGuideCmdSlash", "clipInfo",
+        "propertiesCmdI", "propertiesCtrlI", "propertiesCmdP", "toggleLeftSleeve", "toggleRightSleeve",
+        "inspectPlay", "inspectInfo", "inspectPreviewJ", "inspectPreviewK", "inspectPreviewL",
+        "frameioPreview", "frameioDelete", "tagClear"
+    ]
+
+    private static func ignoresRepeat(_ id: String) -> Bool {
+        nonRepeatingRules.contains(id) || id.hasPrefix("tag")
+    }
+
     // MARK: - Click-Away Responder Helper
     
     static func dismissTextFieldFocusIfClickedOutside(event: NSEvent) -> NSEvent {

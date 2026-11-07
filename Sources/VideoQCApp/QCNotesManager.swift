@@ -1,4 +1,5 @@
 import Foundation
+import CryptoKit
 import VideoQCLib
 
 /// Manages loading, saving, and exporting timecoded review notes to lightweight sidecar files.
@@ -34,6 +35,25 @@ public actor QCNotesManager {
         mediaURL.appendingPathExtension("qcnotes")
     }
     
+    /// Where a clip's notes go when its folder can't be written (a read-only client drive or share): saving next to the
+    /// file failed silently and the notes were lost on the next clip switch.
+    public nonisolated static func fallbackURL(for mediaURL: URL) -> URL {
+        let key = SHA256.hash(data: Data(mediaURL.standardizedFileURL.path.utf8)).prefix(16).map { String(format: "%02x", $0) }.joined()
+        let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
+            ?? FileManager.default.temporaryDirectory
+        return base.appendingPathComponent("QCpie/Notes/\(key).qcnotes")
+    }
+
+    /// The clip's notes file: the newest of the hidden sidecar, the legacy visible one and the fallback copy.
+    nonisolated static func existingSidecar(for mediaURL: URL) -> URL? {
+        let candidates = [sidecarURL(for: mediaURL), visibleSidecarURL(for: mediaURL), fallbackURL(for: mediaURL)]
+            .compactMap { url -> (URL, Date)? in
+                guard let attributes = try? FileManager.default.attributesOfItem(atPath: url.path) else { return nil }
+                return (url, attributes[.modificationDate] as? Date ?? .distantPast)
+            }
+        return candidates.max { $0.1 < $1.1 }?.0
+    }
+
     private static let cacheLock = NSLock()
     nonisolated(unsafe) private static var notesCountCache: [URL: Int] = [:]
     
@@ -68,10 +88,7 @@ public actor QCNotesManager {
         }
         cacheLock.unlock()
         
-        let hidden = sidecarURL(for: mediaURL)
-        let visible = visibleSidecarURL(for: mediaURL)
-        let targetURL: URL? = FileManager.default.fileExists(atPath: hidden.path) ? hidden : (FileManager.default.fileExists(atPath: visible.path) ? visible : nil)
-        guard let url = targetURL, let data = try? Data(contentsOf: url) else {
+        guard let url = existingSidecar(for: mediaURL), let data = try? Data(contentsOf: url) else {
             cacheLock.lock()
             notesCountCache[stdURL] = 0
             cacheLock.unlock()
@@ -89,20 +106,7 @@ public actor QCNotesManager {
     
     /// Loads notes from the companion sidecar file if present (checks hidden file first, falls back to visible).
     public func loadNotes(for mediaURL: URL) -> [QCFileNote] {
-        let hiddenURL = QCNotesManager.sidecarURL(for: mediaURL)
-        let visibleURL = QCNotesManager.visibleSidecarURL(for: mediaURL)
-        
-        let targetURL: URL?
-        if FileManager.default.fileExists(atPath: hiddenURL.path) {
-            targetURL = hiddenURL
-        } else if FileManager.default.fileExists(atPath: visibleURL.path) {
-            targetURL = visibleURL
-        } else {
-            QCNotesManager.updateCachedCount(0, for: mediaURL)
-            return []
-        }
-        
-        guard let url = targetURL else {
+        guard let url = QCNotesManager.existingSidecar(for: mediaURL) else {
             QCNotesManager.updateCachedCount(0, for: mediaURL)
             return []
         }
@@ -122,10 +126,7 @@ public actor QCNotesManager {
     
     /// Frame rate recorded in the sidecar, so a sync rewrite keeps it.
     public func storedFps(for mediaURL: URL) -> Double? {
-        let hiddenURL = QCNotesManager.sidecarURL(for: mediaURL)
-        let visibleURL = QCNotesManager.visibleSidecarURL(for: mediaURL)
-        let url = FileManager.default.fileExists(atPath: hiddenURL.path) ? hiddenURL : visibleURL
-        guard let data = try? Data(contentsOf: url) else { return nil }
+        guard let url = QCNotesManager.existingSidecar(for: mediaURL), let data = try? Data(contentsOf: url) else { return nil }
         return (try? decoder.decode(QCNotesDocument.self, from: data))?.fps
     }
 
@@ -143,16 +144,20 @@ public actor QCNotesManager {
     public func saveNotes(_ notes: [QCFileNote], for mediaURL: URL, fps: Double) -> Bool {
         let hiddenURL = QCNotesManager.sidecarURL(for: mediaURL)
         let visibleURL = QCNotesManager.visibleSidecarURL(for: mediaURL)
+        let fallbackURL = QCNotesManager.fallbackURL(for: mediaURL)
         let sortedNotes = notes.sorted { $0.frameIndex < $1.frameIndex }
         guard !hasUnreadableNotes(for: mediaURL) else { return false }
         
-        // If notes are completely empty, clean up both hidden and visible sidecar files
+        // If notes are completely empty, clean up every copy
         if sortedNotes.isEmpty {
-            if FileManager.default.fileExists(atPath: hiddenURL.path) {
-                try? FileManager.default.removeItem(at: hiddenURL)
+            var removedAll = true
+            for url in [hiddenURL, visibleURL, fallbackURL] where FileManager.default.fileExists(atPath: url.path) {
+                if (try? FileManager.default.removeItem(at: url)) == nil { removedAll = false }
             }
-            if FileManager.default.fileExists(atPath: visibleURL.path) {
-                try? FileManager.default.removeItem(at: visibleURL)
+            guard removedAll else {
+                // A read-only folder keeps its sidecar: an empty fallback copy (newest) stands for "no notes".
+                return writeFallback(QCNotesDocument(version: 1, mediaFileName: mediaURL.lastPathComponent, fps: fps > 0 ? fps : 25.0,
+                                                     lastModified: Date(), notes: []), to: fallbackURL, count: 0, for: mediaURL)
             }
             QCNotesManager.updateCachedCount(0, for: mediaURL)
             return true
@@ -168,8 +173,13 @@ public actor QCNotesManager {
         
         do {
             let data = try encoder.encode(doc)
-            try data.write(to: hiddenURL, options: .atomic)
+            do {
+                try data.write(to: hiddenURL, options: .atomic)
+            } catch {
+                return writeFallback(doc, to: fallbackURL, count: sortedNotes.count, for: mediaURL)
+            }
             QCNotesManager.updateCachedCount(sortedNotes.count, for: mediaURL)
+            if FileManager.default.fileExists(atPath: fallbackURL.path) { try? FileManager.default.removeItem(at: fallbackURL) }
             
             // Set macOS Finder isHidden attribute as an additional guarantee
             var resourceValues = URLResourceValues()
@@ -187,10 +197,22 @@ public actor QCNotesManager {
         }
     }
     
+    private func writeFallback(_ doc: QCNotesDocument, to url: URL, count: Int, for mediaURL: URL) -> Bool {
+        do {
+            try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try encoder.encode(doc).write(to: url, options: .atomic)
+            QCNotesManager.updateCachedCount(count, for: mediaURL)
+            return true
+        } catch {
+            return false
+        }
+    }
+
     /// True when the clip's sidecar couldn't be read at the last load or can't be decoded now: the notes the caller
     /// holds don't include it, so saving (or syncing) them would erase notes the app never showed.
     public func hasUnreadableNotes(for mediaURL: URL) -> Bool {
-        [QCNotesManager.sidecarURL(for: mediaURL), QCNotesManager.visibleSidecarURL(for: mediaURL)].contains { sidecar in
+        [QCNotesManager.sidecarURL(for: mediaURL), QCNotesManager.visibleSidecarURL(for: mediaURL),
+         QCNotesManager.fallbackURL(for: mediaURL)].contains { sidecar in
             guard FileManager.default.fileExists(atPath: sidecar.path) else { return false }
             if unreadableSidecars.contains(sidecar) { return true }
             return (try? Data(contentsOf: sidecar)).flatMap { try? decoder.decode(QCNotesDocument.self, from: $0) } == nil

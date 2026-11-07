@@ -33,3 +33,24 @@ public struct TimecodeFormatter: Sendable {
         return format(frameIndex: frameIndex, fps: fps, startFrameOffset: startFrameOffset)
     }
 }
+
+/// Frame rates as the Player counts frames, shared by everything that hands it frame numbers (scans, imported notes).
+public enum FrameRate {
+    private static let standard: [Double] = [
+        24000.0 / 1001.0, 24, 25, 30000.0 / 1001.0, 30, 48000.0 / 1001.0, 48, 50, 60000.0 / 1001.0, 60,
+        100, 120000.0 / 1001.0, 120
+    ]
+
+    /// The broadcast rate closest to `fps` when within `tolerance` (relative), else nil.
+    public static func nearestStandard(_ fps: Double, within tolerance: Double) -> Double? {
+        guard let best = standard.min(by: { abs($0 - fps) < abs($1 - fps) }), abs(best - fps) / best <= tolerance else { return nil }
+        return best
+    }
+
+    /// A track's nominal (average) rate as frames are counted: variable-rate clips (phones, screen recordings) average a
+    /// little off their real rate (30.25 for a 30 fps clip with one short gap), which drifts frame numbers ~15 a minute.
+    public static func counting(nominal: Double) -> Double {
+        guard nominal.isFinite, nominal > 0 else { return 25 }
+        return nearestStandard(nominal, within: 0.01) ?? nominal
+    }
+}

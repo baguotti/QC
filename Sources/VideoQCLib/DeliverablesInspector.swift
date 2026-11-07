@@ -25,7 +25,7 @@ public struct DeliverablesInspector: Sendable {
             let videoTracks = try await asset.loadTracks(withMediaType: .video)
             let audioTracks = (try? await asset.loadTracks(withMediaType: .audio)) ?? []
             let videoTrack = videoTracks.first
-            guard videoTrack != nil || !audioTracks.isEmpty else { return nil }
+            guard videoTrack != nil || !audioTracks.isEmpty else { return unreadable(url) }
             
             // 1. Dimensions & Transform (0 x 0 for audio-only files)
             var width = 0
@@ -129,8 +129,23 @@ public struct DeliverablesInspector: Sendable {
             inspected.loudness = audioLevels.loudness
             return inspected
         } catch {
-            return nil
+            return unreadable(url)
         }
+    }
+
+    public static let unreadableCodec = "UNREADABLE"
+
+    /// A file that can't be opened (still being rendered or copied, damaged, empty) stays in the list, marked, instead
+    /// of vanishing: a delivery folder with a broken file used to show one row less, and the plan called it Missing.
+    static func unreadable(_ url: URL) -> DeliverableAsset {
+        let bytes = Int64((try? FileManager.default.attributesOfItem(atPath: url.path))?[.size] as? Int ?? 0)
+        let reason = ProVideoFormats.needsInstall(for: url) ? "Needs Apple Pro Video Formats"
+            : bytes == 0 ? "Unreadable: the file is empty" : "Unreadable: still being written, or damaged"
+        return DeliverableAsset(
+            fileURL: url, fileName: url.lastPathComponent, fileSizeBytes: bytes, formattedFileSize: formatFileSize(bytes: bytes),
+            width: 0, height: 0, resolutionString: "--", aspectRatioString: "--", durationSeconds: 0, formattedDuration: "--",
+            totalFrames: 0, timecode: "--", fps: 0, videoCodec: unreadableCodec, audioConfig: "--",
+            container: url.pathExtension.uppercased(), validation: DeliverableValidation(isDurationMismatch: true, durationMismatchDetail: reason))
     }
     
     /// Stills: pixel size, format, bit depth and colour profile via ImageIO (no duration, frame rate or audio).
@@ -154,6 +169,7 @@ public struct DeliverablesInspector: Sendable {
            let date = values.creationDate ?? values.contentModificationDate {
             creationDate = date
             let formatter = DateFormatter()
+            formatter.locale = Locale(identifier: "en_US_POSIX")   // Gregorian, 24 h on every Mac
             formatter.dateFormat = "yyyy-MM-dd HH:mm"
             formattedCreationDate = formatter.string(from: date)
         }
@@ -770,7 +786,8 @@ public struct DeliverablesInspector: Sendable {
             generator.requestedTimeToleranceBefore = CMTimeMultiplyByFloat64(frameDuration, multiplier: 1.5)
             attempt = try? await generator.image(at: CMTimeSubtract(duration, CMTimeMultiplyByFloat64(frameDuration, multiplier: 0.5)))
         }
-        guard let (image, actual) = attempt else { return .unavailable }
+        // The file says it runs this long but its end can't be decoded: truncated (a copy or render that stopped) or damaged.
+        guard let (image, actual) = attempt else { return .unreadable }
         let frameIndex = max(0, VideoScanner.frameIndex(seconds: actual.seconds, fps: fps))
         return classifyEndFrame(image, timecode: TimecodeFormatter.format(frameIndex: frameIndex, fps: fps))
     }
@@ -871,6 +888,8 @@ public struct DeliverablesInspector: Sendable {
     }
     
     private static func analyzeSingleAssetAudio(asset: DeliverableAsset) async -> DeliverableAsset {
+        // Nothing to measure, and re-validating would drop the "Unreadable" reason.
+        if asset.videoCodec == unreadableCodec { return asset }
         guard asset.hasAudio else {
             let validation = validateFilename(
                 fileName: asset.fileName,
@@ -968,6 +987,7 @@ public struct DeliverablesInspector: Sendable {
         }
         
         let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")   // Gregorian, 24 h on every Mac
         formatter.dateFormat = "yyyy-MM-dd HH:mm"
         return (validDate, formatter.string(from: validDate))
     }
@@ -1085,6 +1105,7 @@ public struct DeliverablesInspector: Sendable {
     
     public static func generateManifestHTML(assets: [DeliverableAsset], folderName: String, rootFolderURL: URL? = nil, target: LoudnessTarget = .current) -> String {
         let dateFormatter = DateFormatter()
+        dateFormatter.locale = Locale(identifier: "en_US_POSIX")   // Gregorian, 24 h on every Mac
         dateFormatter.dateFormat = "yyyy.MM.dd // HH:mm:ss"
         let dateString = dateFormatter.string(from: Date())
         

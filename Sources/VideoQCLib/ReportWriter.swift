@@ -104,6 +104,7 @@ public struct ReportWriter: Sendable {
         csvFileName: String? = nil
     ) -> String {
         let dateFormatter = DateFormatter()
+        dateFormatter.locale = Locale(identifier: "en_US_POSIX")   // Gregorian, 24 h on every Mac
         dateFormatter.dateFormat = "yyyy.MM.dd // HH:mm:ss"
         let dateString = dateFormatter.string(from: scanDate)
         
