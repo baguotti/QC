@@ -47,6 +47,7 @@ Large types are split by area into `Type+Area.swift` extension files; stored pro
 - `PlayerEngine.swift` (state, init, exposure, audio) + `PlayerEngine+Loading`, `+Slots`, `+Playback` (time observers, PLL, J-K-L), `+Stepping`, `+InOut`, `+Scrub`, `+Capture`; supporting types in `PlayerTypes.swift`.
 - `FrameIOBrowser.swift` (model) and `FrameIOBrowserView.swift` + `+Header`, `+List`, `+Actions`; sheets in `FrameIOBrowserSheets.swift`, small views in `FrameIOBrowserParts.swift`.
 - `DeliveryPlanPanel.swift` + `DeliveryPlanPanelRows.swift` (Sheet/List views), `DeliveryPlanPanelActions.swift` (selection, checks, status); `DeliveryPlanRowCard.swift`, `DeliveryPlanControls.swift` (chips, pills, filters shared with Inspect).
+- `DeliveryPlanStore.swift` (state, init, linking, disk; all stored properties) + `+Reading`, `+Matching`, `+FrameIOLinks`, `+FrameIOFolders`, `+Editing` (edits, undo, outbox, QCpie tab).
 - Player tab: `PlayerTabView.swift` (still a `ContentView` extension) + `PlayerSliders.swift`, `PlayerComparisonBar.swift`, `PlayerMenus.swift`, `InOutExporter.swift`.
 
 When a member moves to another file, drop `private` only where the compiler asks; a private member called from another file can silently resolve to a different visible declaration of the same name (POSIX `select`, `accept`; SwiftUI `toolbar`).
