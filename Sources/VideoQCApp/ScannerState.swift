@@ -3,6 +3,13 @@ import AppKit
 import os
 import VideoQCLib
 
+/// Line Check / Frame Check progress, observed only by the Scan tab's progress cards (`ObservingView`).
+@MainActor
+public final class ScanProgress: ObservableObject {
+    @Published public var line: VideoScanner.ScanProgress? = nil
+    @Published public var frame: FrameCheckScanner.ScanProgress? = nil
+}
+
 @MainActor
 public final class ScannerState: ObservableObject {
     @Published public var hexCode: String = UserPreferences.lineTargetHex
@@ -25,7 +32,13 @@ public final class ScannerState: ObservableObject {
     @Published public var isCancelling: Bool = false
     
     @Published public var isScanning: Bool = false
-    @Published public var progressInfo: VideoScanner.ScanProgress? = nil
+    /// Progress lives in its own object (`ScanProgress`): it changes ~5 times a second during a scan, and a publish
+    /// from ScannerState redraws the whole window (ContentView owns it). These forward to it without publishing here.
+    public let progress = ScanProgress()
+    public var progressInfo: VideoScanner.ScanProgress? {
+        get { progress.line }
+        set { progress.line = newValue }
+    }
     /// Line Check results with the findings marked "Not a Line" removed (`LineCheckDismissals`).
     @Published public var scanResults: [VideoQCResult] = [] {
         didSet { if !isFiltering { rawResults = scanResults } }
@@ -47,7 +60,10 @@ public final class ScannerState: ObservableObject {
     
     // Frame Check
     @Published public var isFrameChecking: Bool = false
-    @Published public var frameCheckProgress: FrameCheckScanner.ScanProgress? = nil
+    public var frameCheckProgress: FrameCheckScanner.ScanProgress? {
+        get { progress.frame }
+        set { progress.frame = newValue }
+    }
     @Published public var frameCheckResults: [FrameCheckResult] = []
     @Published public var wasFrameCheckCancelled: Bool = false
     /// A Full Check is running: the Line Check, then the Frame Check on the same files.

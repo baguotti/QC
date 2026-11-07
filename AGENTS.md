@@ -35,6 +35,7 @@ Read the file for the area you're changing before you change it. Each holds the 
 - **Per-frame work stays out of SwiftUI.** `ContentView` owns the engine and every tab's state as `@StateObject`: any publish re-renders the whole window. Per-frame values live on `PlaybackClock` and are drawn by AppKit-backed views (`PlaybackClockViews.swift`). Never add per-frame `@Published` state.
 - **No synchronous disk I/O, decoding or network on the main thread**, and nothing slow at launch (`App.init`, `ContentView` stored properties, `onAppear`).
 - **Large lists** use `LazyVStack`, `.equatable()` rows, integer version counters for equality, and no per-row singleton subscriptions.
+- **Values that change often** (progress, counters) don't go on an object `ContentView` owns: put them in a small `ObservableObject` of their own and read them through `ObservingView` (see `ScanProgress`).
 - **Busy singletons** (upload/download queues, Frame.io browser, Delivery Plan store, transfer log) are observed only by the views that show them, never by `ContentView`.
 - **Keyboard**: `KeyboardShortcutRouter` handles keys app-wide; text fields and sheets must keep their keys (see player.md §8 and frameio.md "Inline text fields").
 - **Benchmarks** (`scripts/*Bench/run.sh`) must print ALL PASSED after any change to what they measure.

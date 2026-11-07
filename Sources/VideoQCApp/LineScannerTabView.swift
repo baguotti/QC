@@ -256,41 +256,43 @@ extension ContentView {
                     .padding(.vertical, 4)
             }
             
-            if let p = scannerState.progressInfo {
-                VStack(alignment: .leading, spacing: 16) {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("Current Asset")
-                            .font(.ui(size: 11, weight: .semibold))
-                            .foregroundColor(textMuted)
-                        Text(p.currentFileName)
-                            .font(.ui(size: 15, weight: .semibold))
-                            .foregroundColor(textMain)
-                            .lineLimit(1)
-                    }
-                    
-                    HStack(spacing: 20) {
-                        statItem(label: "Batch Progress", val: "File \(String(format: "%02d", p.currentFileIndex)) / \(String(format: "%02d", p.totalFiles))", width: 140)
-                        statItem(label: "Frame Index", val: "\(p.currentFrame) / \(p.totalFramesInFile)", width: 140)
-                        statItem(label: "Speed", val: "\(String(format: "%.0f", p.fps)) fps", width: 110)
-                        statItem(label: "Flagged", val: "\(p.flaggedVideosCount)", width: 80, isAlert: p.flaggedVideosCount > 0)
-                    }
-                    
-                    GeometryReader { geo in
-                        ZStack(alignment: .leading) {
-                            Rectangle()
-                                .fill(borderLine)
-                                .frame(height: 4)
-                            
-                            let ratio = (Double(p.currentFileIndex - 1) + (Double(p.currentFrame) / Double(max(1, p.totalFramesInFile)))) / Double(max(1, p.totalFiles))
-                            Rectangle()
-                                .fill(primaryBtnBg)
-                                .frame(width: geo.size.width * CGFloat(min(1.0, max(0.0, ratio))), height: 4)
+            ObservingView(model: scannerState.progress) { progress in
+                if let p = progress.line {
+                    VStack(alignment: .leading, spacing: 16) {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("Current Asset")
+                                .font(.ui(size: 11, weight: .semibold))
+                                .foregroundColor(textMuted)
+                            Text(p.currentFileName)
+                                .font(.ui(size: 15, weight: .semibold))
+                                .foregroundColor(textMain)
+                                .lineLimit(1)
                         }
+                    
+                        HStack(spacing: 20) {
+                            statItem(label: "Batch Progress", val: "File \(String(format: "%02d", p.currentFileIndex)) / \(String(format: "%02d", p.totalFiles))", width: 140)
+                            statItem(label: "Frame Index", val: "\(p.currentFrame) / \(p.totalFramesInFile)", width: 140)
+                            statItem(label: "Speed", val: "\(String(format: "%.0f", p.fps)) fps", width: 110)
+                            statItem(label: "Flagged", val: "\(p.flaggedVideosCount)", width: 80, isAlert: p.flaggedVideosCount > 0)
+                        }
+                    
+                        GeometryReader { geo in
+                            ZStack(alignment: .leading) {
+                                Rectangle()
+                                    .fill(borderLine)
+                                    .frame(height: 4)
+                            
+                                let ratio = (Double(p.currentFileIndex - 1) + (Double(p.currentFrame) / Double(max(1, p.totalFramesInFile)))) / Double(max(1, p.totalFiles))
+                                Rectangle()
+                                    .fill(primaryBtnBg)
+                                    .frame(width: geo.size.width * CGFloat(min(1.0, max(0.0, ratio))), height: 4)
+                            }
+                        }
+                        .frame(height: 4)
                     }
-                    .frame(height: 4)
+                    .padding(24)
+                    .studioBox(background: bgPanel, border: borderLine)
                 }
-                .padding(24)
-                .studioBox(background: bgPanel, border: borderLine)
             }
             Spacer()
         }
@@ -740,28 +742,30 @@ extension ContentView {
             Text("Checking Frames")
                 .font(.system(size: StudioTheme.scaleFont(22), weight: .semibold))
                 .foregroundColor(textMain)
-            if let p = scannerState.frameCheckProgress {
-                VStack(alignment: .leading, spacing: 16) {
-                    Text(p.fileName)
-                        .font(.ui(size: 15, weight: .semibold))
-                        .foregroundColor(textMain)
-                        .lineLimit(1)
-                    HStack(spacing: 20) {
-                        statItem(label: "Batch Progress", val: "File \(String(format: "%02d", p.fileIndex)) / \(String(format: "%02d", p.totalFiles))", width: 140)
-                        statItem(label: "Frame", val: "\(p.frame) / \(p.totalFrames)", width: 140)
-                        statItem(label: "Speed", val: "\(String(format: "%.0f", p.speed)) fps", width: 110)
-                    }
-                    GeometryReader { geo in
-                        let ratio = (Double(p.fileIndex - 1) + Double(p.frame) / Double(max(1, p.totalFrames))) / Double(max(1, p.totalFiles))
-                        ZStack(alignment: .leading) {
-                            Rectangle().fill(borderLine).frame(height: 4)
-                            Rectangle().fill(primaryBtnBg).frame(width: geo.size.width * CGFloat(min(1, max(0, ratio))), height: 4)
+            ObservingView(model: scannerState.progress) { progress in
+                if let p = progress.frame {
+                    VStack(alignment: .leading, spacing: 16) {
+                        Text(p.fileName)
+                            .font(.ui(size: 15, weight: .semibold))
+                            .foregroundColor(textMain)
+                            .lineLimit(1)
+                        HStack(spacing: 20) {
+                            statItem(label: "Batch Progress", val: "File \(String(format: "%02d", p.fileIndex)) / \(String(format: "%02d", p.totalFiles))", width: 140)
+                            statItem(label: "Frame", val: "\(p.frame) / \(p.totalFrames)", width: 140)
+                            statItem(label: "Speed", val: "\(String(format: "%.0f", p.speed)) fps", width: 110)
                         }
+                        GeometryReader { geo in
+                            let ratio = (Double(p.fileIndex - 1) + Double(p.frame) / Double(max(1, p.totalFrames))) / Double(max(1, p.totalFiles))
+                            ZStack(alignment: .leading) {
+                                Rectangle().fill(borderLine).frame(height: 4)
+                                Rectangle().fill(primaryBtnBg).frame(width: geo.size.width * CGFloat(min(1, max(0, ratio))), height: 4)
+                            }
+                        }
+                        .frame(height: 4)
                     }
-                    .frame(height: 4)
+                    .padding(24)
+                    .studioBox(background: bgPanel, border: borderLine)
                 }
-                .padding(24)
-                .studioBox(background: bgPanel, border: borderLine)
             }
             Spacer()
         }
