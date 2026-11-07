@@ -629,7 +629,7 @@ public final class SpecsState: ObservableObject {
         savePanel.nameFieldStringValue = "Deliverables_Specs_\(Date().timeIntervalSince1970).csv"
         
         if savePanel.runModal() == .OK, let url = savePanel.url {
-            try? csvString.write(to: url, atomically: true, encoding: .utf8)
+            Log.inspect.attempt("Saving the CSV report to \(url.path)") { try csvString.write(to: url, atomically: true, encoding: .utf8) }
             self.manifestCSVURL = url
             NSWorkspace.shared.activateFileViewerSelecting([url])
         }
@@ -647,7 +647,7 @@ public final class SpecsState: ObservableObject {
             self.manifestHTMLURL = tempURL
             NSWorkspace.shared.open(tempURL)
         } catch {
-            print("Failed to open Deliverables HTML: \(error)")
+            Log.inspect.error("Writing the Inspect report failed", error)
         }
     }
     

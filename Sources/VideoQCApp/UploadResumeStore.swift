@@ -1,4 +1,5 @@
 import Foundation
+import VideoQCLib
 
 /// What a paused, interrupted or partly failed upload needs to continue: each file's Frame.io placeholder, its part
 /// links and which parts are already sent, plus the run (destination and remaining queue rows) to resume. Saved to
@@ -140,8 +141,8 @@ actor UploadResumeStore {
     nonisolated static func load(from directory: URL) -> State {
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
-        let run = (try? Data(contentsOf: runFile(in: directory))).flatMap { try? decoder.decode(SavedRun.self, from: $0) }
-        let parts = (try? Data(contentsOf: partsFile(in: directory))).flatMap { try? decoder.decode(Parts.self, from: $0) } ?? Parts()
+        let run = JSONFile.load(SavedRun.self, from: runFile(in: directory), decoder: decoder, log: .upload)
+        let parts = JSONFile.load(Parts.self, from: partsFile(in: directory), decoder: decoder, log: .upload) ?? Parts()
         return State(run: run, files: parts.files, deletes: parts.deletes)
     }
 
@@ -219,20 +220,17 @@ actor UploadResumeStore {
         guard let directory else { return }
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
-        try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         if runDirty {
             runDirty = false
-            if let run = state.run, let data = try? encoder.encode(run) {
-                try? data.write(to: Self.runFile(in: directory), options: .atomic)
+            if let run = state.run {
+                JSONFile.save(run, to: Self.runFile(in: directory), encoder: encoder, log: .upload)
             } else {
-                try? FileManager.default.removeItem(at: Self.runFile(in: directory))
+                JSONFile.remove(Self.runFile(in: directory), log: .upload)
             }
         }
         if partsDirty {
             partsDirty = false
-            if let data = try? encoder.encode(Parts(files: state.files, deletes: state.deletes)) {
-                try? data.write(to: Self.partsFile(in: directory), options: .atomic)
-            }
+            JSONFile.save(Parts(files: state.files, deletes: state.deletes), to: Self.partsFile(in: directory), encoder: encoder, log: .upload)
         }
     }
 

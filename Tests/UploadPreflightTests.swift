@@ -73,7 +73,7 @@ struct UploadPreflightTests {
         try Data((0..<4096).map { UInt8(truncatingIfNeeded: $0 &* 31) }).write(to: unfinished)
         func row(_ url: URL) -> UploadPreflight.Row {
             let size = (try? FileManager.default.attributesOfItem(atPath: url.path)[.size] as? Int64) ?? 0
-            return .init(path: url.path, name: url.lastPathComponent, files: [url], sizes: [size ?? 0], topLevel: true)
+            return .init(path: url.path, name: url.lastPathComponent, files: [url], sizes: [size], topLevel: true)
         }
         let flagged = await UploadPreflight.unreadable([row(clip), row(empty), row(unfinished)])
         #expect(Set(flagged) == [empty.path, unfinished.path])

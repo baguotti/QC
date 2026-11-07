@@ -91,7 +91,7 @@ struct PlanFrameIORootSheet: View {
         }
     }
 
-    static func scanText(_ scan: DeliveryPlanStore.RootScan) -> String {
+    nonisolated static func scanText(_ scan: DeliveryPlanStore.RootScan) -> String {
         switch scan {
         case .idle: return "Not read yet"
         case .scanning(let n): return n == 0 ? "Reading…" : "Reading… \(n) folders"

@@ -60,6 +60,7 @@ actor FrameIOLinks {
             let data = file.flatMap { try? Data(contentsOf: $0) }
             var loaded = data.flatMap { try? JSONDecoder().decode(State.self, from: $0) }
             if loaded == nil, data != nil, let file {
+                Log.frameio.error("Frame.io links file unreadable, set aside: \(file.path)")
                 // Unreadable (damaged, or written by a newer QCpie): set it aside rather than overwrite it on the next
                 // save. Losing the "sent" records would post every note to Frame.io again.
                 try? FileManager.default.moveItem(at: file, to: file.appendingPathExtension("unreadable-\(Int(Date().timeIntervalSince1970))"))
@@ -186,9 +187,8 @@ actor FrameIOLinks {
 
     private func writeNow() {
         saveScheduled = false
-        guard let file, let data = try? JSONEncoder().encode(state) else { return }
-        try? FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
-        try? data.write(to: file, options: .atomic)
+        guard let file else { return }
+        JSONFile.save(state, to: file, log: .frameio)
     }
 
     private static func key(_ url: URL) -> String { url.standardizedFileURL.path }

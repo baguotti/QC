@@ -1,0 +1,62 @@
+# Scan and analysis: Line Check, Frame Check, loudness, legal range
+
+Detectors and their benchmarks. Every detector change is benchmarked before and after.
+
+Section numbers match the old single AGENTS.md, so older commit messages and notes still point to the right place.
+
+## 8d. Scan tab → Line Check (`EdgeDetector.swift`, `VideoScanner.swift`)
+
+- **Benchmark before and after every detector change**: `scripts/LineFinderBench/run.sh` (Command Line Tools only; the swift-testing suite needs Xcode). It runs the synthetic v1/v2 cases (`Tests/LineFinderScenes.swift`, shared with `LineDetectorTests`), per-frame cost, and real-footage ground truth from `_TEST` (local, git-ignored). It must print ALL PASSED.
+- **Colour rule**: a pixel is the target only if its residual is within `colorResidualRatio` (0.5) of the line's own strength α·|T − R| (or the noise floor). The old loose rule (0.3·|T − R|) let grey columns pass as green and green lines as white; lines passing only the loose rule are **off-colour**: reported separately, always weak (persistence-gated), toggle `reportOffColorLines`.
+- **Split seams**: compared with the picture 2 px and `edgeDepth + 1` px away; a seam pixel needs a strict match on one side and a loose match on the other (a blended seam's base belongs to one side). A coarse pre-check (every 8th sample) skips rows/columns that can't hold a seam (11.5 → ~2 ms/frame at 1080p). Black/white targets need α ≥ 0.6 for seams: partial dark/bright seams are indistinguishable from window frames and table edges.
+- **Letterbox / pillarbox**: when an edge has a uniform near-black bar thicker than `edgeDepth`, the picture edge inside the bar is scanned too (not for a black target); `LineDetection.position` holds the bar depth (edges) or the seam row/column (splits, buffer coordinates).
+- Frame numbers come from sample timestamps rounded to the nearest frame (`VideoScanner.frameIndex`), not from counting decoded samples: the Player seeks to frame centres, so frame n is the n-th sample, and on a 600 time base (QuickTime, iPhone) NTSC-rate timestamps sit up to half a tick early, where `floor` lands one frame low. Timecodes stay 0-based NDF like the rest of the app.
+- A file that can't be opened or stops decoding early is never clean: `VideoQCResult.readError` / `FrameCheckResult.readError` flag it (lines found before the failure are kept) and the results and reports show it as Unreadable.
+- **Chroma bleed**: a line must step back to the picture one row inside it (inner α ≤ 0.6 × the innermost line row's α,
+  so gradients are rejected). When that row mostly fails only on colour (α in range, residual too large), it is the line's
+  4:2:0 chroma smeared by the decoder (Premiere renders a 1 px top line's next row as `0,129,1`, not a blend; AVFoundation
+  smears a 3 px line at an odd column into a half off-colour 4th column) and the step is checked one row further in.
+  Off-colour pixels count as colour failures here. Gradient rows still pass as blends, so they're unaffected.
+  `premiere/linecore` mirrors `EdgeDetector.swift` exactly: change both and run `premiere/linecore/tests/run.sh`.
+- Edge lines must start within `edgeDepth`; when a band fills the whole scan depth it is followed `thickLineMargin` (16) px further to find where it stops, so lines as thick as the edge depth are caught. That second pass runs only in that case.
+- **Solid bars** (`solidBar`): a target-coloured band thicker than that is invisible to those passes (their reference, just past the scan depth, is still inside the band). When the innermost scanned row is ≥ 90 % within 100 of the target colour, the edge is scanned again up to 8 % of the frame; the band must reach α ≥ 0.6 over ≥ 90 % of the edge. Coloured targets only (black bands are letterboxing). Found in Premiere: a 34 px green bar at 1080p under subtitles. Foliage, a partial-width bar and a green wall past 8 % stay clean (`LineFinderScenes`).
+- **Throughput is hardware-decode bound** (measured, M4 Max 1080p H.264: one decode stream ~950 fps, two ~1,780, more add nothing; detection ~0.1–1.3 ms/frame overlaps fully). Files run two at a time and a file ≥ 20 s is read as **two segments in parallel** (`VideoScanner.splitMinimumSeconds`): each segment reads 3 frames past the split and keeps only its side, frame numbers count from the first segment's first sample, so results are identical to one pass (verified on `_TEST`: all 204 flagged frames). Machines with two decode engines (M1/M2 Ultra) scan roughly twice as fast.
+
+
+- **Not a Line** (`LineCheckDismissals`, `ScannerState.swift`): a finding dismissed in the results is stored per clip (file name + frame count: no disk reads) as edge + frame range and removed (±2 frames) from every later scan of that clip before Finder tags, reports, notifications and Player markers see it (`VideoQCResult.removingDetections`). `ScannerState` keeps the raw results so Restore (card header, or Restore All above the cards for clips whose findings are all hidden) brings them back. Completed files are filtered one at a time (refiltering everything per file was O(n²)).
+
+## 8e. Scan tab → Frame Check (`FrameCheck.swift`)
+
+- One decode pass per video finds three things: **frame-rate mismatch** (stutter), **flash frames** and **Media Offline** frames. Results list only flagged files, one row per finding.
+- **Benchmark**: `scripts/FrameCheckBench/run.sh` renders clips with known conversions (24→25 repeats, 25→24 / 30→25 skips, 3:2 pulldown, 24→25 blending), flash frames (black mid-shot, white at a cut, 2-frame solid colour), a Media Offline card, and clean controls (hold + cut, static, one-off repeat, dip to black with black head/tail, orange/magenta graphics); then it reports the `_TEST` clips. Must print ALL PASSED. Real ground truth: CK_HOME26 E3.0 (25 fps) = 23.976 → 25 (1 repeat every 24 frames); everything else in `_TEST` is clean.
+- Same parallelism as Line Check: two files at a time, files ≥ 20 s split into two segments (the second starts 3 frames early so kept frames have their neighbours for motion, blend and shift); results identical to one pass.
+- Decode is hardware-scaled to 192 px 4:2:0 (luma + CbCr planes), ~600–3000 fps. Per frame: **motion** (90th-percentile 8×8 block difference: a repeat reads ≤ 0.2), **speed** (region brightness-profile shift in px; a skip reads ~2×), **blend ratio**, and a **look** (luma/chroma p2–p98 spread, mean colour, share of offline-card red).
+- **Mismatch only**: repeats/skips count only as a regular cadence (≥ 4 events, ≥ 60% regular spacing); blends only as a cycle (detrended autocorrelation ≥ 0.7 at P, ≤ −0.5 at P/2). One-off repeats/skips/blends are not reported. Repeat bar: ≤ max(0.35, 0.08 × local motion).
+- **Flash frame**: 1–2 solid frames (spread ≤ 12; up to fps/12.5 frames at high rates) with a picture (spread ≥ 30) on both sides. Head/tail black, holds and dips to black are not flash frames.
+- **Media Offline**: ≥ 60% of the frame in saturated red (Cr ≥ 180, 70 ≤ Cb ≤ 140, Y ≤ 140: Premiere/Resolve/FCP offline cards; excludes orange and magenta).
+
+## 8e2. Inspect → Check Loudness (`Loudness.swift`)
+
+- One decode of the first audio track (`DeliverablesInspector.extractAudioLevels`, Float32 via AVAssetReader) feeds `LoudnessMeter`: K-weighting (vDSP biquads, coefficients for any sample rate), 100 ms sub-blocks → 400 ms momentary / 3 s short-term, gated integrated loudness (−70 abs, −10 rel), LRA (EBU 3342: −20 rel, p10–p95), true peak with the BS.1770-4 Annex 2 48-tap 4× interpolator (vDSP_conv), plus channel notes (silent channel, out of phase, dual mono). Channel weights come from the track's channel layout labels (LFE excluded, surrounds 1.41; AAC 5.1 decodes C L R Ls Rs LFE, so never assume an order when labels exist); unlabelled 6-channel audio is taken as SMPTE order. Clips shorter than one 400 ms block are measured as a single block. Late results of a cancelled run are dropped (`audioAnalysisRun`).
+- `peakDB` = true peak; mute = nothing above the gate or true peak < −60 dBTP. Pass/warn/fail is evaluated at display/export time against `LoudnessTarget` (`prefLoudnessTarget`, Settings → Loudness), so changing the target recolours without re-measuring.
+- **Benchmark**: `scripts/LoudnessBench/run.sh` compares against ffmpeg `ebur128=peak=true` (integrated ±0.1 LU, true peak ±0.5 dB, LRA ±0.5 LU) and an exact inter-sample-peak case (ffmpeg over-reads it). Must print ALL PASSED.
+
+## 8e3. Legal Range (`LegalRange.swift`: Frame Check + Player zebra)
+
+- Presets (`LegalRangeSpec`): **EBU R103 (UK)** is the default (luma −1…103 %, R′G′B′ −5…105 %, frames flagged when > 1 % of the picture is out), Strict 0…100 %. The choice lives on `PlayerEngine.legalRangePreset` (mirrored to UserDefaults `prefLegalRangePreset`), shared by the Scan tab menu and the zebra's context menu; Frame Check reads it at scan start.
+- **Frame Check decodes narrow range (`420v`)**: a full-range output clips super-whites/blacks before they can be measured (verified: Y 250 decodes as 255). The legal measure runs on the raw codes; the other Frame Check measures get a LUT expansion to full range, so their thresholds are unchanged.
+- Measured per 2×2 block (`LegalRangeBlocks`): luma per pixel, gamut with the block's mean luma, then 4-neighbour erosion. Without these, 4:2:0 chroma smear at hard edges (white text on red reads 130 %) and scaler/codec ringing flag clean graphics and colour bars; at the 192 px analysis size an un-eroded check flagged a `_TEST` clip that a full-resolution check (0.25 % of pixels) shows legal. Flagged frames ≤ ½ s apart form one run.
+- **Zebra** (`showLegalZebra`): sublayers of `stillFrameLayerA/B` (they inherit split masks, frames and visibility), **paused only**, hidden while playing/scrubbing and in difference/overlay modes. Each mask is one frame decoded with `AVAssetReader` off the main thread (≤ 1920 px, ~30 ms at 1080p long-GOP) 80 ms after stepping settles, keyed by file/frame/preset; nothing runs on the playback or scrub path. It shows source levels (no EV), same blocks as the scan. Image sequences, stills and audio have no zebra.
+- Benchmark: `scripts/FrameCheckBench/run.sh` includes super-white, super-black, illegal-colour, sub-1 % speck and full-swing bars cases plus zebra frame accuracy (H.264 long GOP, ProRes). Must print ALL PASSED.
+
+## 8e4. Pro Video Formats (`ProVideoFormats.swift`)
+
+- `App.init` registers Apple's Pro Video Formats decoders and format readers (`VTRegisterProfessionalVideoWorkflowVideoDecoders`, `MTRegisterProfessionalVideoWorkflowFormatReaders`) before any media is opened, only when the plug-ins folder is non-empty (registration costs ~17 ms at launch even with nothing installed; the folder check is microseconds), so MXF, AVC-Intra, XAVC and DNxHD/HR go through the normal AVFoundation pipeline. Existing formats are unaffected.
+- The package can't be bundled or installed silently (admin install, Apple distributes it via Software Update to Macs with Final Cut Pro/Motion/Compressor). Opening an MXF without it (`/Library/Video/Professional Video Workflow Plug-Ins` empty) shows `ProVideoFormatsPrompt` once per session; scans report "Needs Apple Pro Video Formats".
+- AVC-Intra/XAVC 10-bit 4:2:2 most likely decode in software: expect slower 4K playback and scans than hardware H.264/HEVC.
+
+## 8f. Missed Line Report (`MissedLineReporter.swift`, Player timecode bar)
+
+- MISSED LINE sends the frame on screen for the active slot (`notesTargetURL`), captured with `captureCurrentFrame(applyingExposure: false)` (original pixels; EV is noted in the email), as a lossless PNG to the notes-sync Worker (`POST /v1/frames`, KV binding `FRAMES`, 90-day TTL), then emails clip / timecode / settings / Line Check findings / reviewer / frame link via Web3Forms. Encoding runs off the main thread; nothing runs during playback (it pauses first).
+
+---

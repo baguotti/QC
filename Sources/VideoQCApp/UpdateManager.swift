@@ -1,4 +1,5 @@
 import Foundation
+import VideoQCLib
 import AppKit
 import Combine
 
@@ -20,7 +21,9 @@ public final class UpdateManager: NSObject, ObservableObject {
         case failed(String)
     }
     
-    @Published public private(set) var state: UpdateState = .idle
+    @Published public private(set) var state: UpdateState = .idle {
+        didSet { if case .failed(let message) = state, state != oldValue { Log.update.error(message) } }
+    }
     @Published public var showModal: Bool = false
     @Published public private(set) var latestVersion: String = ""
     @Published public private(set) var remoteWebURL: URL? = nil

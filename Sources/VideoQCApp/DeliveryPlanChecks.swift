@@ -100,7 +100,7 @@ final class PlanCheckQueue: ObservableObject {
         Task {
             let url = Self.fileURL
             let saved = await Task.detached(priority: .utility) { () -> [String: PlanFileChecks] in
-                (try? Data(contentsOf: url)).flatMap { try? JSONDecoder().decode([String: PlanFileChecks].self, from: $0) } ?? [:]
+                JSONFile.load([String: PlanFileChecks].self, from: url, log: .plan) ?? [:]
             }.value
             var merged = Dictionary(uniqueKeysWithValues: saved.map { (URL(fileURLWithPath: $0.key), $0.value) })
             merged.merge(results) { _, new in new }
@@ -307,8 +307,7 @@ final class PlanCheckQueue: ObservableObject {
             guard !Task.isCancelled else { return }
             let url = Self.fileURL
             Task.detached(priority: .utility) {
-                try? FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-                if let data = try? JSONEncoder().encode(snapshot) { try? data.write(to: url, options: .atomic) }
+                JSONFile.save(snapshot, to: url, log: .plan)
             }
         }
     }

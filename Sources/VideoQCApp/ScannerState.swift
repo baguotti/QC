@@ -127,6 +127,7 @@ public final class ScannerState: ObservableObject {
         isScanning = true
         isCancelling = false
         wasScanCancelled = false
+        Log.scan.notice("Line Check started: \(videoFiles.count) files")
         if !isFullCheck {   // a single check replaces the whole report
             frameCheckResults = []
             wasFrameCheckCancelled = false
@@ -182,6 +183,9 @@ public final class ScannerState: ObservableObject {
             }
             
             DispatchQueue.main.async {
+                Self.logFinished("Line Check", flagged: results.filter(\.isFlagged).count, total: results.count,
+                                 unreadable: results.compactMap { r in r.readError.map { "\(r.fileURL.path): \($0)" } },
+                                 cancelled: self.wasScanCancelled)
                 self.scanResults = results
                 self.refilterResults()
                 self.lastScanConfig = config
@@ -198,6 +202,11 @@ public final class ScannerState: ObservableObject {
         }
     }
     
+    private static func logFinished(_ check: String, flagged: Int, total: Int, unreadable: [String], cancelled: Bool) {
+        Log.scan.notice("\(check) \(cancelled ? "cancelled" : "finished"): \(flagged) of \(total) flagged")
+        for file in unreadable { Log.scan.error("\(check) couldn't read \(file)") }
+    }
+
     /// One pass per video: frame-rate mismatch (stutter), flash frames, Media Offline frames and legal range.
     public func startFrameCheck(videoFiles: [URL]) {
         let videos = videoFiles.filter { QCUtilities.mediaKind(of: $0) == .video }
@@ -212,6 +221,7 @@ public final class ScannerState: ObservableObject {
         }
         isFrameChecking = true
         wasFrameCheckCancelled = false
+        Log.scan.notice("Frame Check started: \(videos.count) files")
         frameCheckResults = []
         frameCheckProgress = nil
         if !isFullCheck {
@@ -225,6 +235,9 @@ public final class ScannerState: ObservableObject {
                 DispatchQueue.main.async { self.frameCheckProgress = progress }
             }
             await MainActor.run {
+                Self.logFinished("Frame Check", flagged: results.filter(\.isFlagged).count, total: results.count,
+                                 unreadable: results.compactMap { r in r.readError.map { "\(r.fileURL.path): \($0)" } },
+                                 cancelled: self.wasFrameCheckCancelled)
                 if !self.wasFrameCheckCancelled {
                     // Full Check: a clip counts once if either check flagged it.
                     let flagged = Set(results.filter(\.isFlagged).map(\.fileURL))
@@ -267,7 +280,7 @@ public final class ScannerState: ObservableObject {
         savePanel.directoryURL = folder
         
         if savePanel.runModal() == .OK, let url = savePanel.url {
-            try? htmlString.write(to: url, atomically: true, encoding: .utf8)
+            Log.scan.attempt("Saving the HTML report to \(url.path)") { try htmlString.write(to: url, atomically: true, encoding: .utf8) }
             self.generatedReportURL = url
             NSWorkspace.shared.open(url)
         }
@@ -285,7 +298,7 @@ public final class ScannerState: ObservableObject {
         savePanel.directoryURL = folder
         
         if savePanel.runModal() == .OK, let url = savePanel.url {
-            try? csvString.write(to: url, atomically: true, encoding: .utf8)
+            Log.scan.attempt("Saving the CSV report to \(url.path)") { try csvString.write(to: url, atomically: true, encoding: .utf8) }
             self.generatedCSVURL = url
             NSWorkspace.shared.open(url)
         }

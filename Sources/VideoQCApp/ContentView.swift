@@ -104,8 +104,6 @@ struct ContentView: View {
     // MARK: - Tab 3: Line Finder State
     @StateObject var scannerState = ScannerState()
     
-    // MARK: - Tab 4: Ingest State
-    @StateObject var ingestState = IngestState()
     
     // MARK: - Folder Grouping State
     @State var hideAllFolders: Bool = false
@@ -464,8 +462,6 @@ struct ContentView: View {
                 deliverablesTabView
             case .lineFinder:
                 lineScannerTabView
-            case .ingest:
-                ingestTabView
             case .upload:
                 uploadTabView
             }
@@ -1048,19 +1044,6 @@ struct ContentView: View {
     }
     
     func selectAssets(forTab: AppTab, append: Bool = false) {
-        if forTab == .ingest {
-            let panel = NSOpenPanel()
-            panel.canChooseFiles = true
-            panel.canChooseDirectories = true
-            panel.allowsMultipleSelection = true
-            panel.prompt = "Select Intake"
-            panel.message = "Choose a delivery folder or media files to ingest"
-            if panel.runModal() == .OK, !panel.urls.isEmpty {
-                self.ingestState.scanIntake(urls: panel.urls)
-            }
-            return
-        }
-        
         let panel = NSOpenPanel()
         panel.canChooseFiles = true
         panel.canChooseDirectories = true
@@ -1195,13 +1178,9 @@ struct ContentView: View {
         }
         
         group.notify(queue: .main) {
-            if forTab == .ingest {
-                self.ingestState.scanIntake(urls: collector.urls)
-            } else {
-                let media = self.importSubtitleFiles(in: collector.urls)
-                if !media.isEmpty {
-                    self.addAssets(urls: media, targetSlot: targetSlot)
-                }
+            let media = self.importSubtitleFiles(in: collector.urls)
+            if !media.isEmpty {
+                self.addAssets(urls: media, targetSlot: targetSlot)
             }
         }
         return true

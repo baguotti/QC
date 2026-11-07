@@ -2,6 +2,7 @@ import AppKit
 import AuthenticationServices
 import CryptoKit
 import Foundation
+import VideoQCLib
 
 /// Google sign-in for the Delivery Plan (Sheets API). OAuth with PKCE and an iOS-type client (no secret; redirect to
 /// the reversed client id), in the studio's Workspace project with an "Internal" consent screen: only studio accounts
@@ -189,14 +190,13 @@ actor GoogleAuth {
     private func load() {
         guard !loaded else { return }
         loaded = true
-        tokens = (try? Data(contentsOf: Self.tokenFile)).flatMap { try? JSONDecoder().decode(Tokens.self, from: $0) }
+        tokens = JSONFile.load(Tokens.self, from: Self.tokenFile, log: .google)
     }
 
     private func save() {
-        guard let tokens, let data = try? JSONEncoder().encode(tokens) else { return }
+        guard let tokens else { return }
         let file = Self.tokenFile
-        try? FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
-        try? data.write(to: file, options: .atomic)
+        guard JSONFile.save(tokens, to: file, log: .google) else { return }
         try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: file.path)
     }
 

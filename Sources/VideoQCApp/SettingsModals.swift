@@ -709,6 +709,11 @@ struct UserSettingsModalView: View {
                     Button("Show in Finder") { SettingsTransfer.revealSupportFolder() }
                         .font(.ui(size: 11))
                 }
+                rowDivider
+                row("doc.text.magnifyingglass", "Logs", "Errors and notable events from the last few sessions. Send them along when something goes wrong.") {
+                    Button("Show in Finder") { SettingsTransfer.revealLogs() }
+                        .font(.ui(size: 11))
+                }
             }
             if let maintenanceNote {
                 Text(maintenanceNote)
@@ -1130,6 +1135,16 @@ enum SettingsTransfer {
         FileSystemTreeBuilder.clearCache()
         FrameIOBrowser.clearThumbnailCache()
         Task { await FrameIOLinks.shared.clearIndex() }
+    }
+
+    static func revealLogs() {
+        let file = Log.currentFile
+        try? FileManager.default.createDirectory(at: Log.folder, withIntermediateDirectories: true)
+        if FileManager.default.fileExists(atPath: file.path) {
+            NSWorkspace.shared.activateFileViewerSelecting([file])
+        } else {
+            NSWorkspace.shared.activateFileViewerSelecting([Log.folder])
+        }
     }
 
     static func revealSupportFolder() {

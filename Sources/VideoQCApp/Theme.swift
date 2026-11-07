@@ -7,12 +7,11 @@ enum AppTab: Int, CaseIterable, Identifiable {
     case player = 0
     case specs = 1
     case lineFinder = 2
-    case ingest = 3
     case upload = 4
     
     var id: Int { rawValue }
     
-    /// Tabs shown in the tab bar. Ingest is hidden for now (code kept).
+    /// Tabs shown in the tab bar.
     static let visibleTabs: [AppTab] = [.player, .specs, .lineFinder, .upload]
     
     var title: String {
@@ -20,7 +19,6 @@ enum AppTab: Int, CaseIterable, Identifiable {
         case .player: return "Play"
         case .specs: return "Inspect"
         case .lineFinder: return "Scan"
-        case .ingest: return "Ingest"
         case .upload: return "Upload"
         }
     }
@@ -30,7 +28,6 @@ enum AppTab: Int, CaseIterable, Identifiable {
         case .player: return "play.fill"
         case .specs: return "doc.text"
         case .lineFinder: return "viewfinder"
-        case .ingest: return "tray.and.arrow.down"
         case .upload: return "square.and.arrow.up"
         }
     }

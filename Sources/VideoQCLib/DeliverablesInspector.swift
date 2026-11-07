@@ -991,53 +991,6 @@ public struct DeliverablesInspector: Sendable {
         return (validDate, formatter.string(from: validDate))
     }
     
-    // MARK: - Camera Make & Model Metadata Extraction
-    
-    /// Attempts to extract camera manufacturer and model from container metadata atoms
-    public static func extractCameraMakeModel(asset: AVURLAsset) async -> String? {
-        if let metadata = try? await asset.load(.metadata) {
-            let modelItems = AVMetadataItem.metadataItems(from: metadata, filteredByIdentifier: .quickTimeMetadataModel)
-            let makeItems = AVMetadataItem.metadataItems(from: metadata, filteredByIdentifier: .quickTimeMetadataMake)
-            let commonModel = AVMetadataItem.metadataItems(from: metadata, filteredByIdentifier: .commonIdentifierModel)
-            let commonMake = AVMetadataItem.metadataItems(from: metadata, filteredByIdentifier: .commonIdentifierMake)
-            
-            var make: String? = nil
-            var model: String? = nil
-            
-            if let first = makeItems.first ?? commonMake.first,
-               let val = try? await first.load(.value) as? String {
-                make = val.trimmingCharacters(in: .whitespaces)
-            }
-            if let first = modelItems.first ?? commonModel.first,
-               let val = try? await first.load(.value) as? String {
-                model = val.trimmingCharacters(in: .whitespaces)
-            }
-            
-            if let m = make, let mod = model {
-                if mod.lowercased().contains(m.lowercased()) {
-                    return mod
-                }
-                return "\(m) \(mod)"
-            } else if let mod = model {
-                return mod
-            } else if let m = make {
-                return m
-            }
-            
-            // Heuristic scan across keys for camera details
-            for item in metadata {
-                if let keyStr = item.key as? String {
-                    let lower = keyStr.lowercased()
-                    if lower.contains("camera") || lower.contains("model") || lower.contains("device") {
-                        if let val = try? await item.load(.value) as? String, !val.trimmingCharacters(in: .whitespaces).isEmpty {
-                            return val.trimmingCharacters(in: .whitespaces)
-                        }
-                    }
-                }
-            }
-        }
-        return nil
-    }
     
     // MARK: - CSV Generator
     

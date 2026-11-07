@@ -1,0 +1,40 @@
+# App-wide: settings, sync, theme, launch, notifications
+
+Cross-cutting parts of the app that every tab uses.
+
+Section numbers match the old single AGENTS.md, so older commit messages and notes still point to the right place.
+
+## 8b. Notes Sync (`NotesSync.swift`, `server/notes-sync`)
+
+- Off unless `AppConfig.notesSyncServer` is set and at least one project (name + password, `NotesSyncProject` in UserDefaults) is added (gear menu → Synced Projects, `NotesSyncModalView`). Several projects can be connected at once; each clip is assigned to one (`assignments.json`, keyed by file name + size): the project that already has notes for it, else the default project once it has local notes, or the one picked in the Notes drawer's SYNC bar. Unassigned clips are probed in every project on each poll. Room id, clip ids (HMAC of file name + size) and the ChaChaPoly key all derive from the password; the Worker stores opaque blobs with an optimistic `version` (409 → re-fetch, merge, retry).
+- Merge is three-way against the last synced notes (`Application Support/QCpie/NotesSync`): `QCNotesManager.threeWayMerge`. Plain `merge` cannot sync deletions or un-resolving.
+- Only the clip whose notes are shown is polled (10 s, `?since=` → 204 when unchanged); saves push via `ContentView.saveNotes`. All network, crypto and JSON run on the `NotesSync` actor; the main thread only receives `NotesSync.didMergeRemoteNotes` when notes actually changed (new notes then show as a `+N` cloud badge on the Notes tab until it is viewed: `ContentView.unseenSyncedNoteIDs`). `NotesSyncStatus` publishes on state/project changes only and is observed only by the Settings modal and the drawer's `NotesSyncProjectBar`.
+
+## 8c. Settings Menu & User Settings
+
+- The gear menu opens **User Settings** (`UserSettingsModalView`, also ⌘, / app menu → Settings…; "Theme & Accents" opens it on Appearance) and **Synced Projects** (`NotesSyncModalView`, `SettingsModalShell`). User Settings pages: General (You, Playback, Queue & Inspect, Settings: export/import, clear caches, reset, support folder: `SettingsTransfer`), Checks, Frame.io, Notifications, Appearance (`ThemeSettingsView`). System Settings-style cards: icon + title + one-line explanation rows, control on the right. It shares `SidebarModalShell` (resizable from its corners when given a `resizeKey`) with the **User Guide** (Apple-help style, `UserGuideView.chapters`). Each popup's flag must be in `isAnyModalActive` and `dismissTopmostModalOrFullscreen`.
+- Launch defaults live in `UserPreferences` (start muted, link A/B, clip info overlay, show queue, loop, safe areas) and are read once by `PlayerEngine`/`ContentView` at creation. Read at use: default zoom and resume position (slot A load; positions saved per path on switching clips, 300 most recent, never per frame), compare mode (slot B's first clip), ⇧-arrow step, include subfolders and the image-sequence threshold (`ImageSequenceDetector.minimumFrames`, 0 = off) at the next scan, restore last queue (saved at quit, sequences as all their frames), auto Line Check (non-append queue loads; it competes with playback for the decoder, said in the setting). Viewer background is `engine.viewerBackground` (`canvasLayer.backgroundColor`, applied on change only). Queue sort (`QueueSort`): name (natural), newest, largest; dates/sizes come from `QueueSortKeys`, filled off the main thread at scan time or when the setting changes, never read from disk while building the tree.
+- Frame.io settings: start place (`FrameIOBrowser.startPlaceKey`; a stale remembered place falls back to the top), preview quality, automatic linking (`FrameIOLinks.autoLink`), Keep subfolders default, upload stream cap and 2 streams while playing (`UploadThrottle`, applied at the next tuning step), download folder / ask (`DownloadQueue.askKey`). Notifications: "Only problems" (`Message.isProblem`).
+
+
+## 8g. Type Scale & Button Size
+
+- All UI text uses `Font.ui(size:weight:)`, which snaps to six sizes (`TypeScale`: 10 caption, 11 small, 12 body, 13 emphasis, 15 title, 22 large title) and multiplies by the Button Size factor (Small 1.0, Medium 1.2, Large 1.25). Never pass `StudioTheme.scaleFont` into `.ui` (double scaling); `.system(size:)` fonts (icons, monospaced) go through `StudioTheme.scaleFont`.
+- Bars that can run out of width degrade instead of clipping: the timecode bar's Notes/Tags/Missed Line drop to icons (`ViewThatFits`), the queue tools wrap under "Queue (n)", Inspect stats sit on their own row. Check all three Button Sizes when changing a toolbar.
+- **Design rules** (motion, radii, colours, sleeves, headers, components): see [DESIGN.md](DESIGN.md), enforced by `scripts/design_lint.py`.
+
+## 8g2. Accent Colours (`ThemeManager`)
+
+- `StudioPalette` reads the accents from `ThemeManager.shared`, which SwiftUI can't see: a view only redraws on an accent change if it observes `ThemeManager` or its inputs change. Panels that use accents observe it (`@ObservedObject private var themeManager = ThemeManager.shared`; it publishes only on theme / preset / button-size changes, never per frame). Rows in lazy lists must not (per-row singleton subscriptions): they store `var themeRevision = ThemeManager.shared.revision`, so when their list redraws they differ and redraw too (Equatable rows compare it). AppKit layers in accent colours subscribe themselves (`VideoViewportView.bindTheme` for the A/B resolution labels). New views using accents must do one of these, or the accent shortcut leaves them stale until something else redraws them.
+
+## 8h. Launch Time
+
+- Warm launch to window is ~310 ms (v0.9.21, M4 Max); an empty SwiftUI app takes ~150 ms. Nearly all of the difference is SwiftUI building the window's views (Player tab ~80 ms: timecode bar ~28, transport ~17, queue ~15); `NSApplication` setup (~47 ms) is unavoidable.
+- Nothing synchronous and slow in `App.init`, `ContentView` stored properties or `onAppear` (disk scans, decoding, network): defer it off the main thread.
+- `scripts/LaunchBench/run.sh` measures it against the empty app (budget: 230 ms over). Run it after adding startup work or large always-visible views; it must print ALL PASSED.
+
+## 8k. Notifications (`Notifier.swift`)
+
+- `Notifier.post(kind, NotificationText.…)` for: upload run finished (`FrameIOUploadQueue.finish`, not paused/cancelled), downloads finished (`DownloadQueue.finishRun` once the queue is idle; counts tallied across chained runs), Line/Frame/Full Check finished (`ScannerState`; a Full Check posts once, after its Frame Check, counting a clip once), new Frame.io comments/replies/@mentions on the open clip (`ContentView.notifyFrameIOComments`, minute checks only, never user-initiated imports; still of the clip at the comment's frame), new stack versions in favourites (`FrameIOLinks.updateHeads` in the 30-min crawl, which keeps each stack's last 20 heads: first sighting only records; a head seen before, e.g. after removing the top version, isn't news; nor a version linked to a local clip (uploaded or downloaded here) or uploaded this session).
+- Settings → Notifications: master `notificationsEnabled`, one key per kind (`notify.<kind>`), `notificationsWhileActive` (off: nothing shows while QCpie is the front app). Defaults registered in `App.init` (all on); macOS asks permission on the first post or when the master switch is turned on.
+- Voice and look: wording only in `NotificationText` (tested: `Tests/NotificationTextTests.swift`): title = what happened, subtitle = where, body = specifics; sound off by default (Settings → Notifications → Sound plays `Resources/Chime.caf`, bundled by `BuildApp.sh` and copied at launch to `~/Library/Sounds/QCpie Chime.caf`: Notification Center didn't find it in the bundle and played the default sound); `threadIdentifier` = kind; clicking activates QCpie on the kind's tab (`Notifier.openTab`). Needs the app bundle (`UNUserNotificationCenter` is never touched from a bare binary).

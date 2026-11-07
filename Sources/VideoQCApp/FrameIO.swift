@@ -2,6 +2,7 @@ import AppKit
 import AuthenticationServices
 import CryptoKit
 import Foundation
+import VideoQCLib
 
 /// Frame.io V4 API: Adobe IMS sign-in (Native App credential, PKCE, no client secret) and the REST calls the Upload tab
 /// needs. All network and token work runs on this actor. Tokens live in `Application Support/QCpie/FrameIO/tokens.json`
@@ -742,14 +743,13 @@ actor FrameIO {
     private func loadTokens() {
         guard !tokensLoaded else { return }
         tokensLoaded = true
-        tokens = (try? Data(contentsOf: Self.tokenFile)).flatMap { try? JSONDecoder().decode(Tokens.self, from: $0) }
+        tokens = JSONFile.load(Tokens.self, from: Self.tokenFile, log: .frameio)
     }
 
     private func saveTokens() {
-        guard let tokens, let data = try? JSONEncoder().encode(tokens) else { return }
+        guard let tokens else { return }
         let file = Self.tokenFile
-        try? FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
-        try? data.write(to: file, options: .atomic)
+        guard JSONFile.save(tokens, to: file, log: .frameio) else { return }
         try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: file.path)
     }
 

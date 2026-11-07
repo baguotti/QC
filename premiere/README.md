@@ -1,6 +1,6 @@
 # LineFinder for Premiere Pro
 
-Plan: [docs/premiere_linefinder_plan.md](../docs/premiere_linefinder_plan.md). Three pieces: `panel/` (UXP, the only UI),
+Plan: [PLAN.md](PLAN.md). Three pieces: `panel/` (UXP, the only UI),
 `exporter/` (Premiere C++ exporter that receives rendered frames) and `linecore/` (QCpie's detector in C++).
 
 ## Load the panel

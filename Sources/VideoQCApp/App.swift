@@ -11,6 +11,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
     
     func applicationDidFinishLaunching(_ notification: Notification) {
+        Log.app.notice("QCpie \(AppVersionInfo.version) started, macOS \(ProcessInfo.processInfo.operatingSystemVersionString)")
         let args = CommandLine.arguments.dropFirst()
         let urls = args.compactMap { arg -> URL? in
             guard !arg.starts(with: "-") else { return nil }

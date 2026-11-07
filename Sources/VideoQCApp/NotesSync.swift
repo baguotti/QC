@@ -359,8 +359,7 @@ actor NotesSync {
     private func loadBase(clip: String, room: String) -> Base? {
         if let cached = bases["\(room)/\(clip)"] { return cached }
         guard let url = baseURL(clip: clip, room: room),
-              let data = try? Data(contentsOf: url),
-              let base = try? decoder.decode(Base.self, from: data)
+              let base = JSONFile.load(Base.self, from: url, decoder: decoder, log: .sync)
         else { return nil }
         bases["\(room)/\(clip)"] = base
         return base
@@ -374,23 +373,21 @@ actor NotesSync {
     private func loadAssignments() {
         guard !assignmentsLoaded else { return }
         assignmentsLoaded = true
-        guard let url = assignmentsURL, let data = try? Data(contentsOf: url),
-              let saved = try? decoder.decode([String: UUID].self, from: data)
+        guard let url = assignmentsURL,
+              let saved = JSONFile.load([String: UUID].self, from: url, decoder: decoder, log: .sync)
         else { return }
         assignments = saved
     }
 
     private func storeAssignments() {
-        guard let url = assignmentsURL, let data = try? encoder.encode(assignments) else { return }
-        try? FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-        try? data.write(to: url, options: .atomic)
+        guard let url = assignmentsURL else { return }
+        JSONFile.save(assignments, to: url, encoder: encoder, log: .sync)
     }
 
     private func storeBase(_ base: Base, clip: String, room: String) {
         bases["\(room)/\(clip)"] = base
-        guard let url = baseURL(clip: clip, room: room), let data = try? encoder.encode(base) else { return }
-        try? FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-        try? data.write(to: url, options: .atomic)
+        guard let url = baseURL(clip: clip, room: room) else { return }
+        JSONFile.save(base, to: url, encoder: encoder, log: .sync)
     }
 }
 
@@ -422,7 +419,9 @@ final class NotesSyncStatus: ObservableObject {
     @Published private(set) var activeProjectID: UUID?
 
     func update(_ newState: State) {
-        if state != newState { state = newState }
+        guard state != newState else { return }
+        if case .failed(let message) = newState { Log.sync.error("Notes sync: \(message)") }
+        state = newState
     }
 
     func setProjects(_ newProjects: [NotesSyncProjectSummary], defaultID: UUID?) {

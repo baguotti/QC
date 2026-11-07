@@ -1339,7 +1339,7 @@ public final class PlayerEngine: ObservableObject {
                 }
             } else {
                 guard let decoded = await Task.detached(priority: .userInitiated, operation: { MediaStills.decodeImage(at: fileURL) }).value else {
-                    print("[PlayerEngine] Could not decode image: \(fileURL.lastPathComponent)")
+                    Log.player.error("Could not decode image \(fileURL.path)")
                     return
                 }
                 still = decoded.image
@@ -1437,7 +1437,7 @@ public final class PlayerEngine: ObservableObject {
                 self.enforceCompatibleCompareMode()
             }
         } catch {
-            print("[PlayerEngine] Error loading metadata: \(error)")
+            Log.player.error("Reading \(target == .slotA ? "A" : "B") metadata failed: \(fileURL.path)", error)
         }
     }
     
@@ -2552,9 +2552,6 @@ public final class PlayerEngine: ObservableObject {
             startScrubbing()
             guard self.isScrubbing else { return }
         }
-        #if DEBUG
-        QCScrubDiagnostic.shared.recordScrubCall()
-        #endif
         let clamped = min(1.0, max(0.0, progress))
         
         let durSecs = CMTimeGetSeconds(duration)
@@ -2613,12 +2610,6 @@ public final class PlayerEngine: ObservableObject {
                     self.pendingScrubTimeA = nil
                     return
                 }
-                
-                #if DEBUG
-                if finished {
-                    QCScrubDiagnostic.shared.recordSeekCompleted()
-                }
-                #endif
                 
                 if finished {
                     let currSecs = CMTimeGetSeconds(time)
@@ -2783,10 +2774,6 @@ public final class PlayerEngine: ObservableObject {
             
             if generation == self.seekGeneration { curCompletion?() }
 
-            #if DEBUG
-            QCScrubDiagnostic.shared.recordSeekCompleted()
-            #endif
-            
             if let nextTime = self.pendingSeekTime {
                 let nextComp = self.pendingSeekCompletion
                 let nextTol = self.pendingSeekTolerance
@@ -2798,16 +2785,7 @@ public final class PlayerEngine: ObservableObject {
         }
         
         // Parallel dispatch to Slot A
-        #if DEBUG
-        let seekStartA = CFAbsoluteTimeGetCurrent()
-        #endif
         slotA.player.seek(to: time, toleranceBefore: tol, toleranceAfter: tol) { [weak self] _ in
-            #if DEBUG
-            let seekDurationMs = (CFAbsoluteTimeGetCurrent() - seekStartA) * 1000.0
-            if seekDurationMs > 30.0 {
-                print("⏱️ [SEEK SLOW] slotA.player.seek took \(String(format: "%.1f", seekDurationMs))ms for time \(CMTimeGetSeconds(time))s")
-            }
-            #endif
             let runSlotA = { @MainActor in
                 guard let self = self else { return }
                 lock.withLock { $0.completedA = true }
@@ -3254,40 +3232,3 @@ public final class PlayerEngine: ObservableObject {
         }
     }
 }
-
-#if DEBUG
-@MainActor
-public final class QCScrubDiagnostic {
-    public static let shared = QCScrubDiagnostic()
-    private var scrubCalls = 0
-    private var seeksCompleted = 0
-    private var lastLogged: CFAbsoluteTime = 0
-    
-    public func recordScrubCall() {
-        scrubCalls += 1
-        checkLog()
-    }
-    
-    public func recordSeekCompleted() {
-        seeksCompleted += 1
-        checkLog()
-    }
-    
-    private func checkLog() {
-        let now = CFAbsoluteTimeGetCurrent()
-        if lastLogged == 0 {
-            lastLogged = now
-            return
-        }
-        let elapsed = now - lastLogged
-        if elapsed >= 1.0 {
-            let scrubRate = Double(scrubCalls) / elapsed
-            let seekRate = Double(seeksCompleted) / elapsed
-            print("📊 [SCRUB DIAGNOSTIC] Mouse drag calls: \(String(format: "%.1f", scrubRate))/s | Seeks completed: \(String(format: "%.1f", seekRate))/s")
-            scrubCalls = 0
-            seeksCompleted = 0
-            lastLogged = now
-        }
-    }
-}
-#endif

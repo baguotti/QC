@@ -562,17 +562,6 @@ struct ThemeSettingsView: View {
                     .padding(.vertical, 6)
                     .foregroundColor(palette.textMuted.opacity(0.7))
                     
-                    // Inactive Tab: INGEST
-                    HStack(spacing: 5) {
-                        Image(systemName: "tray.and.arrow.down")
-                            .font(.system(size: StudioTheme.scaleFont(8.5), weight: .medium))
-                        Text("Ingest")
-                            .font(.ui(size: 10, weight: .semibold))
-                    }
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 6)
-                    .foregroundColor(palette.textMuted.opacity(0.7))
-                    
                     Spacer()
                     
                     // Mock Ready/Status Indicator

@@ -199,6 +199,7 @@ final class DeliveryPlanStore: ObservableObject {
             await loadOutbox()
             await refresh(adoptAsSeen: true)
         } catch {
+            Log.plan.error("Linking the sheet failed", error)
             phase = .failed(Self.describe(error))
         }
     }
@@ -506,7 +507,7 @@ final class DeliveryPlanStore: ObservableObject {
     /// Re-reads the formats of rows whose values changed (a status set: Sheets' conditional formatting recolours the
     /// cell) and lays them into the tab's layout. A few KB per row range, only after a read that changed them.
     private func readRowFormats(_ tab: PlanTab, lines: [ClosedRange<Int>]) async {
-        guard let config, let data = try? await api.rowFormats(config.link.sheetID, tab: tab.name, rows: lines),
+        guard let config, let data = await Log.plan.attempt("Reading row formats of \(tab.name)", { try await api.rowFormats(config.link.sheetID, tab: tab.name, rows: lines) }),
               self.config?.link == config.link, let layout = layouts[tab.gid] else { return }
         let patched = await Task.detached(priority: .userInitiated) { layout.patchingFormats(data) }.value
         guard layouts[tab.gid] == layout else { return }   // re-read meanwhile: that one is newer
@@ -522,7 +523,7 @@ final class DeliveryPlanStore: ObservableObject {
         let id = config.link.sheetID
         for tab in tabs {
             guard let table = tables[tab.gid] else { continue }
-            guard let data = try? await api.layout(id, tab: tab.name) else {
+            guard let data = await Log.plan.attempt("Reading the layout of \(tab.name)", { try await api.layout(id, tab: tab.name) }) else {
                 layoutRead[tab.gid] = Date().addingTimeInterval(-240)   // try again in a minute, not every 10 s
                 continue
             }
@@ -557,7 +558,7 @@ final class DeliveryPlanStore: ObservableObject {
 
     /// Dropdown choices of the row under the header, keyed by header text (lower case), else "#" + sheet column.
     private func readLists(tab: PlanTab, headerLine: Int, table: [[String]]) async {
-        guard let config, let data = try? await api.validations(config.link.sheetID, tab: tab.name, row: headerLine + 1) else { return }
+        guard let config, let data = await Log.plan.attempt("Reading dropdowns of \(tab.name)", { try await api.validations(config.link.sheetID, tab: tab.name, row: headerLine + 1) }) else { return }
         let (lists, ranges) = Self.parseValidations(data)
         var resolved = lists
         if !ranges.isEmpty, let values = try? await api.values(config.link.sheetID, ranges: ranges.map(\.range)),
@@ -656,7 +657,7 @@ final class DeliveryPlanStore: ObservableObject {
         let dir = Self.directory(config.link.sheetID)
         let (cache, seen, layoutCache, folders, dismissed, tree) = await Task.detached(priority: .userInitiated) { () -> ([String: [[String]]], [String: SeenRow], [String: PlanGrid], [String: [ListedFile]], [String], RootTree?) in
             func read<T: Decodable>(_ name: String, _ type: T.Type) -> T? {
-                (try? Data(contentsOf: dir.appendingPathComponent(name))).flatMap { try? JSONDecoder().decode(T.self, from: $0) }
+                JSONFile.load(T.self, from: dir.appendingPathComponent(name), log: .plan)
             }
             return (read("values.json", [String: [[String]]].self) ?? [:], read("seen.json", [String: SeenRow].self) ?? [:],
                     read("layouts.json", [String: PlanGrid].self) ?? [:], read("frameio-folders.json", [String: [ListedFile]].self) ?? [:],
@@ -727,8 +728,7 @@ final class DeliveryPlanStore: ObservableObject {
         let dir = Self.directory(config.link.sheetID)
         let seen = seen
         Task.detached(priority: .utility) {
-            try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-            if let data = try? JSONEncoder().encode(seen) { try? data.write(to: dir.appendingPathComponent("seen.json"), options: .atomic) }
+            JSONFile.save(seen, to: dir.appendingPathComponent("seen.json"), log: .plan)
         }
     }
 
@@ -796,7 +796,14 @@ final class DeliveryPlanStore: ObservableObject {
     private func setHealth(_ change: (inout PlanHealth) -> Void) {
         var next = health
         change(&next)
-        if next != health { health = next }
+        guard next != health else { return }
+        if next.readError != health.readError {
+            if let error = next.readError { Log.plan.error("Reading the sheet: \(error)") } else if health.readError != nil { Log.plan.notice("Reading the sheet works again") }
+        }
+        if next.writeError != health.writeError {
+            if let error = next.writeError { Log.plan.error("Writing to the sheet: \(error)") } else if health.writeError != nil { Log.plan.notice("Writing to the sheet works again") }
+        }
+        health = next
     }
 
     /// The outbox's counts in `health` (after every change to it).
@@ -1292,9 +1299,7 @@ final class DeliveryPlanStore: ObservableObject {
         guard let config else { return }
         let file = Self.directory(config.link.sheetID).appendingPathComponent("frameio-tree.json")
         Task.detached(priority: .utility) {
-            try? FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
-            if let tree, let data = try? JSONEncoder().encode(tree) { try? data.write(to: file, options: .atomic) }
-            else { try? FileManager.default.removeItem(at: file) }
+            if let tree { JSONFile.save(tree, to: file, log: .plan) } else { JSONFile.remove(file, log: .plan) }
         }
     }
 
@@ -1484,8 +1489,7 @@ final class DeliveryPlanStore: ObservableObject {
         dismissedSaveTask = Task {
             await previous?.value
             await Task.detached(priority: .utility) {
-                try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-                if let data = try? JSONEncoder().encode(keys) { try? data.write(to: dir.appendingPathComponent("dismissed-mismatches.json"), options: .atomic) }
+                _ = JSONFile.save(keys, to: dir.appendingPathComponent("dismissed-mismatches.json"), log: .plan)
             }.value
         }
     }
@@ -1547,8 +1551,7 @@ final class DeliveryPlanStore: ObservableObject {
             guard !Task.isCancelled else { return }
             let folders = frameioFolders
             await Task.detached(priority: .utility) {
-                try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-                if let data = try? JSONEncoder().encode(folders) { try? data.write(to: dir.appendingPathComponent("frameio-folders.json"), options: .atomic) }
+                _ = JSONFile.save(folders, to: dir.appendingPathComponent("frameio-folders.json"), log: .plan)
             }.value
         }
     }
@@ -2049,9 +2052,7 @@ final class DeliveryPlanStore: ObservableObject {
         let previous = outboxSaveTask
         outboxSaveTask = Task.detached(priority: .utility) {
             await previous?.value
-            try? FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
-            if snapshot.isEmpty { try? FileManager.default.removeItem(at: file) }
-            else if let data = try? JSONEncoder().encode(snapshot) { try? data.write(to: file, options: .atomic) }
+            if snapshot.isEmpty { JSONFile.remove(file, log: .plan) } else { JSONFile.save(snapshot, to: file, log: .plan) }
         }
     }
 
@@ -2059,7 +2060,7 @@ final class DeliveryPlanStore: ObservableObject {
         guard let config else { return }
         let file = Self.directory(config.link.sheetID).appendingPathComponent("outbox.json")
         let saved = await Task.detached(priority: .utility) {
-            (try? Data(contentsOf: file)).flatMap { try? JSONDecoder().decode(PlanOutbox.self, from: $0) }
+            JSONFile.load(PlanOutbox.self, from: file, log: .plan)
         }.value
         guard self.config?.link == config.link else { return }
         outboxLoaded = true
@@ -2125,6 +2126,7 @@ final class DeliveryPlanStore: ObservableObject {
         } catch {
             if case GoogleAuth.Failure.signedOut = error { GoogleAccount.shared.noteSignedOut() }
             let message = "Couldn't set up the QCpie tab: \(Self.describe(error))"
+            Log.plan.error(message)
             editState = .failed(message)
             return message
         }
@@ -2232,14 +2234,12 @@ final class DeliveryPlanStore: ObservableObject {
     }
 
     nonisolated private static func writeCache(_ cache: [String: [[String]]], to dir: URL) {
-        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        if let data = try? JSONEncoder().encode(cache) { try? data.write(to: dir.appendingPathComponent("values.json"), options: .atomic) }
+        JSONFile.save(cache, to: dir.appendingPathComponent("values.json"), log: .plan)
         // Files of the public-link reader, no longer used.
         for old in ["tabs.json", "grids.json"] { try? FileManager.default.removeItem(at: dir.appendingPathComponent(old)) }
     }
 
     nonisolated private static func writeLayouts(_ layouts: [String: PlanGrid], to dir: URL) {
-        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        if let data = try? JSONEncoder().encode(layouts) { try? data.write(to: dir.appendingPathComponent("layouts.json"), options: .atomic) }
+        JSONFile.save(layouts, to: dir.appendingPathComponent("layouts.json"), log: .plan)
     }
 }

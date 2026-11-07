@@ -1,4 +1,5 @@
 import Foundation
+import VideoQCLib
 import AppKit
 
 // MARK: - Engine
@@ -657,6 +658,7 @@ final class DownloadQueue: ObservableObject {
             entryOutcome = .cancelled
         case .failed(let text):
             jobs[index].status = .failed(text)
+            Log.download.error("\(jobs[index].name) failed: \(text)")
             batchTally.failed += 1
             entryOutcome = .failed
             message = text

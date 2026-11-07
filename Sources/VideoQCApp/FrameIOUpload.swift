@@ -423,6 +423,7 @@ final class UploadQueue: ObservableObject {
             if let path { await store.removeJob(path) }
         case .failed(let message):
             set(id, .failed(message))
+            Log.upload.error("\(job.url.path) failed: \(message)")
         case .cancelled:
             break   // settled in `finish` (paused or cancelled)
         }
@@ -460,6 +461,8 @@ final class UploadQueue: ObservableObject {
         runFinished = Date()
         if let currentRunID { TransferLog.shared.end(currentRunID) }
         currentRunID = nil
+        let ran = runJobs
+        Log.upload.notice("Upload \(stop == .pause ? "paused" : stop == nil ? "finished" : "cancelled"): \(ran.filter { $0.status == .done }.count) uploaded, \(ran.filter { $0.status == .skipped }.count) skipped, \(ran.filter { if case .failed = $0.status { true } else { false } }.count) failed of \(ran.count) to \(runDestination)")
         if stop == nil {
             // Not paused or cancelled by the user: every file that didn't go (failed, or stopped by the network or a
             // sign-out) counts as failed.
@@ -548,10 +551,9 @@ final class TransferLog: ObservableObject {
     private init() {
         Task {
             let loaded = await Task.detached(priority: .utility) { () -> [UploadLogRun] in
-                guard let data = try? Data(contentsOf: UploadLogRun.file) else { return [] }
                 let decoder = JSONDecoder()
                 decoder.dateDecodingStrategy = .iso8601
-                return (try? decoder.decode([UploadLogRun].self, from: data)) ?? []
+                return JSONFile.load([UploadLogRun].self, from: UploadLogRun.file, decoder: decoder, log: .upload) ?? []
             }.value
             let known = Set(runs.map(\.id))
             runs += loaded.filter { !known.contains($0.id) }
@@ -594,9 +596,7 @@ final class TransferLog: ObservableObject {
         Task.detached(priority: .utility) {
             let encoder = JSONEncoder()
             encoder.dateEncodingStrategy = .iso8601
-            guard let data = try? encoder.encode(saved) else { return }
-            try? FileManager.default.createDirectory(at: UploadLogRun.file.deletingLastPathComponent(), withIntermediateDirectories: true)
-            try? data.write(to: UploadLogRun.file, options: .atomic)
+            JSONFile.save(saved, to: UploadLogRun.file, encoder: encoder, log: .upload)
         }
     }
 }
