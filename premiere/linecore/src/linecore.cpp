@@ -42,6 +42,13 @@ constexpr int kMaxGap = 8;
 constexpr float kMaxInnerAlphaRatio = 0.6f;
 constexpr float kAnyColorMinAlpha = 0.6f;
 constexpr int kThickLineMargin = 16;
+// A target-coloured bar thicker than that hides from the scans above (their reference past the scan depth is still inside
+// it). When the innermost scanned row is nearly all target colour, the edge is scanned up to 8 % of the frame; the bar must
+// be near-solid across nearly the whole edge. Coloured targets only. Mirrors EdgeDetector.solidBar.
+constexpr int kSolidBarShare = 8;
+constexpr float kSolidBarMaxDistance = 100;
+constexpr double kSolidBarMinAlpha = 0.6;
+constexpr double kSolidBarMinSpan = 0.9;
 
 struct Frame {
 	const uint8_t* ptr;
@@ -305,10 +312,35 @@ struct lc_detector {
 		BandResult first = scanEdge(edge, walk, f, depthCount, depthCount);
 		if (first.found) { out = first.line; return true; }
 		int deepCount = std::min(edgeDepth + kThickLineMargin, maxDepth);
-		if (!first.reachesEnd || deepCount <= depthCount) return false;
-		BandResult deep = scanEdge(edge, walk, f, deepCount, depthCount);
-		if (deep.found) out = deep.line;
-		return deep.found;
+		if (first.reachesEnd && deepCount > depthCount) {
+			BandResult deep = scanEdge(edge, walk, f, deepCount, depthCount);
+			if (deep.found) { out = deep.line; return true; }
+		}
+		return solidBar(edge, walk, f, maxDepth, depthCount, deepCount, out);
+	}
+
+	bool solidBar(lc_edge edge, const LineWalk& walk, const Frame& f, int maxDepth, int depthCount, int deepCount, lc_detection& out) {
+		if (!hasTarget || vmaxElement(target) < 30) return false;
+		// maxDepth + 4 is half the frame's extent along this edge's depth.
+		int barCount = std::min(maxDepth, (maxDepth + 4) * 2 * kSolidBarShare / 100);
+		if (barCount <= deepCount || !isTargetRow(walk, f, depthCount - 1)) return false;
+		BandResult bar = scanEdge(edge, walk, f, barCount, depthCount);
+		if (!bar.found || bar.line.is_off_color || bar.line.score < kSolidBarMinAlpha || bar.line.span_ratio < kSolidBarMinSpan) return false;
+		out = bar.line;
+		return true;
+	}
+
+	// At least 90 % of the row within kSolidBarMaxDistance of the target (stops as soon as that can't be reached).
+	bool isTargetRow(const LineWalk& walk, const Frame& f, int depth) const {
+		const ptrdiff_t origin = walk.origin + depth * walk.depthStride;
+		const float limit = kSolidBarMaxDistance * kSolidBarMaxDistance;
+		const int allowedMisses = walk.length / 10;
+		int misses = 0;
+		for (int p = 0; p < walk.length; ++p) {
+			V3 d = color(f.ptr, origin + p * walk.positionStride) - target;
+			if (d.x * d.x + d.y * d.y + d.z * d.z > limit && ++misses > allowedMisses) return false;
+		}
+		return true;
 	}
 
 	BandResult scanEdge(lc_edge edge, const LineWalk& walk, const Frame& f, int depthCount, int maxStart) {

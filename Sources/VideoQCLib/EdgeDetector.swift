@@ -212,6 +212,15 @@ private struct BlendLineModel {
     /// A line that fills the whole scan depth is followed this many px further in to find where it stops; a band
     /// that doesn't stop by then is a bar or picture content.
     static let thickLineMargin = 16
+    /// A target-coloured bar thicker than that (a graphic left on: a 34 px green bar at 1080p was missed) hides from the
+    /// scans above, whose reference just past the scan depth is still inside the bar. When the innermost scanned row is
+    /// itself nearly all target colour, the edge is scanned up to 8 % of the frame; the bar must be near-solid across
+    /// nearly the whole edge (not a letterbox, foliage or a wall). Coloured targets only.
+    static let solidBarShare = 8
+    static let solidBarMaxDistance: Float = 100
+    /// As for split seams: an encoded bar reads below 1 (4:2:0, matrix; a #4CFF00 bar scored 0.79 against #00FF00).
+    static let solidBarMinAlpha: Double = 0.6
+    static let solidBarMinSpan: Double = 0.9
     
     let lut: [Float]
     let target: SIMD3<Float>?
@@ -294,8 +303,38 @@ private struct BlendLineModel {
         let first = scanEdge(edge, walk: walk, frame: frame, depthCount: depthCount, maxStart: depthCount)
         if let line = first.line { return line }
         let deepCount = min(edgeDepth + Self.thickLineMargin, maxDepth)
-        guard first.reachesEnd, deepCount > depthCount else { return nil }
-        return scanEdge(edge, walk: walk, frame: frame, depthCount: deepCount, maxStart: depthCount).line
+        if first.reachesEnd, deepCount > depthCount,
+           let line = scanEdge(edge, walk: walk, frame: frame, depthCount: deepCount, maxStart: depthCount).line {
+            return line
+        }
+        return solidBar(edge, walk: walk, frame: frame, maxDepth: maxDepth, depthCount: depthCount, deepCount: deepCount)
+    }
+
+    private func solidBar(_ edge: EdgeLocation, walk: LineWalk, frame: BGRAFrame, maxDepth: Int,
+                          depthCount: Int, deepCount: Int) -> LineDetection? {
+        guard let target, target.max() >= 30 else { return nil }
+        // `maxDepth + 4` is half the frame's extent along this edge's depth.
+        let barCount = min(maxDepth, (maxDepth + 4) * 2 * Self.solidBarShare / 100)
+        guard barCount > deepCount, isTargetRow(walk: walk, frame: frame, depth: depthCount - 1, target: target),
+              let bar = scanEdge(edge, walk: walk, frame: frame, depthCount: barCount, maxStart: depthCount).line,
+              !bar.isOffColor, bar.score >= Self.solidBarMinAlpha, bar.spanRatio >= Self.solidBarMinSpan else { return nil }
+        return bar
+    }
+
+    /// At least 90 % of the row within `solidBarMaxDistance` of the target (stops as soon as that can't be reached).
+    private func isTargetRow(walk: LineWalk, frame: BGRAFrame, depth: Int, target: SIMD3<Float>) -> Bool {
+        let origin = walk.origin + depth * walk.depthStride
+        let limit = Self.solidBarMaxDistance * Self.solidBarMaxDistance
+        let allowedMisses = walk.length / 10
+        var misses = 0
+        for p in 0..<walk.length {
+            let d = color(frame.ptr, origin + p * walk.positionStride) - target
+            if d.x * d.x + d.y * d.y + d.z * d.z > limit {
+                misses += 1
+                if misses > allowedMisses { return false }
+            }
+        }
+        return true
     }
     
     /// `maxStart`: bands must start at a shallower depth. `reachesEnd`: a band was rejected for filling the scan depth.

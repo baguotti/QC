@@ -329,6 +329,17 @@ struct LineCase: Sendable {
             f.drawEdgeLine(.left, thickness: 3, color: Scenes.green)
             return f
         },
+        // A graphic bar left on, thicker than edge depth + 16 px (seen in Premiere: ~34 px under subtitles at 1080p).
+        LineCase(name: "solid green bar 34 px at 1080p", config: greenConfig, expectedEdge: .bottom) {
+            var f = Scenes.picture(width: 1920, height: 1080)
+            f.drawEdgeLine(.bottom, thickness: 34, color: Scenes.green)
+            return f
+        },
+        LineCase(name: "solid green bar 70 px at 1080p", config: greenConfig, expectedEdge: .top) {
+            var f = Scenes.picture(width: 1920, height: 1080)
+            f.drawEdgeLine(.top, thickness: 70, color: Scenes.green)
+            return f
+        },
     ]
 
     static let negatives: [LineCase] = [
@@ -389,6 +400,27 @@ struct LineCase: Sendable {
         LineCase(name: "green band deeper than edge depth + 16 px", config: greenConfig, expectedEdge: nil) {
             var f = Scenes.picture()
             f.drawEdgeLine(.bottom, thickness: 40, color: Scenes.green)
+            return f
+        },
+        LineCase(name: "foliage band 60 px at 1080p", config: greenConfig, expectedEdge: nil) {
+            var f = Scenes.picture(width: 1920, height: 1080)
+            Scenes.paintFoliage(&f, rows: 1020..<1080, columns: 0..<1920)
+            return f
+        },
+        LineCase(name: "green bar over 70 % of the width at 1080p", config: greenConfig, expectedEdge: nil) {
+            var f = Scenes.picture(width: 1920, height: 1080)
+            f.drawEdgeLine(.bottom, thickness: 40, color: Scenes.green, span: 0.15...0.85)
+            return f
+        },
+        LineCase(name: "green wall past 8 % of the frame at 1080p", config: greenConfig, expectedEdge: nil) {
+            var f = Scenes.picture(width: 1920, height: 1080)
+            f.drawEdgeLine(.top, thickness: 150, color: Scenes.green)
+            return f
+        },
+        LineCase(name: "black bars 40 px at 1080p, black target", config: blackConfig, expectedEdge: nil) {
+            var f = Scenes.picture(width: 1920, height: 1080)
+            f.drawEdgeLine(.top, thickness: 40, color: Scenes.black)
+            f.drawEdgeLine(.bottom, thickness: 40, color: Scenes.black)
             return f
         }
     ]

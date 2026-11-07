@@ -12,3 +12,6 @@ _TEST/
 
 # Cloudflare Wrangler local state (notes-sync Worker)
 server/notes-sync/.wrangler/
+
+# Adobe SDK (downloaded, licence-restricted)
+premiere/Premiere Pro*C++ SDK/
