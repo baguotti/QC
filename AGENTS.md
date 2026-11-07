@@ -27,6 +27,7 @@ Read the file for the area you're changing before you change it. Each holds the 
 | Frame.io upload, download, browser, comments, preview, metadata, pre-upload checks (§8i–8j3, 8i2) | [docs/architecture/frameio.md](docs/architecture/frameio.md) |
 | Delivery Plan: Google Sheets sync, matching, statuses, Inspect integration (§8e5) | [docs/architecture/delivery-plan.md](docs/architecture/delivery-plan.md) |
 | Scripts and benchmarks | [scripts/README.md](scripts/README.md) |
+| Where the code is split | see "File layout" below |
 | Research notes and parked ideas | [docs/research/](docs/research/) |
 
 ## Rules that apply everywhere
@@ -37,6 +38,17 @@ Read the file for the area you're changing before you change it. Each holds the 
 - **Busy singletons** (upload/download queues, Frame.io browser, Delivery Plan store, transfer log) are observed only by the views that show them, never by `ContentView`.
 - **Keyboard**: `KeyboardShortcutRouter` handles keys app-wide; text fields and sheets must keep their keys (see player.md §8 and frameio.md "Inline text fields").
 - **Benchmarks** (`scripts/*Bench/run.sh`) must print ALL PASSED after any change to what they measure.
+
+## File layout
+
+Large types are split by area into `Type+Area.swift` extension files; stored properties stay in the main file (Swift doesn't allow them in extensions).
+
+- `PlayerEngine.swift` (state, init, exposure, audio) + `PlayerEngine+Loading`, `+Slots`, `+Playback` (time observers, PLL, J-K-L), `+Stepping`, `+InOut`, `+Scrub`, `+Capture`; supporting types in `PlayerTypes.swift`.
+- `FrameIOBrowser.swift` (model) and `FrameIOBrowserView.swift` + `+Header`, `+List`, `+Actions`; sheets in `FrameIOBrowserSheets.swift`, small views in `FrameIOBrowserParts.swift`.
+- `DeliveryPlanPanel.swift` + `DeliveryPlanPanelRows.swift` (Sheet/List views), `DeliveryPlanPanelActions.swift` (selection, checks, status); `DeliveryPlanRowCard.swift`, `DeliveryPlanControls.swift` (chips, pills, filters shared with Inspect).
+- Player tab: `PlayerTabView.swift` (still a `ContentView` extension) + `PlayerSliders.swift`, `PlayerComparisonBar.swift`, `PlayerMenus.swift`, `InOutExporter.swift`.
+
+When a member moves to another file, drop `private` only where the compiler asks; a private member called from another file can silently resolve to a different visible declaration of the same name (POSIX `select`, `accept`; SwiftUI `toolbar`).
 
 ## Logging (`Sources/VideoQCLib/Log.swift`)
 
@@ -52,7 +64,7 @@ Read the file for the area you're changing before you change it. Each holds the 
 
 For any UI change: `python3 scripts/design_lint.py` passes (it also runs in `scripts/BuildApp.sh`); after removing old debt, run it with `--update`.
 
-Before committing any changes affecting `VideoViewportView.swift`, `PlayerEngine.swift`, `PlayerTransportDeckView.swift`, or `KeyboardShortcutRouter.swift`:
+Before committing any changes affecting `VideoViewportView.swift`, `PlayerEngine.swift` or any `PlayerEngine+*.swift`, `PlayerTransportDeckView.swift`, or `KeyboardShortcutRouter.swift`:
 - [ ] Ensure `stillFrameLayerA` and `stillFrameLayerB` are present in `VideoViewportView`.
 - [ ] Verify `stillFrameLayerA` and `stillFrameLayerB` are the exclusive visual presentation layers across playback and paused states, with `playerLayerA`/`playerLayerB` revealed exclusively during active scrubbing.
 - [ ] Verify `videoGravity` and `contentsGravity` remain `.resize`.

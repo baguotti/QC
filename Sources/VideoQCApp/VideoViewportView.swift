@@ -534,7 +534,7 @@ public final class PlayerContainerNSView: NSView {
         subtitleStateKey = subtitleKey
     }
     
-    // MARK: - Subtitles
+    // MARK: - Theme
     
     /// The A/B resolution labels are layers in the slots' accent colours: recolour them when the accent changes.
     private func bindTheme() {
@@ -544,6 +544,8 @@ public final class PlayerContainerNSView: NSView {
             MainActor.assumeIsolated { self?.updateResolutionLabels() }
         }
     }
+
+    // MARK: - Subtitles
 
     private func bindSubtitles(to engine: PlayerEngine) {
         // @Published emits before the value is stored: use the emitted frame, not clock.currentFrame.
@@ -617,6 +619,8 @@ public final class PlayerContainerNSView: NSView {
         layer.frame = CGRect(x: centerX - maxWidth / 2, y: bottomY, width: maxWidth, height: textHeight)
         layer.isHidden = false
     }
+    
+    // MARK: - Seek Completion Frames
     
     public func displayImmediateDecodedFrame(slot: SlotTarget, at time: CMTime) {
         guard let engine = engine, !isSuspended else { return }
@@ -696,6 +700,8 @@ public final class PlayerContainerNSView: NSView {
             }
         }
     }
+    
+    // MARK: - Display Link & Live Playback
     
     public override func viewWillMove(toWindow newWindow: NSWindow?) {
         super.viewWillMove(toWindow: newWindow)

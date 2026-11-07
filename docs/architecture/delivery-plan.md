@@ -4,7 +4,7 @@ Inspect's Delivery Plan drawer and window, Sheets sync, matching, statuses and c
 
 Section numbers match the old single AGENTS.md, so older commit messages and notes still point to the right place.
 
-## 8e5. Delivery Plan (`DeliveryPlan.swift`, `DeliveryPlanStore.swift`, `DeliveryPlanPanel.swift`, `DeliveryPlanGrid.swift`, `DeliveryPlanSheetView.swift`, `DeliveryPlanQCTab.swift`, `DeliveryPlanOutbox.swift`, `SheetsAPI.swift`, `GoogleAuth.swift`)
+## 8e5. Delivery Plan (`DeliveryPlan.swift`, `DeliveryPlanStore.swift`, `DeliveryPlanPanel*.swift`, `DeliveryPlanRowCard.swift`, `DeliveryPlanControls.swift`, `DeliveryPlanGrid.swift`, `DeliveryPlanSheetView.swift`, `DeliveryPlanQCTab.swift`, `DeliveryPlanOutbox.swift`, `SheetsAPI.swift`, `GoogleAuth.swift`)
 
 - Inspect's right drawer (⌘⇧→, `inspectPlanOpen`) or its own window (`Window` scene `deliveryPlan`, ⌥⌘D, declared after the main window: SwiftUI opens the first `Window` at launch). `deliveryPlanPoppedOut` makes the drawer a placeholder while the window is open. The router passes every key through while the plan window is key (its identifier starts with `deliveryPlan`).
 - **Source**: the Sheets API as the signed-in Google user (`SheetsAPI`, `GoogleAuth`). No public link, no Apps Script: the sheet only needs to be shared with the user; Google decides who may edit.

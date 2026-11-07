@@ -1,7 +1,9 @@
 {
   "radius": {
     "DeliverablesTabView.swift": 6,
-    "FrameIOBrowserView.swift": 5,
+    "FrameIOBrowserParts.swift": 2,
+    "FrameIOBrowserSheets.swift": 2,
+    "FrameIOBrowserView+Actions.swift": 1,
     "GlitchThumbnailProvider.swift": 1,
     "LineScannerTabView.swift": 5,
     "MediaInfoPanel.swift": 1,
@@ -20,7 +22,7 @@
   "raw-color": {
     "AddNotePopoverView.swift": 4,
     "ContentView.swift": 1,
-    "FrameIOBrowserView.swift": 10,
+    "FrameIOBrowserParts.swift": 10,
     "FrameIOStatusBadge.swift": 2,
     "GlitchThumbnailProvider.swift": 15,
     "ImageSequencePlayback.swift": 1,
@@ -28,7 +30,8 @@
     "MediaStills.swift": 4,
     "NotesDrawerPanelView.swift": 1,
     "PanelResizeHandle.swift": 2,
-    "PlayerTabView.swift": 4,
+    "PlayerSliders.swift": 2,
+    "PlayerTabView.swift": 2,
     "PropertiesModalView.swift": 1,
     "ReviewFullscreenHUDView.swift": 2,
     "ScannerState.swift": 2,
