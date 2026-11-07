@@ -82,6 +82,8 @@ public struct FinderTagManager: Sendable {
     /// Reads the primary macOS Finder tag for a file URL
     public static func getTag(for url: URL) -> FinderTagColor? {
         let nsURL = url as NSURL
+        // Resource values are cached per URL object and the queue keeps its URLs: tags changed in Finder never showed.
+        nsURL.removeAllCachedResourceValues()
         var val: AnyObject?
         try? nsURL.getResourceValue(&val, forKey: .tagNamesKey)
         // The first colour tag, wherever it is among the file's tags (custom tags may come first).
@@ -104,7 +106,9 @@ public struct FinderTagManager: Sendable {
     @discardableResult
     public static func setTag(_ tag: FinderTagColor?, for url: URL) -> Bool {
         let nsURL = url as NSURL
-        // Only the colour tags are replaced: the file's other tags ("Approved", client names…) are kept.
+        // Only the colour tags are replaced: the file's other tags ("Approved", client names…) are kept. Read fresh: from
+        // the per-URL cache, a tag added in Finder since was missing from the list written back, and was erased.
+        nsURL.removeAllCachedResourceValues()
         var val: AnyObject?
         try? nsURL.getResourceValue(&val, forKey: .tagNamesKey)
         let kept = ((val as? [String]) ?? []).filter { FinderTagColor(rawValue: $0.components(separatedBy: "\n").first ?? $0) == nil }

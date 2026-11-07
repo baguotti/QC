@@ -321,7 +321,8 @@ actor NotesSync {
 
     /// File name + size: how the same clip is recognised on every Mac.
     private nonisolated static func fingerprint(of url: URL) -> String? {
-        guard let size = (try? url.resourceValues(forKeys: [.fileSizeKey]))?.fileSize else { return nil }
+        // Read fresh: a cached (old) size after a re-export gave this Mac a different clip id than the others.
+        guard let size = QCUtilities.fileSize(of: url) else { return nil }
         return "\(url.lastPathComponent.precomposedStringWithCanonicalMapping)|\(size)"
     }
 

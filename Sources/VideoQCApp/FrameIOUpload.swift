@@ -1,4 +1,5 @@
 import AppKit
+import os
 import UniformTypeIdentifiers
 import VideoQCLib
 
@@ -189,12 +190,19 @@ final class UploadQueue: ObservableObject {
     }
 
     nonisolated private static func resolve(_ rows: [(url: URL, folders: [String])]) -> [Job] {
-        rows.compactMap { row in
+        // Sizes read from disk each time (URL resource values are cached per URL object, and the queue keeps its URLs:
+        // a re-exported file kept its old size, so the "already uploaded" check and the upload disagreed), side by side
+        // (a sequence can be thousands of frames, each read mostly waiting on the disk).
+        let jobs = OSAllocatedUnfairLock(initialState: [Job?](repeating: nil, count: rows.count))
+        DispatchQueue.concurrentPerform(iterations: rows.count) { index in
+            let row = rows[index]
             let files = ImageSequenceStore.shared.sequence(for: row.url)?.frameURLs ?? [row.url]
-            let sizes = files.map { Int64((try? $0.resourceValues(forKeys: [.fileSizeKey]))?.fileSize ?? 0) }
-            guard sizes.contains(where: { $0 > 0 }) else { return nil }
-            return Job(url: row.url, files: files, fileSizes: sizes, folders: row.folders)
+            let sizes = files.map { ((try? FileManager.default.attributesOfItem(atPath: $0.path))?[.size] as? NSNumber)?.int64Value ?? 0 }
+            guard sizes.contains(where: { $0 > 0 }) else { return }
+            let job = Job(url: row.url, files: files, fileSizes: sizes, folders: row.folders)
+            jobs.withLock { $0[index] = job }
         }
+        return jobs.withLock { $0 }.compactMap { $0 }
     }
 
     // MARK: Running

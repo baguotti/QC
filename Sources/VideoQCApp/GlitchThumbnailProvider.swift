@@ -11,12 +11,44 @@ public actor GlitchThumbnailProvider {
     
     private var cache: [String: CGImage] = [:]
     private var cacheOrder: [String] = []
-    private var generators: [URL: (generator: AVAssetImageGenerator, modified: Date?)] = [:]
-    private var generatorOrder: [URL] = [] // least recently used first
     private let maxCacheItems = 300
-    /// Off for skim frames: the view keeps them for the hover, and 40 per thumbnail would push the posters out of this
-    /// first-in-first-out cache (they'd then decode again on every scroll back).
-    private var storing = true
+
+    /// How exactly a frame is asked for. Each has its own generator: a generator's tolerances apply to every request on
+    /// it, so sharing one let a keyframe-tolerant request (poster, skim) loosen an exact one (a Line Check frame).
+    private enum Precision: Hashable {
+        case skim       // 0.25 s: hover skimming
+        case keyframe   // 0.5 s: frame-0 posters
+        case exact      // the frame itself
+        case near       // 0.1 s: a file that refuses the exact time
+
+        var tolerance: CMTime {
+            switch self {
+            case .skim: return CMTime(seconds: 0.25, preferredTimescale: 60000)
+            case .keyframe: return CMTime(seconds: 0.5, preferredTimescale: 60000)
+            case .exact: return .zero
+            case .near: return CMTime(seconds: 0.1, preferredTimescale: 60000)
+            }
+        }
+    }
+
+    private struct GeneratorKey: Hashable {
+        let url: URL
+        let precision: Precision
+        let width: Int
+        let height: Int
+    }
+
+    /// One asset per file (opened once), generators per precision and size, least recently used evicted.
+    private var assets: [URL: (asset: AVURLAsset, modified: Date?)] = [:]
+    private var generators: [GeneratorKey: AVAssetImageGenerator] = [:]
+    private var generatorOrder: [GeneratorKey] = []
+    private let maxGenerators = 32
+
+    /// Decodes run side by side (they used to queue behind one another on this actor: a hover's 40 skim frames held up
+    /// every poster scrolled into view), a few at a time so the Player's hardware decoder isn't starved.
+    private let maxConcurrentDecodes = 4
+    private var runningDecodes = 0
+    private var decodeWaiters: [CheckedContinuation<Void, Never>] = []
     
     public init() {}
     
@@ -27,11 +59,9 @@ public actor GlitchThumbnailProvider {
         targetSize: CGSize = CGSize(width: 200, height: 112),
         fast: Bool = false,
         cache cacheResult: Bool = true
-    ) -> CGImage? {
+    ) async -> CGImage? {
         // The modification date is in the key: a file re-exported under the same name gets new thumbnails (read from
         // disk each time; URL resource values are cached per URL and would hide the change).
-        storing = cacheResult
-        defer { storing = true }
         let modified = (try? FileManager.default.attributesOfItem(atPath: url.path))?[.modificationDate] as? Date
         let key = "\(url.standardizedFileURL.path)_\(modified?.timeIntervalSince1970 ?? 0)_\(frameIndex)_\(Int(targetSize.width))x\(Int(targetSize.height))"
         if let cached = cache[key] {
@@ -42,81 +72,104 @@ public actor GlitchThumbnailProvider {
             return nil
         case .image:
             // Uses the file's embedded thumbnail when it has one (JPEG/HEIC), so large stills stay cheap.
-            let options: [CFString: Any] = [
-                kCGImageSourceCreateThumbnailFromImageIfAbsent: true,
-                kCGImageSourceCreateThumbnailWithTransform: true,
-                kCGImageSourceThumbnailMaxPixelSize: Int(max(targetSize.width, targetSize.height))
-            ]
-            guard let source = CGImageSourceCreateWithURL(url as CFURL, nil),
-                  let thumb = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary) else { return nil }
-            storeInCache(key: key, image: thumb)
+            await acquireDecodeSlot()
+            guard !Task.isCancelled else { releaseDecodeSlot(); return nil }
+            let maxSide = Int(max(targetSize.width, targetSize.height))
+            let thumb = await Task.detached(priority: .userInitiated) { () -> CGImage? in
+                let options: [CFString: Any] = [
+                    kCGImageSourceCreateThumbnailFromImageIfAbsent: true,
+                    kCGImageSourceCreateThumbnailWithTransform: true,
+                    kCGImageSourceThumbnailMaxPixelSize: maxSide
+                ]
+                guard let source = CGImageSourceCreateWithURL(url as CFURL, nil) else { return nil }
+                return CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary)
+            }.value
+            releaseDecodeSlot()
+            if let thumb, cacheResult { storeInCache(key: key, image: thumb) }
             return thumb
         default:
             break
         }
         
-        let gen: AVAssetImageGenerator
-        let stdURL = url.standardizedFileURL
-        if let existing = generators[stdURL], existing.modified == modified {
-            gen = existing.generator
-            if let index = generatorOrder.firstIndex(of: stdURL) {
-                generatorOrder.remove(at: index)
-            }
-            generatorOrder.append(stdURL)
-        } else {
-            if generators[stdURL] != nil {
-                generatorOrder.removeAll { $0 == stdURL }
-            } else if generators.count >= 16, !generatorOrder.isEmpty {
-                generators.removeValue(forKey: generatorOrder.removeFirst())
-            }
-            let asset = AVURLAsset(url: stdURL, options: [AVURLAssetPreferPreciseDurationAndTimingKey: false])
-            let newGen = AVAssetImageGenerator(asset: asset)
-            newGen.appliesPreferredTrackTransform = true
-            generators[stdURL] = (newGen, modified)
-            generatorOrder.append(stdURL)
-            gen = newGen
-        }
-        
-        gen.maximumSize = targetSize
-        
         let safeFps = fps > 0 ? fps : 25.0
-        let seconds = (Double(frameIndex) + 0.5) / safeFps
-        let time = CMTime(seconds: seconds, preferredTimescale: 60000)
-        
-        // Frame 0 and skimming allow keyframe tolerance for near-instant decoding.
-        if frameIndex == 0 || fast {
-            let keyframeTol = CMTime(seconds: fast ? 0.25 : 0.5, preferredTimescale: 60000)
-            gen.requestedTimeToleranceBefore = keyframeTol
-            gen.requestedTimeToleranceAfter = keyframeTol
-            if let cgImage = try? gen.copyCGImage(at: time, actualTime: nil) {
-                storeInCache(key: key, image: cgImage)
-                return cgImage
+        let time = CMTime(seconds: (Double(frameIndex) + 0.5) / safeFps, preferredTimescale: 60000)
+        let stdURL = url.standardizedFileURL
+        // Frame 0 and skimming allow keyframe tolerance for near-instant decoding; then the exact frame, then near it.
+        var attempts: [Precision] = [.exact, .near]
+        if fast { attempts.insert(.skim, at: 0) } else if frameIndex == 0 { attempts.insert(.keyframe, at: 0) }
+
+        await acquireDecodeSlot()
+        defer { releaseDecodeSlot() }
+        // A row scrolled past (or a skim the pointer left) while waiting: don't decode for it ahead of rows on screen.
+        guard !Task.isCancelled else { return nil }
+        for precision in attempts {
+            let generator = self.generator(for: stdURL, modified: modified, precision: precision, size: targetSize)
+            if let image = await decode(generator, at: time) {
+                if cacheResult { storeInCache(key: key, image: image) }
+                return image
             }
         }
-        
-        // Accurate seek for frame-specific glitch reviews
-        gen.requestedTimeToleranceBefore = .zero
-        gen.requestedTimeToleranceAfter = .zero
-        
-        do {
-            var actual = CMTime.zero
-            let cgImage = try gen.copyCGImage(at: time, actualTime: &actual)
-            storeInCache(key: key, image: cgImage)
-            return cgImage
-        } catch {
-            let fallbackTol = CMTime(seconds: 0.1, preferredTimescale: 60000)
-            gen.requestedTimeToleranceBefore = fallbackTol
-            gen.requestedTimeToleranceAfter = fallbackTol
-            if let fallbackImage = try? gen.copyCGImage(at: time, actualTime: nil) {
-                storeInCache(key: key, image: fallbackImage)
-                return fallbackImage
+        return nil
+    }
+
+    /// The asynchronous request: the actor is free for other requests while the frame decodes.
+    private func decode(_ generator: AVAssetImageGenerator, at time: CMTime) async -> CGImage? {
+        await withCheckedContinuation { continuation in
+            generator.generateCGImageAsynchronously(for: time) { image, _, _ in
+                continuation.resume(returning: image)
             }
-            return nil
+        }
+    }
+
+    private func generator(for url: URL, modified: Date?, precision: Precision, size: CGSize) -> AVAssetImageGenerator {
+        // A re-exported file (new modification date) gets a fresh asset and generators.
+        if let entry = assets[url], entry.modified != modified {
+            assets[url] = nil
+            for key in generators.keys where key.url == url { generators[key] = nil }
+            generatorOrder.removeAll { $0.url == url }
+        }
+        let key = GeneratorKey(url: url, precision: precision, width: Int(size.width), height: Int(size.height))
+        if let existing = generators[key] {
+            if let index = generatorOrder.firstIndex(of: key) { generatorOrder.remove(at: index) }
+            generatorOrder.append(key)
+            return existing
+        }
+        if generators.count >= maxGenerators, !generatorOrder.isEmpty {
+            let evicted = generatorOrder.removeFirst()
+            generators[evicted] = nil
+            // The asset goes with its last generator.
+            if !generators.keys.contains(where: { $0.url == evicted.url }) { assets[evicted.url] = nil }
+        }
+        let asset = assets[url]?.asset ?? AVURLAsset(url: url, options: [AVURLAssetPreferPreciseDurationAndTimingKey: false])
+        assets[url] = (asset, modified)
+        let generator = AVAssetImageGenerator(asset: asset)
+        generator.appliesPreferredTrackTransform = true
+        generator.maximumSize = size
+        generator.requestedTimeToleranceBefore = precision.tolerance
+        generator.requestedTimeToleranceAfter = precision.tolerance
+        generators[key] = generator
+        generatorOrder.append(key)
+        return generator
+    }
+
+    private func acquireDecodeSlot() async {
+        if runningDecodes < maxConcurrentDecodes {
+            runningDecodes += 1
+            return
+        }
+        await withCheckedContinuation { decodeWaiters.append($0) }
+    }
+
+    private func releaseDecodeSlot() {
+        // The slot passes straight to the next waiter (the count stays), so it can't be taken in between.
+        if decodeWaiters.isEmpty {
+            runningDecodes -= 1
+        } else {
+            decodeWaiters.removeFirst().resume()
         }
     }
     
     private func storeInCache(key: String, image: CGImage) {
-        guard storing else { return }
         if cache[key] == nil {
             cacheOrder.append(key)
             if cacheOrder.count > maxCacheItems {
@@ -130,6 +183,7 @@ public actor GlitchThumbnailProvider {
     public func clearCache() {
         cache.removeAll()
         cacheOrder.removeAll()
+        assets.removeAll()
         generators.removeAll()
         generatorOrder.removeAll()
     }
@@ -517,16 +571,35 @@ extension AssetThumbnailView {
             try? await Task.sleep(for: .milliseconds(120))
             guard !Task.isCancelled else { return }
             var missing = Set(0..<Self.skimSteps)
-            while !missing.isEmpty, !Task.isCancelled {
-                let target = skimStep ?? 0
-                let step = missing.min { abs($0 - target) < abs($1 - target) }!
+            // Three in flight (the provider decodes four at once: one stays free for posters scrolling into view), each
+            // next one the nearest to where the pointer is now.
+            let steps = Self.skimSteps
+            func nearest(to target: Int) -> (step: Int, frame: Int)? {
+                guard let step = missing.min(by: { abs($0 - target) < abs($1 - target) }) else { return nil }
                 missing.remove(step)
-                let frame = Int((Double(step) + 0.5) / Double(Self.skimSteps) * duration * fps)
-                guard let img = await GlitchThumbnailProvider.shared.getThumbnail(for: url, frameIndex: frame, fps: fps,
-                                                                                   targetSize: size, fast: true, cache: false),
-                      !Task.isCancelled else { continue }
-                skimFrames[step] = img
-                if skimStep == step { image = img }
+                return (step, Int((Double(step) + 0.5) / Double(steps) * duration * fps))
+            }
+            await withTaskGroup(of: (Int, CGImage?).self) { group in
+                for _ in 0..<3 {
+                    guard let next = nearest(to: skimStep ?? 0) else { break }
+                    group.addTask {
+                        (next.step, await GlitchThumbnailProvider.shared.getThumbnail(for: url, frameIndex: next.frame, fps: fps,
+                                                                                      targetSize: size, fast: true, cache: false))
+                    }
+                }
+                for await (step, img) in group {
+                    guard !Task.isCancelled else { group.cancelAll(); return }
+                    if let img {
+                        skimFrames[step] = img
+                        if skimStep == step { image = img }
+                    }
+                    if let next = nearest(to: skimStep ?? 0) {
+                        group.addTask {
+                            (next.step, await GlitchThumbnailProvider.shared.getThumbnail(for: url, frameIndex: next.frame, fps: fps,
+                                                                                          targetSize: size, fast: true, cache: false))
+                        }
+                    }
+                }
             }
         }
     }

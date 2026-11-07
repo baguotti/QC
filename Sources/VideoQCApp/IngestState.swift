@@ -357,8 +357,7 @@ public final class IngestState: ObservableObject {
         }
         
         // File Size
-        let resValues = try? file.resourceValues(forKeys: [.fileSizeKey])
-        let sizeBytes = Int64(resValues?.fileSize ?? 0)
+        let sizeBytes = QCUtilities.fileSize(of: file) ?? 0
         let formattedSize = DeliverablesInspector.formatFileSize(bytes: sizeBytes)
         
         // Classification: Check directory and name for TRANSCODES or PROXY

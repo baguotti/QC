@@ -258,7 +258,7 @@ public final class PlayerSlot: ObservableObject {
     public var formattedFileSize: String = "--"
     
     nonisolated static func fileSizeText(for url: URL) -> String {
-        guard let bytes = try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize else { return "--" }
+        guard let bytes = QCUtilities.fileSize(of: url) else { return "--" }
         return ByteCountFormatter.string(fromByteCount: Int64(bytes), countStyle: .file)
     }
     

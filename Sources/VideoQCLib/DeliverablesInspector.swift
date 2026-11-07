@@ -60,8 +60,7 @@ public struct DeliverablesInspector: Sendable {
             let formattedDuration = String(format: "%.2fs", durationSeconds)
             
             // 3. File Size
-            let resourceValues = try? url.resourceValues(forKeys: [.fileSizeKey])
-            let fileSizeBytes = Int64(resourceValues?.fileSize ?? 0)
+            let fileSizeBytes = QCUtilities.fileSize(of: url) ?? 0
             let formattedFileSize = formatFileSize(bytes: fileSizeBytes)
             
             // 4. Video Codec
@@ -162,11 +161,11 @@ public struct DeliverablesInspector: Sendable {
         let height = isTransposed ? rawWidth : rawHeight
         let aspectRatioString = calculateAspectRatio(width: width, height: height)
         
-        let fileSizeBytes = Int64((try? url.resourceValues(forKeys: [.fileSizeKey]))?.fileSize ?? 0)
+        let fileSizeBytes = QCUtilities.fileSize(of: url) ?? 0
         var creationDate: Date? = nil
         var formattedCreationDate = "--"
-        if let values = try? url.resourceValues(forKeys: [.creationDateKey, .contentModificationDateKey]),
-           let date = values.creationDate ?? values.contentModificationDate {
+        if let attributes = try? FileManager.default.attributesOfItem(atPath: url.path),   // fresh: a re-export is a new file
+           let date = (attributes[.creationDate] ?? attributes[.modificationDate]) as? Date {
             creationDate = date
             let formatter = DateFormatter()
             formatter.locale = Locale(identifier: "en_US_POSIX")   // Gregorian, 24 h on every Mac
@@ -206,7 +205,7 @@ public struct DeliverablesInspector: Sendable {
     public static func inspectSequence(_ seq: ImageSequence) -> DeliverableAsset? {
         guard var asset = inspectImage(url: seq.firstURL) else { return nil }
         let fps = ImageSequenceStore.shared.fps(for: seq)
-        let bytes = seq.frameURLs.reduce(Int64(0)) { $0 + Int64((try? $1.resourceValues(forKeys: [.fileSizeKey]))?.fileSize ?? 0) }
+        let bytes = seq.frameURLs.reduce(Int64(0)) { $0 + (QCUtilities.fileSize(of: $1) ?? 0) }
         let seconds = Double(seq.length) / fps
         let missing = seq.missingCount
         let validation = DeliverableValidation(
@@ -963,8 +962,8 @@ public struct DeliverablesInspector: Sendable {
         var date: Date? = nil
         
         // 1. File system creation date
-        if let values = try? url.resourceValues(forKeys: [.creationDateKey, .contentModificationDateKey]) {
-            date = values.creationDate ?? values.contentModificationDate
+        if let attributes = try? FileManager.default.attributesOfItem(atPath: url.path) {   // fresh: a re-export is a new file
+            date = (attributes[.creationDate] ?? attributes[.modificationDate]) as? Date
         }
         
         // 2. Check QuickTime container metadata

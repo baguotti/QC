@@ -1,4 +1,5 @@
 import SwiftUI
+import os
 import AppKit
 import Combine
 import Foundation
@@ -2035,14 +2036,18 @@ struct ContentView: View {
             return
         }
         Task.detached(priority: .userInitiated) {
-            var newMap: [URL: FinderTagColor] = [:]
-            for url in files {
+            // Each file's reads mostly wait on the disk: side by side, 1,075 files took 15 ms instead of 86 (more on a
+            // network drive), so tags and note badges appear sooner.
+            let found = OSAllocatedUnfairLock(initialState: [URL: FinderTagColor]())
+            DispatchQueue.concurrentPerform(iterations: files.count) { index in
+                let url = files[index]
                 if let tag = FinderTagManager.getTag(for: url) {
-                    newMap[url] = tag
+                    found.withLock { $0[url] = tag }
                 }
                 // Warm the notes-count cache here: queue rows only read the cache (no disk I/O in view bodies).
                 _ = QCNotesManager.notesCount(for: url)
             }
+            let newMap = found.withLock { $0 }
             await MainActor.run {
                 self.fileTagsMap = newMap
                 self.tagsVersion &+= 1

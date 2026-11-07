@@ -7,6 +7,12 @@ public enum MediaKind: Sendable {
 }
 
 public enum QCUtilities: Sendable {
+    /// The file's size read from disk now. `URL.resourceValues` caches per URL object, and the app keeps its URLs (queue,
+    /// Inspect): a file re-exported under the same name kept reporting its old size.
+    public static func fileSize(of url: URL) -> Int64? {
+        ((try? FileManager.default.attributesOfItem(atPath: url.path))?[.size] as? NSNumber)?.int64Value
+    }
+
     
     public static let supportedVideoExtensions: Set<String> = [
         "mp4", "mov", "m4v", "mkv", "avi", "prores", "mxf"

@@ -1,4 +1,5 @@
 import SwiftUI
+import os
 import AppKit
 import VideoQCLib
 
@@ -345,13 +346,18 @@ enum QueueSortKeys {
     /// Reads the missing ones (call off the main thread).
     nonisolated static func fill(_ urls: [URL]) {
         let missing = lock.withLock { urls.filter { keys[$0.path] == nil } }
-        var found: [String: Keys] = [:]
-        for url in missing {
-            guard let attributes = try? FileManager.default.attributesOfItem(atPath: url.path) else { continue }
-            found[url.path] = Keys(date: attributes[.modificationDate] as? Date ?? .distantPast,
-                                   size: (attributes[.size] as? NSNumber)?.int64Value ?? 0)
+        // Read side by side: the queue waits for these before it shows (sorted by date or size), and each read is
+        // mostly waiting on the disk.
+        let found = OSAllocatedUnfairLock(initialState: [String: Keys]())
+        DispatchQueue.concurrentPerform(iterations: missing.count) { index in
+            let url = missing[index]
+            guard let attributes = try? FileManager.default.attributesOfItem(atPath: url.path) else { return }
+            let entry = Keys(date: attributes[.modificationDate] as? Date ?? .distantPast,
+                             size: (attributes[.size] as? NSNumber)?.int64Value ?? 0)
+            found.withLock { $0[url.path] = entry }
         }
-        lock.withLock { keys.merge(found) { _, new in new } }
+        let results = found.withLock { $0 }
+        lock.withLock { keys.merge(results) { _, new in new } }
     }
 }
 
