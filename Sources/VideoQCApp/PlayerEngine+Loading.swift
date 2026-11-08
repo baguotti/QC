@@ -355,7 +355,8 @@ extension PlayerEngine {
             let roundedFps = max(1.0, detectedFps)
             let totFrames: Int
             if durSecs.isFinite && !durSecs.isNaN && roundedFps.isFinite && !roundedFps.isNaN {
-                totFrames = max(0, Int(round(durSecs * roundedFps)))
+                // Clamped: a damaged header can report a duration whose frame count is past Int (Int() traps).
+                totFrames = Int(min(max(0, round(durSecs * roundedFps)), 1e12))
             } else {
                 totFrames = 0
             }
@@ -403,6 +404,7 @@ extension PlayerEngine {
     private func fourCCToString(_ fourCC: FourCharCode) -> String {
         let raw = QCUtilities.fourCCToString(fourCC)
         switch raw.lowercased() {
+        case "ap4x": return "ProRes 4444XQ"
         case "ap4h": return "ProRes 4444"
         case "apch": return "ProRes 422HQ"
         case "apcn": return "ProRes 422"

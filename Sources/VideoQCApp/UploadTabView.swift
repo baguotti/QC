@@ -880,7 +880,8 @@ struct TransferProgressCard: View {
         if isPaused { return "paused" }
         guard isRunning else { return "took \(UploadLogFormat.duration(elapsed))" }
         let remaining = Double(total - done)
-        guard elapsed > 3, bytesPerSecond > 0 else { return "\(UploadLogFormat.duration(elapsed)) elapsed" }
+        // Under 1 KB/s (a stall: the speed decays toward zero, and the estimate overflowed Int after ~35 s offline).
+        guard elapsed > 3, bytesPerSecond >= 1000 else { return "\(UploadLogFormat.duration(elapsed)) elapsed" }
         return "about \(UploadLogFormat.duration(remaining / bytesPerSecond)) left"
     }
 }
@@ -1464,7 +1465,7 @@ enum UploadLogFormat {
     }
 
     static func duration(_ seconds: TimeInterval) -> String {
-        let total = Int(seconds.rounded())
+        let total = seconds.isFinite ? Int(min(max(seconds, -1), 1e9).rounded()) : 0
         if total < 60 { return "\(max(total, 0))s" }
         if total < 3600 { return "\(total / 60)m \(total % 60)s" }
         return "\(total / 3600)h \(total % 3600 / 60)m"

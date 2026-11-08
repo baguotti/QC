@@ -577,7 +577,8 @@ extension AssetThumbnailView {
             func nearest(to target: Int) -> (step: Int, frame: Int)? {
                 guard let step = missing.min(by: { abs($0 - target) < abs($1 - target) }) else { return nil }
                 missing.remove(step)
-                return (step, Int((Double(step) + 0.5) / Double(steps) * duration * fps))
+                // Clamped: a damaged header can report a duration whose frame count is past Int (Int() traps).
+                return (step, Int(min((Double(step) + 0.5) / Double(steps) * duration * fps, 1e12)))
             }
             await withTaskGroup(of: (Int, CGImage?).self) { group in
                 for _ in 0..<3 {

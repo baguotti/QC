@@ -81,7 +81,13 @@ public final class ScannerState: ObservableObject {
     
     public init() {
         self.tagInFinder = UserDefaults.standard.bool(forKey: "tagInFinder")
+        Self.main = self
     }
+
+    /// The main window's scans, for the quit check (their results live only in memory).
+    static weak var main: ScannerState?
+    /// "Line Check" / "Frame Check" while one runs.
+    var runningCheckName: String? { isScanning ? "Line Check" : isFrameChecking ? "Frame Check" : nil }
     
     public var isTargetBlack: Bool {
         guard let rgb = RGBColor(hex: hexCode) else { return false }

@@ -27,7 +27,7 @@ public struct RulerTicksCanvasView: View, Equatable {
     
     public var body: some View {
         Canvas { context, size in
-            guard duration > 0 else { return }
+            guard duration > 0, duration.isFinite else { return }
             let trackWidth = max(1.0, width - (trackInset * 2))
             
             // Label step: the smallest "nice" interval whose labels (measured) keep a clear gap at this width.
@@ -37,7 +37,9 @@ public struct RulerTicksCanvasView: View, Equatable {
             let labelWidth = sample.measure(in: CGSize(width: 400, height: 40)).width
             let pointsPerSecond = trackWidth / CGFloat(duration)
             let steps: [Double] = [1, 2, 5, 10, 15, 30, 60, 120, 300, 600, 900, 1800, 3600, 7200]
-            let intervalSecs = steps.first { CGFloat($0) * pointsPerSecond >= labelWidth + 24 } ?? steps[steps.count - 1]
+            var intervalSecs = steps.first { CGFloat($0) * pointsPerSecond >= labelWidth + 24 } ?? steps[steps.count - 1]
+            // At most ~2,000 labels: a damaged header can report a duration of years, and the tick loops below hung.
+            while duration / intervalSecs > 2_000 { intervalSecs *= 2 }
             
             // Minor ticks: subdivide the label step, keeping at least ~6 pt between ticks.
             let subdivisions: [Double] = [10, 6, 5, 4, 3, 2, 1]
@@ -64,7 +66,7 @@ public struct RulerTicksCanvasView: View, Equatable {
                 let labelSec = Double(labelIndex) * intervalSecs
                 labelIndex += 1
                 let x = trackInset + trackWidth * CGFloat(labelSec / duration)
-                let tc = TimecodeFormatter.format(frameIndex: Int(round(labelSec * fpsSafe)), fps: fpsSafe)
+                let tc = TimecodeFormatter.format(frameIndex: Int(min(round(labelSec * fpsSafe), 1e12)), fps: fpsSafe)
                 let text = context.resolve(Text(tc)
                     .font(.system(size: StudioTheme.scaleFont(8), weight: .semibold, design: .monospaced))
                     .foregroundColor(textColor))

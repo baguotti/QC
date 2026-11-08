@@ -251,13 +251,19 @@ final class PlanCheckQueue: ObservableObject {
             case .loudness:
                 guard kind != .image else { result.outcomes[.loudness] = Self.notApplicable("image"); continue }
                 let levels = await DeliverablesInspector.extractAudioLevels(for: url)
+                // Stopped mid-measurement reads as unread: that was stored as a passed "No audio".
+                if Task.isCancelled || interrupted.contains(url) { return nil }
                 if let m = levels.loudness {
                     let (verdict, issues) = LoudnessTarget.current.evaluate(m)
                     let figures = m.integrated.map { String(format: "%.1f LUFS · %.1f dBTP", $0, m.truePeak) }
                     result.outcomes[.loudness] = PlanCheckOutcome(passed: verdict != .fail,
                                                                   summary: ((figures.map { [$0] } ?? []) + issues).joined(separator: " · "))
-                } else {
+                } else if levels.hasNoAudioTrack {
                     result.outcomes[.loudness] = PlanCheckOutcome(passed: true, summary: "No audio")
+                } else {
+                    // An audio track that couldn't be decoded, or held no samples, passed as "No audio".
+                    result.outcomes[.loudness] = PlanCheckOutcome(passed: false, summary: levels.isMute
+                        ? "Audio track holds no sound" : "Audio couldn't be read")
                 }
             case .frames:
                 guard kind == .video else { result.outcomes[.frames] = Self.notApplicable(kind == .image ? "image" : "audio"); continue }

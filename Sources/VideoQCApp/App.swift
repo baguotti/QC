@@ -29,6 +29,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
     
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        // Subtitle edits live in memory until saved: quitting dropped them without a word.
+        let unsaved = PlayerEngine.unsavedSubtitleFileNames
+        if !unsaved.isEmpty {
+            let alert = NSAlert()
+            alert.messageText = unsaved.count == 1 ? "“\(unsaved[0])” has unsaved subtitle edits."
+                : "\(unsaved.count) subtitle files have unsaved edits."
+            alert.informativeText = "Quitting now loses them. Save them from the Player's Subtitles panel first."
+            alert.addButton(withTitle: "Cancel")
+            alert.addButton(withTitle: "Quit Without Saving")
+            guard alert.runModal() == .alertSecondButtonReturn else { return .terminateCancel }
+        }
+        // A running check's results are only in memory: an hour's Line Check went with a stray ⌘Q.
+        if let check = ScannerState.main?.runningCheckName {
+            let alert = NSAlert()
+            alert.messageText = "\(check) is still running."
+            alert.informativeText = "Quitting now stops it, and its results so far are lost."
+            alert.addButton(withTitle: "Keep Checking")
+            alert.addButton(withTitle: "Stop and Quit")
+            guard alert.runModal() == .alertSecondButtonReturn else { return .terminateCancel }
+        }
         let uploading = UploadQueue.shared.isRunning
         // Paused downloads count: their partial files are removed on quit (downloads don't resume across launches).
         let downloading = DownloadQueue.shared.isRunning || DownloadQueue.shared.isPaused

@@ -170,6 +170,15 @@ struct EdgeInputTests {
         _ = ImageSequenceDetector.detect(negative)
         _ = ImageSequenceDetector.detect([])
     }
+
+    @Test("Transfer durations past Int, infinite or negative")
+    func transferDurations() {
+        for seconds in [1e30, .infinity, -.infinity, .nan, -5, 0, 59.6, 3_700] {
+            _ = UploadLogFormat.duration(seconds)
+        }
+        #expect(UploadLogFormat.duration(3_700) == "1h 1m")
+        #expect(UploadLogFormat.duration(-5) == "0s")
+    }
 }
 
 /// A file cut off after its index (render or copy still running, interrupted download) opens and reports its full

@@ -39,24 +39,18 @@ public struct ExtendedMediaInfo: Sendable {
     public var colorspace: String = "Untagged"
     public var pixelFormat: String = "nv12 (HW)"
     public var videoBitrate: String = "--"
-    public var fpsString: String = "25.000000"
+    /// Empty until a video track's rate is read (shown as "--", never a guessed 25).
+    public var fpsString: String = ""
     public var videoSizeString: String = "--"
     public var videoDurationString: String = "--"
     
     public var formattedFPS: String {
-        guard let fpsVal = Double(fpsString), fpsVal > 0 else {
-            return "25 fps"
-        }
-        if fpsVal.truncatingRemainder(dividingBy: 1.0) == 0 {
-            return "\(Int(fpsVal)) fps"
-        }
-        let formatted = String(format: "%.3f", fpsVal)
-        let trimmed = formatted.replacingOccurrences(of: "\\.?0+$", with: "", options: .regularExpression)
-        return "\(trimmed) fps"
+        guard let fpsVal = Double(fpsString), fpsVal > 0, fpsVal.isFinite else { return "--" }
+        return "\(QCUtilities.formatFPS(fpsVal)) fps"
     }
     
     public var hasAudio: Bool = false
-    public var audioFormat: String = "aac"
+    public var audioFormat: String = "--"
     // Unknown until read: never a guessed value (these showed "AAC", "stereo", "48000", "320 Kbps" for an unreadable track).
     public var audioCodecLong: String = "--"
     public var audioChannels: String = "--"
@@ -104,8 +98,8 @@ public struct ExtendedMediaInfo: Sendable {
         let videoTracks = (try? await avAsset.loadTracks(withMediaType: .video)) ?? []
         if let vTrack = videoTracks.first {
             let fps = try? await vTrack.load(.nominalFrameRate)
-            let effFps = Double(fps ?? Float(baseAsset?.fps ?? 25.0))
-            info.fpsString = String(format: "%.6f", effFps > 0 ? effFps : 25.0)
+            let effFps = Double(fps ?? Float(baseAsset?.fps ?? 0))
+            if effFps > 0 { info.fpsString = String(format: "%.6f", effFps) }
             
             if let base = baseAsset {
                 info.videoSizeString = "\(base.width)×\(base.height) (\(base.aspectRatioString))"
@@ -220,8 +214,12 @@ public struct ExtendedMediaInfo: Sendable {
                     info.audioCodecLong = "AAC (Advanced Audio Coding)"
                 case kAudioFormatLinearPCM:
                     let bits = asbd.mBitsPerChannel
-                    info.audioFormat = "pcm_s\(bits > 0 ? "\(bits)" : "24")le"
-                    info.audioCodecLong = "Linear PCM (\(bits > 0 ? "\(bits)" : "24")-bit Uncompressed)"
+                    // From the flags: .mov PCM is often big-endian ("in24", "twos"), and 32-bit can be float.
+                    let isFloat = asbd.mFormatFlags & kAudioFormatFlagIsFloat != 0
+                    let endian = asbd.mFormatFlags & kAudioFormatFlagIsBigEndian != 0 ? "be" : "le"
+                    let sign = isFloat ? "f" : bits == 8 ? "u" : "s"
+                    info.audioFormat = bits > 0 ? "pcm_\(sign)\(bits)\(bits == 8 ? "" : endian)" : "pcm"
+                    info.audioCodecLong = bits > 0 ? "Linear PCM (\(bits)-bit \(isFloat ? "float" : "integer"), uncompressed)" : "Linear PCM (uncompressed)"
                 case kAudioFormatAppleLossless:
                     info.audioFormat = "alac"
                     info.audioCodecLong = "Apple Lossless (ALAC)"

@@ -308,7 +308,14 @@ public final class PlayerEngine: ObservableObject {
     private var subtitleFormat = SubtitleFileFormat()
     private var subtitleLoadGeneration: Int = 0
     /// Unsaved edits per .srt (standardized path), restored if that file is opened again this session.
-    private var unsavedSubtitleEdits: [String: [SubtitleCue]] = [:]
+    /// App-wide, not per engine: closing the main window discards its engine, and the edits went with it.
+    private static var unsavedSubtitleEdits: [String: [SubtitleCue]] = [:]
+    private var unsavedSubtitleEdits: [String: [SubtitleCue]] {
+        get { Self.unsavedSubtitleEdits }
+        set { Self.unsavedSubtitleEdits = newValue }
+    }
+    /// .srt files with edits not saved yet (in memory only: asked about on quit).
+    static var unsavedSubtitleFileNames: [String] { unsavedSubtitleEdits.keys.map { ($0 as NSString).lastPathComponent }.sorted() }
     
     /// Loads an .srt for the master clip. Returns false if the file has no readable cues.
     @discardableResult
@@ -390,9 +397,15 @@ public final class PlayerEngine: ObservableObject {
             unsavedSubtitleEdits.removeValue(forKey: old.standardizedFileURL.path)
         }
         unsavedSubtitleEdits.removeValue(forKey: url.standardizedFileURL.path)
+        let previous = subtitleSourceURL
         subtitleSourceURL = url
         subtitleFileName = url.lastPathComponent
         hasUnsavedSubtitleEdits = false
+        // Attached to the clip, as a loaded .srt is: reopening the clip showed the old file, without these edits.
+        // After the source is set, so the attachment observer sees the shown file and doesn't reload it.
+        if let media = slotA.url, !QCUtilities.isSameURL(url, previous) {
+            SubtitleAttachments.setManual(url, for: media)
+        }
     }
     
     /// Picks up the clip's attached .srt, or `clip.srt` sitting next to `clip.mov` (read off the main thread).

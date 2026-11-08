@@ -390,7 +390,7 @@ public struct DeliverablesInspector: Sendable {
                     // Allow up to 1.5s tolerance for commercial frame rounding (e.g. 15.04s is 15s)
                     if abs(durationSeconds - secVal) > 1.5 {
                         isDurationMismatch = true
-                        let formattedActual = durationSeconds.truncatingRemainder(dividingBy: 1) == 0 ? "\(Int(durationSeconds))s" : String(format: "%.1fs", durationSeconds)
+                        let formattedActual = durationSeconds.truncatingRemainder(dividingBy: 1) == 0 && durationSeconds < 1e12 ? "\(Int(durationSeconds))s" : String(format: "%.1fs", durationSeconds)
                         durationMismatchDetail = "NAME: \(Int(secVal))s ≠ \(formattedActual)"
                     }
                 }
@@ -626,6 +626,8 @@ public struct DeliverablesInspector: Sendable {
 
         static let noAudio = AudioLevels(peakDB: nil, isMute: false, levelString: "NO AUDIO", loudness: nil)
         static let unread = AudioLevels(peakDB: nil, isMute: false, levelString: "--", loudness: nil)
+        /// The file has no audio track (not: a track that couldn't be read, or held no samples).
+        public var hasNoAudioTrack: Bool { loudness == nil && levelString == Self.noAudio.levelString }
     }
 
     /// Decodes the first audio track once (AVAssetReader, Float32) and measures BS.1770 loudness, true peak, LRA and

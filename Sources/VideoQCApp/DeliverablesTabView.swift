@@ -679,7 +679,7 @@ extension ContentView {
                     if !measured.isEmpty {
                         statBox(title: "Loudness Fails (\(target.name))", val: String(format: "%02d", loudnessFails), isRed: loudnessFails > 0, isPositive: loudnessFails == 0)
                     }
-                    statBox(title: "Total Runtime", val: TimecodeFormatter.format(frameIndex: Int(round(totalSeconds * 25.0)), fps: 25.0))
+                    statBox(title: "Total Runtime", val: TimecodeFormatter.format(frameIndex: Int(min(round(totalSeconds * 25.0), 1e12)), fps: 25.0))
                     statBox(title: "Total Batch Size", val: DeliverablesInspector.formatFileSize(bytes: totalBytes))
                 }
                 
@@ -1109,7 +1109,9 @@ extension ContentView {
                 switch sort {
                 case 1: return info.line
                 case 3: return (InspectGrouping.statusOrder.firstIndex(of: state) ?? 99) * 100_000 + info.line   // problems first
-                case 4: return (Int(info.code.filter(\.isNumber)) ?? Int.max / 200_000) * 100_000 + info.line    // code number
+                case 4:   // code number; capped: a code with 14+ digits (a date and time in it) overflowed the multiply
+                    let cap = Int.max / 200_000
+                    return min(Int(info.code.filter(\.isNumber)) ?? cap, cap) * 100_000 + info.line
                 default: return state.rawValue * 100_000 + info.line
                 }
             })
@@ -1231,7 +1233,7 @@ extension ContentView {
         let totalBytes = folderAssets.reduce(Int64(0)) { $0 + $1.fileSizeBytes }
         let totalSeconds = folderAssets.reduce(0.0) { $0 + $1.durationSeconds }
         let formattedSize = DeliverablesInspector.formatFileSize(bytes: totalBytes)
-        let formattedDur = TimecodeFormatter.format(frameIndex: Int(round(totalSeconds * 25.0)), fps: 25.0)
+        let formattedDur = TimecodeFormatter.format(frameIndex: Int(min(round(totalSeconds * 25.0), 1e12)), fps: 25.0)
         // A plan group (Group By batch / status / channel) rather than a folder: its own icon, no folder actions.
         let isGroup = node.id.hasPrefix("group:")
         

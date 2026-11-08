@@ -133,7 +133,8 @@ extension PlayerEngine {
         
         self.objectWillChange.send()
         snapA.apply(to: slotB)
-        slotB.slipOffsetFrames = -tempSlip
+        // The slip is counted in slot B's frames: the same offset in time, in the new B's (old A's) frames.
+        slotB.slipOffsetFrames = -Int((Double(tempSlip) / max(1.0, snapB.fps) * max(1.0, snapA.fps)).rounded())
         slotBKeepsPosition = true
         if let urlB = snapA.url, let itemB = makePlayerItem(url: urlB, for: slotB, startAt: snapA.currentTime) {
             slotB.player.seek(to: snapA.currentTime, toleranceBefore: .zero, toleranceAfter: .zero)
