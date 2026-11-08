@@ -3,88 +3,81 @@ import os
 import AppKit
 import VideoQCLib
 
-/// Shared chrome for the settings popups opened from the gear menu: scrim, header, scrolling body, DONE footer.
-struct SettingsModalShell<Content: View>: View {
+/// Chrome for a single-page settings popup, matching `SidebarModalShell` without the sidebar: scrim, centred title
+/// band, scrolling body, footer with an optional status line and Done.
+struct SettingsModalShell<Footnote: View, Content: View>: View {
     @Binding var isPresented: Bool
     let title: String
-    let icon: String
+    var width: CGFloat = 640
+    @ViewBuilder var footnote: Footnote
     @ViewBuilder var content: Content
-    @ObservedObject private var themeManager = ThemeManager.shared
     @AppStorage("isLightMode") private var isLightMode: Bool = false
-    
+
     private var palette: StudioPalette { StudioPalette(isLightMode) }
-    
+
     var body: some View {
         ZStack {
-            Color.black.opacity(isPresented ? 0.65 : 0.0)
+            Color.black.opacity(isPresented ? 0.55 : 0.0)
                 .edgesIgnoringSafeArea(.all)
                 .allowsHitTesting(isPresented)
                 .onTapGesture { dismiss() }
-            
+
             VStack(spacing: 0) {
-                HStack {
-                    HStack(spacing: 8) {
-                        Image(systemName: icon)
-                            .font(.system(size: StudioTheme.scaleFont(13), weight: .bold))
-                            .foregroundColor(themeManager.currentTheme.playColor)
-                        Text(title)
-                            .font(.ui(size: 12, weight: .semibold))
-                            .foregroundColor(palette.textMain)
-                    }
-                    Spacer()
-                    Button(action: { dismiss() }) {
-                        Text("Close (Esc)")
-                            .font(.ui(size: 11, weight: .semibold))
-                            .padding(.horizontal, 9)
-                            .padding(.vertical, 5)
-                            .foregroundColor(palette.textMain)
-                            .studioBox(background: palette.bgSubtle, border: palette.borderLine)
-                    }
-                    .buttonStyle(.plain)
-                    .keyboardShortcut(.escape, modifiers: [])
-                }
-                .padding(.horizontal, 18)
-                .padding(.vertical, 12)
-                .background(palette.bgPanel)
-                
+                Text(title)
+                    .font(.ui(size: 13, weight: .semibold))
+                    .foregroundColor(palette.textMain)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 10)
+                    .background(palette.bgCardHeader)
+
                 Rectangle().fill(palette.borderLine).frame(height: 1)
-                
+
                 ScrollView(.vertical, showsIndicators: true) {
-                    VStack(alignment: .leading, spacing: 20) {
+                    VStack(alignment: .leading, spacing: 22) {
                         content
                     }
-                    .padding(20)
+                    .padding(.horizontal, 24)
+                    .padding(.vertical, 20)
                     .frame(maxWidth: .infinity, alignment: .leading)
                 }
                 .frame(maxHeight: 540)
-                .background(palette.bgMain)
-                
+                .fixedSize(horizontal: false, vertical: true)
+                .background(palette.bgPanel)
+
                 Rectangle().fill(palette.borderLine).frame(height: 1)
-                
+
                 HStack {
+                    footnote
                     Spacer()
                     Button(action: { dismiss() }) {
                         Text("Done")
-                            .font(.ui(size: 11, weight: .semibold))
-                            .padding(.horizontal, 18)
-                            .padding(.vertical, 6)
+                            .font(.ui(size: 12, weight: .medium))
+                            .padding(.horizontal, 20)
+                            .padding(.vertical, 5)
                             .foregroundColor(palette.primaryBtnFg)
                             .background(palette.primaryBtnBg)
-                            .cornerRadius(StudioTheme.cornerRadius)
+                            .cornerRadius(Radius.segment)
                     }
                     .buttonStyle(.plain)
                 }
-                .padding(.horizontal, 18)
-                .padding(.vertical, 12)
-                .background(palette.bgPanel)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 10)
+                .background(palette.bgCardHeader)
             }
-            .frame(width: 640)
-            .studioBox(background: palette.bgPanel, border: palette.borderStrong)
+            .frame(width: width)
+            .background(palette.bgPanel)
+            .clipShape(RoundedRectangle(cornerRadius: Radius.container))
+            .overlay(RoundedRectangle(cornerRadius: Radius.container).stroke(palette.borderStrong, lineWidth: 1))
             .shadow(color: Color.black.opacity(0.45), radius: 28, x: 0, y: 14)
+
+            Button("") { dismiss() }
+                .keyboardShortcut(.escape, modifiers: [])
+                .opacity(0)
+                .allowsHitTesting(false)
         }
         .allowsHitTesting(isPresented)
     }
-    
+
     private func dismiss() {
         withAnimation(Motion.fade) { isPresented = false }
         DispatchQueue.main.async {
@@ -96,11 +89,47 @@ struct SettingsModalShell<Content: View>: View {
     }
 }
 
+/// A settings section: title, optional note, then its rows on a rounded card (User Settings, Synced Projects).
+struct SettingsSection<Accessory: View, Rows: View>: View {
+    let title: String
+    var note: String? = nil
+    let isLightMode: Bool
+    @ViewBuilder var accessory: Accessory
+    @ViewBuilder var rows: Rows
+
+    var body: some View {
+        let palette = StudioPalette(isLightMode)
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .firstTextBaseline) {
+                Text(title)
+                    .font(.ui(size: 13, weight: .semibold))
+                    .foregroundColor(palette.textMain)
+                Spacer()
+                accessory
+            }
+            if let note {
+                Text(note)
+                    .font(.ui(size: 11))
+                    .foregroundColor(palette.textMuted)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            VStack(alignment: .leading, spacing: 0) { rows }
+                .background(RoundedRectangle(cornerRadius: Radius.container).fill(palette.bgCardSubtle))
+                .overlay(RoundedRectangle(cornerRadius: Radius.container).stroke(palette.borderLine, lineWidth: 1))
+        }
+    }
+}
+
+extension SettingsSection where Accessory == EmptyView {
+    init(_ title: String, note: String? = nil, isLightMode: Bool, @ViewBuilder rows: () -> Rows) {
+        self.init(title: title, note: note, isLightMode: isLightMode, accessory: { EmptyView() }, rows: rows)
+    }
+}
+
 // MARK: - Synced Projects
 
 struct NotesSyncModalView: View {
     @Binding var isPresented: Bool
-    @ObservedObject private var themeManager = ThemeManager.shared
     @AppStorage("isLightMode") private var isLightMode: Bool = false
     @ObservedObject private var syncStatus = NotesSyncStatus.shared
     @State private var syncProjects: [NotesSyncProject] = NotesSyncProject.loadAll()
@@ -108,110 +137,156 @@ struct NotesSyncModalView: View {
     @State private var newProjectName: String = ""
     @State private var syncPasswordDraft: String = ""
     @State private var revealedProjectIDs: Set<UUID> = []
-    
+
     private var palette: StudioPalette { StudioPalette(isLightMode) }
-    
+
     var body: some View {
-        SettingsModalShell(isPresented: $isPresented, title: "Synced Projects", icon: "icloud.fill") {
-            notesSyncSection
-        }
-    }
-    
-    private var notesSyncSection: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack {
-                Text("Projects")
-                    .font(.ui(size: 11, weight: .semibold))
-                    .foregroundColor(palette.textMuted)
-                
-                Spacer()
-                
-                Text(syncStatusText)
-                    .font(.ui(size: 10, weight: .semibold))
-                    .foregroundColor(syncStatusColor)
-                    .lineLimit(1)
-            }
-            
+        SettingsModalShell(isPresented: $isPresented, title: "Synced Projects") {
+            statusLine
+        } content: {
             if syncStatus.state == .unavailable {
-                Text("No sync server is configured in this build.")
-                    .font(.system(size: StudioTheme.scaleFont(10)))
-                    .foregroundColor(palette.textSubtle)
+                emptyState(title: "Sync Unavailable", message: "No sync server is configured in this build.")
             } else {
-                ForEach(syncProjects) { project in
-                    syncProjectRow(project)
-                }
-                
-                HStack(spacing: 8) {
-                    syncField("Project name", text: $newProjectName)
-                        .frame(width: 150)
-                    syncField("Type a password or paste one", text: $syncPasswordDraft)
-                        .onSubmit { addSyncProject(password: syncPasswordDraft) }
-                    syncButton("Add", primary: true) { addSyncProject(password: syncPasswordDraft) }
-                        .disabled(NotesSync.deriveKeys(password: syncPasswordDraft) == nil || existingProject(for: syncPasswordDraft) != nil)
-                    syncButton("Generate") { addSyncProject(password: NotesSync.generatePassword(), copy: true) }
-                }
-                if let existing = existingProject(for: syncPasswordDraft) {
-                    Text("Already added as \(existing.displayName).")
-                        .font(.ui(size: 10))
-                        .foregroundColor(palette.textSubtle)
-                }
-                
-                Text("Each project has its own password; everyone using it shares that project's notes. Passwords are 8+ characters, not case-sensitive (longer is safer: anyone who guesses one can read its notes). A clip joins the project that already has notes for it, otherwise the DEFAULT project when it gets notes; change it from the Notes panel. Notes are encrypted on this Mac before upload. Clips match by file name and size, so each person can keep files in any folder.")
-                    .font(.system(size: StudioTheme.scaleFont(9)))
-                    .foregroundColor(palette.textSubtle)
+                projectsSection
+                addSection
+                Text("Notes are encrypted on this Mac before upload. A clip joins the project that already has notes for it, otherwise the default project when it gets notes (change it from the Notes panel). Clips match by file name and size, so each person can keep files in any folder.")
+                    .font(.ui(size: 11))
+                    .foregroundColor(palette.textMuted)
                     .fixedSize(horizontal: false, vertical: true)
             }
         }
     }
-    
-    private func syncProjectRow(_ project: NotesSyncProject) -> some View {
-        let isDefault = project.id == defaultSyncProjectID
-        let isRevealed = revealedProjectIDs.contains(project.id)
-        return HStack(spacing: 8) {
-            Text(project.displayName)
-                .font(.ui(size: 11, weight: .semibold))
-                .foregroundColor(palette.textMain)
-                .lineLimit(1)
-                .frame(width: 150, alignment: .leading)
-            Text(isRevealed ? project.password : String(repeating: "•", count: min(project.password.count, 16)))
-                .font(.ui(size: 11))
-                .foregroundColor(palette.textMain)
-                .textSelection(.enabled)
-                .lineLimit(1)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, 8)
-                .padding(.vertical, 6)
-                .studioBox(background: palette.bgSubtle, border: palette.borderLine)
-            syncButton(isDefault ? "Default" : "Make Default", primary: isDefault) {
-                defaultSyncProjectID = project.id
-                saveSyncProjects()
-            }
-            syncButton(isRevealed ? "Hide" : "Show") {
-                if isRevealed { revealedProjectIDs.remove(project.id) } else { revealedProjectIDs.insert(project.id) }
-            }
-            syncButton("Copy") { copyToPasteboard(project.password) }
-            syncButton("Remove") {
-                syncProjects.removeAll { $0.id == project.id }
-                if defaultSyncProjectID == project.id { defaultSyncProjectID = syncProjects.first?.id }
-                saveSyncProjects()
+
+    // MARK: Sections
+
+    private var projectsSection: some View {
+        SettingsSection("Projects", note: "Everyone using a project's password shares its notes.", isLightMode: isLightMode) {
+            if syncProjects.isEmpty {
+                emptyState(title: "No Projects", message: "Add one below with a shared password, or generate a new one to send to your team.")
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 14)
+            } else {
+                ForEach(Array(syncProjects.enumerated()), id: \.element.id) { index, project in
+                    if index > 0 { rowDivider }
+                    projectRow(project)
+                }
             }
         }
     }
-    
-    private func syncField(_ placeholder: String, text: Binding<String>) -> some View {
-        TextField(placeholder, text: text)
-            .textFieldStyle(.plain)
-            .font(.ui(size: 11))
-            .padding(.horizontal, 8)
-            .padding(.vertical, 6)
-            .studioBox(background: palette.bgSubtle, border: palette.borderLine)
+
+    private var addSection: some View {
+        SettingsSection("Add a Project", note: "Passwords are 8+ characters and not case-sensitive. Longer is safer: anyone who guesses one can read its notes.", isLightMode: isLightMode) {
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(spacing: 8) {
+                    TextField("Project name", text: $newProjectName)
+                        .textFieldStyle(.roundedBorder)
+                        .font(.ui(size: 12))
+                        .frame(width: 150)
+                    TextField("Type a password or paste one", text: $syncPasswordDraft)
+                        .textFieldStyle(.roundedBorder)
+                        .font(.ui(size: 12))
+                        .onSubmit { addSyncProject(password: syncPasswordDraft) }
+                    Button("Add") { addSyncProject(password: syncPasswordDraft) }
+                        .disabled(NotesSync.deriveKeys(password: syncPasswordDraft) == nil || existingProject(for: syncPasswordDraft) != nil)
+                        .explain("Add a project with this password.")
+                    Button("Generate") { addSyncProject(password: NotesSync.generatePassword(), copy: true) }
+                        .explain("Create a project with a new random password and copy it to send to your team.")
+                }
+                .font(.ui(size: 11))
+                if let existing = existingProject(for: syncPasswordDraft) {
+                    Text("Already added as \(existing.displayName).")
+                        .font(.ui(size: 11))
+                        .foregroundColor(palette.textMuted)
+                }
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 10)
+        }
     }
-    
+
+    private func projectRow(_ project: NotesSyncProject) -> some View {
+        let isDefault = project.id == defaultSyncProjectID
+        let isRevealed = revealedProjectIDs.contains(project.id)
+        return HStack(alignment: .center, spacing: 12) {
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(spacing: 6) {
+                    Text(project.displayName)
+                        .font(.ui(size: 12, weight: .medium))
+                        .foregroundColor(palette.textMain)
+                        .lineLimit(1)
+                    if isDefault {
+                        Text("Default")
+                            .font(.ui(size: 10, weight: .semibold))
+                            .foregroundColor(palette.accentBlue)
+                    }
+                }
+                Text(isRevealed ? project.password : String(repeating: "•", count: min(project.password.count, 16)))
+                    .font(.ui(size: 11))
+                    .monospaced()
+                    .foregroundColor(palette.textMuted)
+                    .textSelection(.enabled)
+                    .lineLimit(1)
+            }
+            Spacer(minLength: 12)
+            HStack(spacing: 6) {
+                if !isDefault {
+                    Button("Make Default") {
+                        defaultSyncProjectID = project.id
+                        saveSyncProjects()
+                    }
+                    .explain("New clips with notes join this project.")
+                }
+                Button(isRevealed ? "Hide" : "Show") {
+                    if isRevealed { revealedProjectIDs.remove(project.id) } else { revealedProjectIDs.insert(project.id) }
+                }
+                Button("Copy") { copyToPasteboard(project.password) }
+                    .explain("Copy this project's password.")
+                Button("Remove") {
+                    syncProjects.removeAll { $0.id == project.id }
+                    if defaultSyncProjectID == project.id { defaultSyncProjectID = syncProjects.first?.id }
+                    saveSyncProjects()
+                }
+                .explain("Stop syncing this project on this Mac. Its notes stay on the server for everyone else.")
+            }
+            .font(.ui(size: 11))
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 9)
+    }
+
+    private var rowDivider: some View {
+        Rectangle().fill(palette.borderLine).frame(height: 1).padding(.leading, 12)
+    }
+
+    private func emptyState(title: String, message: String) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(title)
+                .font(.ui(size: 12, weight: .medium))
+                .foregroundColor(palette.textMain)
+            Text(message)
+                .font(.ui(size: 11))
+                .foregroundColor(palette.textMuted)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    private var statusLine: some View {
+        HStack(spacing: 6) {
+            Circle()
+                .fill(syncStatusColor)
+                .frame(width: StudioTheme.scale(6), height: StudioTheme.scale(6))
+            Text(syncStatusText)
+                .font(.ui(size: 11))
+                .foregroundColor(palette.textMuted)
+                .lineLimit(1)
+        }
+    }
+
     private var syncStatusText: String {
         switch syncStatus.state {
         case .unavailable: return "Unavailable"
-        case .off: return "OFF"
-        case .on: return "ON"
+        case .off: return "Off"
+        case .on: return "On"
         case .upToDate:
             if let date = syncStatus.lastReceived {
                 return "Up to date · last change \(date.formatted(date: .omitted, time: .shortened))"
@@ -221,27 +296,17 @@ struct NotesSyncModalView: View {
         case .failed(let message): return message
         }
     }
-    
+
     private var syncStatusColor: Color {
         switch syncStatus.state {
-        case .on, .upToDate: return themeManager.currentTheme.playColor
-        case .offline, .failed: return Color.orange
-        case .off, .unavailable: return palette.textSubtle
+        case .on, .upToDate: return palette.positive
+        case .failed: return palette.negative
+        case .offline, .off, .unavailable: return palette.textSubtle
         }
     }
-    
-    private func syncButton(_ title: String, primary: Bool = false, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Text(title)
-                .font(.ui(size: 11, weight: .semibold))
-                .padding(.horizontal, 9)
-                .padding(.vertical, 6)
-                .foregroundColor(primary ? palette.primaryBtnFg : palette.textMain)
-                .studioBox(background: primary ? palette.primaryBtnBg : palette.bgSubtle, border: palette.borderLine)
-        }
-        .buttonStyle(.plain)
-    }
-    
+
+    // MARK: Actions
+
     /// The project already using this password (passwords aren't case-sensitive): adding it twice would sync the same
     /// notes twice and make the two copies race each other's writes.
     private func existingProject(for password: String) -> NotesSyncProject? {
@@ -940,20 +1005,7 @@ struct UserSettingsModalView: View {
 
     /// A titled group of rows on a rounded card with hairline dividers (System Settings style).
     private func settingsSection<Rows: View>(_ title: String, note: String? = nil, @ViewBuilder rows: () -> Rows) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text(title)
-                .font(.ui(size: 13, weight: .semibold))
-                .foregroundColor(palette.textMain)
-            if let note {
-                Text(note)
-                    .font(.ui(size: 11))
-                    .foregroundColor(palette.textMuted)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            VStack(alignment: .leading, spacing: 0) { rows() }
-                .background(RoundedRectangle(cornerRadius: Radius.container).fill(palette.bgCardSubtle))
-                .overlay(RoundedRectangle(cornerRadius: Radius.container).stroke(palette.borderLine, lineWidth: 1))
-        }
+        SettingsSection(title, note: note, isLightMode: isLightMode, rows: rows)
     }
 
     /// Icon, title and a line of explanation on the left; the control on the right. `launch`: takes effect on the
