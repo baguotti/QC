@@ -463,7 +463,7 @@ extension ContentView {
                 }
                 .buttonStyle(TransportIconButtonStyle())
                 .disabled(playerEngine.activeURL == nil)
-                .explain(hasNotes ? "Toggle Review Notes drawer (\(notesCount) notes)." : "Toggle Review Notes drawer.")
+                .explain(hasNotes ? "Toggle Review Notes drawer (\(notesCount) note\(notesCount == 1 ? "" : "s"))." : "Toggle Review Notes drawer.")
                 
                 Button(action: { playerEngine.jumpToNextNote() }) {
                     Image(systemName: "chevron.right.to.line")
@@ -740,7 +740,11 @@ extension ContentView {
         panel.allowedContentTypes = [UTType(filenameExtension: ext) ?? .movie]
         guard panel.runModal() == .OK, let target = panel.url else { return }
         // The save panel allows replacing any file: never the clip being cut.
-        guard target.standardizedFileURL.resolvingSymlinksInPath() != url.standardizedFileURL.resolvingSymlinksInPath() else {
+        // Same file by identity, not path text: on a case-insensitive volume "clip.mov" typed for "Clip.mov" is the source.
+        func identity(_ u: URL) -> NSObject? { (try? u.resourceValues(forKeys: [.fileResourceIdentifierKey]))?.fileResourceIdentifier as? NSObject }
+        let sameFile = target.standardizedFileURL.resolvingSymlinksInPath() == url.standardizedFileURL.resolvingSymlinksInPath()
+            || (identity(target).map { $0.isEqual(identity(url)) } ?? false)
+        guard !sameFile else {
             showToast("Choose another name: that's the clip itself")
             return
         }

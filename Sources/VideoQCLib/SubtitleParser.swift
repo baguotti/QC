@@ -78,7 +78,11 @@ public enum SubtitleParser {
     public static func serializeSRT(_ cues: [SubtitleCue]) -> String {
         var blocks: [String] = []
         for (index, cue) in cues.enumerated() {
-            blocks.append("\(index + 1)\n\(timestamp(cue.start)) --> \(timestamp(cue.end))\n\(cue.text)")
+            // A blank line ends a cue in SubRip: one inside the text (Return pressed twice while editing) cut the cue
+            // there on the next load and lost the lines after it. Whitespace-only lines are dropped when writing.
+            let text = cue.text.components(separatedBy: .newlines)
+                .filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty }.joined(separator: "\n")
+            blocks.append("\(index + 1)\n\(timestamp(cue.start)) --> \(timestamp(cue.end))\n\(text)")
         }
         return blocks.joined(separator: "\n\n") + "\n"
     }
@@ -173,7 +177,9 @@ public enum SubtitleParser {
     }
 
     static func timestamp(_ seconds: Double) -> String {
-        let totalMs = max(0, Int((seconds * 1000).rounded()))
+        // Int() traps on NaN / ±inf / huge values: clamp to 0…999:59:59,999.
+        let rawMs = (seconds * 1000).rounded()
+        let totalMs = rawMs.isFinite ? Int(min(max(0, rawMs), 3_599_999_999)) : 0
         let h = totalMs / 3_600_000
         let m = (totalMs / 60_000) % 60
         let s = (totalMs / 1000) % 60
@@ -196,10 +202,11 @@ public enum SubtitleParser {
         guard fields.count == 3 || fields.count == 2 else { return nil }
         var seconds = 0.0
         for field in fields {
-            guard let value = Double(field) else { return nil }
+            // Double() also reads "inf", "nan" and "1e999": only plain, non-negative numbers are times.
+            guard let value = Double(field), value.isFinite, value >= 0 else { return nil }
             seconds = seconds * 60 + value
         }
-        return seconds
+        return seconds.isFinite ? seconds : nil
     }
 }
 

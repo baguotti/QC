@@ -111,7 +111,12 @@ private enum PlaceholderClip {
         CVPixelBufferLockBaseAddress(buffer, [])
         memset(CVPixelBufferGetBaseAddress(buffer), 0, CVPixelBufferGetDataSize(buffer))
         CVPixelBufferUnlockBaseAddress(buffer, [])
-        while !input.isReadyForMoreMediaData { usleep(1000) }
+        // Bounded: a writer that fails here (disk full) never becomes ready, and this ran unbounded.
+        var waited = 0
+        while !input.isReadyForMoreMediaData {
+            guard writer.status == .writing, waited < 5_000 else { writer.cancelWriting(); return false }
+            usleep(1000); waited += 1
+        }
         adaptor.append(buffer, withPresentationTime: .zero)
         input.markAsFinished()
         writer.endSession(atSourceTime: CMTime(value: 1, timescale: 1))

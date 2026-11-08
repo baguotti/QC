@@ -13,6 +13,9 @@ public struct DeliverableValidation: Equatable, Sendable {
     public let isAudioMute: Bool
     public let audioMuteDetail: String?
     
+    /// The file stops before its data does (see `DeliverablesInspector.presentFraction`).
+    public var isCutOff: Bool { durationMismatchDetail?.hasPrefix(DeliverablesInspector.cutOffPrefix) == true }
+
     public var hasAnyMismatch: Bool {
         isDurationMismatch || isRatioMismatch
     }

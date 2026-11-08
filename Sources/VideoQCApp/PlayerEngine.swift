@@ -246,7 +246,9 @@ public final class PlayerEngine: ObservableObject {
     
     /// Timeline waveform for slot A's audio (empty when off, for images and silent files). Published once per load.
     @Published public private(set) var waveformPeaks: [Float] = []
-    private var waveformCache: [URL: [Float]] = [:]
+    /// By file and its modification date at load: a re-export at the same path (a fixed mix) showed the old waveform.
+    private var waveformCache: [WaveformKey: [Float]] = [:]
+    private struct WaveformKey: Hashable { let url: URL; let modified: Date? }
     private var waveformTask: Task<Void, Never>? = nil
     
     func refreshWaveform() {
@@ -256,7 +258,8 @@ public final class PlayerEngine: ObservableObject {
             if !waveformPeaks.isEmpty { waveformPeaks = [] }
             return
         }
-        if let cached = waveformCache[url] {
+        let key = WaveformKey(url: url, modified: slotA.loadedModificationDate)
+        if let cached = waveformCache[key] {
             waveformPeaks = cached
             return
         }
@@ -266,7 +269,7 @@ public final class PlayerEngine: ObservableObject {
             let peaks = await withTaskCancellationHandler { await work.value } onCancel: { work.cancel() }
             guard let self, !Task.isCancelled, let peaks, self.slotA.url == url else { return }
             if self.waveformCache.count >= 16 { self.waveformCache.removeAll() }
-            self.waveformCache[url] = peaks
+            self.waveformCache[key] = peaks
             self.waveformPeaks = peaks
         }
     }

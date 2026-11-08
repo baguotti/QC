@@ -507,6 +507,7 @@ final class UploadQueue: ObservableObject {
     // MARK: Progress
 
     private func startTicker() {
+        guard ticker == nil else { return }   // a second start would leave the first timer firing forever
         let timer = Timer(timeInterval: 0.2, repeats: true) { _ in
             MainActor.assumeIsolated { UploadQueue.shared.tick() }
         }

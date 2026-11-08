@@ -35,6 +35,9 @@ public final class ScannerState: ObservableObject {
     /// Progress lives in its own object (`ScanProgress`): it changes ~5 times a second during a scan, and a publish
     /// from ScannerState redraws the whole window (ContentView owns it). These forward to it without publishing here.
     public let progress = ScanProgress()
+    /// Files the last Line Check tagged red in Finder, and how many it couldn't (read-only volumes).
+    public private(set) var lastFinderTagged: [URL] = []
+    public private(set) var lastFinderTagFailures = 0
     public var progressInfo: VideoScanner.ScanProgress? {
         get { progress.line }
         set { progress.line = newValue }
@@ -69,6 +72,9 @@ public final class ScannerState: ObservableObject {
     /// A Full Check is running: the Line Check, then the Frame Check on the same files.
     @Published public var isFullCheck: Bool = false
     private var frameCheckScanner: FrameCheckScanner? = nil
+    /// Bumped when the queue is cleared: checks still running for it are stopped and their results dropped (they landed
+    /// after the clear, for files no longer in the queue, and still tagged them in Finder).
+    private var runGeneration = 0
     
     /// A Line Check or Frame Check is running: the asset list must not change under it.
     public var isCheckRunning: Bool { isScanning || isFrameChecking }
@@ -155,6 +161,7 @@ public final class ScannerState: ObservableObject {
         
         let scanner = VideoScanner()
         self.scannerActor = scanner
+        let generation = runGeneration
         
         // Display-only progress: every ScannerState change re-renders ContentView, so cap it at 5 Hz.
         let lastProgressPublish = OSAllocatedUnfairLock(initialState: 0.0)
@@ -179,7 +186,7 @@ public final class ScannerState: ObservableObject {
                 },
                 onFileCompleted: { result in
                     DispatchQueue.main.async {
-                        if !self.rawResults.contains(where: { $0.fileURL == result.fileURL }) {
+                        if generation == self.runGeneration, !self.rawResults.contains(where: { $0.fileURL == result.fileURL }) {
                             // Only the new file is filtered (refiltering all per file was O(n²) on big batches).
                             self.isFiltering = true
                             self.rawResults.append(result)
@@ -192,13 +199,23 @@ public final class ScannerState: ObservableObject {
             
             // Findings marked "Not a Line" never reach the Finder tags, reports or Player markers.
             let filtered = await MainActor.run { LineCheckDismissals.filter(results) }
-            if self.tagInFinder {
-                await Task.detached(priority: .utility) {
-                    ReportWriter.tagFlaggedFilesInFinder(results: filtered)
-                }.value
+            let discarded = await MainActor.run { generation != self.runGeneration }
+            let tagging = self.tagInFinder && !discarded ? await Task.detached(priority: .utility) {
+                ReportWriter.tagFlaggedFilesInFinder(results: filtered)
+            }.value : (tagged: [URL](), failed: 0)
+            await MainActor.run {
+                self.lastFinderTagged = tagging.tagged
+                self.lastFinderTagFailures = tagging.failed
             }
             
             DispatchQueue.main.async {
+                guard generation == self.runGeneration else {
+                    self.isScanning = false
+                    self.isCancelling = false
+                    self.scannerActor = nil
+                    self.isFullCheck = false
+                    return
+                }
                 Self.logFinished("Line Check", flagged: results.filter(\.isFlagged).count, total: results.count,
                                  unreadable: results.compactMap { r in r.readError.map { "\(r.fileURL.path): \($0)" } },
                                  cancelled: self.wasScanCancelled)
@@ -246,11 +263,18 @@ public final class ScannerState: ObservableObject {
         }
         let scanner = FrameCheckScanner()
         frameCheckScanner = scanner
+        let generation = runGeneration
         Task(priority: .utility) {
             let results = await scanner.scanBatch(videos, legalSpec: .current) { progress in
                 DispatchQueue.main.async { self.frameCheckProgress = progress }
             }
             await MainActor.run {
+                guard generation == self.runGeneration else {
+                    self.isFrameChecking = false
+                    self.isFullCheck = false
+                    self.frameCheckScanner = nil
+                    return
+                }
                 Self.logFinished("Frame Check", flagged: results.filter(\.isFlagged).count, total: results.count,
                                  unreadable: results.compactMap { r in r.readError.map { "\(r.fileURL.path): \($0)" } },
                                  cancelled: self.wasFrameCheckCancelled)
@@ -276,6 +300,14 @@ public final class ScannerState: ObservableObject {
         frameCheckScanner?.cancel()
     }
     
+    /// Clearing the queue: running checks stop and whatever they return is dropped.
+    public func discardRunningChecks() {
+        runGeneration += 1
+        rawResults = []
+        if isScanning { wasScanCancelled = true; isCancelling = true; scannerActor?.cancel() }
+        if isFrameChecking { wasFrameCheckCancelled = true; frameCheckScanner?.cancel() }
+    }
+
     public func cancelScan() {
         guard isScanning else { return }
         wasScanCancelled = true
@@ -296,7 +328,14 @@ public final class ScannerState: ObservableObject {
         savePanel.directoryURL = folder
         
         if savePanel.runModal() == .OK, let url = savePanel.url {
-            Log.scan.attempt("Saving the HTML report to \(url.path)") { try htmlString.write(to: url, atomically: true, encoding: .utf8) }
+            // A failed save must not open the file: overwriting an older report, that showed the old results.
+            do {
+                try htmlString.write(to: url, atomically: true, encoding: .utf8)
+            } catch {
+                Log.scan.error("Saving the HTML report to \(url.path) failed", error)
+                NSAlert(error: error).runModal()
+                return
+            }
             self.generatedReportURL = url
             NSWorkspace.shared.open(url)
         }
@@ -314,7 +353,14 @@ public final class ScannerState: ObservableObject {
         savePanel.directoryURL = folder
         
         if savePanel.runModal() == .OK, let url = savePanel.url {
-            Log.scan.attempt("Saving the CSV report to \(url.path)") { try csvString.write(to: url, atomically: true, encoding: .utf8) }
+            // A failed save must not open the file: overwriting an older report, that showed the old results.
+            do {
+                try csvString.write(to: url, atomically: true, encoding: .utf8)
+            } catch {
+                Log.scan.error("Saving the CSV report to \(url.path) failed", error)
+                NSAlert(error: error).runModal()
+                return
+            }
             self.generatedCSVURL = url
             NSWorkspace.shared.open(url)
         }

@@ -1,5 +1,6 @@
 import SwiftUI
 import AppKit
+import VideoQCLib
 
 /// One deliverable: status dot, name, the specs the sheet asks for, the matched file and anything wrong.
 struct PlanRowView: View, Equatable {
@@ -41,7 +42,7 @@ struct PlanRowView: View, Equatable {
         if !row.value(.aspect).isEmpty { parts.append(row.value(.aspect)) }
         if !row.value(.length).isEmpty { parts.append(row.value(.length)) }
         if let format = row.format { parts.append(format.title) }
-        if let fps = row.fps { parts.append("\(format0(fps)) fps") }
+        if let fps = row.fps { parts.append("\(QCUtilities.formatFPS(fps)) fps") }
         if let max = row.maxBytes { parts.append("≤ \(ByteCountFormatter.string(fromByteCount: max, countStyle: .decimal))") }
         return parts.joined(separator: " · ")
     }

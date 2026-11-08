@@ -7,12 +7,13 @@ import CoreVideo
 enum TestClips {
     /// `frames` copies of `frame` at 29.97 fps on a 600 time base (QuickTime, iPhone), where NTSC-rate timestamps are
     /// rounded to the tick. Returns the file in a fresh temporary folder; the caller removes `url.deletingLastPathComponent()`.
-    static func ntscOn600TimeBase(_ frame: SyntheticFrame, frames: Int) async throws -> URL {
+    static func ntscOn600TimeBase(_ frame: SyntheticFrame, frames: Int, indexFirst: Bool = false) async throws -> URL {
         let folder = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         let url = folder.appendingPathComponent("clip.mov")
 
         let writer = try AVAssetWriter(outputURL: url, fileType: .mov)
+        writer.shouldOptimizeForNetworkUse = indexFirst   // index (moov) before the media data
         let input = AVAssetWriterInput(mediaType: .video, outputSettings: [
             AVVideoCodecKey: AVVideoCodecType.h264,
             AVVideoWidthKey: frame.width,

@@ -926,20 +926,23 @@ struct NotesDrawerPanelView: View {
         var size = CGSize(width: 1920, height: 1080)
         var seconds = 0.0
         if let track = try? await asset.loadTracks(withMediaType: .video).first {
-            if let rate = try? await track.load(.nominalFrameRate), rate > 0 { fps = Double(rate) }
+            // Damaged headers can hold NaN / inf / absurd values, and Int() below traps on those.
+            if let rate = try? await track.load(.nominalFrameRate), rate > 0, rate < 1000 { fps = Double(rate) }
             if let natural = try? await track.load(.naturalSize), let transform = try? await track.load(.preferredTransform) {
                 let rect = CGRect(origin: .zero, size: natural).applying(transform)
-                size = CGSize(width: abs(rect.width), height: abs(rect.height))
+                if rect.width.isFinite, rect.height.isFinite, abs(rect.width) < 1_000_000, abs(rect.height) < 1_000_000 {
+                    size = CGSize(width: abs(rect.width), height: abs(rect.height))
+                }
             }
         }
-        if let duration = try? await asset.load(.duration), CMTimeGetSeconds(duration).isFinite { seconds = CMTimeGetSeconds(duration) }
+        if let duration = try? await asset.load(.duration), CMTimeGetSeconds(duration).isFinite, CMTimeGetSeconds(duration) < 1e7 { seconds = max(0, CMTimeGetSeconds(duration)) }
         var audioChannels = 0
         var audioSampleRate = 48000
         if let track = try? await asset.loadTracks(withMediaType: .audio).first,
            let desc = try? await track.load(.formatDescriptions).first,
            let asbd = CMAudioFormatDescriptionGetStreamBasicDescription(desc)?.pointee {
             audioChannels = max(1, Int(asbd.mChannelsPerFrame))
-            if asbd.mSampleRate > 0 { audioSampleRate = Int(asbd.mSampleRate) }
+            if asbd.mSampleRate > 0, asbd.mSampleRate < 10_000_000 { audioSampleRate = Int(asbd.mSampleRate) }
         }
         return (fps, size, seconds, audioChannels, audioSampleRate)
     }

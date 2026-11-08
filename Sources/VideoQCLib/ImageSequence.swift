@@ -30,7 +30,11 @@ public struct ImageSequence: Sendable, Hashable {
     public var lastNumber: Int { frameNumbers[frameNumbers.count - 1] }
     /// Timeline length in frames, gaps included.
     public var length: Int { lastNumber - firstNumber + 1 }
-    public var missingCount: Int { length - frameURLs.count }
+    /// Gaps in the numbering. Counted by distinct numbers: duplicates (below) used to cancel real gaps out.
+    public var missingCount: Int { length - urlByNumber.count }
+    /// Frames whose number appears twice: two renders with different padding in one folder (shot_009 and shot_9).
+    /// Playback shows one of each pair, so the sequence silently mixes renders.
+    public var duplicateCount: Int { frameURLs.count - urlByNumber.count }
 
     /// e.g. `shot_[0001-0240].png`
     public var displayName: String {
@@ -74,10 +78,11 @@ public enum ImageSequenceDetector {
             let prefix = String(base.dropLast(digits.count))
             let dir = url.deletingLastPathComponent()
             let key = GroupKey(dir: dir.path, prefix: prefix, ext: url.pathExtension.lowercased())
-            var entry = groups[key] ?? (dir, url.pathExtension, digits.count, [])
-            entry.padding = min(entry.padding, digits.count)
-            entry.frames.append((number, url))
-            groups[key] = entry
+            // Mutated in place: copying the entry out and back copied its frame list on every append (O(n²): 80,000
+            // frames took 41 s).
+            groups[key, default: (dir, url.pathExtension, digits.count, [])].padding =
+                min(groups[key]?.padding ?? digits.count, digits.count)
+            groups[key]!.frames.append((number, url))
         }
         return groups.compactMap { key, entry in
             guard entry.frames.count >= minimumFrames else { return nil }

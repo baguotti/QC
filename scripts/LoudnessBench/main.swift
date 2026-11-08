@@ -83,7 +83,7 @@ for (name, args, note) in cases {
         // ffmpeg over-reads this one (−5.4); the exact true peak is 0.5 (−6.02 dB) with samples at 0.354.
         if name.hasPrefix("inter-sample") { ok = ok && abs(m.truePeak - 20 * log10(0.5)) <= 0.3 }
         // Lossy: Apple's and ffmpeg's AAC decoders produce slightly different samples (LFE especially).
-        else if let rt = ref.truePeak { ok = ok && abs(rt - m.truePeak) <= (isAAC ? 0.75 : 0.5) }
+        else if let rt = ref.truePeak { ok = ok && (rt == m.truePeak || abs(rt - m.truePeak) <= (isAAC ? 0.75 : 0.5)) }
         if !name.hasPrefix("short"), let rl = ref.range, let l = m.range { ok = ok && abs(rl - l) <= 0.5 }
     }
     if let note { ok = ok && m.channelNotes.contains { $0.contains(note) } } else if name != "silence" { ok = ok && m.channelNotes.isEmpty }
@@ -103,7 +103,8 @@ if !skipReal {
         let ref = reference(url)
         var ok = true
         if let ri = ref.integrated, let i = m.integrated { ok = abs(ri - i) <= 0.2 }
-        if let rt = ref.truePeak { ok = ok && abs(rt - m.truePeak) <= 0.5 }
+        // Digital silence: both read -inf, and -inf - -inf is NaN, which fails every tolerance.
+        if let rt = ref.truePeak { ok = ok && (rt == m.truePeak || abs(rt - m.truePeak) <= 0.5) }
         check(url.lastPathComponent, ok, "I \(fmt(m.integrated)) / \(fmt(ref.integrated))  TP \(fmt(m.truePeak)) / \(fmt(ref.truePeak))  LRA \(fmt(m.range)) / \(fmt(ref.range))  \(m.channelNotes)  \(String(format: "%.2fs", seconds))")
     }
 }

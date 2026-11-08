@@ -320,7 +320,7 @@ extension DeliveryPlanStore {
     /// Where a typed cell is now (0-based row and sheet column): its row by code when the sheet was sorted, its
     /// column by header when columns moved. Refused when the row is gone or the cell no longer shows what QCpie did.
     nonisolated static func locate(_ cell: PlanOutbox.Cell, in table: [[String]]) -> Result<(Int, Int), CellRefusal> {
-        func text(_ r: Int, _ c: Int) -> String { r < table.count && c < table[r].count ? table[r][c] : "" }
+        func text(_ r: Int, _ c: Int) -> String { table.indices.contains(r) && table[r].indices.contains(c) ? table[r][c] : "" }
         var row = cell.line - 1
         var column = cell.sheetColumn
         if let header = PlanParser.header(table) {
@@ -331,7 +331,8 @@ extension DeliveryPlanStore {
                 }
                 row = moved
             }
-            if let name = cell.header?.lowercased(),
+            // Moved only when the column there no longer has the header (two "Notes" columns: keep the one typed in).
+            if let name = cell.header?.lowercased(), PlanGrid.normalized(text(header.index, column)).lowercased() != name,
                let found = table[header.index].firstIndex(where: { PlanGrid.normalized($0).lowercased() == name }) {
                 column = found
             }

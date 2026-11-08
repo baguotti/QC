@@ -36,13 +36,14 @@ struct UserGuideView: View {
     }
     
     /// Every keyboard shortcut (as registered in `KeyboardShortcutRouter`), one page per group.
-    static let shortcutsChapter = GuideChapter(title: "Keyboard Shortcuts", icon: "keyboard", topics: [
+    /// Rebuilt on each use: some lines follow settings (the ⇧-arrow step).
+    static var shortcutsChapter: GuideChapter { GuideChapter(title: "Keyboard Shortcuts", icon: "keyboard", topics: [
         GuideTopic(title: "Playback", body: "", shortcuts: [
             GuideShortcut(["Space"], "Play / pause"),
             GuideShortcut(["J", "K", "L"], "Reverse · stop · forward (press again to speed up)"),
             GuideShortcut(["⇧J", "⇧L"], "Slow frame-by-frame reverse / forward"),
             GuideShortcut(["←", "→"], "Step one frame"),
-            GuideShortcut(["⇧←", "⇧→"], "Step five frames"),
+            GuideShortcut(["⇧←", "⇧→"], UserPreferences.shiftStep == 0 ? "Step one second" : "Step \(UserPreferences.shiftStep) frames"),
             GuideShortcut(["Home"], "Go to the first frame"),
             GuideShortcut(["I", "O"], "Mark In / Out"),
             GuideShortcut(["⇧I", "⇧O"], "Go to In / Out (first / last frame when not set)"),
@@ -71,6 +72,7 @@ struct UserGuideView: View {
             GuideShortcut(["0"], "Clear the Finder tag"),
             GuideShortcut(["⌥I"], "Cycle the clip info overlay"),
             GuideShortcut(["⌘I"], "Media Info"),
+            GuideShortcut(["⌘V"], "Link the clip to the Frame.io link on the clipboard (for comments)"),
         ]),
         GuideTopic(title: "Inspect", body: "", shortcuts: [
             GuideShortcut(["↑", "↓"], "Previous / next file"),
@@ -85,6 +87,7 @@ struct UserGuideView: View {
             GuideShortcut(["⌘I"], "Media Info"),
             GuideShortcut(["⌘A"], "Select all"),
             GuideShortcut(["Esc"], "Clear the selection"),
+            GuideShortcut(["⌘Z"], "Undo the last Delivery Plan edit"),
             GuideShortcut(["⌥1", "⌥6"], "Delivery Plan status (⌥0 clears)"),
         ]),
         GuideTopic(title: "Upload", body: "", shortcuts: [
@@ -108,9 +111,10 @@ struct UserGuideView: View {
             GuideShortcut(["⇧T"], "Next accent theme"),
             GuideShortcut(["?", "⌘/"], "User Guide"),
         ]),
-    ])
+    ]) }
     
-    static let chapters: [GuideChapter] = [
+    /// Rebuilt on each use, so the shortcuts chapter shows the current settings.
+    static var chapters: [GuideChapter] { [
         GuideChapter(title: "Play", icon: "play.fill", topics: [
             GuideTopic(title: "Assets", body: "Change, Add or Refresh the loaded folder or files. The line underneath shows how many videos, images and audio files are loaded. Drag and drop works anywhere in the panel."),
             GuideTopic(title: "Queue", body: "Click a file to load it into Slot A, ⌥-click (or +B) to load it into Slot B. ↑ / ↓ move through the queue (⌥↑ / ⌥↓ for Slot B). The view menu switches list and thumbnails; + / − change the thumbnail size."),
@@ -163,7 +167,7 @@ struct UserGuideView: View {
             GuideTopic(title: "Defaults", body: "Set the Line Check defaults (target, sensitivity, options, edge depth) in User Settings; they apply each time QCpie opens."),
         ]),
         shortcutsChapter,
-    ]
+    ] }
     
     var body: some View {
         SidebarModalShell(isPresented: $isPresented, title: "QCpie User Guide", width: 820, height: 560, sidebarWidth: 230,

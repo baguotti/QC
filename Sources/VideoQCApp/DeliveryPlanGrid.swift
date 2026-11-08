@@ -210,7 +210,10 @@ extension PlanGrid {
 
     private static func rgb(_ value: Any?) -> UInt32? {
         guard let color = value as? [String: Any] else { return nil }
-        func channel(_ key: String) -> UInt32 { UInt32(((color[key] as? Double) ?? 0) * 255 + 0.5) & 0xFF }
+        func channel(_ key: String) -> UInt32 {
+            let value = (color[key] as? Double) ?? 0   // 0…1 from Google; UInt32() traps on anything negative, huge or NaN
+            return value.isFinite ? UInt32(min(max(value, 0), 1) * 255 + 0.5) : 0
+        }
         return channel("red") << 16 | channel("green") << 8 | channel("blue")
     }
 

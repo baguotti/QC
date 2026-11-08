@@ -127,8 +127,8 @@ final class LogFile: @unchecked Sendable {
             let line = "\(formatter.string(from: date)) \(level) [\(category)] \(message)\n"
             guard let data = line.data(using: .utf8) else { return }
             if handle == nil { open() }
-            guard let handle else { return }
-            handle.write(data)
+            // write(contentsOf:) throws; the older write(_:) raises an Objective-C exception (disk full) and crashes.
+            guard let handle, (try? handle.write(contentsOf: data)) != nil else { return }
             size += UInt64(data.count)
             if size >= maxBytes { rotate() }
         }

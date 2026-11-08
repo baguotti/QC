@@ -216,10 +216,13 @@ enum PlanParser {
         text.components(separatedBy: .whitespacesAndNewlines).filter { !$0.isEmpty }.joined(separator: " ")
     }
 
-    /// The header row (the first of the top 15 naming a file-name column and at least two other known columns) and
+    /// The header row (the first of the top 40 naming a file-name column and at least two other known columns) and
     /// the column of each field (the first column naming it wins).
+    static let headerSearchRows = 40
+
     static func header(_ rows: [[String]]) -> (index: Int, columns: [PlanField: Int])? {
-        for (index, row) in rows.prefix(15).enumerated() {
+        // 40 rows: agency plans can open with logos, instructions and a campaign block (15 rejected some).
+        for (index, row) in rows.prefix(headerSearchRows).enumerated() {
             var columns: [PlanField: Int] = [:]
             for (column, text) in row.enumerated() {
                 if let field = PlanField.detect(text), columns[field] == nil { columns[field] = column }
@@ -332,6 +335,8 @@ enum PlanParser {
 
     /// "16x9", "6:7 (mobile)", "17x20 Desktop & Mobile", "2.39:1" → width ÷ height.
     static func aspect(_ text: String) -> Double? {
+        // "1,85:1" from a sheet in a comma-decimal locale; a list ("17x20,9x16") keeps its comma.
+        let text = text.replacingOccurrences(of: #"(?<![\d.xX×:/])(\d+),(\d+)(?=\s*[xX×:/])"#, with: "$1.$2", options: .regularExpression)
         guard let range = text.range(of: #"(\d+(?:\.\d+)?)\s*[xX×:/]\s*(\d+(?:\.\d+)?)"#, options: .regularExpression) else { return nil }
         let parts = text[range].components(separatedBy: CharacterSet(charactersIn: "xX×:/ ")).compactMap { Double($0) }
         return parts.count == 2 && parts[0] > 0 && parts[1] > 0 ? parts[0] / parts[1] : nil
@@ -340,6 +345,9 @@ enum PlanParser {
     /// "30s", "15 sec", "2-3s", "1:30", "1m30s", "0:00:15:00"? (timecodes are read as h:m:s) → seconds.
     static func seconds(_ text: String) -> ClosedRange<Double>? {
         let t = text.lowercased().replacingOccurrences(of: " ", with: "")
+            // "2,5s" from a sheet in a comma-decimal locale. Only before a seconds unit: a bare "1,30" might mean 1:30,
+            // and reading it as 1.3 s would flag every file; "30s,15s" keeps its comma too.
+            .replacingOccurrences(of: #"(\d),(\d+)(?=(?:s|sec|secs|seconds|")(?:$|[^a-z]))"#, with: "$1.$2", options: .regularExpression)
         // "30s / 15s": either length is fine.
         if t.contains("/") {
             let parts = t.components(separatedBy: "/").compactMap { seconds($0) }
@@ -383,7 +391,8 @@ enum PlanParser {
         let match = t[range]
         guard let value = Double(match.prefix { $0.isNumber || $0 == "." || $0 == "," }.replacingOccurrences(of: ",", with: ".")) else { return nil }
         let unit: Double = match.hasSuffix("kb") ? 1e3 : match.hasSuffix("gb") ? 1e9 : 1e6
-        return Int64(value * unit)
+        let total = value * unit
+        return total.isFinite && total < 9e18 ? Int64(total) : nil   // Int64() traps past Int64.max
     }
 
     /// Rows with the same identity and the same values: flagged on the later ones.
@@ -403,7 +412,10 @@ enum PlanParser {
 }
 
 func format0(_ value: Double) -> String {
-    value == value.rounded() ? String(Int(value)) : String(format: "%.1f", value)
+    // Int() traps past Int.max and on NaN / ±inf: a Length cell holding a long number (an ID pasted in the wrong column)
+    // crashed plan matching when the mismatch message was built.
+    guard value.isFinite, abs(value) < 1e15 else { return String(format: "%g", value) }
+    return value == value.rounded() ? String(Int(value)) : String(format: "%.1f", value)
 }
 
 // MARK: - Matching
@@ -420,6 +432,9 @@ struct PlanFile: Sendable, Equatable {
     let hasAudio: Bool
     /// Modification date (a file newer than its row's QC status is a new version).
     var modified: Date? = nil
+    /// Why the file can't count as a delivery whatever its specs: unreadable, or cut off. Its specs read 0 (unreadable)
+    /// or its full length (cut off), so the spec checks alone would call it a match.
+    var damage: String? = nil
 
     init(url: URL, width: Int, height: Int, seconds: Double, fps: Double, bytes: Int64, codec: String, hasAudio: Bool,
          modified: Date? = nil) {
@@ -430,6 +445,11 @@ struct PlanFile: Sendable, Equatable {
     init(_ asset: DeliverableAsset) {
         self.init(url: asset.fileURL, width: asset.width, height: asset.height, seconds: asset.durationSeconds,
                   fps: asset.fps, bytes: asset.fileSizeBytes, codec: asset.videoCodec, hasAudio: asset.hasAudio)
+        if asset.videoCodec == DeliverablesInspector.unreadableCodec {
+            damage = asset.validation.durationMismatchDetail ?? "Unreadable"
+        } else if asset.validation.isCutOff {
+            damage = asset.validation.durationMismatchDetail
+        }
     }
 
     var ext: String { url.pathExtension.lowercased() }
@@ -489,7 +509,7 @@ enum PlanMatcher {
 
     /// How a file differs from a row (empty: matches). Only what the row states is checked.
     static func problems(_ row: PlanRow, _ file: PlanFile) -> [String] {
-        var problems: [String] = []
+        var problems: [String] = file.damage.map { [$0] } ?? []
         if let w = row.width, let h = row.height, file.width > 0, (file.width, file.height) != (w, h) {
             problems.append("\(file.width)×\(file.height), expected \(w)×\(h)")
         }
@@ -498,7 +518,7 @@ enum PlanMatcher {
             problems.append("Runs \(String(format: "%.2f", file.seconds))s, expected \(expected)")
         }
         if let fps = row.fps, file.fps > 0, abs(fps - file.fps) > 0.01 {
-            problems.append("\(String(format: "%.3g", file.fps)) fps, expected \(format0(fps))")
+            problems.append("\(QCUtilities.formatFPS(file.fps)) fps, expected \(QCUtilities.formatFPS(fps))")
         }
         if let max = row.maxBytes, file.bytes > max {
             problems.append("\(ByteCountFormatter.string(fromByteCount: file.bytes, countStyle: .decimal)), max \(ByteCountFormatter.string(fromByteCount: max, countStyle: .decimal))")
@@ -918,6 +938,6 @@ enum PlanBatch {
     /// The batch after the highest one: "3" after "2".
     static func next(after names: [String]) -> String {
         let top = names.compactMap { parts($0).first }.max() ?? 0
-        return "\(top + 1)"
+        return "\(top == .max ? top : top + 1)"
     }
 }

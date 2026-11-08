@@ -133,8 +133,10 @@ final class PlanCheckQueue: ObservableObject {
                 if !outcome.passed { failed = true; failures.append("\(prefix)\(kind.title): \(outcome.summary)") }
             }
         }
+        // No outcome at all is "not run", whatever is ticked: with every check unticked nothing was "missing", so rows
+        // that were never checked read as passed (and Pass All Clean would mark them QC Passed).
+        let result: PlanChecksSummary.Result = failed ? .failed : lines.isEmpty ? .notRun : missing ? .partial : .passed
         if running.contains(where: { url in files.contains { $0.url == url } }) { lines.insert("Checking…", at: 0) }
-        let result: PlanChecksSummary.Result = failed ? .failed : missing ? (lines.isEmpty ? .notRun : .partial) : .passed
         return PlanChecksSummary(result: result, lines: lines, failures: failures)
     }
 

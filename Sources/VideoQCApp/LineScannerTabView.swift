@@ -511,7 +511,7 @@ extension ContentView {
                     .fontWeight(.heavy)
                     .foregroundColor(textMain)
                 
-                Text(seg.frameCount == 1 ? "1 frame (0.04s)" : "\(seg.frameCount) frames (\(String(format: "%.2f", seg.durationSeconds))s)")
+                Text("\(seg.frameCount) frame\(seg.frameCount == 1 ? "" : "s") (\(String(format: "%.2f", seg.durationSeconds))s)")   // 1 frame is 0.04 s only at 25 fps
                     .frame(width: 130, alignment: .leading)
                     .foregroundColor(textSubtle)
                 

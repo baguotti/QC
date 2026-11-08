@@ -330,8 +330,10 @@ extension PlayerEngine {
                     refreshPausedFramesForExposure()
                 }
                 let transformedSize = naturalSize.applying(transform)
-                let w = Int(abs(transformedSize.width))
-                let h = Int(abs(transformedSize.height))
+                // A damaged header can carry NaN or absurd sizes: Int() traps on those (Inspect guards the same way).
+                func pixels(_ v: CGFloat) -> Int { v.isFinite && abs(v) < 1_000_000 ? Int(abs(v)) : 0 }
+                let w = pixels(transformedSize.width)
+                let h = pixels(transformedSize.height)
                 resStr = "\(w)x\(h)"
                 detectedSize = CGSize(width: max(1, w), height: max(1, h))
                 

@@ -4,13 +4,15 @@ public struct ReportWriter: Sendable {
     
     // MARK: - Finder Tagging (Red Label for Flagged Files)
     
-    /// Marks all flagged video files in macOS Finder with a Red label/tag
-    public static func tagFlaggedFilesInFinder(results: [VideoQCResult]) {
-        for result in results {
-            if result.isFlagged {
-                FinderTagManager.setTag(.red, for: result.fileURL)
-            }
+    /// Marks all flagged video files in macOS Finder with a Red label/tag. Returns the files actually tagged and the
+    /// number that couldn't be (read-only drives and shares).
+    @discardableResult
+    public static func tagFlaggedFilesInFinder(results: [VideoQCResult]) -> (tagged: [URL], failed: Int) {
+        var tagged: [URL] = [], failed = 0
+        for result in results where result.isFlagged {
+            if FinderTagManager.setTag(.red, for: result.fileURL) { tagged.append(result.fileURL) } else { failed += 1 }
         }
+        return (tagged, failed)
     }
     
     // MARK: - Google Sheets / CSV Report Generator
@@ -651,8 +653,8 @@ public struct ReportWriter: Sendable {
         } else {
             for clean in cleanVideos {
                 html += """
-                <div class="clean-cell" title="\(clean.fileName.uppercased())">
-                    <span class="clean-name">\(clean.fileName.uppercased())</span>
+                <div class="clean-cell" title="\(QCUtilities.escapeHTML(clean.fileName.uppercased()))">
+                    <span class="clean-name">\(QCUtilities.escapeHTML(clean.fileName.uppercased()))</span>
                     <span class="check">[PASSED]</span>
                 </div>
                 """
@@ -671,9 +673,9 @@ public struct ReportWriter: Sendable {
             <div id="toast"></div>
 
             <script>
-                const csvData = `\(rawCSV.replacingOccurrences(of: "`", with: "\\`").replacingOccurrences(of: "${", with: "\\${"))`;
-                const tsvData = `\(rawTSV.replacingOccurrences(of: "`", with: "\\`").replacingOccurrences(of: "${", with: "\\${"))`;
-                const csvFilename = "\(directCSVLink)";
+                const csvData = `\(QCUtilities.escapeJSTemplate(rawCSV))`;
+                const tsvData = `\(QCUtilities.escapeJSTemplate(rawTSV))`;
+                const csvFilename = `\(QCUtilities.escapeJSTemplate(directCSVLink))`;
 
                 function toggleTheme() {
                     const current = document.documentElement.getAttribute('data-theme') || 'dark';

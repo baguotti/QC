@@ -182,7 +182,7 @@ final class InspectPreview: ObservableObject {
         Task {
             let rate = (try? await asset?.loadTracks(withMediaType: .video).first?.load(.nominalFrameRate)).map(Double.init) ?? 0
             guard self.url == url else { return }
-            clock.fps = rate > 0 ? rate : 25
+            clock.fps = rate > 0 && rate < 1000 ? rate : 25   // inf from a damaged header made the timecode Int(NaN)
         }
     }
 }

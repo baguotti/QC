@@ -68,7 +68,7 @@ extension DeliveryPlanPanel {
             }
             Divider()
             Button("Pass All Clean (\(clean.count))…") { passAllClean(clean) }
-                .disabled(clean.isEmpty)
+                .disabled(clean.isEmpty || checks.kinds.isEmpty)
         } label: {
             Image(systemName: "checkmark.shield")
                 .font(.system(size: StudioTheme.scaleFont(11), weight: .medium))
@@ -97,6 +97,20 @@ extension DeliveryPlanPanel {
         var seen = Set<URL>()
         let files = rows.flatMap { store.fileStamps($0) }.filter { seen.insert($0.url).inserted }
         checks.enqueue(files, kinds: checks.kinds)
+    }
+
+    /// Unlinking deletes this Mac's copy of the plan, the outbox included: edits Google doesn't have yet (offline, no
+    /// QCpie tab) were lost without a word. Asks first when there are any.
+    func confirmUnlink() {
+        let unsent = store.outbox.unsent.records.count + store.outbox.unsent.cells.count
+        guard unsent > 0 else { store.unlink(); return }
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = "Unlink with \(unsent) unsaved edit\(unsent == 1 ? "" : "s")?"
+        alert.informativeText = "\(unsent == 1 ? "An edit hasn't" : "\(unsent) edits haven't") reached the sheet yet (statuses, notes, typed cells). Unlinking discards \(unsent == 1 ? "it" : "them")."
+        alert.addButton(withTitle: "Cancel")
+        alert.addButton(withTitle: "Unlink").hasDestructiveAction = true
+        if alert.runModal() == .alertSecondButtonReturn { store.unlink() }
     }
 
     /// Marks every To QC row whose checks all passed as QC Passed, after asking.
@@ -175,8 +189,10 @@ extension DeliveryPlanPanel {
                 .font(.ui(size: 11))
                 .onAppear { noteDraft = store.note(row); noteRowID = row.id }
                 .onChange(of: row.id) { old, new in
-                    // Selecting another row while typing: the text goes to the row it was typed for, not lost.
-                    commitDraft(to: old)
+                    // Selecting another row while typing: the text goes to the row it was typed for, not lost. Not
+                    // typing, there's nothing to keep (leaving the field saves), and the draft may already show the
+                    // new row's note (the note onChange below can run first): committing it would copy it to the old row.
+                    if noteFocused { commitDraft(to: old) }
                     noteDraft = store.note(row)
                     noteRowID = new
                 }

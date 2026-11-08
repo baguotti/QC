@@ -307,3 +307,23 @@ extension DeliveryPlanTests {
     // Only "another version" depends on the file's date.
     #expect(DeliveryPlanStore.mismatchKey("r1", .notUploaded, link: link, newest: .now) == DeliveryPlanStore.mismatchKey("r1", .notUploaded, link: link, newest: nil))
 }
+
+extension DeliveryPlanTests {
+    @Test("An unreadable or cut-off file is never a clean match, whatever its specs read")
+    func damagedFilesAreProblems() {
+        let csv = """
+        "Code","File Name","Length","Resolution"
+        "KL0001","TEASER_15s_KL0001","15s","1920x1080"
+        """
+        let row = PlanParser.rows(csv: csv, tab: "Edits")[0]
+        let url = URL(fileURLWithPath: "/d/TEASER_15s_KL0001.mp4")
+        let good = PlanFile(url: url, width: 1920, height: 1080, seconds: 15, fps: 25, bytes: 1, codec: "H.264", hasAudio: true)
+        #expect(PlanMatcher.problems(row, good).isEmpty)
+        var unreadable = PlanFile(url: url, width: 0, height: 0, seconds: 0, fps: 0, bytes: 0, codec: "UNREADABLE", hasAudio: false)
+        unreadable.damage = "Unreadable: the file is empty"
+        #expect(PlanMatcher.problems(row, unreadable) == ["Unreadable: the file is empty"])
+        var cut = good
+        cut.damage = "CUT OFF: only 40% of the data is in the file"
+        #expect(PlanMatcher.problems(row, cut).count == 1)
+    }
+}

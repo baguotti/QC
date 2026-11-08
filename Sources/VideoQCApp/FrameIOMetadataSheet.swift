@@ -165,7 +165,7 @@ struct FrameIOMetadataSheet: View {
         guard case .set(let value) = edits[field.id] else { return false }
         switch value {
         case .ids(let ids): return ids.contains(id)
-        case .number(let number): return "\(Int(number))" == id
+        case .number(let number): return number.isFinite && abs(number) < 1e15 && "\(Int(number))" == id   // Int() traps on huge values
         case .bool(let flag): return (flag ? "on" : "off") == id
         default: return false
         }
@@ -196,7 +196,14 @@ struct FrameIOMetadataSheet: View {
         if trimmed.isEmpty {
             edits[field.id] = .unchanged
         } else if field.fieldType == "number" {
-            edits[field.id] = Double(trimmed).map { .set(.number($0)) } ?? .unchanged
+            // "1.5" anywhere, else the Mac's own format ("1,5" with Italian settings): a comma decimal used to be
+            // dropped as no change.
+            let number = Double(trimmed) ?? {
+                let f = NumberFormatter()
+                f.numberStyle = .decimal
+                return f.number(from: trimmed)?.doubleValue
+            }()
+            edits[field.id] = number.map { .set(.number($0)) } ?? .unchanged
         } else {
             edits[field.id] = .set(.text(text))
         }

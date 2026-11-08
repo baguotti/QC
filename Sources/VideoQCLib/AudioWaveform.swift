@@ -44,7 +44,9 @@ public enum AudioWaveform {
             // Placed by its own time: audio that starts later than the video (an offset track) would otherwise be
             // drawn that much early.
             let pts = CMSampleBufferGetPresentationTimeStamp(buffer)
-            if pts.isNumeric { sampleIndex = max(0, Int((pts.seconds * sampleRate).rounded())) }
+            if pts.isNumeric, case let index = (pts.seconds * sampleRate).rounded(), index.isFinite {
+                sampleIndex = Int(min(max(0, index), 1e15))   // a damaged file's timestamps can be absurd
+            }
             func accumulate(_ samples: UnsafePointer<Float>) {
                 for i in 0..<count {
                     let bin = min(bins - 1, Int(Double(sampleIndex + i) / samplesPerBin))

@@ -352,12 +352,7 @@ public enum FrameCheckAnalyzer {
         standardRates.min { abs($0 - fps) < abs($1 - fps) }.flatMap { abs($0 - fps) / fps < 0.025 ? $0 : nil } ?? fps
     }
 
-    public static func rateLabel(_ fps: Double) -> String {
-        if abs(fps - fps.rounded()) < 0.001 { return "\(Int(fps.rounded())) fps" }
-        var text = String(format: "%.3f", fps)
-        while text.hasSuffix("0") { text.removeLast() }
-        return text + " fps"
-    }
+    public static func rateLabel(_ fps: Double) -> String { QCUtilities.formatFPS(fps) + " fps" }
 
     private static func localMedian(_ v: [Float], around i: Int, radius: Int, excluding skip: [Bool]?) -> Float {
         var window: [Float] = []
@@ -425,10 +420,13 @@ public actor FrameCheckScanner {
             return FrameCheckResult(fileURL: url, fileName: url.lastPathComponent, fps: 0, totalFrames: 0, mismatch: nil,
                                     flashFrames: [], offline: [], legalRange: [], legalSpec: legalSpec, readError: ProVideoFormats.openError(for: url))
         }
-        let natural = (try? await track.load(.naturalSize)) ?? CGSize(width: 1920, height: 1080)
+        // A damaged header can hold NaN / absurd sizes and durations: Int() below traps on those.
+        let loadedSize = (try? await track.load(.naturalSize)) ?? .zero
+        let natural = loadedSize.width.isFinite && loadedSize.height.isFinite && loadedSize.width >= 1 && loadedSize.height >= 1
+            && loadedSize.width < 100_000 && loadedSize.height < 100_000 ? loadedSize : CGSize(width: 1920, height: 1080)
         let fps = FrameRate.counting(nominal: Double((try? await track.load(.nominalFrameRate)) ?? 25))
         let loadedDuration = CMTimeGetSeconds((try? await asset.load(.duration)) ?? .zero)
-        let duration = loadedDuration.isFinite ? loadedDuration : 0
+        let duration = loadedDuration.isFinite ? min(max(0, loadedDuration), 1e7) : 0
         let estimatedFrames = max(1, Int((duration * fps).rounded()))
 
         let longSide = max(natural.width, natural.height, 1)

@@ -33,8 +33,18 @@ public enum QCUtilities: Sendable {
         return nil
     }
     
+    /// A frame rate as people write it: "25", "23.976", "29.97", "59.94" (`%.3g` rounded 29.97 to "30").
+    public static func formatFPS(_ fps: Double) -> String {
+        guard fps.isFinite else { return "--" }
+        var text = String(format: "%.3f", fps)
+        while text.hasSuffix("0") { text.removeLast() }
+        if text.hasSuffix(".") { text.removeLast() }
+        return text
+    }
+
     public static func isSupportedMedia(url: URL) -> Bool {
-        mediaKind(of: url) != nil
+        // "._clip.mov": AppleDouble metadata that exFAT / SMB volumes keep beside every file, never media.
+        !url.lastPathComponent.hasPrefix("._") && mediaKind(of: url) != nil
     }
     
     /// `path` is `folder` or inside it. A plain `hasPrefix` took "/Jobs/Job10/a.mov" as inside "/Jobs/Job1".
@@ -72,12 +82,17 @@ public enum QCUtilities: Sendable {
             UInt8((fourCC >> 8) & 0xff),
             UInt8(fourCC & 0xff)
         ]
-        return String(bytes: bytes, encoding: .ascii)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        // Printable ASCII only: a zero or garbage code ("\0\0\0\0") read as an invisible, non-empty name, so callers'
+        // "unknown codec" fallbacks never showed.
+        guard bytes.allSatisfy({ (0x20...0x7E).contains($0) }) else { return "" }
+        return String(decoding: bytes, as: UTF8.self).trimmingCharacters(in: .whitespaces)
     }
     
     /// Escapes a string for CSV formatting according to RFC 4180
     public static func escapeCSV(_ str: String) -> String {
-        if str.contains(",") || str.contains("\"") || str.contains("\n") || str.contains("\r") {
+        // Scalars, not Characters: "\r\n" is one Character in Swift, so contains("\n") missed Windows line breaks and the
+        // field was left unquoted, splitting the row.
+        if str.unicodeScalars.contains(where: { $0 == "," || $0 == "\"" || $0 == "\n" || $0 == "\r" }) {
             let escaped = str.replacingOccurrences(of: "\"", with: "\"\"")
             return "\"\(escaped)\""
         }

@@ -385,7 +385,7 @@ struct PlayerTransportDeckView: View, Equatable {
                             }
                             .buttonStyle(TransportIconButtonStyle())
                             .disabled(!transportState.hasActiveURL)
-                            .explain(hasNotes ? "Toggle Review Notes drawer (\(notesCount) notes)." : "Toggle Review Notes drawer.")
+                            .explain(hasNotes ? "Toggle Review Notes drawer (\(notesCount) note\(notesCount == 1 ? "" : "s"))." : "Toggle Review Notes drawer.")
                         } else {
                             SlotText(
                                 hasNotes ? "\(notesCount)" : "Note",

@@ -299,9 +299,10 @@ enum FrameIOCommentImport {
     /// "HH:MM:SS:FF" (or drop-frame "HH:MM:SS;FF") as a frame count at the clip's nominal rate.
     static func frames(_ timecode: String, fps: Double) -> Int? {
         let parts = timecode.split(whereSeparator: { $0 == ":" || $0 == ";" || $0 == "." }).compactMap { Int($0) }
-        guard parts.count == 4 else { return nil }
+        // A timecode field past 99 isn't one (and big values would overflow the arithmetic below).
+        guard parts.count == 4, parts.allSatisfy({ (0...999).contains($0) }) else { return nil }
         let (hours, minutes, seconds, frames) = (parts[0], parts[1], parts[2], parts[3])
-        let base = max(1, Int(fps.rounded()))
+        let base = fps.isFinite ? Int(min(max(1, fps.rounded()), 1000)) : 25
         var total = ((hours * 60 + minutes) * 60 + seconds) * base + frames
         if timecode.contains(";") {
             // Drop-frame: 2 frame numbers (4 at 59.94) are skipped each minute except every tenth.

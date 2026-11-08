@@ -194,6 +194,11 @@ extension DeliveryPlanSheetsTests {
         if case .success(let (_, c)) = DeliveryPlanStore.locate(cell(line: 2, column: 2, code: "KL1", header: "length", expect: "15s"), in: moved) {
             #expect(c == 3)
         } else { Issue.record("not found") }
+        // Two columns with the same header: the one typed in stays.
+        let twice = [["Code", "Notes", "Notes"], ["KL1", "", ""]]
+        if case .success(let (_, c)) = DeliveryPlanStore.locate(cell(line: 2, column: 2, code: "KL1", header: "Notes", expect: ""), in: twice) {
+            #expect(c == 2)
+        } else { Issue.record("not found") }
         if case .failure(let refusal) = DeliveryPlanStore.locate(cell(line: 3, column: 2, code: "KL1", header: "Length", expect: "10s"), in: table) {
             #expect(refusal.message.contains("now “15s”"))
         } else { Issue.record("should refuse") }

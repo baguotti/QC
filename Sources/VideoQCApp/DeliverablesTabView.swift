@@ -659,7 +659,8 @@ extension ContentView {
                 Text("Audit Complete")
                     .font(.system(size: StudioTheme.scaleFont(22), weight: .semibold))
                     .foregroundColor(textMain)
-                if specsState.specsFilterText.isEmpty {
+                // Any filter (text, kind, plan status / batch / upload) counts: only the text filter made it say "filtered".
+                if displayAssets.count == specsState.deliverableAssets.count {
                     Text("\(specsState.deliverableAssets.count) assets analyzed")
                         .font(.ui(size: 11, weight: .semibold))
                         .foregroundColor(textMuted)
@@ -673,7 +674,7 @@ extension ContentView {
             // Quick stats on their own row (never squeezed by the table controls), table controls under them.
             VStack(alignment: .leading, spacing: 14) {
                 HStack(spacing: 12) {
-                    statBox(title: specsState.specsFilterText.isEmpty ? "Total Assets" : "Filtered Assets", val: String(format: "%02d", displayAssets.count))
+                    statBox(title: displayAssets.count == specsState.deliverableAssets.count ? "Total Assets" : "Filtered Assets", val: String(format: "%02d", displayAssets.count))
                     statBox(title: "Name Mismatches", val: String(format: "%02d", mismatchCount), isRed: mismatchCount > 0, isPositive: mismatchCount == 0 && !displayAssets.isEmpty)
                     if !measured.isEmpty {
                         statBox(title: "Loudness Fails (\(target.name))", val: String(format: "%02d", loudnessFails), isRed: loudnessFails > 0, isPositive: loudnessFails == 0)
@@ -834,17 +835,26 @@ extension ContentView {
                             LazyVStack(spacing: 0) {
                                 let assetMap = deliverableAssetsMap
                                 
-                                if filteredDeliverableAssets.isEmpty && !specsState.specsFilterText.isEmpty {
+                                // Any filter can hide every file (with linked filters, one chosen in the Delivery Plan
+                                // carries over to files loaded later): say so instead of showing an empty table.
+                                if filteredDeliverableAssets.isEmpty && !specsState.deliverableAssets.isEmpty {
                                     VStack(spacing: 10) {
                                         Spacer().frame(height: 40)
                                         Image(systemName: "line.3.horizontal.decrease.circle")
                                             .font(.system(size: StudioTheme.scaleFont(26)))
                                             .foregroundColor(textMuted)
-                                        Text("No Assets Matching \"\(specsState.specsFilterText)\"")
+                                        Text(specsState.specsFilterText.isEmpty
+                                             ? "No files match the plan filters (\(specsState.deliverableAssets.count) hidden)"
+                                             : "No Assets Matching \"\(specsState.specsFilterText)\"")
                                             .font(.ui(size: 11, weight: .semibold))
                                             .foregroundColor(textMuted)
-                                        Button(action: { specsState.specsFilterText = "" }) {
-                                            Text("Clear Filter")
+                                        Button(action: {
+                                            specsState.specsFilterText = ""
+                                            inspectPlanFilter = -1
+                                            inspectPlanBatch = nil
+                                            inspectPlanUpload = nil
+                                        }) {
+                                            Text("Clear Filters")
                                                 .font(.ui(size: 11, weight: .semibold))
                                                 .foregroundColor(accentBlue)
                                         }

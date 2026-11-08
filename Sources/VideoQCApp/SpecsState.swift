@@ -59,6 +59,8 @@ public final class SpecsState: ObservableObject {
     @Published public var checkedEndFrameCount: Int = 0
     @Published public var totalEndFrameCount: Int = 0
     private var endFrameTask: Task<Void, Never>? = nil
+    /// Bumped per end-frame check: a cancelled run's late callbacks and its ending must not touch a newer run.
+    private var endFrameRun = 0
     
     // MARK: - Multi-Selection
     
@@ -417,7 +419,22 @@ public final class SpecsState: ObservableObject {
             }
         }
         displayCache = (key, assets)
+        pruneSelection(to: assets)
         return assets
+    }
+
+    /// Like Finder: files a filter or search hides (or that left the list) leave the selection, so actions on the
+    /// selection (plan status, batch, ⌥1–⌥6) never reach files the user can't see. Called during a render: the change
+    /// is published on the next turn.
+    private func pruneSelection(to shown: [DeliverableAsset]) {
+        guard !selectedDeliverableURLs.isEmpty else { return }
+        let visible = Set(shown.map(\.fileURL))
+        guard !selectedDeliverableURLs.isSubset(of: visible) else { return }
+        DispatchQueue.main.async { [weak self] in
+            guard let self, let visible = self.displayCache.map({ Set($0.assets.map(\.fileURL)) }) else { return }
+            let kept = self.selectedDeliverableURLs.intersection(visible)
+            if kept != self.selectedDeliverableURLs { self.selectedDeliverableURLs = kept }
+        }
     }
 
     private static func allWords(_ words: [String], in text: String) -> Bool {
@@ -516,7 +533,10 @@ public final class SpecsState: ObservableObject {
                 Task { @MainActor [weak self] in
                     guard let self, self.audioAnalysisRun == run else { return }
                     if let index = self.deliverableAssets.firstIndex(where: { $0.id == updatedAsset.id }) {
-                        self.deliverableAssets[index] = updatedAsset
+                        // `updatedAsset` is the copy taken when this run started: keep what other checks wrote since.
+                        var merged = updatedAsset
+                        merged.endFrame = self.deliverableAssets[index].endFrame
+                        self.deliverableAssets[index] = merged
                     }
                     self.analyzedAudioCount = completed
                     self.totalAudioCount = total
@@ -537,23 +557,27 @@ public final class SpecsState: ObservableObject {
         totalEndFrameCount = urls.count
         checkedEndFrameCount = 0
         isCheckingEndFrames = true
+        endFrameRun += 1
+        let run = endFrameRun
         endFrameTask = Task(priority: .utility) { @MainActor [weak self] in
             guard let owner = self else { return }
             await DeliverablesInspector.checkBatchEndFrames(urls: urls) { [weak owner] url, result, completed, _ in
                 Task { @MainActor [weak owner] in
-                    guard let owner else { return }
+                    guard let owner, owner.endFrameRun == run else { return }
                     if let index = owner.deliverableAssets.firstIndex(where: { $0.fileURL == url }) {
                         owner.deliverableAssets[index].endFrame = result
                     }
                     owner.checkedEndFrameCount = completed
                 }
             }
+            guard owner.endFrameRun == run else { return }
             owner.isCheckingEndFrames = false
             owner.endFrameTask = nil
         }
     }
     
     public func cancelEndFrameCheck() {
+        endFrameRun += 1
         endFrameTask?.cancel()
         endFrameTask = nil
         isCheckingEndFrames = false
@@ -576,6 +600,7 @@ public final class SpecsState: ObservableObject {
     /// Empties the list; inspections still running for the old queue are dropped when they finish.
     public func clearDeliverables() {
         cancelAudioAnalysis()
+        cancelEndFrameCheck()
         inspectGeneration += 1
         inspectionsRunning = 0
         appendedSinceReplace = []
@@ -587,6 +612,7 @@ public final class SpecsState: ObservableObject {
         guard !urls.isEmpty else { return }
         cancelAudioAnalysis()
         if !append {
+            cancelEndFrameCheck()
             inspectGeneration += 1
             inspectionsRunning = 0
             appendedSinceReplace = []
@@ -629,7 +655,14 @@ public final class SpecsState: ObservableObject {
         savePanel.nameFieldStringValue = "Deliverables_Specs_\(Date().timeIntervalSince1970).csv"
         
         if savePanel.runModal() == .OK, let url = savePanel.url {
-            Log.inspect.attempt("Saving the CSV report to \(url.path)") { try csvString.write(to: url, atomically: true, encoding: .utf8) }
+            // A failed save must not open the file: overwriting an older report, that showed the old results.
+            do {
+                try csvString.write(to: url, atomically: true, encoding: .utf8)
+            } catch {
+                Log.inspect.error("Saving the CSV report to \(url.path) failed", error)
+                NSAlert(error: error).runModal()
+                return
+            }
             self.manifestCSVURL = url
             NSWorkspace.shared.activateFileViewerSelecting([url])
         }

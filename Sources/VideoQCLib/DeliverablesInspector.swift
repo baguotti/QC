@@ -85,7 +85,7 @@ public struct DeliverablesInspector: Sendable {
             let container = url.pathExtension.uppercased()
             
             // 9. Filename vs Attributes Cross-Reference Validation
-            let validation = validateFilename(
+            var validation = validateFilename(
                 fileName: url.lastPathComponent,
                 durationSeconds: durationSeconds,
                 aspectRatio: aspectRatioString,
@@ -96,6 +96,19 @@ public struct DeliverablesInspector: Sendable {
                 audioLevelString: audioLevels.levelString
             )
             
+            // A file cut off after its index (copy or render still running, an interrupted download) opens and reports
+            // its full duration: only the sample positions show the data isn't there. Flagged like a duration mismatch.
+            if let present = await presentFraction(tracks: videoTracks + audioTracks, url: url, fileSize: fileSizeBytes) {
+                let share = present < 0.01 ? "under 1%" : "\(Int(present * 100))%"
+                let detail = "\(cutOffPrefix): only \(share) of the data is in the file (still being written, or damaged)"
+                validation = DeliverableValidation(
+                    isDurationMismatch: true, expectedDurationSeconds: validation.expectedDurationSeconds,
+                    durationMismatchDetail: [detail, validation.durationMismatchDetail].compactMap { $0 }.joined(separator: " • "),
+                    isRatioMismatch: validation.isRatioMismatch, expectedRatioString: validation.expectedRatioString,
+                    ratioMismatchDetail: validation.ratioMismatchDetail,
+                    isAudioMute: validation.isAudioMute, audioMuteDetail: validation.audioMuteDetail)
+            }
+
             var inspected = DeliverableAsset(
                 fileURL: url,
                 fileName: url.lastPathComponent,
@@ -132,7 +145,25 @@ public struct DeliverablesInspector: Sendable {
         }
     }
 
+    /// When a track's last sample ends past the end of the file: the share of its data that is there (0…1), else nil.
+    /// Reads the index only (sample cursor), no decoding. Samples stored in another file (reference movies) are skipped.
+    public static func presentFraction(tracks: [AVAssetTrack], url: URL, fileSize: Int64) async -> Double? {
+        guard fileSize > 0 else { return nil }
+        var needed: Int64 = 0
+        for track in tracks {
+            guard (try? await track.load(.canProvideSampleCursors)) == true,
+                  let cursor = track.makeSampleCursorAtLastSampleInDecodeOrder() else { continue }
+            if let storage = cursor.currentChunkStorageURL, storage.standardizedFileURL != url.standardizedFileURL { continue }
+            let range = cursor.currentSampleStorageRange
+            needed = max(needed, range.offset + range.length)
+        }
+        guard needed > fileSize else { return nil }
+        return Double(fileSize) / Double(needed)
+    }
+
     public static let unreadableCodec = "UNREADABLE"
+    /// Starts the duration detail of a file cut off after its index (`presentFraction`).
+    public static let cutOffPrefix = "CUT OFF"
 
     /// A file that can't be opened (still being rendered or copied, damaged, empty) stays in the list, marked, instead
     /// of vanishing: a delivery folder with a broken file used to show one row less, and the plan called it Missing.
@@ -207,10 +238,12 @@ public struct DeliverablesInspector: Sendable {
         let fps = ImageSequenceStore.shared.fps(for: seq)
         let bytes = seq.frameURLs.reduce(Int64(0)) { $0 + (QCUtilities.fileSize(of: $1) ?? 0) }
         let seconds = Double(seq.length) / fps
-        let missing = seq.missingCount
+        let missing = seq.missingCount, duplicates = seq.duplicateCount
+        let problems = [missing > 0 ? "\(missing) MISSING FRAME\(missing == 1 ? "" : "S")" : nil,
+                        duplicates > 0 ? "\(duplicates) DUPLICATE FRAME NUMBER\(duplicates == 1 ? "" : "S") (two renders mixed?)" : nil].compactMap { $0 }
         let validation = DeliverableValidation(
-            isDurationMismatch: missing > 0,
-            durationMismatchDetail: missing > 0 ? "\(missing) MISSING FRAME\(missing == 1 ? "" : "S")" : nil,
+            isDurationMismatch: !problems.isEmpty,
+            durationMismatchDetail: problems.isEmpty ? nil : problems.joined(separator: " • "),
             isRatioMismatch: asset.validation.isRatioMismatch,
             expectedRatioString: asset.validation.expectedRatioString,
             ratioMismatchDetail: asset.validation.ratioMismatchDetail
@@ -440,10 +473,12 @@ public struct DeliverablesInspector: Sendable {
     
     public static func formatFileSize(bytes: Int64) -> String {
         guard bytes > 0 else { return "0 B" }
-        let kb = Double(bytes) / 1024.0
-        let mb = kb / 1024.0
-        let gb = mb / 1024.0
-        let tb = gb / 1024.0
+        // Decimal units, as Finder and the Delivery Plan's size caps count them: binary units labelled "MB" showed
+        // a 20.5 MB file as 19.6 MB, under a "max 20 MB" cap the plan (rightly) flagged.
+        let kb = Double(bytes) / 1000.0
+        let mb = kb / 1000.0
+        let gb = mb / 1000.0
+        let tb = gb / 1000.0
         
         if gb >= 1000.0 || tb >= 1.0 {
             return String(format: "%.2f TB", tb)
@@ -526,7 +561,8 @@ public struct DeliverablesInspector: Sendable {
         
         // 2. Sample Rate & Channels
         let channels = Int(asbd.mChannelsPerFrame)
-        let sampleRate = Int(asbd.mSampleRate)
+        // Damaged headers can hold NaN / inf rates, which Int() traps on.
+        let sampleRate = asbd.mSampleRate.isFinite && asbd.mSampleRate > 0 && asbd.mSampleRate < 10_000_000 ? Int(asbd.mSampleRate) : 0
         let rateStr = sampleRate > 0 ? (sampleRate % 1000 == 0 ? "\(sampleRate / 1000)kHz" : String(format: "%.1fkHz", Double(sampleRate) / 1000.0)) : ""
         
         let channelStr: String
@@ -543,13 +579,15 @@ public struct DeliverablesInspector: Sendable {
         } else {
             channelStr = ""
         }
+        // Split mono (one track per channel) read as "Mono (1ch)" from the first track alone.
+        let tracksStr = tracks.count > 1 ? "\(tracks.count) tracks" : ""
         
         // 3. Bitrate Calculation / Estimation
         var bitrateKbps: Int = 0
         let loadedRate = try? await audioTrack.load(.estimatedDataRate)
         let estimatedRate = Double(loadedRate ?? 0)
         
-        if estimatedRate > 0 {
+        if estimatedRate > 0, estimatedRate < 1e12 {
             bitrateKbps = Int(round(estimatedRate / 1000.0))
         } else if formatID == kAudioFormatLinearPCM && sampleRate > 0 && channels > 0 {
             let bits = bitsPerChannel > 0 ? bitsPerChannel : 16
@@ -568,6 +606,7 @@ public struct DeliverablesInspector: Sendable {
         var subParts: [String] = []
         if !rateStr.isEmpty { subParts.append(rateStr) }
         if !channelStr.isEmpty { subParts.append(channelStr) }
+        if !tracksStr.isEmpty { subParts.append(tracksStr) }
         let subDetail = subParts.joined(separator: " • ")
         
         // 5. Full combined description for CSV / tooltips
@@ -1412,7 +1451,7 @@ public struct DeliverablesInspector: Sendable {
                 let muteText = a.validation.audioMuteDetail ?? "MUTE"
                 audioDisplay = """
                 <div style="display:flex; align-items:center;">
-                    <span class="mono-cell">\(a.audioCodec)</span>
+                    <span class="mono-cell">\(QCUtilities.escapeHTML(a.audioCodec))</span>
                     <span class="tag tag-ok" style="margin-left:5px">\(muteText)</span>
                 </div>
                 """
@@ -1427,7 +1466,7 @@ public struct DeliverablesInspector: Sendable {
                 let subLine = !a.audioFormatDetail.isEmpty ? "<div class='audio-detail-sub'>\(a.audioFormatDetail)</div>" : ""
                 audioDisplay = """
                 <div style="display:flex; align-items:center;">
-                    <span class="mono-cell">\(a.audioCodec)</span>\(bitrateTag)\(levelTag)
+                    <span class="mono-cell">\(QCUtilities.escapeHTML(a.audioCodec))</span>\(bitrateTag)\(levelTag)
                 </div>\(subLine)
                 """
             }

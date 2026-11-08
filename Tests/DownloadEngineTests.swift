@@ -191,7 +191,7 @@ struct DownloadEngineTests {
         let before = StubCDN.requestCount
         #expect(await download(engine, [item], to: destination)[item.jobID] == .downloaded(destination.appendingPathComponent("clip.mov")))
         #expect(try Data(contentsOf: destination.appendingPathComponent("clip.mov")) == body)
-        #expect(StubCDN.requestCount - before == chunks - saved.done.count)
+        #expect(StubCDN.requestCount - before == chunks - saved.done.count, "resumed with \(StubCDN.requestCount - before) requests, expected \(chunks - saved.done.count) (done at pause \(saved.done.count))")
         #expect(try FileManager.default.contentsOfDirectory(atPath: destination.path) == ["clip.mov"])
         #expect(resume.saved(item.jobID) == nil)
     }

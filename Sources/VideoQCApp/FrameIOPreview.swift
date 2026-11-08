@@ -192,7 +192,7 @@ final class FrameIOPreview: ObservableObject {
             let (size, rate) = await Self.videoFormat(of: url)
             guard (player.currentItem?.asset as? AVURLAsset)?.url == url else { return }
             proxySize = size
-            clock.fps = rate > 0 ? rate : 25
+            clock.fps = rate > 0 && rate < 1000 ? rate : 25   // inf from a damaged header made the timecode Int(NaN)
         }
     }
 

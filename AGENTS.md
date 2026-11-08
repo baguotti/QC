@@ -38,6 +38,7 @@ Read the file for the area you're changing before you change it. Each holds the 
 - **Values that change often** (progress, counters) don't go on an object `ContentView` owns: put them in a small `ObservableObject` of their own and read them through `ObservingView` (see `ScanProgress`).
 - **Busy singletons** (upload/download queues, Frame.io browser, Delivery Plan store, transfer log) are observed only by the views that show them, never by `ContentView`.
 - **Keyboard**: `KeyboardShortcutRouter` handles keys app-wide; text fields and sheets must keep their keys (see player.md §8 and frameio.md "Inline text fields").
+- **Saved files stay readable across versions.** A field added to a type saved to disk (outbox, upload resume, Frame.io links, plan config, check results, notes) must be optional or decoded with `decodeIfPresent`: Swift's synthesized `Codable` requires every non-optional key, even one with a default value, so files from the previous version would fail to load and read as empty (unsent edits, a resumable upload or the sent-comment records lost).
 - **Benchmarks** (`scripts/*Bench/run.sh`) must print ALL PASSED after any change to what they measure.
 
 ## File layout

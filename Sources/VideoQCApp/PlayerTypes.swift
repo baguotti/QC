@@ -266,7 +266,7 @@ public final class PlayerSlot: ObservableObject {
     /// Header line under the file name: images have no frame rate, audio has no picture size.
     public var infoLine: String {
         switch mediaKind {
-        case .video: return "\(resolution) · \(String(format: "%.1f", fps)) fps · \(codec)"
+        case .video: return "\(resolution) · \(QCUtilities.formatFPS(fps)) fps · \(codec)"
         case .image: return "\(resolution) · \(codec)"
         case .audio: return "Audio · \(codec)"
         }

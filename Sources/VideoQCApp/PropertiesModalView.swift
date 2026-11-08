@@ -34,8 +34,9 @@ public struct ExtendedMediaInfo: Sendable {
     public var videoFormat: String = "h264"
     public var videoCodecLong: String = "H.264 / AVC"
     public var hwDecoder: String = "videotoolbox (Apple Silicon HW)"
-    public var primaries: String = "ITU-R BT.709"
-    public var colorspace: String = "Rec.709 Gamma 2.4 (SDR)"
+    // A missing colour tag is a QC finding: shown as such, never filled in with Rec.709.
+    public var primaries: String = "Untagged"
+    public var colorspace: String = "Untagged"
     public var pixelFormat: String = "nv12 (HW)"
     public var videoBitrate: String = "--"
     public var fpsString: String = "25.000000"
@@ -56,10 +57,11 @@ public struct ExtendedMediaInfo: Sendable {
     
     public var hasAudio: Bool = false
     public var audioFormat: String = "aac"
-    public var audioCodecLong: String = "AAC (Advanced Audio Coding)"
-    public var audioChannels: String = "stereo"
+    // Unknown until read: never a guessed value (these showed "AAC", "stereo", "48000", "320 Kbps" for an unreadable track).
+    public var audioCodecLong: String = "--"
+    public var audioChannels: String = "--"
     public var audioBitrate: String = "--"
-    public var audioSampleRate: String = "48000"
+    public var audioSampleRate: String = "--"
     public var audioLevelString: String = "--"
     public var isAudioMute: Bool = false
     
@@ -86,6 +88,7 @@ public struct ExtendedMediaInfo: Sendable {
         if let attrs = try? FileManager.default.attributesOfItem(atPath: url.path),
            let modDate = attrs[.modificationDate] as? Date {
             let df = DateFormatter()
+            df.locale = Locale(identifier: "en_US_POSIX")   // Gregorian, 24 h whatever the region settings
             df.dateFormat = "yyyy-MM-dd HH:mm:ss"
             info.fileModifiedDate = df.string(from: modDate)
         }
@@ -183,8 +186,6 @@ public struct ExtendedMediaInfo: Sendable {
                         } else {
                             info.primaries = prim
                         }
-                    } else {
-                        info.primaries = "N/A"
                     }
                     
                     if let trVal = exts[kCVImageBufferTransferFunctionKey as String] {
@@ -199,14 +200,6 @@ public struct ExtendedMediaInfo: Sendable {
                             info.colorspace = "Rec.2100 HLG (HDR)"
                         } else {
                             info.colorspace = tr
-                        }
-                    } else {
-                        if info.primaries.contains("P3") {
-                            info.colorspace = "Display P3 Gamma 2.4 (Wide Color)"
-                        } else if info.primaries.contains("2020") {
-                            info.colorspace = "Rec.2020 (Wide Color)"
-                        } else {
-                            info.colorspace = "Rec.709 Gamma 2.4 (SDR)"
                         }
                     }
                 }
@@ -266,7 +259,7 @@ public struct ExtendedMediaInfo: Sendable {
                     info.audioChannels = "\(ch) channels"
                 }
                 
-                info.audioSampleRate = "\(Int(asbd.mSampleRate))"
+                if asbd.mSampleRate.isFinite, asbd.mSampleRate > 0, asbd.mSampleRate < 10_000_000 { info.audioSampleRate = "\(Int(asbd.mSampleRate))" }
             }
             
             let aDataRate = (try? await aTrack.load(.estimatedDataRate)) ?? 0
@@ -274,8 +267,6 @@ public struct ExtendedMediaInfo: Sendable {
                 info.audioBitrate = String(format: "%.2f Kbps", Double(aDataRate) / 1000.0)
             } else if let base = baseAsset, base.audioBitrate != "--" {
                 info.audioBitrate = base.audioBitrate
-            } else {
-                info.audioBitrate = "320.00 Kbps"
             }
             
             if let base = baseAsset, !base.audioLevelString.isEmpty, base.audioLevelString != "--" {
@@ -307,7 +298,8 @@ public struct ExtendedMediaInfo: Sendable {
                 typeName: "VIDEO (STREAM #\(idx))",
                 format: info.videoFormat,
                 codec: info.videoCodecLong,
-                details: "\(Int(size.width))x\(Int(size.height)) @ \(String(format: "%.2ffps", fps))",
+                details: size.width.isFinite && size.height.isFinite && abs(size.width) < 1_000_000 && abs(size.height) < 1_000_000
+                    ? "\(Int(size.width))x\(Int(size.height)) @ \(String(format: "%.2ffps", fps))" : String(format: "%.2ffps", fps),
                 bitrate: info.videoBitrate,
                 duration: info.videoDurationString,
                 language: "Undetermined"
@@ -327,7 +319,7 @@ public struct ExtendedMediaInfo: Sendable {
                 typeName: "AUDIO (STREAM #\(idx))",
                 format: info.audioFormat,
                 codec: info.audioCodecLong,
-                details: "\(info.audioChannels) • \(info.audioSampleRate) Hz",
+                details: info.audioSampleRate == "--" ? info.audioChannels : "\(info.audioChannels) • \(info.audioSampleRate) Hz",
                 bitrate: info.audioBitrate,
                 duration: info.videoDurationString,
                 language: langStr
@@ -437,11 +429,14 @@ public struct ExtendedMediaInfo: Sendable {
             if info.fileModifiedDate != "--" { lines.append("Modified: \(info.fileModifiedDate)") }
             return lines.joined(separator: "\n")
         }
-        lines.append("Resolution: \(asset.width) x \(asset.height) (\(asset.aspectRatioString))")
-        lines.append("Frame Rate: \(info?.formattedFPS ?? String(format: "%.3f fps", asset.fps))")
-        lines.append("Video Format: \(info?.videoFormat ?? asset.videoCodec)")
-        lines.append("Video Codec: \(info?.videoCodecLong ?? asset.videoCodec)")
-        if let info = info {
+        let hasVideo = asset.videoCodec != "NONE"   // audio-only: no "0 x 0" or made-up 25 fps
+        if hasVideo {
+            lines.append("Resolution: \(asset.width) x \(asset.height) (\(asset.aspectRatioString))")
+            lines.append("Frame Rate: \(info?.formattedFPS ?? String(format: "%.3f fps", asset.fps))")
+            lines.append("Video Format: \(info?.videoFormat ?? asset.videoCodec)")
+            lines.append("Video Codec: \(info?.videoCodecLong ?? asset.videoCodec)")
+        }
+        if hasVideo, let info = info {
             lines.append("Colorspace: \(info.colorspace)")
             lines.append("Primaries: \(info.primaries)")
             lines.append("Pixel Format: \(info.pixelFormat)")
@@ -830,7 +825,7 @@ public struct PropertiesModalView: View {
         HStack(spacing: 8) {
             if let asset = asset {
                 Button(action: {
-                    let text = buildPremiereProSpecsText(asset: asset, info: extendedInfo)
+                    let text = ExtendedMediaInfo.buildSpecsText(asset: asset, info: extendedInfo)
                     copyToClipboard(text)
                     onCopySpecs?(text)
                 }) {
@@ -910,44 +905,6 @@ public struct PropertiesModalView: View {
     }
     
     // MARK: - Specs Text Export
-    
-    private func buildPremiereProSpecsText(asset: DeliverableAsset, info: ExtendedMediaInfo?) -> String {
-        var lines: [String] = []
-        lines.append("MEDIA INFO // \(asset.fileName)")
-        lines.append("File Path: \(asset.fileURL.path)")
-        lines.append("Container: \(containerType)")
-        lines.append("File Size: \(asset.formattedFileSize) (\(formattedByteString(asset.fileSizeBytes)))")
-        lines.append("Resolution: \(asset.width) x \(asset.height) (\(asset.aspectRatioString))")
-        lines.append("Frame Rate: \(info?.formattedFPS ?? String(format: "%.3f fps", asset.fps))")
-        lines.append("Video Format: \(info?.videoFormat ?? asset.videoCodec)")
-        lines.append("Video Codec: \(info?.videoCodecLong ?? asset.videoCodec)")
-        if let info = info {
-            lines.append("Colorspace: \(info.colorspace)")
-            lines.append("Primaries: \(info.primaries)")
-            lines.append("Pixel Format: \(info.pixelFormat)")
-            if info.videoBitrate != "--" {
-                lines.append("Video Bit Rate: \(info.videoBitrate)")
-            }
-        }
-        lines.append("Duration: \(asset.timecode) (\(asset.formattedDuration)) - \(asset.totalFrames) frames")
-        if asset.hasAudio {
-            lines.append("Audio Codec: \(info?.audioCodecLong ?? asset.audioCodec)")
-            lines.append("Audio Configuration: \(info?.audioChannels ?? asset.audioConfig)")
-            if let info = info, info.audioSampleRate != "--" {
-                lines.append("Audio Sample Rate: \(info.audioSampleRate) Hz")
-            }
-            if let info = info, info.audioBitrate != "--" {
-                lines.append("Audio Bit Rate: \(info.audioBitrate)")
-            }
-        } else {
-            lines.append("Audio: No Audio Streams")
-        }
-        lines.append("Created: \(asset.formattedCreationDate)")
-        if let info = info, info.fileModifiedDate != "--" {
-            lines.append("Modified: \(info.fileModifiedDate)")
-        }
-        return lines.joined(separator: "\n")
-    }
     
     private func formattedByteString(_ bytes: Int64) -> String {
         let formatter = NumberFormatter()

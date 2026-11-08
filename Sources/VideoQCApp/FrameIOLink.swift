@@ -26,14 +26,20 @@ struct FrameIOLink: Equatable, Sendable {
     }
 
     /// Whether `text` looks like a Frame.io link (cheap: for deciding whether ⌘V or the filter field should act).
+    /// As pasted from mail and chat: "<link>", quotes, no scheme ("next.frame.io/project/…").
+    static func cleaned(_ text: String) -> String {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines).trimmingCharacters(in: CharacterSet(charactersIn: "<>\"'"))
+        return trimmed.contains("://") ? trimmed : "https://" + trimmed
+    }
+
     static func looksLikeLink(_ text: String) -> Bool {
-        guard let host = URL(string: text.trimmingCharacters(in: .whitespacesAndNewlines))?.host?.lowercased() else { return false }
+        guard text.rangeOfCharacter(from: .newlines) == nil, let host = URL(string: cleaned(text))?.host?.lowercased() else { return false }
         return host == "f.io" || host == "frame.io" || host.hasSuffix(".frame.io")
     }
 
     /// The project, folder and file a web link points to. Throws `shareLink` / `legacyLink` / `notALink` for others.
     static func parse(_ text: String) throws -> FrameIOLink {
-        guard let url = URL(string: text.trimmingCharacters(in: .whitespacesAndNewlines)), let host = url.host?.lowercased(),
+        guard let url = URL(string: cleaned(text)), let host = url.host?.lowercased(),
               host == "frame.io" || host.hasSuffix(".frame.io") else { throw Failure.notALink }
         let parts = url.pathComponents.filter { $0 != "/" }
         if parts.first == "share" || parts.first == "reviews" || parts.first == "presentations" { throw Failure.shareLink }
@@ -54,7 +60,7 @@ struct FrameIOLink: Equatable, Sendable {
 
     /// Follows an `f.io` short link to the page it redirects to.
     static func expand(_ text: String) async -> String {
-        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmed = cleaned(text)
         guard let url = URL(string: trimmed), url.host?.lowercased() == "f.io" else { return trimmed }
         var request = URLRequest(url: url, timeoutInterval: 10)
         request.httpMethod = "HEAD"

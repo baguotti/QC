@@ -297,6 +297,19 @@ public actor QCNotesManager {
 
     // MARK: - Export Utilities
     
+    /// Notes written at `from` fps placed on a clip running at `to` fps: same moments in time (a proxy's notes on the
+    /// 50 fps master landed at half the time). Unchanged when either rate is unknown or they match.
+    public nonisolated static func rescaled(_ notes: [QCFileNote], from: Double, to: Double) -> [QCFileNote] {
+        guard from.isFinite, to.isFinite, from > 0, to > 0, abs(from - to) > 0.01 else { return notes }
+        return notes.map { note in
+            var note = note
+            let frame = (Double(note.frameIndex) * to / from).rounded()
+            note.frameIndex = frame.isFinite ? Int(min(max(0, frame), 1e12)) : 0
+            note.timecode = TimecodeFormatter.format(frameIndex: note.frameIndex, fps: to)
+            return note
+        }
+    }
+
     /// Generates a clean Markdown checklist ready to paste into Slack, Teams, or Email.
     public nonisolated static func generateMarkdown(notes: [QCFileNote], mediaName: String) -> String {
         let sorted = notes.sorted { $0.frameIndex < $1.frameIndex }
@@ -312,7 +325,11 @@ public actor QCNotesManager {
         
         for note in sorted {
             let check = note.isResolved ? "[x]" : "[ ]"
-            lines.append("- \(check) **\(note.timecode)** (\(note.author)): \(note.text)")
+            // Later lines of a note indented under its item: unindented, a line starting with "#" or "-" became a
+            // heading or a new list item.
+            let text = note.text.components(separatedBy: .newlines).joined(separator: "\n  ")
+            let author = note.author.isEmpty ? "" : " (\(note.author))"
+            lines.append("- \(check) **\(note.timecode)**\(author): \(text)")
         }
         return lines.joined(separator: "\n")
     }

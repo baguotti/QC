@@ -277,7 +277,7 @@ struct DeliveryPlanPanel: View {
                 if account.signedIn {
                     Button("Sign Out of Google (\(account.email ?? "signed in"))") { Task { await account.signOut() } }
                 }
-                Button("Unlink Sheet", role: .destructive) { store.unlink() }
+                Button("Unlink Sheet", role: .destructive) { confirmUnlink() }
             } label: {
                 Image(systemName: "ellipsis.circle")
                     .font(.system(size: StudioTheme.scaleFont(11), weight: .medium))
@@ -397,7 +397,7 @@ struct DeliveryPlanPanel: View {
             Text(search).font(.ui(size: 10)).foregroundColor(palette.textSubtle).lineLimit(2)
         }
         if !store.unreadTabs.isEmpty {
-            Text("No header row found in: \(store.unreadTabs.joined(separator: ", "))")
+            Text("No header row (a file name column and two others) in the first \(PlanParser.headerSearchRows) rows of: \(store.unreadTabs.joined(separator: ", "))")
                 .font(.ui(size: 10)).foregroundColor(palette.textSubtle).lineLimit(2)
         }
     }

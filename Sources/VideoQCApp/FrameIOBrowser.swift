@@ -104,7 +104,7 @@ final class FrameIOBrowser: ObservableObject {
     /// The last rename/move/stack change, undoable from the toast, the toolbar, right-click or ⌘Z until the next one.
     @Published private(set) var lastUndo: Toast?
     /// Filters the open listing by name (cleared when navigating).
-    @Published var filter = ""
+    @Published var filter = "" { didSet { if filter != oldValue { pruneSelectionToVisible() } } }
     @Published private(set) var favourites: [Favourite] = FrameIOBrowser.loadFavourites() {
         // The last favourite project gone: an empty Favourites list would hide every project.
         didSet { if favouriteProjectsOnly && !Self.hasProjectFavourites(favourites) { favouriteProjectsOnly = false } }
@@ -130,11 +130,13 @@ final class FrameIOBrowser: ObservableObject {
 
     /// The project list's status filter, like Frame.io's (default Active).
     @Published var projectStatus = ProjectStatusFilter(rawValue: UserDefaults.standard.string(forKey: FrameIOBrowser.projectStatusKey) ?? "") ?? .active {
-        didSet { UserDefaults.standard.set(projectStatus.rawValue, forKey: Self.projectStatusKey) }
+        didSet { UserDefaults.standard.set(projectStatus.rawValue, forKey: Self.projectStatusKey); pruneSelectionToVisible() }
     }
     /// The project list shows favourite projects only. Opens on Favourites when there are favourite projects, else on
     /// All Projects.
-    @Published var favouriteProjectsOnly = FrameIOBrowser.hasProjectFavourites(FrameIOBrowser.loadFavourites())
+    @Published var favouriteProjectsOnly = FrameIOBrowser.hasProjectFavourites(FrameIOBrowser.loadFavourites()) {
+        didSet { if favouriteProjectsOnly != oldValue { pruneSelectionToVisible() } }
+    }
     /// The open project's share links (newest first), for "Add to Share Link".
     @Published private(set) var projectShares: [FrameIO.Share] = []
     private var sharesProject: String?
@@ -481,6 +483,7 @@ final class FrameIOBrowser: ObservableObject {
                 let listed = recentlyDeleted.isEmpty ? loaded : loaded.filter { !recentlyDeleted.contains($0.id) }
                 items = crumbs.last?.level == .stack ? listed : Self.sorted(listed)
                 selection.formIntersection(items.map(\.id))
+                pruneSelectionToVisible()   // renamed meanwhile so the filter now hides it
                 if let pending = pendingSelection, items.contains(where: { $0.id == pending }) {
                     selection = [pending]
                     anchor = pending
@@ -565,6 +568,14 @@ final class FrameIOBrowser: ObservableObject {
     }
 
     // MARK: Selection (Finder style)
+
+    /// Files a filter hides leave the selection: Delete, Download, Share and right-click act on the selection, and
+    /// deleted a file the filter had hidden (selected, then a name typed in the filter).
+    func pruneSelectionToVisible() {
+        guard !selection.isEmpty else { return }
+        let visible = Set(visibleItems.map(\.id))
+        if !selection.isSubset(of: visible) { selection.formIntersection(visible) }
+    }
 
     /// Click selects, ⌘-click toggles, ⇧-click selects the range from the last click; clicking the only selected item
     /// again deselects it.

@@ -204,6 +204,9 @@ actor FrameIO {
     private var tokens: Tokens?
     private var tokensLoaded = false
     private var refreshing: Task<Tokens, Error>?
+    /// Bumped by every sign-in and sign-out: a token reply that arrives after one belongs to the old session and is dropped
+    /// (a refresh finishing after Sign Out used to sign QCpie back in and write the tokens to disk again).
+    private var generation = 0
 
     private static var tokenFile: URL {
         FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
@@ -234,12 +237,16 @@ actor FrameIO {
     }
 
     func completeSignIn(code: String, verifier: String) async throws {
+        generation += 1
+        refreshing = nil
         try await requestTokens([
             "grant_type": "authorization_code", "client_id": Self.clientID, "code": code, "code_verifier": verifier,
-        ])
+        ], generation: generation)
     }
 
     func signOut() {
+        generation += 1
+        refreshing = nil
         tokens = nil
         tokensLoaded = true
         try? FileManager.default.removeItem(at: Self.tokenFile)
@@ -354,7 +361,8 @@ actor FrameIO {
     func shares(account: String, project: String) async throws -> [Share] {
         var shares: [Share] = []
         var next: String? = "/v4/accounts/\(account)/projects/\(project)/shares"
-        while let current = next {
+        var seenPages = Set<String>()   // a cursor that comes round again would loop forever
+        while let current = next, seenPages.insert(current).inserted {
             let url = current + (current.contains("?") ? "&" : "?") + "sort=created_at_desc"
             let page = try JSONDecoder().decode(SharePage.self, from: await request("GET", url))
             shares += page.data
@@ -462,7 +470,8 @@ actor FrameIO {
         }
         var fields: [MetadataField] = []
         var next: String? = "/v4/accounts/\(account)/metadata/field_definitions?page_size=100"
-        while let current = next {
+        var seenPages = Set<String>()   // a cursor that comes round again would loop forever
+        while let current = next, seenPages.insert(current).inserted {
             let page = try JSONDecoder().decode(FieldPage.self, from: await request("GET", current))
             fields += page.data
             next = page.links?.next
@@ -480,7 +489,8 @@ actor FrameIO {
         }
         var users: [MetadataUser] = []
         var next: String? = "/v4/accounts/\(account)/projects/\(project)/users?page_size=100"
-        while let current = next {
+        var seenPages = Set<String>()   // a cursor that comes round again would loop forever
+        while let current = next, seenPages.insert(current).inserted {
             let page = try JSONDecoder().decode(UserPage.self, from: await request("GET", current))
             users += page.data.map(\.user)
             next = page.links?.next
@@ -538,7 +548,8 @@ actor FrameIO {
         func all(_ query: String) async throws -> [Comment] {
             var comments: [Comment] = []
             var next: String? = "/v4/accounts/\(account)/files/\(file)/comments"
-            while let current = next {
+            var seenPages = Set<String>()   // a cursor that comes round again would loop forever
+            while let current = next, seenPages.insert(current).inserted {
                 let url = current.contains(query) ? current : current + (current.contains("?") ? "&" : "?") + query
                 let page = try JSONDecoder().decode(CommentPage.self, from: await request("GET", url))
                 comments += page.data
@@ -646,7 +657,8 @@ actor FrameIO {
         }
         var items: [Item] = []
         var next: String? = path
-        while let current = next {
+        var seenPages = Set<String>()   // a cursor that comes round again would loop forever
+        while let current = next, seenPages.insert(current).inserted {
             let page = try JSONDecoder().decode(Page.self, from: await request("GET", withQuery(current)))
             items += page.data
             next = page.links?.next
@@ -691,11 +703,12 @@ actor FrameIO {
         guard let current = tokens else { throw Failure.signedOut }
         if current.expires.timeIntervalSinceNow > 60 { return current.access }
         guard let refresh = current.refresh else { signOut(); throw Failure.signedOut }
+        let session = generation
         let task: Task<Tokens, Error>
         if let refreshing {
             task = refreshing
         } else {
-            task = Task { try await self.refreshTokens(refresh) }
+            task = Task { try await self.refreshTokens(refresh, generation: session) }
             refreshing = task
         }
         do {
@@ -705,7 +718,7 @@ actor FrameIO {
         } catch Failure.http(let code, _) where (400..<500).contains(code) && code != 408 && code != 429 {
             // The refresh token was refused (expired or revoked). A busy or slow server isn't a sign-out.
             if refreshing == task { refreshing = nil }
-            signOut()
+            if generation == session { signOut() }   // a refusal for an earlier sign-in mustn't end this one
             throw Failure.signedOut
         } catch {
             if refreshing == task { refreshing = nil }
@@ -713,12 +726,13 @@ actor FrameIO {
         }
     }
 
-    private func refreshTokens(_ refresh: String) async throws -> Tokens {
-        try await requestTokens(["grant_type": "refresh_token", "client_id": Self.clientID, "refresh_token": refresh])
+    private func refreshTokens(_ refresh: String, generation started: Int) async throws -> Tokens {
+        try await requestTokens(["grant_type": "refresh_token", "client_id": Self.clientID, "refresh_token": refresh],
+                                generation: started)
     }
 
     @discardableResult
-    private func requestTokens(_ form: [String: String]) async throws -> Tokens {
+    private func requestTokens(_ form: [String: String], generation started: Int) async throws -> Tokens {
         var req = URLRequest(url: URL(string: "\(Self.ims)/token/v3")!)
         req.httpMethod = "POST"
         req.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
@@ -735,6 +749,7 @@ actor FrameIO {
         let lifetime = (json["expires_in"] as? NSNumber)?.doubleValue ?? 3600
         let new = Tokens(access: access, refresh: json["refresh_token"] as? String ?? tokens?.refresh,
                          expires: Date().addingTimeInterval(lifetime > 100_000 ? lifetime / 1000 : lifetime))
+        guard generation == started else { throw Failure.signedOut }   // signed out or in again meanwhile
         tokens = new
         saveTokens()
         return new

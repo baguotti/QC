@@ -63,7 +63,7 @@ public struct PlayerQueueFileRowView: View, Equatable {
     
     /// fps is 0 for stills and audio (no frame rate to show).
     private static func specLine(_ resolution: String, _ fps: Double, _ codec: String) -> String {
-        fps > 0 ? "\(resolution) • \(String(format: "%.1f", fps))fps • \(codec)" : "\(resolution) • \(codec)"
+        fps > 0 ? "\(resolution) • \(QCUtilities.formatFPS(fps))fps • \(codec)" : "\(resolution) • \(codec)"
     }
     
     private var bgSubtle: Color { StudioTheme.bgSubtle(isLightMode) }
@@ -477,7 +477,7 @@ public struct QueueSequenceInfo: Equatable, Sendable {
     static let rates: [Double] = [23.976, 24, 25, 29.97, 30, 48, 50, 59.94, 60]
     
     static func rateLabel(_ fps: Double) -> String {
-        fps.truncatingRemainder(dividingBy: 1) == 0 ? "\(Int(fps)) fps" : String(format: "%.3g fps", fps)
+        "\(QCUtilities.formatFPS(fps)) fps"
     }
     
     @MainActor

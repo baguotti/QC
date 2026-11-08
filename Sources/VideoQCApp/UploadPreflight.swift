@@ -9,7 +9,7 @@ import VideoQCLib
 ///   a partial-download name (`.part`, `.crdownload`, …).
 /// - **Odd files**: no extension, hidden or temporary, or neither media nor a usual deliverable sidecar.
 /// - **Can't be opened**: a video or audio file AVFoundation can't read (an export that stopped before finishing, an
-///   empty file): uploading it would send the client a broken file.
+///   empty file), or one cut off after its index (a copy that stopped): uploading it would send the client a broken file.
 /// Only rows uploaded straight into the target folder are checked for duplicates (with Keep Subfolders, rows inside
 /// subfolders would need those folders listed too). Image sequences are checked for being written only.
 enum UploadPreflight {
@@ -99,7 +99,10 @@ enum UploadPreflight {
         @Sendable func check(_ row: Row) async -> String? {
             if (row.sizes.first ?? 0) == 0 { return row.path }
             let tracks = (try? await AVURLAsset(url: row.files[0]).load(.tracks)) ?? []
-            return tracks.isEmpty ? row.path : nil
+            if tracks.isEmpty { return row.path }
+            // Cut off after its index (a copy that stopped): it opens, but the end of the picture and sound is missing.
+            let cutOff = await DeliverablesInspector.presentFraction(tracks: tracks, url: row.files[0], fileSize: row.sizes.first ?? 0)
+            return cutOff == nil ? nil : row.path
         }
         // Eight at a time: a big queue on a network drive mustn't open hundreds of files at once.
         return await withTaskGroup(of: String?.self) { group in

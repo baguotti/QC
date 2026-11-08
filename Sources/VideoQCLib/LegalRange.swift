@@ -212,6 +212,7 @@ public enum LegalRange {
         let asset = AVURLAsset(url: url)
         guard let track = try? await asset.loadTracks(withMediaType: .video).first,
               let natural = try? await track.load(.naturalSize), natural.width > 0, natural.height > 0,
+              natural.width < 100_000, natural.height < 100_000,   // also rules out NaN / inf (Int() traps on them)
               let reader = try? AVAssetReader(asset: asset) else { return nil }
         let transform = (try? await track.load(.preferredTransform)) ?? .identity
         let scale = min(1, CGFloat(maxSide) / max(natural.width, natural.height))

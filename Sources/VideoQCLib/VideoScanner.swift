@@ -56,7 +56,7 @@ public actor VideoScanner {
         
         guard let enumerator = fileManager.enumerator(
             at: directoryURL,
-            includingPropertiesForKeys: [.isRegularFileKey],
+            includingPropertiesForKeys: [.isDirectoryKey],
             options: includeSubfolders ? [.skipsHiddenFiles, .skipsPackageDescendants]
                 : [.skipsHiddenFiles, .skipsPackageDescendants, .skipsSubdirectoryDescendants]
         ) else {
@@ -65,7 +65,8 @@ public actor VideoScanner {
         
         var videoURLs: [URL] = []
         for case let fileURL as URL in enumerator {
-            if QCUtilities.isSupportedMedia(url: fileURL) {
+            // A folder named "Render.mov" isn't a clip (symlinked files still count: only directories are skipped).
+            if QCUtilities.isSupportedMedia(url: fileURL), (try? fileURL.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory != true {
                 videoURLs.append(fileURL)
             }
         }
@@ -184,8 +185,11 @@ public actor VideoScanner {
         let duration = (try? await asset.load(.duration)) ?? .zero
         // Indefinite / invalid durations (files still being written, broken headers) read as NaN: treat as unknown.
         let durationSeconds = CMTimeGetSeconds(duration).isFinite ? CMTimeGetSeconds(duration) : 0
-        let totalEstimatedFrames = Int(round(durationSeconds * fps))
-        let resolutionStr = "\(Int(size.width))x\(Int(size.height))"
+        // A damaged header can report any duration or size: Int() traps on huge or NaN values.
+        let estimate = (durationSeconds * fps).rounded()
+        let totalEstimatedFrames = estimate.isFinite && estimate < 1e12 ? Int(estimate) : 0
+        let resolutionStr = size.width.isFinite && size.height.isFinite && size.width < 1e6 && size.height < 1e6
+            ? "\(Int(size.width))x\(Int(size.height))" : "--"
         
         // A long file is read as two segments at once: one decode stream leaves the hardware decoder half idle
         // (measured, M4 Max 1080p H.264: ~950 fps for one stream, ~1,780 for two). Each segment reads a couple of frames
@@ -263,7 +267,8 @@ public actor VideoScanner {
     /// centres). On a 600 time base (QuickTime, iPhone) NTSC-rate timestamps sit up to half a tick early, so `floor` would
     /// land one frame low.
     static func frameIndex(seconds: Double, fps: Double) -> Int {
-        Int((seconds * fps).rounded())
+        let frame = (seconds * fps).rounded()
+        return frame.isFinite ? Int(min(max(frame, -1e15), 1e15)) : 0   // a damaged file's timestamps can be absurd
     }
     
     /// Files at least this long are split into two segments.

@@ -912,13 +912,14 @@ struct ContentView: View {
                 }
             }
         }
-        .explain(
-            tab == .player ? "Play: high-performance delivery playback with J-K-L shuttle, timeline scrubbing, and zoom." :
-            (tab == .specs ? "Inspect: reads container resolution, timecode, audio, and codecs." :
-             (tab == .lineFinder ? "Scan: finds edge lines, split-screen seams, frame-rate stutters, flash frames and Media Offline." :
-              (tab == .upload ? "Upload: send the queue to Frame.io, browse and organise projects, share links, downloads and comments." :
-               "INGEST: Intake checklist, automatic metadata aggregation, and DIT cross-referencing.")))
-        )
+        .explain({
+            switch tab {
+            case .player: return "Play: high-performance delivery playback with J-K-L shuttle, timeline scrubbing, and zoom."
+            case .specs: return "Inspect: reads container resolution, timecode, audio, and codecs."
+            case .lineFinder: return "Scan: finds edge lines, split-screen seams, frame-rate stutters, flash frames and Media Offline."
+            case .upload: return "Upload: send the queue to Frame.io, browse and organise projects, share links, downloads and comments."
+            }
+        }())
     }
     
     // MARK: - Reusable Unified Asset Selection Section
@@ -970,6 +971,7 @@ struct ContentView: View {
             folderURL = nil
             specsState.clearDeliverables()
             specsState.selectedDeliverableURL = nil
+            scannerState.discardRunningChecks()
             scannerState.scanResults = []
             scannerState.frameCheckResults = []
             playerEngine.setScanResults([])
@@ -986,6 +988,7 @@ struct ContentView: View {
             videoFiles.removeAll { urlsToRemove.contains($0.standardizedFileURL.path) }
             specsState.deliverableAssets.removeAll { urlsToRemove.contains($0.fileURL.standardizedFileURL.path) }
             scannerState.scanResults.removeAll { urlsToRemove.contains($0.fileURL.standardizedFileURL.path) }
+            scannerState.frameCheckResults.removeAll { urlsToRemove.contains($0.fileURL.standardizedFileURL.path) }
             
             func collectFolderIDs(_ n: FileSystemTreeNode) -> [String] {
                 var ids = [n.id]
@@ -1274,10 +1277,12 @@ struct ContentView: View {
     func startScan(then next: (() -> Void)? = nil) {
         scannerState.startScan(videoFiles: videoFiles.filter { QCUtilities.mediaKind(of: $0) == .video }) { results, config in
             self.playerEngine.setScanResults(results)
+            // Only the files Finder actually took the tag on (a read-only drive refuses it); the version bump redraws the rows.
             if self.scannerState.tagInFinder {
-                for res in results where res.isFlagged {
-                    self.fileTagsMap[res.fileURL] = .red
-                }
+                for url in self.scannerState.lastFinderTagged { self.fileTagsMap[url] = .red }
+                if !self.scannerState.lastFinderTagged.isEmpty { self.tagsVersion &+= 1 }
+                let failed = self.scannerState.lastFinderTagFailures
+                if failed > 0 { self.showToast("Couldn't tag \(failed) flagged file\(failed == 1 ? "" : "s") in Finder: read-only") }
             }
             self.syncScanResultsToNotes(results: results)
             next?()
@@ -1672,27 +1677,17 @@ struct ContentView: View {
                 }
             },
             onToggleFinderTag: { tag in
-                let targetURL: URL?
-                if self.selectedTab == .player {
-                    let currentTarget = self.playerEngine.activeTarget
-                    targetURL = (currentTarget == .slotB && self.playerEngine.slotB.url != nil) ? self.playerEngine.slotB.url : self.playerEngine.activeURL
-                } else {
-                    targetURL = self.specsState.selectedDeliverableURL ?? self.specsState.deliverableAssets.first?.fileURL
-                }
-                guard let targetURL = targetURL else { return false }
-                self.toggleFinderTag(tag, for: targetURL)
+                let targets = self.finderTagTargets()
+                guard !targets.isEmpty else { return false }
+                // Several files: all get the tag, or all lose it when they all have it already.
+                let clear = targets.allSatisfy { self.fileTagsMap[$0] == tag }
+                for url in targets { self.setFinderTag(clear ? nil : tag, for: url) }
                 return true
             },
             onClearFinderTag: {
-                let targetURL: URL?
-                if self.selectedTab == .player {
-                    let currentTarget = self.playerEngine.activeTarget
-                    targetURL = (currentTarget == .slotB && self.playerEngine.slotB.url != nil) ? self.playerEngine.slotB.url : self.playerEngine.activeURL
-                } else {
-                    targetURL = self.specsState.selectedDeliverableURL ?? self.specsState.deliverableAssets.first?.fileURL
-                }
-                guard let targetURL = targetURL else { return false }
-                self.setFinderTag(nil, for: targetURL)
+                let targets = self.finderTagTargets()
+                guard !targets.isEmpty else { return false }
+                for url in targets { self.setFinderTag(nil, for: url) }
                 return true
             },
             onPressJ: { self.playerEngine.pressJ() },
@@ -2034,6 +2029,17 @@ struct ContentView: View {
         }
     }
     
+    /// What a tag key acts on: the Player's active slot; in Inspect the selected files, else the focused one. Never a
+    /// file the user didn't pick: with nothing selected Inspect tagged the list's first file (hidden by a filter, maybe).
+    func finderTagTargets() -> [URL] {
+        if selectedTab == .player {
+            let url = (playerEngine.activeTarget == .slotB && playerEngine.slotB.url != nil) ? playerEngine.slotB.url : playerEngine.activeURL
+            return url.map { [$0] } ?? []
+        }
+        if !specsState.selectedDeliverableURLs.isEmpty { return Array(specsState.selectedDeliverableURLs) }
+        return specsState.selectedDeliverableURL.map { [$0] } ?? []
+    }
+
     func toggleFinderTag(_ tag: FinderTagColor, for url: URL) {
         setFinderTag(fileTagsMap[url] == tag ? nil : tag, for: url)
     }
@@ -2432,18 +2438,23 @@ struct ContentView: View {
 
     /// Saves the shown clip's notes as a visible `.qcnotes` file wherever the user chooses.
     func exportQCNotes() {
-        guard let url = notesTargetURL else { return }
+        guard let url = notesTargetURL, shownNotesAreTarget else { return }   // just switched clips: notes not loaded yet
         let panel = NSSavePanel()
         panel.title = "Export QCpie Notes"
         panel.prompt = "Export"
         panel.canCreateDirectories = true
         panel.allowedContentTypes = [UTType(filenameExtension: "qcnotes") ?? .json]
-        panel.nameFieldStringValue = "\(url.lastPathComponent).qcnotes"
+        // Not "<clip>.qcnotes": that is the legacy sidecar name, which the next notes save deletes as an old copy (an
+        // export accepted with the defaults vanished on the next edit).
+        panel.nameFieldStringValue = "\(url.deletingPathExtension().lastPathComponent) - QC Notes.qcnotes"
         panel.directoryURL = url.deletingLastPathComponent()
-        guard panel.runModal() == .OK, let dest = panel.url else { return }
+        guard panel.runModal() == .OK, var dest = panel.url else { return }
+        if dest.standardizedFileURL == QCNotesManager.visibleSidecarURL(for: url).standardizedFileURL {
+            dest = dest.deletingLastPathComponent().appendingPathComponent("\(url.deletingPathExtension().lastPathComponent) - QC Notes.qcnotes")
+        }
         do {
             try QCNotesManager.exportDocument(notes: playerEngine.activeNotes, mediaFileName: url.lastPathComponent, fps: isSameURL(url, playerEngine.slotB.url) ? playerEngine.slotB.fps : playerEngine.activeFps, to: dest)
-            showToast("Exported \(playerEngine.activeNotes.count) notes")
+            showToast("Exported \(playerEngine.activeNotes.count) note\(playerEngine.activeNotes.count == 1 ? "" : "s") to \(dest.lastPathComponent)")
         } catch {
             showToast("Export failed: \(error.localizedDescription)")
         }
@@ -2467,7 +2478,8 @@ struct ContentView: View {
             showToast("Not a valid .qcnotes file")
             return
         }
-        let result = QCNotesManager.merge(existing: playerEngine.activeNotes, incoming: doc.notes)
+        let fps = isSameURL(url, playerEngine.slotB.url) ? playerEngine.slotB.fps : playerEngine.activeFps
+        let result = QCNotesManager.merge(existing: playerEngine.activeNotes, incoming: QCNotesManager.rescaled(doc.notes, from: doc.fps, to: fps))
         withAnimation(Motion.sleeve) {
             playerEngine.activeNotes = result.notes
             playerEngine.activeNotesURL = url
