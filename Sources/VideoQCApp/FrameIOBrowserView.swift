@@ -69,7 +69,6 @@ struct FrameIOBrowserView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(palette.bgMain)
-        .overlay { FrameIOPreviewOverlay(isLightMode: isLightMode) }
         .overlay(alignment: .bottom) { toastView }
         .onAppear { browser.start() }
         .sheet(item: $shareRequest, onDismiss: { browser.loadShares() }) { request in

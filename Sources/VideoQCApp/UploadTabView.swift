@@ -75,6 +75,11 @@ struct UploadTabView: View {
             }
 
             Group { if benchHides("browser") { Color.clear } else { FrameIOBrowserView(isLightMode: isLightMode) } }
+                // Exactly the column's width: content wider than it would otherwise spill under the drawer, and the
+                // preview (centred on the browser) with it.
+                .frame(minWidth: 0, maxWidth: .infinity)
+                .clipped()
+                .overlay { FrameIOPreviewOverlay(isLightMode: isLightMode) }
                 .layoutValue(key: UploadColumns.Role.self, value: .browser)
             if hasDrawer {
                 UploadSideDrawer(isLightMode: isLightMode, onToast: onToast)
