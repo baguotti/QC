@@ -26,17 +26,20 @@ public struct Log: Sendable {
     public static var folder: URL { LogFile.shared.folder }
     public static var currentFile: URL { LogFile.shared.current }
 
+    private let osLog: OSLog
     private let logger: Logger
     private let category: String
 
     private init(_ category: String) {
         self.category = category
-        logger = Logger(subsystem: Log.subsystem, category: category)
+        osLog = OSLog(subsystem: Log.subsystem, category: category)
+        logger = Logger(osLog)
     }
 
     /// Unified logging only; the message isn't built unless someone is streaming debug logs.
     public func debug(_ message: @autoclosure () -> String) {
-        guard logger.isEnabled(type: .debug) else { return }
+        // Not `Logger.isEnabled(type:)`: it ships only in macOS 26's libswiftos, and the missing symbol stops the app launching on 15.
+        guard osLog.isEnabled(type: .debug) else { return }
         let text = message()
         logger.debug("\(text, privacy: .public)")
     }
