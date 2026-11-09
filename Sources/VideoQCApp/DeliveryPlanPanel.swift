@@ -400,6 +400,10 @@ struct DeliveryPlanPanel: View {
             Text("No header row (a file name column and two others) in the first \(PlanParser.headerSearchRows) rows of: \(store.unreadTabs.joined(separator: ", "))")
                 .font(.ui(size: 10)).foregroundColor(palette.textSubtle).lineLimit(2)
         }
+        if !store.codelessTabs.isEmpty {
+            Text("No Code column in: \(store.codelessTabs.joined(separator: ", ")). Its rows can't show or take statuses until the column is back.")
+                .font(.ui(size: 10)).foregroundColor(TagTone.amber.color(palette.isLight)).lineLimit(2)
+        }
     }
 
     /// The progress strip: % done (QC Passed, Approved, Delivered of everything not dropped), then a chip per state.

@@ -173,6 +173,21 @@ extension DeliveryPlanSheetsTests {
         #expect(box.records.keys.sorted() == ["kl4"] && box.cells.isEmpty)
         box.settle(readStart: t0.addingTimeInterval(3))
         #expect(box.isEmpty)
+        // A hand edit keeps what was shown; the sheet changed to something else meanwhile: refused, the rest sent.
+        box.set(code: "KL5", name: "E", [.qcStatus: "QC Passed", .qcUpdated: "s", .qcNote: "n"], quiet: false,
+                expect: [.qcStatus: "", .qcNote: ""], at: t0)
+        box.set(code: "KL5", name: "E", [.qcStatus: "Approved"], quiet: false, expect: [.qcStatus: "QC Passed"], at: t0)
+        #expect(box.records["kl5"]?.expect == ["qcStatus": "", "qcNote": ""])   // the first edit's, while unsent
+        #expect(box.records["kl5"]!.conflicts(with: [:]).isEmpty)
+        #expect(box.records["kl5"]!.conflicts(with: [.qcStatus: "Approved"]).isEmpty)   // someone set the same
+        #expect(box.records["kl5"]!.conflicts(with: [.qcStatus: "Needs Fix"]) == [.qcStatus: "Needs Fix"])
+        box.discard(code: "KL5", fields: [.qcStatus, .qcUpdated], sentAt: t0.addingTimeInterval(1))
+        #expect(box.overlay["kl5"] == [.qcNote: "n"])
+        box.discard(code: "KL5", fields: [.qcNote], sentAt: t0.addingTimeInterval(1))
+        #expect(box.records["kl5"] == nil)
+        // Records saved before `expect` existed still load.
+        let old = #"{"records":{"k":{"code":"K","name":"n","values":{},"quiet":true,"changed":0}},"cells":[]}"#
+        #expect((try? JSONDecoder().decode(PlanOutbox.self, from: Data(old.utf8)))?.records.count == 1)
         // Saved and read back.
         box.set(code: "KL3", name: "C", [.frameio: "u"], quiet: true, at: t0)
         let decoded = try? JSONDecoder().decode(PlanOutbox.self, from: JSONEncoder().encode(box))

@@ -160,7 +160,11 @@ extension DeliveryPlanStore {
             }
             undoTitle = Self.undoTitle(Set(values.keys))
         }
-        for row in coded { outbox.set(code: row.code!, name: row.name, values, quiet: quiet) }
+        for row in coded {
+            // A hand edit carries what was shown, so a status someone else set meanwhile isn't overwritten.
+            let expect = quiet ? [:] : Dictionary(uniqueKeysWithValues: values.keys.filter { [.qcStatus, .qcNote, .batch].contains($0) }.map { ($0, shown($0, row)) })
+            outbox.set(code: row.code!, name: row.name, values, quiet: quiet, expect: expect)
+        }
         if let link = values[.frameio], !link.isEmpty {
             for row in coded where linkSuggestions[row.code!.lowercased()] != nil { linkSuggestions[row.code!.lowercased()] = nil }
         }
@@ -234,7 +238,21 @@ extension DeliveryPlanStore {
                     for (i, field) in PlanQCTab.fields.enumerated() { columns[field] = i + 2 }
                     current = PlanQCTab.Table(columns: columns, lines: [:], values: [:], width: PlanQCTab.header.count)
                 }
-                let changes = records.map { PlanQCTab.Change(code: $0.code, name: $0.name, values: $0.fields) }
+                // The Sheets API has no compare-and-swap: checked against the read just made (~1 s before the write).
+                var changes: [PlanQCTab.Change] = []
+                for record in records {
+                    var fields = record.fields
+                    let conflicts = record.conflicts(with: current.values[record.code.lowercased()] ?? [:])
+                    if !conflicts.isEmpty {
+                        var gone = Array(conflicts.keys)
+                        if conflicts[.qcStatus] != nil { gone.append(.qcUpdated) }
+                        for field in gone { fields[field] = nil }
+                        outbox.discard(code: record.code, fields: gone, sentAt: sentAt)
+                        let (field, now) = conflicts.sorted { $0.key.rawValue < $1.key.rawValue }[0]
+                        refused.append("\(record.code)'s \(field.title) was changed in the sheet meanwhile (now \(now.isEmpty ? "empty" : "“\(now)”"))")
+                    }
+                    if !fields.isEmpty { changes.append(PlanQCTab.Change(code: record.code, name: record.name, values: fields)) }
+                }
                 let writes = PlanQCTab.writes(changes, into: current)
                 try await api.update(id, updates + writes.updates, raw: true)
                 try await api.append(id, range: "\(SheetsAPI.quoted(PlanQCTab.title))!A1", rows: writes.appends)

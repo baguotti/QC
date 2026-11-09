@@ -56,7 +56,7 @@ When a member moves to another file, drop `private` only where the compiler asks
 ## Logging (`Sources/VideoQCLib/Log.swift`)
 
 - `Log.<area>` (`app`, `player`, `scan`, `inspect`, `upload`, `download`, `frameio`, `plan`, `google`, `sync`, `notes`, `update`) writes to unified logging, subsystem `com.studio.qcpie`: `log stream --predicate 'subsystem == "com.studio.qcpie"'`.
-- `.notice` and `.error` also go to `~/Library/Application Support/QCpie/Logs/QCpie.log` (1 MB, three files kept, written on a background queue, opened on first write). Settings → General → Logs reveals it: ask a colleague for it when something failed on their Mac. `.debug` / `.info` are unified logging only.
+- `.notice` and `.error` also go to `~/Library/Application Support/QCpie/Logs/QCpie.log` (1 MB, three files kept, written on a background queue, opened on first write). Settings → General → Logs reveals it, and **Save Zip to Desktop** (`SettingsTransfer.exportLogs`) zips the logs, QCpie's three newest crash reports (`~/Library/Logs/DiagnosticReports/QCpie*`) and the app / macOS versions: ask a colleague for that zip when something failed on their Mac. `.debug` / `.info` are unified logging only.
 - **Never log from per-frame paths** (display link, scrub, time observer, per-sample scan loops). Log events: loads, scans starting and ending, network failures, retries, failed saves.
 - Saved state goes through `JSONFile.save` / `load` / `remove`: a failed write or an unreadable file is logged, a missing file is not. Use `log.attempt("what") { try … }` instead of a bare `try?` when a failure would matter to someone debugging; keep `try?` for failures that are expected and harmless (cleanup, `Task.sleep`, optional probes).
 - Errors that recur on a timer (offline polling) are logged when the state changes, not on every attempt (see `DeliveryPlanStore.setHealth`).
@@ -99,8 +99,9 @@ Before committing any changes affecting `VideoViewportView.swift`, `PlayerEngine
 >
 > 1. **DO NOT commit to git (`git commit`)** unless the user explicitly requests a commit in their prompt.
 > 2. **DO NOT push to remote repositories (`git push`)** unless the user explicitly requests a push.
-> 3. **DO NOT run packaging/release scripts (`BuildApp.sh`, `CreateDMG.sh`, etc.)** unless the user explicitly instructs to package or build the release.
-> 4. **Testing code changes**: ALWAYS use `swift build` (quick debug build) to verify compilation correctness and 0 errors/warnings. Never commit or package as part of routine verification.
+> 3. **DO NOT run packaging/release scripts (`BuildApp.sh`, `Release.sh`, etc.)** unless the user explicitly instructs to package or build the release.
+> 4. **Releasing** (when asked): bump `APP_VERSION` in `BuildApp.sh` (plus `AppVersion.swift`, `README.md`), commit, `scripts/Release.sh build`, have the DMG opened on the oldest supported macOS (15: SDK availability marks have been wrong, 0.13.10–0.14.1 didn't launch there), then `scripts/Release.sh publish "notes"`.
+> 5. **Testing code changes**: ALWAYS use `swift build` (quick debug build) to verify compilation correctness and 0 errors/warnings. Never commit or package as part of routine verification.
 
 ---
 

@@ -48,6 +48,8 @@ final class DeliveryPlanStore: ObservableObject {
     @Published var removed: [SeenRow] = []
     /// Tabs whose header row wasn't found (shown so a renamed header doesn't silently drop a tab).
     @Published var unreadTabs: [String] = []
+    /// Tabs read without a Code column while the sheet has the QCpie tab: their rows can't show or take statuses.
+    @Published var codelessTabs: [String] = []
     /// Rows per tab (by gid) from the last read of each tab, for the tab picker.
     @Published var tabCounts: [String: Int] = [:]
     /// Inspect has files (matching is meaningful).
@@ -234,6 +236,7 @@ final class DeliveryPlanStore: ObservableObject {
         resetState()
         match = .empty
         unreadTabs = []
+        codelessTabs = []
         tabCounts = [:]
         seen = [:]
         phase = .idle

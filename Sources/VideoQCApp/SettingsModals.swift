@@ -778,6 +778,9 @@ struct UserSettingsModalView: View {
                 row("doc.text.magnifyingglass", "Logs", "Errors and notable events from the last few sessions. Send them along when something goes wrong.") {
                     Button("Show in Finder") { SettingsTransfer.revealLogs() }
                         .font(.ui(size: 11))
+                    Button("Save Zip to Desktop") { SettingsTransfer.exportLogs() }
+                        .font(.ui(size: 11))
+                        .help("Zips the logs and QCpie's newest crash reports into one file on the Desktop, ready to send")
                 }
             }
             if let maintenanceNote {
@@ -1196,6 +1199,40 @@ enum SettingsTransfer {
             NSWorkspace.shared.activateFileViewerSelecting([file])
         } else {
             NSWorkspace.shared.activateFileViewerSelecting([Log.folder])
+        }
+    }
+
+    /// One zip on the Desktop with the log files, QCpie's three newest crash reports and the app / macOS versions.
+    static func exportLogs() {
+        Task.detached(priority: .userInitiated) {
+            let fm = FileManager.default
+            let stamp = Date().formatted(.iso8601.year().month().day().time(includingFractionalSeconds: false).timeSeparator(.omitted))
+            let name = "QCpie Logs \(stamp)"
+            let stage = fm.temporaryDirectory.appendingPathComponent(UUID().uuidString).appendingPathComponent(name)
+            defer { try? fm.removeItem(at: stage.deletingLastPathComponent()) }
+            let zip = fm.urls(for: .desktopDirectory, in: .userDomainMask)[0].appendingPathComponent("\(name).zip")
+            let done: Bool? = Log.app.attempt("Saving the logs zip") {
+                try fm.createDirectory(at: stage, withIntermediateDirectories: true)
+                for file in (try? fm.contentsOfDirectory(at: Log.folder, includingPropertiesForKeys: nil)) ?? [] {
+                    try? fm.copyItem(at: file, to: stage.appendingPathComponent(file.lastPathComponent))
+                }
+                let reports = fm.urls(for: .libraryDirectory, in: .userDomainMask)[0].appendingPathComponent("Logs/DiagnosticReports")
+                let crashes = ((try? fm.contentsOfDirectory(at: reports, includingPropertiesForKeys: [.contentModificationDateKey])) ?? [])
+                    .filter { $0.lastPathComponent.hasPrefix("QCpie") }
+                    .sorted { ((try? $0.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate ?? .distantPast)
+                            > ((try? $1.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate ?? .distantPast) }
+                for file in crashes.prefix(3) { try? fm.copyItem(at: file, to: stage.appendingPathComponent(file.lastPathComponent)) }
+                let info = "QCpie \(AppVersionInfo.version)\nmacOS \(ProcessInfo.processInfo.operatingSystemVersionString)\n"
+                try info.write(to: stage.appendingPathComponent("info.txt"), atomically: true, encoding: .utf8)
+                let ditto = Process()
+                ditto.executableURL = URL(fileURLWithPath: "/usr/bin/ditto")
+                ditto.arguments = ["-c", "-k", "--keepParent", stage.path, zip.path]
+                try ditto.run()
+                ditto.waitUntilExit()
+                return ditto.terminationStatus == 0
+            }
+            guard done == true else { return }
+            await MainActor.run { NSWorkspace.shared.activateFileViewerSelecting([zip]) }
         }
     }
 

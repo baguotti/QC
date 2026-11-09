@@ -16,6 +16,20 @@ struct PlanOutbox: Codable, Equatable, Sendable {
         var changed: Date
         /// When Google took it: it leaves once a read that started after this has come back.
         var written: Date? = nil
+        /// What QCpie showed for the fields edited by hand: one changed in the sheet meanwhile isn't overwritten.
+        var expect: [String: String]? = nil
+
+        /// Hand-edited fields the sheet now shows differently from both what QCpie showed and what it would write
+        /// (someone else changed them meanwhile) → the sheet's value. `current`: the code's values on the QCpie tab.
+        func conflicts(with current: [PlanField: String]) -> [PlanField: String] {
+            var out: [PlanField: String] = [:]
+            for (key, was) in expect ?? [:] {
+                guard let field = PlanField(rawValue: key), let mine = values[key] else { continue }
+                let now = current[field] ?? ""
+                if now != PlanGrid.normalized(was), now != PlanGrid.normalized(mine) { out[field] = now }
+            }
+            return out
+        }
 
         var fields: [PlanField: String] {
             Dictionary(uniqueKeysWithValues: values.compactMap { k, v in PlanField(rawValue: k).map { ($0, v) } })
@@ -48,10 +62,14 @@ struct PlanOutbox: Codable, Equatable, Sendable {
         (records.values.filter { $0.written == nil }.sorted { $0.code < $1.code }, cells.filter { $0.written == nil })
     }
 
-    mutating func set(code: String, name: String, _ values: [PlanField: String], quiet: Bool, at now: Date = Date()) {
+    /// `expect`: what QCpie showed for the fields of a hand edit (kept from the first edit while unsent).
+    mutating func set(code: String, name: String, _ values: [PlanField: String], quiet: Bool,
+                      expect: [PlanField: String] = [:], at now: Date = Date()) {
         let key = code.lowercased()
         var record = records[key] ?? Record(code: code, name: name, values: [:], quiet: quiet, changed: now)
+        if record.written != nil { record.expect = nil }
         for (field, value) in values { record.values[field.rawValue] = value }
+        for (field, was) in expect where record.expect?[field.rawValue] == nil { record.expect = (record.expect ?? [:]).merging([field.rawValue: was]) { a, _ in a } }
         record.quiet = record.quiet && quiet
         record.changed = now
         record.written = nil
@@ -71,6 +89,14 @@ struct PlanOutbox: Codable, Equatable, Sendable {
             if let record = records[key], record.changed <= sentAt { records[key]?.written = now }
         }
         for i in cells.indices where ids.contains(cells[i].id) && cells[i].changed <= sentAt { cells[i].written = now }
+    }
+
+    /// Fields changed in the sheet meanwhile: taken out (the sheet's value shows again), unless changed since sent.
+    mutating func discard(code: String, fields: [PlanField], sentAt: Date) {
+        let key = code.lowercased()
+        guard var record = records[key], record.changed <= sentAt, record.written == nil else { return }
+        for field in fields { record.values[field.rawValue] = nil; record.expect?[field.rawValue] = nil }
+        records[key] = record.values.isEmpty ? nil : record
     }
 
     /// Refused for good: dropped, unless already written (a read will show those) or changed since they were sent.

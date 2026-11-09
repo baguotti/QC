@@ -4,6 +4,7 @@
 |---|---|
 | `QuickCheck.command` | Debug build, copied into `build/QCpie.app` (and `/Applications/QCpie.app` if present), then opened. Use this to test settings-dependent UI: the bare `.build/debug/QCpie` has its own UserDefaults domain. |
 | `BuildApp.sh` | Release app bundle in `build/` (runs the design lint). Packaging only. |
+| `Release.sh` | `build`: tests, `BuildApp.sh`, `build/QCpie.dmg`. `publish "notes"`: after the DMG launched on the macOS 15 Mac, pushes, tags and publishes the GitHub release. Only when asked to release. |
 | `Build.command` | Double-click wrapper: `BuildApp.sh`, then opens `build/`. |
 | `Start_QCpie.command` | Double-click wrapper: opens `build/QCpie.app`, building it first if missing. |
 | `design_lint.py` | UI must use the design tokens (DESIGN.md). `--update` after removing old debt. |

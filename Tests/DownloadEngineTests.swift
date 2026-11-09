@@ -32,10 +32,11 @@ final class StubCDN: URLProtocol, @unchecked Sendable {
         let version = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?.first { $0.name == "v" }?.value.flatMap(Int.init) ?? 0
         let header = request.value(forHTTPHeaderField: "Range") ?? ""
         let bounds = header.replacingOccurrences(of: "bytes=", with: "").split(separator: "-").compactMap { Int64($0) }
-        let delay = Self.lock.withLock { Self.delay }
+        // Counted when asked, not when answered: a request cancelled by a pause would otherwise be counted later,
+        // among the resume's.
+        let delay = Self.lock.withLock { Self.requests += 1; return Self.delay }
         DispatchQueue.global().asyncAfter(deadline: .now() + delay) { [self] in
             let (data, minimum, failure): (Data?, Int, Failure?) = Self.lock.withLock {
-                Self.requests += 1
                 let key = "\(path)@\(bounds.first ?? 0)"
                 var failure: Failure?
                 if var list = Self.failures[key], !list.isEmpty {

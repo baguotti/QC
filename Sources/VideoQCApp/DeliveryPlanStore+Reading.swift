@@ -195,6 +195,8 @@ extension DeliveryPlanStore {
         }
         if rowsChanged { rows = newRows }
         if unread != unreadTabs { unreadTabs = unread }
+        let codeless = newQC == nil ? [] : tabs.filter { newHeaders[$0.gid].map { $0.columns[.id] == nil } ?? false }.map(\.name)
+        if codeless != codelessTabs { codelessTabs = codeless }
         recomputeChanges()
         if matchChanged { rematch() } else if rowsChanged { recomputeStates() }
     }
