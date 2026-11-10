@@ -11,6 +11,7 @@
 | `LineFinderBench/run.sh` | Line Check accuracy and cost. Must print ALL PASSED. |
 | `FrameCheckBench/run.sh` | Frame Check and legal range accuracy. Must print ALL PASSED. |
 | `LoudnessBench/run.sh` | Loudness against ffmpeg `ebur128`. Must print ALL PASSED. |
+| `SubtitleOCRBench/run.sh [clip ref.srt [samples/s] [language\|auto] [out.srt]]` | Burned-in subtitle reading (`BurnedSubtitleReader`) against a reference .srt: recall, character error rate, punctuation, frame-accurate boundaries, extra cues, speed. Defaults to the LNEH test clip on RIC_2TB. Must print ALL PASSED. |
 | `LaunchBench/run.sh` | Launch time against an empty SwiftUI app. Must print ALL PASSED. |
 
 Benchmarks that use real footage read `_TEST/` (local, git-ignored) and skip those cases without it.

@@ -15,7 +15,7 @@ struct ContentView: View {
     @State var showFeedbackModal: Bool = false
     @State var showSettingsPopover: Bool = false
     @State var showSyncModal: Bool = false
-    /// ⌘ held for a second (`CommandHoldMonitor`).
+    /// ⌘S (router rule `shortcutSheet`); Esc or ⌘S again hides it.
     @State var showShortcutCheatSheet = false
     @State var showUserSettingsModal: Bool = false
     @State var showPropertiesModal: Bool = false
@@ -116,7 +116,6 @@ struct ContentView: View {
     final class EventMonitorCoordinator {
         var mouseMonitor: Any? = nil
         var keyMonitor: Any? = nil
-        let commandHold = CommandHoldMonitor()
         
         deinit {
             cleanup()
@@ -131,7 +130,6 @@ struct ContentView: View {
                 NSEvent.removeMonitor(k)
                 keyMonitor = nil
             }
-            commandHold.stop()
         }
     }
     
@@ -1549,15 +1547,8 @@ struct ContentView: View {
             KeyboardShortcutRouter.dismissTextFieldFocusIfClickedOutside(event: event)
         }
         
+        PictureSubtitleJob.shared.onToast = { self.showToast($0) }
         let router = KeyboardShortcutRouter.standardRouter(actions: buildKeyboardShortcutActions())
-        eventMonitors.commandHold.onChange = { show in
-            // Not over modals, sheets (alerts, panels) or while another window (Settings sheet, menu) has the keys.
-            let window = NSApp.keyWindow
-            guard !show || (!self.isAnyModalActive && window?.attachedSheet == nil && window?.sheetParent == nil
-                            && window?.canBecomeMain == true) else { return }
-            withAnimation(Motion.fade) { self.showShortcutCheatSheet = show }
-        }
-        eventMonitors.commandHold.start()
         
         eventMonitors.keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
             router.handle(
@@ -1574,6 +1565,10 @@ struct ContentView: View {
     }
     
     func dismissTopmostModalOrFullscreen() -> Bool {
+        if showShortcutCheatSheet {
+            withAnimation(Motion.fade) { showShortcutCheatSheet = false }
+            return true
+        }
         if showPropertiesModal {
             withAnimation(Motion.fade) { showPropertiesModal = false }
             return true
@@ -1769,6 +1764,11 @@ struct ContentView: View {
                 return true
             },
             onToggleUserGuide: { self.showUserGuide.toggle() },
+            onToggleShortcutSheet: {
+                guard self.showShortcutCheatSheet || !self.isAnyModalActive else { return false }
+                withAnimation(Motion.fade) { self.showShortcutCheatSheet.toggle() }
+                return true
+            },
             onCycleClipInfo: { if self.fullscreenMode != .videoOnly { self.playerEngine.cycleClipInfoOverlayMode() } },
             onToggleProperties: { self.togglePropertiesModalForActiveOrSelected() },
             onToggleLeftSleeve: {

@@ -325,6 +325,7 @@ struct KeyboardShortcutActions {
     var onCycleCompareMode: () -> Bool
     var onToggleBlinkCompare: () -> Bool
     var onToggleUserGuide: () -> Void
+    var onToggleShortcutSheet: () -> Bool
     var onCycleClipInfo: () -> Void
     var onToggleProperties: () -> Void
     var onToggleLeftSleeve: () -> Void
@@ -378,6 +379,7 @@ struct KeyboardShortcutActions {
         onCycleCompareMode: @escaping () -> Bool = { false },
         onToggleBlinkCompare: @escaping () -> Bool = { false },
         onToggleUserGuide: @escaping () -> Void = {},
+        onToggleShortcutSheet: @escaping () -> Bool = { false },
         onCycleClipInfo: @escaping () -> Void = {},
         onToggleProperties: @escaping () -> Void = {},
         onToggleLeftSleeve: @escaping () -> Void = {},
@@ -430,6 +432,7 @@ struct KeyboardShortcutActions {
         self.onCycleCompareMode = onCycleCompareMode
         self.onToggleBlinkCompare = onToggleBlinkCompare
         self.onToggleUserGuide = onToggleUserGuide
+        self.onToggleShortcutSheet = onToggleShortcutSheet
         self.onCycleClipInfo = onCycleClipInfo
         self.onToggleProperties = onToggleProperties
         self.onToggleLeftSleeve = onToggleLeftSleeve
@@ -478,6 +481,15 @@ extension KeyboardShortcutRouter {
                 return true
             },
             
+            // Global: the shortcuts for the current tab (⌘S shows and hides them, Esc hides).
+            Rule(
+                id: "shortcutSheet",
+                trigger: ShortcutTrigger(characters: ["s"], modifiers: [.command]),
+                scope: .global
+            ) {
+                actions.onToggleShortcutSheet()
+            },
+
             // Global: Tab Switching
             Rule(
                 id: "tabPlayer",

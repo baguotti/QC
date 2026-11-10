@@ -172,6 +172,13 @@ struct SubtitlesPanelView: View {
     @State private var currentMatch: Int = 0
     @FocusState private var isFindFocused: Bool
 
+    /// The clip's own .srt, to compare a draft read from the picture with (looked up off the main thread).
+    @State private var comparableSRT: URL? = nil
+    @State private var comparison: PictureSubtitleComparison? = nil
+    @State private var showComparison = false
+    /// A line to bring into view (going to the next line to check).
+    @State private var scrollRequest: Int? = nil
+
     private var palette: StudioPalette { StudioPalette(isLightMode) }
     private var cues: [SubtitleCue] { engine.subtitleCues }
     private var fps: Double { max(1, engine.slotA.fps) }
@@ -205,6 +212,25 @@ struct SubtitlesPanelView: View {
         .onChange(of: cues) { _, newCues in
             tracker.bind(clock: engine.clock, cues: newCues, fps: fps)
             spelling.recheck(newCues)
+            if let old = comparison {
+                comparison = PictureSubtitleComparison.make(srtName: old.srtName, srtCues: old.srtCues, picture: newCues, fps: fps)
+            }
+        }
+        .task(id: engine.pictureSubtitleClip) {
+            comparison = nil
+            showComparison = false
+            guard let clip = engine.pictureSubtitleClip else { comparableSRT = nil; return }
+            comparableSRT = await Task.detached(priority: .utility) { SubtitleAttachments.resolve(for: clip) }.value
+        }
+        .sheet(isPresented: $showComparison) {
+            if let comparison {
+                PictureSubtitleComparisonView(comparison: comparison, fps: fps, isLightMode: isLightMode,
+                                              onOpen: { seconds in
+                                                  showComparison = false
+                                                  engine.seek(toFrame: max(0, Int(ceil(seconds * fps - 0.5))))
+                                              },
+                                              onClose: { showComparison = false })
+            }
         }
         .onChange(of: query) { _, _ in currentMatch = 0 }
         .onChange(of: matchCase) { _, _ in currentMatch = 0 }
@@ -242,6 +268,22 @@ struct SubtitlesPanelView: View {
 
             spellLanguageMenu
 
+            if !flaggedLines.isEmpty {
+                Button(action: goToNextFlagged) {
+                    Text("\(flaggedLines.count) to check")
+                        .font(.ui(size: 10, weight: .semibold))
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 3.5)
+                        .foregroundColor(TagTone.amber.color(palette.isLight))
+                        .studioBox(background: TagTone.amber.color(palette.isLight).opacity(0.12),
+                                   border: TagTone.amber.color(palette.isLight).opacity(0.45))
+                }
+                .buttonStyle(.plain)
+                .help(comparison == nil
+                      ? "Lines read from the picture with low confidence or unusually long: check them against the frame. Click for the next one."
+                      : "Lines read with low confidence, or that differ from \(comparison?.srtName ?? "the .srt"). Click for the next one.")
+            }
+
             Button(action: goToNextIssue) {
                 HStack(spacing: 3) {
                     Image(systemName: spelling.issueCount == 0 ? "checkmark.seal" : "text.badge.xmark")
@@ -270,7 +312,9 @@ struct SubtitlesPanelView: View {
             }
             .buttonStyle(.plain)
             .disabled(!engine.hasUnsavedSubtitleEdits)
-            .help("Save changes to \(engine.subtitleFileName ?? "the .srt") (overwrites it)")
+            .help(engine.subtitleSourceURL == nil
+                  ? "Save the subtitles read from the picture as an .srt"
+                  : "Save changes to \(engine.subtitleFileName ?? "the .srt") (overwrites it)")
 
             Button(action: saveAs) {
                 Text("Save As…")
@@ -287,6 +331,11 @@ struct SubtitlesPanelView: View {
             Menu {
                 Button("Reveal in Finder") {
                     if let url = engine.subtitleSourceURL { NSWorkspace.shared.activateFileViewerSelecting([url]) }
+                }
+                .disabled(engine.subtitleSourceURL == nil)
+                if engine.pictureSubtitleClip != nil {
+                    Button(comparableSRT.map { "Compare with \($0.lastPathComponent)" } ?? "Compare with the Clip's .srt") { compareWithSRT() }
+                        .disabled(comparableSRT == nil)
                 }
                 Divider()
                 Button(engine.showSubtitles ? "Hide Subtitles on Video" : "Show Subtitles on Video") {
@@ -410,6 +459,7 @@ struct SubtitlesPanelView: View {
                                 matchCase: matchCase,
                                 isFocusedMatchRow: focusedMatch?.cueIndex == index,
                                 spellingIssues: spelling.issues[index] ?? [],
+                                isFlagged: flaggedLines.contains(index),
                                 isActive: tracker.activeIndex == index,
                                 isSelected: highlightedIndex == index,
                                 isLightMode: isLightMode
@@ -445,6 +495,11 @@ struct SubtitlesPanelView: View {
             .onChange(of: tracker.activeIndex) { _, active in
                 guard let active = active, engine.isPlaying, selectedIndex == nil else { return }
                 withAnimation(Motion.list) { proxy.scrollTo(active, anchor: .center) }
+            }
+            .onChange(of: scrollRequest) { _, target in
+                guard let target else { return }
+                withAnimation(Motion.list) { proxy.scrollTo(target, anchor: .center) }
+                scrollRequest = nil
             }
             .onChange(of: selectedIndex) { _, selected in
                 guard let selected = selected else { return }
@@ -581,6 +636,37 @@ struct SubtitlesPanelView: View {
         onToast("Replaced \(count) occurrence\(count == 1 ? "" : "s") — remember to SAVE")
     }
 
+    /// Lines to check: low confidence or unusually long (read from the picture), or different from the clip's .srt.
+    private var flaggedLines: Set<Int> {
+        engine.subtitleReviewLines.union(comparison?.differingLines ?? [])
+    }
+
+    private func goToNextFlagged() {
+        let indices = flaggedLines.filter { cues.indices.contains($0) }.sorted()
+        guard !indices.isEmpty else { return }
+        let start = highlightedIndex ?? selectedIndex ?? -1
+        let target = indices.first { $0 > start } ?? indices[0]
+        highlight(target)
+        scrollRequest = target
+    }
+
+    /// Compares the draft with the clip's .srt (read off the main thread) and shows the differences.
+    private func compareWithSRT() {
+        guard let url = comparableSRT else { return }
+        commitDraft()
+        let picture = cues
+        let fps = self.fps
+        Task {
+            let file = await Task.detached(priority: .userInitiated) { try? SubtitleParser.loadFile(from: url) }.value
+            guard let file, !file.cues.isEmpty else {
+                onToast("Couldn't read \(url.lastPathComponent)")
+                return
+            }
+            comparison = PictureSubtitleComparison.make(srtName: url.lastPathComponent, srtCues: file.cues, picture: picture, fps: fps)
+            showComparison = true
+        }
+    }
+
     private func goToNextIssue() {
         let indices = spelling.issues.keys.sorted()
         guard !indices.isEmpty else { return }
@@ -594,6 +680,7 @@ struct SubtitlesPanelView: View {
     }
 
     private func save() {
+        guard engine.subtitleSourceURL != nil else { saveAs(); return }
         commitDraft()
         do {
             try engine.saveSubtitles()
@@ -610,8 +697,13 @@ struct SubtitlesPanelView: View {
         panel.prompt = "Save"
         panel.canCreateDirectories = true
         panel.allowedContentTypes = [UTType(filenameExtension: "srt") ?? .plainText]
-        panel.nameFieldStringValue = engine.subtitleFileName ?? "subtitles.srt"
-        panel.directoryURL = engine.subtitleSourceURL?.deletingLastPathComponent()
+        if let clip = engine.pictureSubtitleClip {
+            panel.nameFieldStringValue = clip.deletingPathExtension().lastPathComponent + ".srt"
+            panel.directoryURL = clip.deletingLastPathComponent()
+        } else {
+            panel.nameFieldStringValue = engine.subtitleFileName ?? "subtitles.srt"
+            panel.directoryURL = engine.subtitleSourceURL?.deletingLastPathComponent()
+        }
         guard panel.runModal() == .OK, let url = panel.url else { return }
         do {
             try engine.saveSubtitles(to: url)
@@ -674,6 +766,7 @@ struct SubtitleCueRow: View, Equatable {
     let matchCase: Bool
     let isFocusedMatchRow: Bool
     let spellingIssues: [NSRange]
+    var isFlagged: Bool = false
     let isActive: Bool
     let isSelected: Bool
     let isLightMode: Bool
@@ -682,7 +775,7 @@ struct SubtitleCueRow: View, Equatable {
         lhs.number == rhs.number && lhs.inTC == rhs.inTC && lhs.outTC == rhs.outTC &&
         lhs.styled.plain == rhs.styled.plain && lhs.styled.italic == rhs.styled.italic && lhs.styled.bold == rhs.styled.bold &&
         lhs.searchQuery == rhs.searchQuery && lhs.matchCase == rhs.matchCase && lhs.isFocusedMatchRow == rhs.isFocusedMatchRow &&
-        lhs.spellingIssues == rhs.spellingIssues && lhs.isActive == rhs.isActive && lhs.isSelected == rhs.isSelected && lhs.isLightMode == rhs.isLightMode &&
+        lhs.spellingIssues == rhs.spellingIssues && lhs.isFlagged == rhs.isFlagged && lhs.isActive == rhs.isActive && lhs.isSelected == rhs.isSelected && lhs.isLightMode == rhs.isLightMode &&
         lhs.themeRevision == rhs.themeRevision
     }
 
@@ -702,6 +795,12 @@ struct SubtitleCueRow: View, Equatable {
                         .font(.ui(size: 10, weight: .medium))
                         .foregroundColor(palette.textMuted)
                     Spacer(minLength: 0)
+                    if isFlagged {
+                        Image(systemName: "eye")
+                            .font(.system(size: StudioTheme.scaleFont(8.5), weight: .bold))
+                            .foregroundColor(TagTone.amber.color(palette.isLight))
+                            .help("Check this line against the picture")
+                    }
                     if !spellingIssues.isEmpty {
                         Image(systemName: "textformat.abc.dottedunderline")
                             .font(.system(size: StudioTheme.scaleFont(8.5), weight: .bold))

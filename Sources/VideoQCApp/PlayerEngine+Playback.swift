@@ -154,7 +154,7 @@ extension PlayerEngine {
                 guard QCUtilities.isSameURL(video, self.slotA.url),
                       SubtitleAttachments.manual(for: video).map({ !QCUtilities.isSameURL($0, self.subtitleSourceURL) }) ?? true
                 else { return }
-                self.autoLoadSubtitles(for: video)
+                self.autoLoadSubtitles(for: video, preferDraft: SubtitleAttachments.manual(for: video) == nil)
             }
             .store(in: &cancellables)
     }

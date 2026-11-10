@@ -251,12 +251,27 @@ struct PlayerTransportDeckView: View, Equatable {
                 .disabled(!transportState.hasActiveURL)
                 .contextMenu {
                     Button("Import Subtitles (.srt)…") { engine.chooseAndLoadSubtitles() }
+                    Menu("Read Subtitles from Picture") {
+                        ForEach(BurnedSubtitleReader.Region.allCases, id: \.self) { region in
+                            Button(region == .bottom ? "Bottom of the Picture" : "Top of the Picture") {
+                                guard let clip = engine.slotA.url else { return }
+                                guard engine.slotA.mediaKind == .video, engine.slotA.sequence == nil else {
+                                    PictureSubtitleJob.shared.onToast("Subtitles can only be read from a video file")
+                                    return
+                                }
+                                PictureSubtitleJob.shared.start(clip: clip, region: region, engine: engine)
+                            }
+                        }
+                    }
                     if transportState.hasSubtitles {
                         Button(transportState.showSubtitles ? "Hide Subtitles" : "Show Subtitles") { engine.showSubtitles.toggle() }
                         Button("Reset Subtitle Position") { engine.resetSubtitlePosition() }
-                        Button("Remove Subtitles") { engine.clearSubtitles() }
+                        Button("Remove Subtitles") { PictureSubtitleJob.remove(from: engine) }
                     }
                 }
+
+                PictureSubtitleProgressChip(isLightMode: isLightMode)
+                    .fixedSize()
 
                 transportBtn(
                     icon: "info.circle",

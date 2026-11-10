@@ -112,6 +112,7 @@ struct UserGuideView: View {
             GuideShortcut(["T"], "Light / dark mode"),
             GuideShortcut(["⇧T"], "Next accent theme"),
             GuideShortcut(["?", "⌘/"], "User Guide"),
+            GuideShortcut(["⌘S"], "Shortcuts for this tab"),
         ]),
     ]) }
     
@@ -135,6 +136,8 @@ struct UserGuideView: View {
             GuideTopic(title: "Scan Findings (M)", body: "After a Scan check, M / ⇧M jump to the next or previous finding in the open clip."),
             GuideTopic(title: "Missed Line", body: "Found a line the Line Check didn't catch? Missed Line in the timecode bar sends that frame and its details to the developer after you confirm."),
             GuideTopic(title: "Finder Tags (1–7, 0)", body: "Number keys apply a Finder colour tag to the open file; 0 clears it."),
+            GuideTopic(title: "Read Subtitles from the Picture", body: "For subtitles burned into the video: right-click the CC button, choose Read Subtitles from Picture, then Bottom or Top of the Picture. QCpie reads them in the background (the chip by the CC button shows progress; ✕ stops it) and opens them in the Subtitles drawer as a draft, with spell check. Lines worth a look (hard to read, or unusually long) get an eye mark; the \"to check\" button steps through them. If the clip has an .srt, ••• → Compare with that file lists every line that differs in wording or timing. Save writes the draft as an .srt next to the clip. Reading can misread stylised or busy text: check the frame before changing anything.",
+                       blocks: [.controls("Look for (right-click the CC button)", [.button("Read Subtitles from Picture"), .button("Bottom of the Picture"), .button("Top of the Picture")])]),
             GuideTopic(title: "Overlays and Info", body: "I cycles the clip info overlay. ⌘I opens Media Info. The crosshair, title-safe and subtitle buttons sit in the transport bar."),
             GuideTopic(title: "Legal Range Zebra", body: "The striped button in the transport bar stripes the paused frame where brightness or colour is outside broadcast-legal levels: red above the limits, blue below. It shows the file's own levels (EV doesn't change it) and hides during playback. Right-click it to choose the standard: EBU R103 (UK and Europe: luma −1 to 103%, RGB −5 to 105%) or Strict (0 to 100%)."),
             GuideTopic(title: "Screenshot", body: "The camera button saves the frame on screen (including A / B compare views) at full resolution. Right-click it to choose JPG or PNG quality."),
@@ -314,8 +317,7 @@ struct UserGuideView: View {
 }
 
 
-/// Hold ⌘ for a second: the shortcuts that work in the current tab, from the User Guide's lists. Shown over the window,
-/// gone when ⌘ is released.
+/// ⌘S: the shortcuts that work in the current tab, from the User Guide's lists. Shown over the window until ⌘S or Esc.
 struct ShortcutCheatSheet: View {
     let tab: AppTab
     let isLightMode: Bool
@@ -359,7 +361,7 @@ struct ShortcutCheatSheet: View {
                     }
                 }
             }
-            Text("Every shortcut is in the User Guide (?).")
+            Text("⌘S or Esc to close. Every shortcut is in the User Guide (?).")
                 .font(.ui(size: 11))
                 .foregroundColor(palette.textMuted)
         }
@@ -369,61 +371,5 @@ struct ShortcutCheatSheet: View {
         .overlay(RoundedRectangle(cornerRadius: Radius.container).stroke(palette.borderStrong, lineWidth: 1))
         .padding(40)
         .allowsHitTesting(false)
-    }
-}
-
-/// Watches for ⌘ held alone for a second (cancelled by any key, click or other modifier) and reports when the cheat
-/// sheet should show. Local monitors only: costs nothing until a modifier changes. Used on the main thread only (event
-/// monitors and the resign notification are delivered there).
-final class CommandHoldMonitor: @unchecked Sendable {
-    private var monitors: [Any] = []
-    private var resignObserver: NSObjectProtocol?
-    private var pending: DispatchWorkItem?
-    private var isShowing = false
-    var onChange: (Bool) -> Void = { _ in }
-
-    func start() {
-        guard monitors.isEmpty else { return }
-        if let flags = NSEvent.addLocalMonitorForEvents(matching: .flagsChanged, handler: { [weak self] event in
-            let mods = event.modifierFlags.intersection([.command, .shift, .option, .control])
-            if mods == .command { self?.arm() } else { self?.cancel() }
-            return event
-        }) { monitors.append(flags) }
-        if let other = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .leftMouseDown, .rightMouseDown, .scrollWheel], handler: { [weak self] event in
-            self?.cancel()
-            return event
-        }) { monitors.append(other) }
-        resignObserver = NotificationCenter.default.addObserver(forName: NSApplication.didResignActiveNotification, object: nil,
-                                                                queue: .main) { [weak self] _ in
-            self?.cancel()
-        }
-    }
-
-    func stop() {
-        monitors.forEach(NSEvent.removeMonitor)
-        monitors = []
-        if let resignObserver { NotificationCenter.default.removeObserver(resignObserver) }
-        resignObserver = nil
-        cancel()
-    }
-
-    private func arm() {
-        pending?.cancel()
-        let work = DispatchWorkItem { [weak self] in
-            guard let self else { return }
-            self.isShowing = true
-            self.onChange(true)
-        }
-        pending = work
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1, execute: work)
-    }
-
-    private func cancel() {
-        pending?.cancel()
-        pending = nil
-        if isShowing {
-            isShowing = false
-            onChange(false)
-        }
     }
 }

@@ -625,15 +625,26 @@ extension ContentView {
                     .keyboardShortcut(.cancelAction)
                 Button("Send Report") {
                     showMissedLineConfirm = false
-                    reportMissedLine()
+                    // The popover closes first, so the alert isn't drawn over it.
+                    DispatchQueue.main.async { confirmMissedLineReport() }
                 }
-                .keyboardShortcut(.defaultAction)
             }
         }
         .padding(16)
         .frame(width: 340)
     }
     
+    /// Last check before the frame leaves the Mac. Return and Esc cancel; only a click on Send sends.
+    private func confirmMissedLineReport() {
+        let alert = NSAlert()
+        alert.messageText = "Send this frame to the QCpie developer?"
+        alert.informativeText = "\(playerEngine.activeURL?.lastPathComponent ?? "This clip") at \(playerEngine.currentTimecode), with its details, your Line Check settings and your name."
+        alert.addButton(withTitle: "Cancel").keyEquivalent = "\r"
+        alert.addButton(withTitle: "Send Report").keyEquivalent = ""
+        guard alert.runModal() == .alertSecondButtonReturn else { return }
+        reportMissedLine()
+    }
+
     private func missedLineInfoRow(_ label: String, _ value: String) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: 10) {
             Text(label)

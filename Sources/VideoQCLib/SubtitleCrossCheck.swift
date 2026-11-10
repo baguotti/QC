@@ -11,12 +11,16 @@ public enum SubtitleCrossCheck {
         /// In / out times may differ by up to this much (seconds) before it is reported. Default: exact (half a
         /// millisecond absorbs float rounding; SRT times are whole milliseconds).
         public var timingTolerance: Double
+        /// Curly and straight quotes and apostrophes count as the same (text read from the picture has straight ones).
+        public var ignoreQuoteStyle: Bool
 
-        public init(ignoreLineBreaks: Bool = true, ignoreFormatting: Bool = true, ignoreCase: Bool = false, timingTolerance: Double = 0.0005) {
+        public init(ignoreLineBreaks: Bool = true, ignoreFormatting: Bool = true, ignoreCase: Bool = false, timingTolerance: Double = 0.0005,
+                    ignoreQuoteStyle: Bool = false) {
             self.ignoreLineBreaks = ignoreLineBreaks
             self.ignoreFormatting = ignoreFormatting
             self.ignoreCase = ignoreCase
             self.timingTolerance = timingTolerance
+            self.ignoreQuoteStyle = ignoreQuoteStyle
         }
     }
 
@@ -46,6 +50,10 @@ public enum SubtitleCrossCheck {
             text = text.components(separatedBy: .whitespacesAndNewlines).filter { !$0.isEmpty }.joined(separator: " ")
         }
         text = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        if options.ignoreQuoteStyle {
+            text = text.replacingOccurrences(of: "’", with: "'").replacingOccurrences(of: "‘", with: "'")
+                .replacingOccurrences(of: "“", with: "\"").replacingOccurrences(of: "”", with: "\"")
+        }
         return options.ignoreCase ? text.lowercased() : text
     }
 

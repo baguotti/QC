@@ -281,6 +281,11 @@ public final class PlayerEngine: ObservableObject {
     @Published public private(set) var subtitleFileName: String? = nil
     @Published public private(set) var subtitleSourceURL: URL? = nil
     @Published public private(set) var hasUnsavedSubtitleEdits: Bool = false
+    /// The clip whose burned-in subtitles are shown as an unsaved draft (no .srt yet); nil for subtitles from a file.
+    @Published public private(set) var pictureSubtitleClip: URL? = nil
+    /// Lines of that draft worth a second look (low OCR confidence, unusually long). Lines are never added or
+    /// removed by editing, so indices stay valid until the draft is replaced.
+    @Published public private(set) var subtitleReviewLines: Set<Int> = []
     @Published public var showSubtitles: Bool = true
     /// Where subtitles sit over slot A, as fractions of the picture: x = centre, y = distance of the text's bottom
     /// edge from the picture's bottom. Set when a drag ends (never per mouse event); remembered across launches.
@@ -314,6 +319,15 @@ public final class PlayerEngine: ObservableObject {
         get { Self.unsavedSubtitleEdits }
         set { Self.unsavedSubtitleEdits = newValue }
     }
+    private static var pictureReviewLines: [String: Set<Int>] = [:]
+    /// Where an unsaved draft of `clip`'s burned-in subtitles is kept (also its name in the quit prompt).
+    static func pictureSubtitleKey(for clip: URL) -> String {
+        clip.standardizedFileURL.deletingPathExtension().path + " (read from picture).srt"
+    }
+    /// Key of the shown subtitles in `unsavedSubtitleEdits`.
+    private var shownSubtitleKey: String? {
+        subtitleSourceURL?.standardizedFileURL.path ?? pictureSubtitleClip.map(Self.pictureSubtitleKey)
+    }
     /// .srt files with edits not saved yet (in memory only: asked about on quit).
     static var unsavedSubtitleFileNames: [String] { unsavedSubtitleEdits.keys.map { ($0 as NSString).lastPathComponent }.sorted() }
     
@@ -332,6 +346,8 @@ public final class PlayerEngine: ObservableObject {
     private func applySubtitleFile(_ file: SubtitleFile, from url: URL) {
         let key = url.standardizedFileURL.path
         let pending = unsavedSubtitleEdits[key]
+        if pictureSubtitleClip != nil { pictureSubtitleClip = nil }
+        if !subtitleReviewLines.isEmpty { subtitleReviewLines = [] }
         subtitleFormat = file.format
         subtitleCues = pending ?? file.cues
         subtitleFileName = url.lastPathComponent
@@ -357,8 +373,50 @@ public final class PlayerEngine: ObservableObject {
         return loaded
     }
     
+    /// Whether `clip` has an unsaved draft of subtitles read from its picture.
+    public func hasPictureSubtitleDraft(for clip: URL) -> Bool {
+        unsavedSubtitleEdits[Self.pictureSubtitleKey(for: clip)] != nil
+    }
+
+    /// Shows subtitles read from `clip`'s picture as an unsaved draft (kept, and asked about on quit, until saved
+    /// as an .srt or removed). A draft for a clip that isn't in slot A any more is kept for when it comes back.
+    public func loadPictureSubtitles(_ cues: [SubtitleCue], review: Set<Int>, for clip: URL) {
+        let key = Self.pictureSubtitleKey(for: clip)
+        unsavedSubtitleEdits[key] = cues
+        Self.pictureReviewLines[key] = review
+        guard QCUtilities.isSameURL(slotA.url, clip) else { return }
+        showPictureDraft(for: clip)
+        showSubtitles = true
+    }
+
+    private func showPictureDraft(for clip: URL) {
+        let key = Self.pictureSubtitleKey(for: clip)
+        guard let cues = unsavedSubtitleEdits[key] else { return }
+        subtitleLoadGeneration &+= 1
+        subtitleFormat = SubtitleFileFormat()
+        subtitleCues = cues
+        subtitleFileName = (key as NSString).lastPathComponent
+        subtitleSourceURL = nil
+        pictureSubtitleClip = clip
+        subtitleReviewLines = Self.pictureReviewLines[key] ?? []
+        hasUnsavedSubtitleEdits = true
+        subtitleRevision &+= 1
+    }
+
+    /// Remove Subtitles: a draft read from the picture is discarded (it exists nowhere else); a file stays on disk.
+    public func removeSubtitles() {
+        if let clip = pictureSubtitleClip {
+            let key = Self.pictureSubtitleKey(for: clip)
+            unsavedSubtitleEdits.removeValue(forKey: key)
+            Self.pictureReviewLines.removeValue(forKey: key)
+        }
+        clearSubtitles()
+    }
+
     public func clearSubtitles() {
         subtitleLoadGeneration &+= 1
+        if pictureSubtitleClip != nil { pictureSubtitleClip = nil }
+        if !subtitleReviewLines.isEmpty { subtitleReviewLines = [] }
         if !subtitleCues.isEmpty { subtitleCues = [] }
         if subtitleFileName != nil { subtitleFileName = nil }
         if subtitleSourceURL != nil { subtitleSourceURL = nil }
@@ -379,8 +437,8 @@ public final class PlayerEngine: ObservableObject {
         subtitleRevision &+= 1
         subtitleCues = cues
         if !hasUnsavedSubtitleEdits { hasUnsavedSubtitleEdits = true }
-        if let url = subtitleSourceURL {
-            unsavedSubtitleEdits[url.standardizedFileURL.path] = cues
+        if let key = shownSubtitleKey {
+            unsavedSubtitleEdits[key] = cues
         }
     }
     
@@ -393,9 +451,12 @@ public final class PlayerEngine: ObservableObject {
     /// Writes the lines to `url` (Save As); the new file becomes the subtitles' source.
     public func saveSubtitles(to url: URL) throws {
         try SubtitleParser.write(SubtitleFile(cues: subtitleCues, format: subtitleFormat), to: url)
-        if let old = subtitleSourceURL {
-            unsavedSubtitleEdits.removeValue(forKey: old.standardizedFileURL.path)
+        if let old = shownSubtitleKey {
+            unsavedSubtitleEdits.removeValue(forKey: old)
+            Self.pictureReviewLines.removeValue(forKey: old)
         }
+        if pictureSubtitleClip != nil { pictureSubtitleClip = nil }
+        if !subtitleReviewLines.isEmpty { subtitleReviewLines = [] }
         unsavedSubtitleEdits.removeValue(forKey: url.standardizedFileURL.path)
         let previous = subtitleSourceURL
         subtitleSourceURL = url
@@ -409,9 +470,15 @@ public final class PlayerEngine: ObservableObject {
     }
     
     /// Picks up the clip's attached .srt, or `clip.srt` sitting next to `clip.mov` (read off the main thread).
-    func autoLoadSubtitles(for mediaURL: URL?) {
+    /// An unsaved draft read from the clip's picture comes first (it exists nowhere else), except when an .srt was
+    /// just attached to the clip on purpose (`preferDraft: false`): then that file shows and the draft waits.
+    func autoLoadSubtitles(for mediaURL: URL?, preferDraft: Bool = true) {
         clearSubtitles()
         guard let mediaURL = mediaURL else { return }
+        if preferDraft, hasPictureSubtitleDraft(for: mediaURL) {
+            showPictureDraft(for: mediaURL)
+            return
+        }
         let generation = subtitleLoadGeneration
         Task { [weak self] in
             let found: (URL, SubtitleFile)? = await Task.detached(priority: .utility) {

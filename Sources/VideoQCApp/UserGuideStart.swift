@@ -78,7 +78,7 @@ extension UserGuideView {
         GuideTopic(title: "Getting Help", body: "", blocks: [
             .steps([
                 GuideStep("Hover over any button and read the status bar at the bottom of the window."),
-                GuideStep("Hold ⌘ for a second to see the shortcuts for the tab you're on.", [.key("⌘")]),
+                GuideStep("Press ⌘S to see the shortcuts for the tab you're on (⌘S or Esc closes the list).", [.key("⌘"), .key("S")]),
                 GuideStep("Open this guide again from the gear menu.", [.menuItem(icon: "info.circle", title: "Info / Guide")]),
                 GuideStep("Something wrong? Tell us from the same menu.", [.menuItem(icon: "envelope", title: "Feedback & Support")]),
                 GuideStep("If QCpie misbehaves, go to User Settings → General → Logs and click Save Zip to Desktop, then send that file along.", [.button("Save Zip to Desktop")]),
