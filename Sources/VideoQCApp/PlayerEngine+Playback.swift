@@ -102,21 +102,23 @@ extension PlayerEngine {
                             let isStalledB = slotB.player.rate == 0.0 || abs(drift) > frameDurB * 3.5 * max(1.0, Double(abs(baseRate)))
                             if isStalledB && CACurrentMediaTime() - self.lastRelockStart >= 1.0 {
                                 self.relockSlotB()
-                            } else if abs(drift) > frameDurB * 0.75 {
-                                // Gentle micro-rate adjustment (±1.5%) with 0.25s rate-settle debounce
+                            } else if abs(drift) > frameDurB * 0.25 {
+                                // Micro-rate adjustment proportional to the drift (closes it in ~0.5 s, at most ±4%),
+                                // re-evaluated every 0.25 s. The old fixed ±1.5% outside a ¾-frame dead zone left B up
+                                // to ¾ frame off for good and took ~5 s to close two frames.
                                 let now = Date()
                                 if now.timeIntervalSince(self.lastDriftCorrectionTime) >= 0.25 {
                                     self.lastDriftCorrectionTime = now
-                                    // Behind means further back along the direction of play (reverse: B later than A).
-                                    let isBehind = (drift < 0) == (baseRate > 0)
-                                    let correctionFactor: Float = isBehind ? 1.015 : 0.985
-                                    let adjustedRate = baseRate * correctionFactor
+                                    // Positive: B is behind along the direction of play (reverse: B later than A).
+                                    let lag = baseRate > 0 ? -drift : drift
+                                    let correction = Float(min(0.04, max(-0.04, lag / 0.5)))
+                                    let adjustedRate = baseRate * (1 + correction)
                                     if abs(slotB.player.rate - adjustedRate) > 0.003 {
                                         slotB.player.rate = adjustedRate
                                     }
                                 }
                             } else {
-                                // In frame-accurate lockstep (within 3/4 frame): maintain exact base rate
+                                // In lockstep (within a quarter frame): maintain exact base rate
                                 if abs(slotB.player.rate - baseRate) > 0.001 {
                                     slotB.player.rate = baseRate
                                 }

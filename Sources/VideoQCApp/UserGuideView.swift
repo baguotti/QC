@@ -5,6 +5,8 @@ struct GuideTopic: Hashable {
     let body: String
     /// Keyboard Shortcuts pages: rows of keys (each drawn as a keycap) and what they do.
     var shortcuts: [GuideShortcut] = []
+    /// Steps, pictures of the window and drawn buttons, shown before `body`.
+    var blocks: [GuideBlock] = []
 }
 
 struct GuideShortcut: Hashable {
@@ -115,8 +117,10 @@ struct UserGuideView: View {
     
     /// Rebuilt on each use, so the shortcuts chapter shows the current settings.
     static var chapters: [GuideChapter] { [
+        gettingStarted,
         GuideChapter(title: "Play", icon: "play.fill", topics: [
-            GuideTopic(title: "Assets", body: "Change, Add or Refresh the loaded folder or files. The line underneath shows how many videos, images and audio files are loaded. Drag and drop works anywhere in the panel."),
+            GuideTopic(title: "Assets", body: "Change, Add or Refresh the loaded folder or files. The line underneath shows how many videos, images and audio files are loaded. Drag and drop works anywhere in the panel.",
+                       blocks: [.window(.leftPanel), .controls("Look for", [.segments(["Change", "Add", "Refresh"])])]),
             GuideTopic(title: "Queue", body: "Click a file to load it into Slot A, ⌥-click (or +B) to load it into Slot B. ↑ / ↓ move through the queue (⌥↑ / ⌥↓ for Slot B). The view menu switches list and thumbnails; + / − change the thumbnail size."),
             GuideTopic(title: "Hide, Auto and Wave", body: "Hide flattens the folder list. Auto (A) plays a clip from the start when you select it. Wave (W) draws the audio waveform under the timeline; scroll over it to resize the lane."),
             GuideTopic(title: "Images, Audio and Sequences", body: "Stills and audio open in the Player too. Numbered image sequences are detected automatically and play as a clip; right-click one in the queue to change its frame rate or read it as single images."),
@@ -138,7 +142,8 @@ struct UserGuideView: View {
             GuideTopic(title: "Panels and Workspaces", body: "⌘⇧← / ⌘⇧→ show or hide the side panels. ⇧1, ⇧2, ⇧3 and ⇧4 switch to Play, Inspect, Scan and Upload. T toggles light and dark mode, ⇧T cycles the accent theme."),
         ]),
         GuideChapter(title: "Inspect", icon: "doc.text", topics: [
-            GuideTopic(title: "Specs Table", body: "Reads every file's metadata without decoding: timecode length, end frame, aspect ratio and size, frame rate, file size, creation date, video codec and audio spec. Click a column header to sort; drag a divider to resize."),
+            GuideTopic(title: "Specs Table", body: "Reads every file's metadata without decoding: timecode length, end frame, aspect ratio and size, frame rate, file size, creation date, video codec and audio spec. Click a column header to sort; drag a divider to resize.",
+                       blocks: [.window(.center)]),
             GuideTopic(title: "Name Mismatches", body: "Flags files whose name (e.g. 16x9, 1080p, 15s) disagrees with the actual stream. Right-click a warning to dismiss it."),
             GuideTopic(title: "Check Loudness", body: "Measures each file's integrated loudness (LUFS), true peak (dBTP), loudness range and max short-term loudness to ITU-R BS.1770-4, and passes, warns or fails it against the target picked under the button (EBU R128, ATSC A/85, Streaming / Social, Apple or a custom target in Settings → Checks). It also flags a silent channel, out-of-phase stereo and dual mono. Hover the value in the Audio column for details; the numbers are included in exports."),
             GuideTopic(title: "Check End Frames", body: "Looks at the very last frame of every video and reports whether it is pure black or not."),
@@ -151,10 +156,11 @@ struct UserGuideView: View {
             GuideTopic(title: "Thumbnails and Skimming", body: "List / Thumbs switches to thumbnails (size up to 220 pt in the view options, or + / −). Move the mouse across a video's thumbnail to skim through it. Drag the left panel's edge to resize it (double-click resets)."),
             GuideTopic(title: "Export", body: "Sheets copies the table for Google Sheets (paste with ⌘V), Save CSV writes a spreadsheet, Open HTML builds a printable specs sheet. Reveal in Finder shows the selected file."),
             GuideTopic(title: "Hide Panel (⌘⇧←)", body: "Shows or hides the Specs actions panel to give the table the full width."),
-            GuideTopic(title: "Delivery Plan (⌘⇧→)", body: "Link the Google Sheet that lists every deliverable (shared as Anyone with the link). QCpie re-reads it every minute while the plan is open, highlights rows that changed since you last looked, and matches each row to the Inspect file whose name contains the row's file name, checking resolution, length, frame rate, format, file size and sound. Rows show Missing, Delivered, Check (specs that don't match, or an unsure match: the row says which); files no row names are listed as Not in the Plan. Click a row to select its file in Inspect, double-click to play it. The window button opens the plan in its own window, for a second screen (⌥⌘D)."),
+            GuideTopic(title: "Delivery Plan (⌘⇧→)", body: "Link the Google Sheet that lists every deliverable (sign in with your studio Google account; the sheet only needs to be shared with you). QCpie re-reads it every few seconds while the plan is open, highlights rows that changed since you last looked, and matches each row to the Inspect file whose name contains the row's file name, checking resolution, length, frame rate, format, file size and sound. Rows show Missing, Delivered, Check (specs that don't match, or an unsure match: the row says which); files no row names are listed as Not in the Plan. Click a row to select its file in Inspect, double-click to play it. The window button opens the plan in its own window, for a second screen (⌥⌘D)."),
         ]),
         GuideChapter(title: "Scan", icon: "viewfinder", topics: [
-            GuideTopic(title: "Line Check", body: "Scans every frame's edges for thin coloured lines left by a bad crop, reframe or matte. Results list each line with its edge, thickness, timecode range and a thumbnail; click one to open it in the Player."),
+            GuideTopic(title: "Line Check", body: "Scans every frame's edges for thin coloured lines left by a bad crop, reframe or matte. Results list each line with its edge, thickness, timecode range and a thumbnail; click one to open it in the Player.",
+                       blocks: [.controls("Look for", [.button("Run Line Check", icon: "play.fill", primary: true), .button("Run Frame Check"), .button("Run Full Check")])]),
             GuideTopic(title: "Target Colour", body: "The colour to look for: Green (default), Magenta, Black, White, a hex value or the colour wheel. Any Colour ignores the target and flags lines of any colour."),
             GuideTopic(title: "Sensitivity", body: "How faint or short a line can be and still be flagged. Higher finds more, and also more false alarms."),
             GuideTopic(title: "Off-Colour Lines", body: "Also reports lines close to, but not exactly, the target colour, marked as off-colour."),
@@ -212,6 +218,10 @@ struct UserGuideView: View {
                 .padding(.bottom, 14)
             if !topic.shortcuts.isEmpty {
                 shortcutTable(topic.shortcuts)
+            }
+            ForEach(Array(topic.blocks.enumerated()), id: \.offset) { _, block in
+                GuideBlockView(block: block, palette: palette)
+                    .padding(.bottom, 18)
             }
             ForEach(Array(paragraphs(topic.body).enumerated()), id: \.offset) { _, paragraph in
                 Text(paragraph)

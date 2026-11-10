@@ -204,6 +204,9 @@ extension PlayerEngine {
         }
     }
     
+    /// How far ahead linked A/B playback is scheduled, so both players can start on the same host time.
+    static let linkedStartLead = 0.03
+
     public func setPlaybackRate(_ newRate: Float) {
         guard hasTimeline || newRate == 0 else { return }
         stopSlowStep()
@@ -232,15 +235,21 @@ extension PlayerEngine {
         let currSecsB = CMTimeGetSeconds(slotB.player.currentTime())
         let frameDur = 1.0 / max(1.0, slotB.fps)
         
+        // Both start on one host time. Two `playImmediately` calls left B a fixed ~11 ms off A (measured, H.264 MP4s),
+        // which the PLL never closed (inside its dead zone): B looked a frame late on many vsyncs.
         let startBothPlayers = { @MainActor [weak self] in
             guard let self = self, self.isPlaying, self.rate == newRate else { return }
-            self.slotB.player.playImmediately(atRate: newRate)
-            self.slotA.player.playImmediately(atRate: newRate)
+            let hostClock = CMClockGetHostTimeClock()
+            let startHost = CMTimeAdd(CMClockGetTime(hostClock), CMTime(seconds: Self.linkedStartLead, preferredTimescale: 1_000_000_000))
+            self.slotB.player.setRate(newRate, time: .invalid, atHostTime: startHost)
+            self.slotA.player.setRate(newRate, time: .invalid, atHostTime: startHost)
+            self.relockHoldUntil = CACurrentMediaTime() + Self.linkedStartLead + 0.15
             self.updateShuttleText(for: newRate)
         }
         
-        // A B seek still in flight (pause alignment, re-lock) would start B late: land it exactly first.
-        if isSeekingB || isRelockingB || isPauseAlignSeekPendingB || abs(currSecsB - targetSecs) > frameDur * 1.5 {
+        // A B seek still in flight (pause alignment, re-lock) would start B late, and B off by more than a quarter
+        // frame would keep that offset: land it exactly first.
+        if isSeekingB || isRelockingB || isPauseAlignSeekPendingB || abs(currSecsB - targetSecs) > frameDur * 0.25 {
             let targetTimeB = CMTime(seconds: targetSecs, preferredTimescale: 60000)
             seekSlotB(to: targetTimeB) {
                 startBothPlayers()
