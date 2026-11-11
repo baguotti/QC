@@ -268,7 +268,11 @@ public enum PictureTextScanner {
         for (_, text) in lower where !distinct.contains(where: { BurnedSubtitleReader.textDistance($0, text) <= 0.25 }) {
             distinct.append(text)
         }
-        let subtitlesLikely = lower.count >= 3 && distinct.count >= 2
+        // Or one sentence-like line (4+ words) that comes, goes and comes back: a repeated subtitle. A short tagline
+        // at the start and end of a spot stays a graphic, and so does text that stays on screen throughout.
+        let repeatedSentence = distinct.count == 1 && distinct[0].split(separator: " ").count >= 4
+            && zip(lower, lower.dropFirst()).contains { $1.0 - $0.0 > interval * 1.5 }
+        let subtitlesLikely = lower.count >= 3 && (distinct.count >= 2 || repeatedSentence)
         let examples = subtitlesLikely
             ? Array(group(lower.map { ($0.0, $0.1) }, interval: interval).prefix(3)) : []
 

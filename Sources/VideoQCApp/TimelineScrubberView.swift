@@ -340,6 +340,13 @@ public struct TimelineScrubberView: View {
                         trackInset: trackInset
                     )
                     .equatable()
+
+                    // Text graphics found by Inspect → Check Subs & Graphics (click: go there)
+                    PictureTextTimelineMarks(url: engine.activeURL, durSecs: durSecs, fps: engine.activeFps,
+                                             trackWidth: trackWidth, trackInset: trackInset, isLightMode: isLightMode) { frame in
+                        engine.pause()
+                        engine.seek(toFrame: frame)
+                    }
                 }
                 .frame(height: 22)
                 

@@ -172,6 +172,11 @@ struct StudioTheme {
         slotBAccent(UserDefaults.standard.bool(forKey: "isLightMode"))
     }
     
+    /// Text graphics found by Check Subs & Graphics (timeline markers): a hue no note, finding, mismatch or accent uses.
+    static func graphicsMarker(_ isLight: Bool) -> Color {
+        isLight ? Color(red: 0.80, green: 0.22, blue: 0.56) : Color(red: 1.00, green: 0.42, blue: 0.72)
+    }
+
     // Neutral Interactive Accent (Playhead / Timecode / Scrubber)
     static func accentBlue(_ isLight: Bool) -> Color {
         ThemeManager.shared.currentTheme.playColor(isLight: isLight)

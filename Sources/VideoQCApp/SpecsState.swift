@@ -624,6 +624,7 @@ public final class SpecsState: ObservableObject {
                     if let index = self.deliverableAssets.firstIndex(where: { $0.fileURL == url }) {
                         self.deliverableAssets[index].pictureText = result
                     }
+                    PictureTextMarks.shared.set(result, for: url)
                     self.checkedPictureTextCount = completed
                     progress.update(url, 1)
                 }

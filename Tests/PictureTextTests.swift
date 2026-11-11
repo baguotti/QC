@@ -195,3 +195,31 @@ extension PictureTextTests {
         #expect(!PictureTextScanner.classify(samples, aspect: 9.0 / 16.0).subtitlesLikely)
     }
 }
+
+extension PictureTextTests {
+    @Test("Timeline marks: a result's graphics by file, sorted; a clean result removes them") @MainActor
+    func timelineMarks() {
+        let url = URL(fileURLWithPath: "/tmp/marks/../marks/Spot.mov")
+        PictureTextMarks.shared.set(PictureTextCheck(subtitlesLikely: false, graphics: [.init(text: "END", start: 9, end: 10),
+                                                                                         .init(text: "TITLE", start: 1, end: 3)]), for: url)
+        #expect(PictureTextMarks.shared.byURL[URL(fileURLWithPath: "/tmp/marks/Spot.mov")]?.map(\.text) == ["TITLE", "END"])
+        PictureTextMarks.shared.set(PictureTextCheck(subtitlesLikely: false), for: url)
+        #expect(PictureTextMarks.shared.byURL[URL(fileURLWithPath: "/tmp/marks/Spot.mov")] == nil)
+    }
+}
+
+extension PictureTextTests {
+    @Test("One subtitle line that comes back later is subtitles; a short tagline or a constant line isn't")
+    func repeatedLine() {
+        // As read from CK_HOME26_30sec_16x9_E3.0.mp4: the same line at 8.5–11 s and again at 20.5–23 s.
+        let line = "I see subs here est test test"
+        let times = [8.5, 9, 9.5, 10, 10.5, 11, 20.5, 21, 21.5, 22, 22.5, 23]
+        let samples = times.map { S(time: $0, observations: [O(text: line, box: CGRect(x: 0.28, y: 0.1, width: 0.44, height: 0.044))]) }
+        let r = PictureTextScanner.classify(samples)
+        #expect(r.subtitlesLikely && r.graphics.isEmpty)
+        let tagline = [0.0, 0.5, 1, 9, 9.5, 10].map { S(time: $0, observations: [Self.bottom("Just do it")]) }
+        #expect(!PictureTextScanner.classify(tagline).subtitlesLikely)
+        let constant = (0..<20).map { S(time: Double($0) * 0.5, observations: [Self.bottom("This line stays on screen throughout")]) }
+        #expect(!PictureTextScanner.classify(constant).subtitlesLikely)
+    }
+}
