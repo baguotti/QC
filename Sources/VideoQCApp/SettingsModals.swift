@@ -566,6 +566,14 @@ struct UserSettingsModalView: View {
     }
     @AppStorage(UserSettingsModalView.paneKey) private var pane: Pane = .general
     static let paneKey = "userSettingsPane"
+    /// A section to bring into view when Settings opens (one-shot: cleared once used), e.g. "loudness".
+    static let sectionKey = "userSettingsSection"
+
+    /// Opens Settings on `pane` (Checks, Appearance…) scrolled to `section` when given.
+    static func prepare(pane: String, section: String? = nil) {
+        UserDefaults.standard.set(pane, forKey: paneKey)
+        UserDefaults.standard.set(section, forKey: sectionKey)
+    }
     /// ⌘, (app menu → Settings…): opens User Settings, or closes it when open.
     static let toggle = Notification.Name("QCpieToggleUserSettings")
     @AppStorage(Notifier.soundKey) private var notificationSound: Bool = false
@@ -792,6 +800,18 @@ struct UserSettingsModalView: View {
     }
 
     private var checksPane: some View {
+        ScrollViewReader { proxy in
+            checksSections
+                .onAppear {
+                    // Opened from Inspect's Edit Custom Target: the Loudness section is at the bottom of this page.
+                    guard let section = UserDefaults.standard.string(forKey: Self.sectionKey) else { return }
+                    UserDefaults.standard.removeObject(forKey: Self.sectionKey)
+                    DispatchQueue.main.async { withAnimation(Motion.list) { proxy.scrollTo(section, anchor: .top) } }
+                }
+        }
+    }
+
+    private var checksSections: some View {
         let isCustom = loudnessTargetID == "custom"
         return VStack(alignment: .leading, spacing: 22) {
             settingsSection("Line Check", note: "Defaults used each time QCpie opens.") {
@@ -866,6 +886,7 @@ struct UserSettingsModalView: View {
                     loudnessRow("Max true peak", value: $loudnessCustomTruePeak, range: -10...0, unit: "dBTP", help: "Highest allowed true peak.")
                 }
             }
+            .id("loudness")
         }
     }
 

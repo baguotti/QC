@@ -12,6 +12,8 @@ public struct PlayerQueueFileRowView: View, Equatable {
     public let notesCount: Int
     public var hasNotes: Bool { notesCount > 0 }
     public let currentTag: FinderTagColor?
+    /// An .srt is attached or sits next to the file (CC badge, as in Inspect).
+    public var hasSubtitles: Bool = false
     public let slotAResolution: String
     public let slotAFps: Double
     public let slotACodec: String
@@ -48,6 +50,7 @@ public struct PlayerQueueFileRowView: View, Equatable {
             lhs.hasSlotB == rhs.hasSlotB &&
             lhs.notesCount == rhs.notesCount &&
             lhs.currentTag == rhs.currentTag &&
+            lhs.hasSubtitles == rhs.hasSubtitles &&
             lhs.slotAResolution == rhs.slotAResolution &&
             lhs.slotAFps == rhs.slotAFps &&
             lhs.slotACodec == rhs.slotACodec &&
@@ -235,6 +238,10 @@ public struct PlayerQueueFileRowView: View, Equatable {
     @ViewBuilder
     private func fileNameLabel(fontSize: CGFloat, isSelected: Bool) -> some View {
         HStack(spacing: 6) {
+            if hasSubtitles {
+                CCBadge(color: textMuted, size: 9)
+                    .help("Has subtitles (.srt)")
+            }
             Text(sequenceInfo?.label ?? url.lastPathComponent)
                 .font(.ui(size: fontSize, weight: isSelected ? .semibold : .medium))
                 .foregroundColor(isSelected ? textMain : textSubtle)

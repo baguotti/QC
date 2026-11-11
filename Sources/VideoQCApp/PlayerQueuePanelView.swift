@@ -16,6 +16,8 @@ public struct PlayerQueuePanelView: View, Equatable {
     public var hiddenFolderIDs: Set<String>
     public var hideAllFolders: Bool
     public var fileTagsMap: [URL: FinderTagColor]
+    /// Files with an .srt (standardized URLs); changes bump `tagsVersion`.
+    public var subtitleFiles: Set<URL> = []
     public var isScanning: Bool
     public var isAutoplayEnabled: Bool
     public var drawsWaveforms: Bool
@@ -483,6 +485,7 @@ public struct PlayerQueuePanelView: View, Equatable {
             hasSlotB: slotBURL != nil,
             notesCount: notesCount,
             currentTag: fileTagsMap[url],
+            hasSubtitles: subtitleFiles.contains(url.standardizedFileURL),
             slotAResolution: slotAResolution,
             slotAFps: slotAFps,
             slotACodec: slotACodec,

@@ -28,6 +28,12 @@ enum SubtitleAttachments {
     static func sidecar(for video: URL) -> URL? {
         let folder = video.deletingLastPathComponent()
         guard let names = try? FileManager.default.contentsOfDirectory(atPath: folder.path) else { return nil }
+        return sidecar(for: video, in: names)
+    }
+
+    /// `sidecar(for:)` with the folder's file names already listed.
+    private static func sidecar(for video: URL, in names: [String]) -> URL? {
+        let folder = video.deletingLastPathComponent()
         let base = video.deletingPathExtension().lastPathComponent.lowercased()
         let full = video.lastPathComponent.lowercased()
         let srts = names.filter { $0.lowercased().hasSuffix(".srt") }.sorted()
@@ -53,6 +59,26 @@ enum SubtitleAttachments {
     }
 
     /// The .srt to use for a video: an existing manual attachment, else the sidecar (disk access: off the main thread).
+    /// `resolve(for:)` for many videos, listing each folder once (a 1,000-file folder was listed 1,000 times).
+    /// Keys are standardized URLs. Disk access: off the main thread.
+    static func resolveAll(_ videos: [URL]) -> [URL: URL] {
+        var listings: [String: [String]] = [:]
+        var out: [URL: URL] = [:]
+        let attachments = (UserDefaults.standard.dictionary(forKey: defaultsKey) as? [String: String]) ?? [:]   // read once
+        for video in videos {
+            let key = video.standardizedFileURL
+            if let path = attachments[key.path], FileManager.default.fileExists(atPath: path) {
+                out[key] = URL(fileURLWithPath: path)
+                continue
+            }
+            let folder = video.deletingLastPathComponent().path
+            let names = listings[folder] ?? ((try? FileManager.default.contentsOfDirectory(atPath: folder)) ?? [])
+            listings[folder] = names
+            if let srt = sidecar(for: video, in: names) { out[key] = srt }
+        }
+        return out
+    }
+
     static func resolve(for video: URL) -> URL? {
         if let attached = manual(for: video), FileManager.default.fileExists(atPath: attached.path) {
             return attached

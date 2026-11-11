@@ -92,6 +92,9 @@ struct ContentView: View {
     @AppStorage(MediaKindFilter.storageKey) var mediaKindFilter: Int = MediaKindFilter.all
     @State var playerCollapsedFolderIDs: Set<String> = []
     @State var fileTagsMap: [URL: FinderTagColor] = [:]
+    /// Queue files with an .srt (attached or a same-name sidecar), standardized; found with the Finder tags, off the
+    /// main thread, so queue rows never touch the disk.
+    @State var queueSubtitleFiles: Set<URL> = []
     @State var showTagPickerPopover: Bool = false
     @State var queueScrollTarget: URL? = nil
     @State private var hasSetupKeyboardMonitor: Bool = false
@@ -293,6 +296,18 @@ struct ContentView: View {
                     if scannerState.hexCode.uppercased() != newHex {
                         scannerState.hexCode = newHex
                     }
+                }
+            }
+            .onReceive(NotificationCenter.default.publisher(for: SubtitleAttachments.didChange)) { notification in
+                // An .srt attached, detached or saved for a queue file: update its CC badge.
+                guard let video = notification.object as? URL,
+                      videoFiles.contains(where: { $0.standardizedFileURL == video.standardizedFileURL }) else { return }
+                Task {
+                    let has = await Task.detached(priority: .utility) { SubtitleAttachments.resolve(for: video) != nil }.value
+                    let key = video.standardizedFileURL
+                    guard has != queueSubtitleFiles.contains(key) else { return }
+                    if has { queueSubtitleFiles.insert(key) } else { queueSubtitleFiles.remove(key) }
+                    tagsVersion &+= 1
                 }
             }
             .onReceive(NotificationCenter.default.publisher(for: NotesSync.didMergeRemoteNotes)) { notification in
@@ -2007,6 +2022,7 @@ struct ContentView: View {
         let files = videoFiles
         guard !files.isEmpty else {
             fileTagsMap.removeAll()
+            queueSubtitleFiles = []
             return
         }
         Task.detached(priority: .userInitiated) {
@@ -2022,8 +2038,12 @@ struct ContentView: View {
                 _ = QCNotesManager.notesCount(for: url)
             }
             let newMap = found.withLock { $0 }
+            let subtitled = Set(SubtitleAttachments.resolveAll(files).keys)
             await MainActor.run {
+                // A newer queue landed meanwhile (one folder loaded, then another): its own run fills these.
+                guard self.videoFiles == files else { return }
                 self.fileTagsMap = newMap
+                self.queueSubtitleFiles = subtitled
                 self.tagsVersion &+= 1
             }
         }

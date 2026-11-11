@@ -169,8 +169,9 @@ public final class SpecsState: ObservableObject {
             let (resolved, manual): ([URL: URL], Set<URL>) = await Task.detached(priority: .utility) {
                 var map: [URL: URL] = [:]
                 var manual: Set<URL> = []
+                let found = SubtitleAttachments.resolveAll(videos)   // each folder listed once
                 for video in videos {
-                    if let srt = SubtitleAttachments.resolve(for: video) { map[video] = srt }
+                    if let srt = found[video.standardizedFileURL] { map[video] = srt }
                     if SubtitleAttachments.manual(for: video) != nil { manual.insert(video) }
                 }
                 return (map, manual)

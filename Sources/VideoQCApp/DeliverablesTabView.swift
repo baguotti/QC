@@ -1178,7 +1178,7 @@ extension ContentView {
             .pickerStyle(.inline)
             Divider()
             Button("Edit Custom Target…") {
-                UserDefaults.standard.set("Loudness", forKey: UserSettingsModalView.paneKey)
+                UserSettingsModalView.prepare(pane: "Checks", section: "loudness")
                 loudnessTargetID = "custom"
                 showUserSettingsModal = true
             }
