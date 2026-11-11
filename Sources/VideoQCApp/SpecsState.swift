@@ -69,6 +69,12 @@ public final class SpecsState: ObservableObject {
     /// Share of the whole run read so far, for the button (its own object: it changes often, and a publish on
     /// `SpecsState` redraws the window).
     public let pictureTextProgress = PictureTextProgress()
+    /// Inspect's Subs / Text / Clean / Name Mismatch chips.
+    @Published public var pictureTextFilter: PictureTextFilter = .all
+    /// Texts marked Not a Graphic, per file (standardized path → normalised texts). Kept across launches and checks.
+    private var dismissedGraphics: [String: [String]] =
+        (UserDefaults.standard.dictionary(forKey: "dismissedGraphics") as? [String: [String]]) ?? [:]
+    private var pictureTextCountsCache: (version: Int, dismissed: Set<URL>, counts: [PictureTextFilter: Int])?
     /// Bumped per end-frame check: a cancelled run's late callbacks and its ending must not touch a newer run.
     private var endFrameRun = 0
     
@@ -282,11 +288,15 @@ public final class SpecsState: ObservableObject {
         public var id: String { name }
     }
 
-    /// Built in, always offered: everything, the columns delivery QC needs, and a narrow one.
+    /// Built in, always offered: everything, the columns delivery QC needs, a narrow one, and Check Subs & Graphics.
     public static let builtInTemplates: [ColumnTemplate] = [
         ColumnTemplate(name: "All Columns", hidden: [], widths: [:]),
         ColumnTemplate(name: "Delivery QC", hidden: [SpecsSortColumn.date, .endFrame, .path, .burnedSubs].map(\.rawValue), widths: [:]),
         ColumnTemplate(name: "Compact", hidden: [SpecsSortColumn.date, .endFrame, .burnedSubs, .graphics, .path, .fps, .videoCodec, .audioCodec].map(\.rawValue), widths: [:]),
+        // Check Subs & Graphics results beside the name and length, with room for the texts read.
+        ColumnTemplate(name: "Subs & Graphics",
+                       hidden: [SpecsSortColumn.date, .endFrame, .path, .fps, .size, .videoCodec, .audioCodec].map(\.rawValue),
+                       widths: [SpecsSortColumn.burnedSubs.rawValue: 90, SpecsSortColumn.graphics.rawValue: 360]),
     ]
 
     @Published public private(set) var columnTemplates: [ColumnTemplate] =
@@ -395,7 +405,7 @@ public final class SpecsState: ObservableObject {
     /// Bumped on every change to `deliverableAssets` (cheap key for `displayedAssets`).
     private(set) var assetsVersion = 0
     private struct DisplayKey: Equatable {
-        let version: Int, filter: String, mask: Int, column: String, ascending: Bool, plan: String
+        let version: Int, filter: String, mask: Int, column: String, ascending: Bool, plan: String, text: Int
     }
     private var displayCache: (key: DisplayKey, assets: [DeliverableAsset])?
 
@@ -405,15 +415,19 @@ public final class SpecsState: ObservableObject {
     /// miss. The search also finds files by their plan row (every word in the file name, path or row's values).
     public func displayedAssets(filter: String, mask: Int, planKey: String = "", planAllows: ((URL) -> Bool)? = nil,
                                 planText: ((URL) -> String?)? = nil, planSort: ((URL) -> Int)? = nil) -> [DeliverableAsset] {
-        let key = DisplayKey(version: assetsVersion, filter: filter, mask: mask, column: specsSortColumnRaw, ascending: specsSortAscending, plan: planKey)
+        let key = DisplayKey(version: assetsVersion, filter: filter, mask: mask, column: specsSortColumnRaw, ascending: specsSortAscending,
+                             plan: planKey, text: pictureTextFilter.rawValue * 1_000_000 + dismissedMismatchURLs.count)
         if let cache = displayCache, cache.key == key { return cache.assets }
         let base: [DeliverableAsset]
         let words = filter.lowercased().split(whereSeparator: { $0.isWhitespace }).map(String.init)
-        if filter.isEmpty && mask == MediaKindFilter.all && planAllows == nil {
+        // With no checked file the chips aren't shown, so a chip left on mustn't hide everything.
+        let textFilter = deliverableAssets.contains(where: { $0.pictureText != nil }) ? pictureTextFilter : .all
+        let dismissedMismatches = dismissedMismatchURLs
+        if filter.isEmpty && mask == MediaKindFilter.all && planAllows == nil && textFilter == .all {
             base = deliverableAssets
         } else {
             base = deliverableAssets.filter {
-                MediaKindFilter.allows($0.fileURL, mask: mask) && (planAllows?($0.fileURL) ?? true) &&
+                MediaKindFilter.allows($0.fileURL, mask: mask) && (planAllows?($0.fileURL) ?? true) && textFilter.allows($0, mismatchDismissed: dismissedMismatches.contains($0.fileURL)) &&
                 (filter.isEmpty || $0.fileName.localizedCaseInsensitiveContains(filter) || $0.fileURL.path.localizedCaseInsensitiveContains(filter)
                     || Self.allWords(words, in: $0.fileName.lowercased() + " " + (planText?($0.fileURL) ?? "")))
             }
@@ -621,6 +635,8 @@ public final class SpecsState: ObservableObject {
                                                 }) { [weak self] url, result, completed in
                 Task { @MainActor [weak self] in
                     guard let self, self.pictureTextRun == run else { return }
+                    var result = result
+                    result.dismissed = self.dismissedGraphics(for: url)
                     if let index = self.deliverableAssets.firstIndex(where: { $0.fileURL == url }) {
                         self.deliverableAssets[index].pictureText = result
                     }
@@ -633,6 +649,46 @@ public final class SpecsState: ObservableObject {
             self.isCheckingPictureText = false
             self.pictureTextTask = nil
         }
+    }
+
+    public func dismissedGraphics(for url: URL) -> Set<String> {
+        Set(dismissedGraphics[url.standardizedFileURL.path] ?? [])
+    }
+
+    /// Not a Graphic: the appearance's texts leave the file's column, markers, filters and name check (all its
+    /// appearances of those texts), now and in later checks.
+    public func dismissGraphic(_ sighting: PictureTextCheck.Sighting, in url: URL) {
+        setDismissedGraphics(dismissedGraphics(for: url).union(PictureTextCheck.dismissKeys(for: sighting)), for: url)
+    }
+
+    public func restoreDismissedGraphics(in url: URL) {
+        setDismissedGraphics([], for: url)
+    }
+
+    private func setDismissedGraphics(_ keys: Set<String>, for url: URL) {
+        let path = url.standardizedFileURL.path
+        dismissedGraphics[path] = keys.isEmpty ? nil : keys.sorted()
+        UserDefaults.standard.set(dismissedGraphics, forKey: "dismissedGraphics")
+        guard let index = deliverableAssets.firstIndex(where: { $0.fileURL.standardizedFileURL.path == path }),
+              var check = deliverableAssets[index].pictureText else { return }
+        check.dismissed = keys
+        deliverableAssets[index].pictureText = check
+        PictureTextMarks.shared.set(check, for: url)
+    }
+
+    /// How many files each Subs / Text chip would show (cached per list change).
+    public var pictureTextCounts: [PictureTextFilter: Int] {
+        if let cache = pictureTextCountsCache, cache.version == assetsVersion, cache.dismissed == dismissedMismatchURLs { return cache.counts }
+        var counts: [PictureTextFilter: Int] = [:]
+        for asset in deliverableAssets where asset.pictureText != nil {
+            let dismissed = dismissedMismatchURLs.contains(asset.fileURL)
+            for filter in PictureTextFilter.allCases where filter != .all && filter.allows(asset, mismatchDismissed: dismissed) {
+                counts[filter, default: 0] += 1
+            }
+            counts[.all, default: 0] += 1
+        }
+        pictureTextCountsCache = (assetsVersion, dismissedMismatchURLs, counts)
+        return counts
     }
 
     public func cancelPictureTextCheck() {
@@ -704,6 +760,8 @@ public final class SpecsState: ObservableObject {
                     self.deliverableAssets += newAssets
                 }
             } else {
+                // Read again without their check results: their Player markers go too.
+                PictureTextMarks.shared.clear(assets.map(\.fileURL))
                 // Files added while this batch was inspecting landed first: keep them.
                 let landed = Set(assets.map { $0.fileURL.standardizedFileURL })
                 self.deliverableAssets = assets + self.deliverableAssets.filter {
@@ -814,5 +872,33 @@ public final class PictureTextProgress: ObservableObject {
         shares[url] = max(shares[url] ?? 0, share)
         let value = shares.values.reduce(0, +) / Double(files)
         if abs(value - fraction) >= 0.01 || value >= 1 { fraction = value }
+    }
+}
+
+/// Inspect's chips for Check Subs & Graphics results.
+public enum PictureTextFilter: Int, CaseIterable, Sendable {
+    case all, subs, text, clean, mismatch
+
+    public var title: String {
+        switch self {
+        case .all: return "All"
+        case .subs: return "Subs"
+        case .text: return "Text on Screen"
+        case .clean: return "Clean"
+        case .mismatch: return "Name Mismatch"
+        }
+    }
+
+    /// `mismatchDismissed`: the row's mismatch flag was dismissed, so it isn't a Name Mismatch any more.
+    public func allows(_ asset: DeliverableAsset, mismatchDismissed: Bool = false) -> Bool {
+        guard self != .all else { return true }
+        guard let check = asset.pictureText else { return false }
+        switch self {
+        case .all: return true
+        case .subs: return check.subtitlesLikely
+        case .text: return check.hasGraphics
+        case .clean: return check.isClean
+        case .mismatch: return asset.hasPictureTextMismatch && !mismatchDismissed
+        }
     }
 }

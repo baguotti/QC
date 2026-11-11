@@ -813,6 +813,7 @@ extension ContentView {
             }
             
             if !planFiles.isEmpty && !hidePlanTags { inspectPlanChips.padding(.bottom, 6) }
+            if (specsState.pictureTextCounts[.all] ?? 0) > 0 { pictureTextChips.padding(.bottom, 6) }
 
             // Table
             GeometryReader { tableGeo in
@@ -837,7 +838,7 @@ extension ContentView {
                             if specsState.isColumnVisible(.timecode) { sortableHeaderCell("Timecode (TC)", column: .timecode) }
                             if specsState.isColumnVisible(.endFrame) { sortableHeaderCell("End Frame", column: .endFrame) }
                             if specsState.isColumnVisible(.burnedSubs) { sortableHeaderCell("Subs", column: .burnedSubs) }
-                            if specsState.isColumnVisible(.graphics) { sortableHeaderCell("Graphics", column: .graphics) }
+                            if specsState.isColumnVisible(.graphics) { sortableHeaderCell("Text on Screen", column: .graphics) }
                             if specsState.isColumnVisible(.ratio) { sortableHeaderCell("Ratio & Size", column: .ratio) }
                             if specsState.isColumnVisible(.fps) { sortableHeaderCell("FPS", column: .fps) }
                             if specsState.isColumnVisible(.size) { sortableHeaderCell("File Size", column: .size) }
@@ -1780,6 +1781,9 @@ extension ContentView {
             if let srtURL = srtURL {
                 Button("Reveal Subtitles in Finder") { NSWorkspace.shared.activateFileViewerSelecting([srtURL]) }
             }
+            if let dismissed = asset.pictureText?.dismissed, !dismissed.isEmpty {
+                Button("Restore Text Marked Not a Graphic (\(dismissed.count))") { specsState.restoreDismissedGraphics(in: asset.fileURL) }
+            }
             if asset.hasAnyNameMismatch || hasSubtitleMismatch {
                 Divider()
                 Button(action: {
@@ -2000,6 +2004,28 @@ extension ContentView {
         TimecodeFormatter.format(frameIndex: max(0, Int((seconds * max(1, fps)).rounded(.down))), fps: max(1, fps))
     }
 
+    /// Check Subs & Graphics chips: the files with likely subs, with text on screen, clean, or disagreeing with
+    /// their name (counts over the checked files).
+    var pictureTextChips: some View {
+        let counts = specsState.pictureTextCounts
+        let palette = StudioPalette(isLightMode)
+        return FlowChips(spacing: 2) {
+            ForEach(PictureTextFilter.allCases, id: \.self) { filter in
+                if filter == .all || (counts[filter] ?? 0) > 0 {
+                    PlanFilterChip(title: filter == .all ? "All Checked" : filter.title, count: counts[filter] ?? 0,
+                                   selected: specsState.pictureTextFilter == filter,
+                                   color: filter == .all ? nil : filter == .mismatch ? palette.alertRed
+                                       : filter == .text ? StudioTheme.graphicsMarker(isLightMode) : palette.textMuted,
+                                   isLightMode: isLightMode) {
+                        specsState.pictureTextFilter = specsState.pictureTextFilter == filter ? .all : filter
+                    }
+                    .explain(filter == .all ? "Show every file (subs & graphics filter off)."
+                             : "Show only the checked files with \(filter == .subs ? "likely burned-in subtitles" : filter == .text ? "text on screen" : filter == .clean ? "no text found" : "a name that disagrees with the picture (CLEAN with text, TITLED or SUBS without)").")
+                }
+            }
+        }
+    }
+
     /// A check's word in a cell: red with a warning when it disagrees with the file name (unless dismissed).
     private func pictureTextLabel(_ text: String, mismatch: Bool, found: Bool) -> some View {
         HStack(spacing: 4) {
@@ -2025,7 +2051,7 @@ extension ContentView {
             if let first = check.subtitleExamples.first {
                 Button(action: { openInPlayer(asset.fileURL, at: first.start, fps: asset.fps) }) { label }
                     .buttonStyle(.plain)
-                    .help((mismatches.map { $0 + ". " }.joined()) + "Text that changes in the lower centre of the picture, e.g. at "
+                    .help((mismatches.map { $0 + ". " }.joined()) + "Check the frames: text that changes in the lower centre of the picture (\(check.subtitleLineCount) different lines), e.g. at "
                           + check.subtitleExamples.map { "\(pictureTextTimecode($0.start, fps: asset.fps)): “\($0.text)”" }.joined(separator: ", ")
                           + ". Click to open it in the Player.")
             } else {
@@ -2048,18 +2074,22 @@ extension ContentView {
             let flagged = !mismatches.isEmpty && !isDismissed
             let text = check.isUnavailable ? "—" : check.isUnreadable ? "CAN'T READ"
                 : check.graphics.isEmpty ? (check.isClean ? "CLEAN" : "NONE")
-                : check.graphics.map(\.text).joined(separator: " · ").replacingOccurrences(of: "\n", with: " ")
+                : check.graphicTexts.joined(separator: " · ").replacingOccurrences(of: "\n", with: " ")
             let label = pictureTextLabel(text, mismatch: flagged, found: check.hasGraphics)
             let help = (mismatches.map { $0 + ". " }.joined())
                 + (check.isUnavailable ? "No picture to check (audio, a still or an image sequence)"
                    : check.isUnreadable ? "The video couldn't be read to the end: it may be cut short or damaged, or its drive went away"
-                   : check.graphics.isEmpty ? "No text graphics found (logos without letters aren't seen)"
-                   : check.graphics.map { "“\($0.text)” \(pictureTextTimecode($0.start, fps: asset.fps))–\(pictureTextTimecode($0.end, fps: asset.fps))" }
-                        .joined(separator: "\n") + "\nClick to open the first in the Player.")
-            if let first = check.graphics.min(by: { $0.start < $1.start }) {
-                Button(action: { openInPlayer(asset.fileURL, at: first.start, fps: asset.fps) }) { label }
-                    .buttonStyle(.plain)
-                    .help(help)
+                   : check.graphics.isEmpty ? (check.dismissed.isEmpty ? "No text on screen found (logos without letters aren't seen)"
+                                               : "No text left: the rest was marked Not a Graphic. Click to restore it.")
+                   : "Click to see each one with its frame. "
+                        + check.graphics.map { "“\($0.text)” \(pictureTextTimecode($0.start, fps: asset.fps))" }.joined(separator: ", "))
+            if !check.allGraphics.isEmpty {
+                ClickPopover { label.help(help) } content: {
+                    PictureTextListPopover(asset: asset, check: check, isLightMode: isLightMode,
+                                           onOpen: { openInPlayer(asset.fileURL, at: $0, fps: asset.fps) },
+                                           onDismiss: { specsState.dismissGraphic($0, in: asset.fileURL) },
+                                           onRestore: { specsState.restoreDismissedGraphics(in: asset.fileURL) })
+                }
             } else {
                 label.help(help)
             }

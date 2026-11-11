@@ -223,3 +223,190 @@ extension PictureTextTests {
         #expect(!PictureTextScanner.classify(constant).subtitlesLikely)
     }
 }
+
+extension PictureTextTests {
+    static func card(_ text: String, x: CGFloat = 0.4, y: CGFloat = 0.5, height: CGFloat = 0.04) -> O {
+        O(text: text, box: CGRect(x: x, y: y, width: 0.2, height: height))
+    }
+
+    @Test("Each appearance is its own graphic: a logo at the start and again at the end gives two markers")
+    func appearances() {
+        // As read from CK_HOME26_30sec_1x1_E3.0.mp4.
+        let times = [0.0, 0.5, 1, 1.5, 2, 2.5, 28, 28.5, 29, 29.5, 30]
+        let r = PictureTextScanner.classify(times.map { S(time: $0, observations: [Self.card("Calvin Klein")]) })
+        #expect(r.graphics.map(\.start) == [0, 28] && r.graphicTexts == ["Calvin Klein"])
+    }
+
+    @Test("A title card's words are one graphic; every card counts (no cap of five); fragments and transitions drop out")
+    func cards() {
+        // As read from the adidas MOVER SHAKER spot: an opening title, a product card, an end card.
+        var samples: [S] = [1.0, 1.5, 2.0].map { S(time: $0, observations: [Self.card("GEN ZEN")]) }
+        let product = ["MOVER", "SHAKER", "ADIDAS VIBES", "SMOKY", "VANILLA", "BOURBON", "SANDALWOOD"]
+        samples += [3.0, 3.5, 4.0, 4.5, 5.0, 5.5].map { t in
+            S(time: t, observations: product.enumerated().map { Self.card($1, y: 0.2 + CGFloat($0) * 0.08) })
+        }
+        samples.append(S(time: 6.0, observations: [Self.card("FRA"), Self.card("VIBES"), Self.card("OLLECTION")]))   // wipe
+        samples += [6.5, 7.0, 7.5].map { S(time: $0, observations: [Self.card("ADIDAS VIBES"), Self.card("FRAGRANCE COLLECTION", y: 0.4)]) }
+        let r = PictureTextScanner.classify(samples)
+        #expect(r.graphics.map(\.start) == [1.0, 3.0, 6.0])   // the end card from the wipe that brings it in
+        #expect(r.graphics[1].text.components(separatedBy: " · ").count == 6)   // six readings at most per card
+        #expect(!r.graphicTexts.contains("FRA") && !r.graphicTexts.contains("VIBES") && !r.graphicTexts.contains("OLLECTION"))
+        #expect(r.graphicTexts.contains("FRAGRANCE COLLECTION") && r.graphicTexts.contains("GEN ZEN"))
+    }
+
+    @Test("A sideways one-off misread at the edge isn't a graphic; a lone big end logo is")
+    func sideways() {
+        let edge = O(text: "io Klein", box: CGRect(x: 0, y: 0.1, width: 0.08, height: 0.26))
+        #expect(!PictureTextScanner.classify([S(time: 12, observations: [edge])]).hasGraphics)
+        let end = Self.card("BRAND", height: 0.08)
+        #expect(PictureTextScanner.classify([S(time: 9.9, observations: [end])]).graphics.map(\.text) == ["BRAND"])
+    }
+
+    @Test("Misread copies of a name keep the fuller reading")
+    func fullerReading() {
+        let reads = ["JMMY CHOO", "JIMMY CHOO", "UMMY CHOO", "JIMMY CHOO"]
+        let r = PictureTextScanner.classify(reads.enumerated().map { S(time: Double($0) * 0.5, observations: [Self.card($1)]) })
+        #expect(r.graphicTexts == ["JIMMY CHOO"])
+    }
+}
+
+extension PictureTextTests {
+    @Test("A title typing itself out is one graphic with its full text")
+    func typewriter() {
+        let steps = ["BIG", "BIG BA", "BIG BANG", "BIG BANG EN", "BIG BANG ENERGY", "BIG BANG ENERGY"]
+        let r = PictureTextScanner.classify(steps.enumerated().map { S(time: 0.5 + Double($0) * 0.5, observations: [Self.card($1)]) })
+        #expect(r.graphics.count == 1 && r.graphics.first?.text == "BIG BANG ENERGY" && r.graphics.first?.start == 0.5)
+    }
+
+    @Test("A corner logo all through doesn't glue the titles together: each keeps its marker")
+    func cornerBug() {
+        let samples: [S] = (0..<60).map { i in
+            let t = Double(i) * 0.5
+            var o = [Self.card("BRAND", x: 0.85, y: 0.9, height: 0.03)]
+            if (4...8).contains(t) { o.append(Self.card("FIRST TITLE")) }
+            if (20...24).contains(t) { o.append(Self.card("SECOND TITLE")) }
+            return S(time: t, observations: o)
+        }
+        let r = PictureTextScanner.classify(samples)
+        #expect(r.graphics.map(\.start) == [0, 4, 20])
+        #expect(r.graphics.map(\.text) == ["BRAND", "FIRST TITLE", "SECOND TITLE"])
+    }
+
+    @Test("Related readings: close matches and text inside text; short words don't count")
+    func related() {
+        #expect(PictureTextScanner.related("BIG BANG", "BIG BANG ENERGY"))
+        #expect(PictureTextScanner.related("JMMY CHOO", "JIMMY CHOO"))
+        #expect(!PictureTextScanner.related("SUMMER SALE", "SUMMER COLLECTION"))
+        #expect(!PictureTextScanner.related("AB", "ABOUT US"))
+    }
+
+    @Test("Re-reading a file in Inspect drops its old Player markers") @MainActor
+    func marksCleared() {
+        let url = URL(fileURLWithPath: "/tmp/marks-cleared/Spot.mov")
+        PictureTextMarks.shared.set(PictureTextCheck(subtitlesLikely: false, graphics: [.init(text: "T", start: 1, end: 2)]), for: url)
+        PictureTextMarks.shared.clear([URL(fileURLWithPath: "/tmp/marks-cleared/../marks-cleared/Spot.mov")])
+        #expect(PictureTextMarks.shared.byURL[url] == nil)
+    }
+}
+
+extension PictureTextTests {
+    @Test("Text building up on a card stays one graphic; a new card sharing one word is another")
+    func buildUp() {
+        let base = ["MOVER", "SHAKER", "ADIDAS VIBES"]
+        var samples: [S] = [3.0, 3.5].map { S(time: $0, observations: base.map { Self.card($0) }) }
+        samples += [4.0, 4.5, 5.0, 5.5].map { S(time: $0, observations: (base + ["SMOKY", "VANILLA", "BOURBON"]).map { Self.card($0) }) }
+        samples += [6.0, 6.5, 7.0].map { S(time: $0, observations: [Self.card("ADIDAS VIBES"), Self.card("FRAGRANCE COLLECTION")]) }
+        let r = PictureTextScanner.classify(samples)
+        #expect(r.graphics.map(\.start) == [3.0, 6.0])
+    }
+}
+
+extension PictureTextTests {
+    @Test("Not a Graphic hides a text in every appearance, empties the CLEAN mismatch, and comes back on restore")
+    func notAGraphic() {
+        var check = PictureTextCheck(subtitlesLikely: false, graphics: [
+            .init(text: "JIMMI · CHOC", start: 3, end: 4), .init(text: "SALE · JIMMI", start: 8, end: 9)])
+        #expect(!check.nameMismatches(for: "Spot_CLEAN.mov").isEmpty)
+        check.dismissed = PictureTextCheck.dismissKeys(for: check.allGraphics[0])
+        #expect(check.graphics.map(\.text) == ["SALE"] && check.graphicTexts == ["SALE"])
+        check.dismissed.insert(BurnedSubtitleReader.normalise("SALE"))
+        #expect(check.graphics.isEmpty && check.isClean && check.nameMismatches(for: "Spot_CLEAN.mov").isEmpty)
+        check.dismissed = []
+        #expect(check.graphics.count == 2)
+    }
+
+    @Test("Subs label says how many different lines; classify counts them")
+    func lineCount() {
+        let samples = ["one line here", "a second line", "a third line now"].enumerated()
+            .map { S(time: Double($0) * 0.5, observations: [Self.bottom($1)]) }
+        let r = PictureTextScanner.classify(samples)
+        #expect(r.subtitleLineCount == 3 && r.subsLabel == "LIKELY (3 lines)")
+        #expect(PictureTextCheck(subtitlesLikely: false).subsLabel == "NONE")
+    }
+
+    @Test("Inspect: Not a Graphic is saved per file, applied to the row and its markers; the chips filter and count") @MainActor
+    func inspectState() {
+        let state = SpecsState()
+        let url = URL(fileURLWithPath: "/tmp/notagraphic-\(UUID().uuidString)/Spot_CLEAN.mov")
+        func asset(_ name: String, _ check: PictureTextCheck?) -> DeliverableAsset {
+            var a = DeliverableAsset(fileURL: url.deletingLastPathComponent().appendingPathComponent(name), fileName: name, fileSizeBytes: 1,
+                                     formattedFileSize: "1 B", width: 1920, height: 1080, resolutionString: "1920x1080", aspectRatioString: "16:9",
+                                     durationSeconds: 10, formattedDuration: "10s", totalFrames: 250, timecode: "00:00:10:00", fps: 25,
+                                     videoCodec: "H.264", audioConfig: "NONE", container: "MOV")
+            a.pictureText = check
+            return a
+        }
+        let logo = PictureTextCheck.Sighting(text: "BRAND", start: 1, end: 2)
+        state.deliverableAssets = [asset("Spot_CLEAN.mov", PictureTextCheck(subtitlesLikely: false, graphics: [logo])),
+                                   asset("Spot_SUBS.mov", PictureTextCheck(subtitlesLikely: true, subtitleLineCount: 4)),
+                                   asset("Other.mov", PictureTextCheck(subtitlesLikely: false)),
+                                   asset("Unchecked.mov", nil)]
+        #expect(state.pictureTextCounts[.all] == 3 && state.pictureTextCounts[.mismatch] == 1 && state.pictureTextCounts[.subs] == 1)
+        state.pictureTextFilter = .mismatch
+        #expect(state.displayedAssets(filter: "", mask: MediaKindFilter.all).map(\.fileName) == ["Spot_CLEAN.mov"])
+        state.dismissGraphic(logo, in: url)
+        defer { state.restoreDismissedGraphics(in: url) }
+        #expect(state.dismissedGraphics(for: url) == ["brand"])
+        #expect(state.deliverableAssets[0].pictureText?.isClean == true && !state.deliverableAssets[0].hasAnyNameMismatch)
+        #expect(state.pictureTextCounts[.clean] == 2 && state.pictureTextCounts[.mismatch] == nil)
+        #expect(PictureTextMarks.shared.byURL[url.standardizedFileURL] == nil)
+        state.restoreDismissedGraphics(in: url)
+        #expect(state.deliverableAssets[0].hasAnyNameMismatch && PictureTextMarks.shared.byURL[url.standardizedFileURL]?.count == 1)
+        state.pictureTextFilter = .all
+    }
+}
+
+extension PictureTextTests {
+    @Test("Not a Graphic still hides a misread that comes back slightly different")
+    func fuzzyDismissal() {
+        var check = PictureTextCheck(subtitlesLikely: false, graphics: [.init(text: "JIMMI CHOO", start: 3, end: 4)])
+        check.dismissed = ["jimmi choc"]
+        #expect(check.graphics.isEmpty)
+        check.dismissed = ["something else"]
+        #expect(check.graphics.count == 1)
+    }
+
+    @Test("Chips: a chip left on with no checked files hides nothing; a dismissed row mismatch isn't a Name Mismatch") @MainActor
+    func chipEdges() {
+        let state = SpecsState()
+        let folder = URL(fileURLWithPath: "/tmp/chips-\(UUID().uuidString)")
+        func asset(_ name: String, _ check: PictureTextCheck?) -> DeliverableAsset {
+            var a = DeliverableAsset(fileURL: folder.appendingPathComponent(name), fileName: name, fileSizeBytes: 1, formattedFileSize: "1 B",
+                                     width: 1920, height: 1080, resolutionString: "1920x1080", aspectRatioString: "16:9", durationSeconds: 10,
+                                     formattedDuration: "10s", totalFrames: 250, timecode: "00:00:10:00", fps: 25, videoCodec: "H.264",
+                                     audioConfig: "NONE", container: "MOV")
+            a.pictureText = check
+            return a
+        }
+        state.deliverableAssets = [asset("A_CLEAN.mov", PictureTextCheck(subtitlesLikely: false, graphics: [.init(text: "BRAND", start: 1, end: 2)]))]
+        state.pictureTextFilter = .mismatch
+        #expect(state.displayedAssets(filter: "", mask: MediaKindFilter.all).count == 1)
+        state.toggleDismissMismatch(for: state.deliverableAssets[0].fileURL)
+        #expect(state.displayedAssets(filter: "", mask: MediaKindFilter.all).isEmpty && state.pictureTextCounts[.mismatch] == nil)
+        state.toggleDismissMismatch(for: state.deliverableAssets[0].fileURL)
+        // The list replaced by files never checked: the chips go, and so does their filter's effect.
+        state.deliverableAssets = [asset("New.mov", nil), asset("Other.mov", nil)]
+        #expect(state.displayedAssets(filter: "", mask: MediaKindFilter.all).count == 2)
+        state.pictureTextFilter = .all
+    }
+}

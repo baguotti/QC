@@ -1045,7 +1045,7 @@ public struct DeliverablesInspector: Sendable {
     }
 
     public static func generateManifestCSV(assets: [DeliverableAsset], rootFolderURL: URL? = nil, target: LoudnessTarget = .current) -> String {
-        var csv = "Folder,File Name,Status,Validation Notes,Timecode,Duration,Total Frames,Resolution,Aspect Ratio,FPS,File Size,Created Date,Subtitles / CC,Video Codec,Audio Codec,Audio Bitrate,Audio Details,Loudness (LUFS),True Peak (dBTP),LRA (LU),Max Short-Term (LUFS),Loudness Verdict,Loudness Notes,End Frame,Burned-in Subs,Graphics (Text),Container,File Path\n"
+        var csv = "Folder,File Name,Status,Validation Notes,Timecode,Duration,Total Frames,Resolution,Aspect Ratio,FPS,File Size,Created Date,Subtitles / CC,Video Codec,Audio Codec,Audio Bitrate,Audio Details,Loudness (LUFS),True Peak (dBTP),LRA (LU),Max Short-Term (LUFS),Loudness Verdict,Loudness Notes,End Frame,Burned-in Subs,Text on Screen,Container,File Path\n"
         
         for a in assets {
             var folderRel = ""
@@ -1071,7 +1071,7 @@ public struct DeliverablesInspector: Sendable {
     // MARK: - TSV Generator (Google Sheets / Clipboard)
     
     public static func generateManifestTSV(assets: [DeliverableAsset], rootFolderURL: URL? = nil, target: LoudnessTarget = .current) -> String {
-        var tsv = "Folder\tFile Name\tStatus\tValidation Notes\tTimecode\tDuration\tTotal Frames\tResolution\tAspect Ratio\tFPS\tFile Size\tCreated Date\tSubtitles / CC\tVideo Codec\tAudio Codec\tAudio Bitrate\tAudio Details\tLoudness (LUFS)\tTrue Peak (dBTP)\tLRA (LU)\tMax Short-Term (LUFS)\tLoudness Verdict\tLoudness Notes\tEnd Frame\tBurned-in Subs\tGraphics (Text)\tContainer\tFile Path\n"
+        var tsv = "Folder\tFile Name\tStatus\tValidation Notes\tTimecode\tDuration\tTotal Frames\tResolution\tAspect Ratio\tFPS\tFile Size\tCreated Date\tSubtitles / CC\tVideo Codec\tAudio Codec\tAudio Bitrate\tAudio Details\tLoudness (LUFS)\tTrue Peak (dBTP)\tLRA (LU)\tMax Short-Term (LUFS)\tLoudness Verdict\tLoudness Notes\tEnd Frame\tBurned-in Subs\tText on Screen\tContainer\tFile Path\n"
         
         for a in assets {
             var folderRel = ""

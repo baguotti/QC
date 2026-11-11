@@ -79,7 +79,7 @@ public enum SpecsSortColumn: String, CaseIterable, Equatable, Sendable {
         case .audioCodec: return "Audio Spec"
         case .endFrame: return "End Frame"
         case .burnedSubs: return "Burned-in Subs"
-        case .graphics: return "Graphics (Text)"
+        case .graphics: return "Text on Screen"
         case .path: return "File Path"
         }
     }
