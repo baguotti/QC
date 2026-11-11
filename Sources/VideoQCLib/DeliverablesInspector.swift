@@ -1095,331 +1095,58 @@ public struct DeliverablesInspector: Sendable {
     }
     
     // MARK: - HTML Specs Generator
-    
-    public static func generateManifestHTML(assets: [DeliverableAsset], folderName: String, rootFolderURL: URL? = nil, target: LoudnessTarget = .current) -> String {
-        let dateFormatter = DateFormatter()
-        dateFormatter.locale = Locale(identifier: "en_US_POSIX")   // Gregorian, 24 h on every Mac
-        dateFormatter.dateFormat = "yyyy.MM.dd // HH:mm:ss"
-        let dateString = dateFormatter.string(from: Date())
-        
-        let totalSize = assets.reduce(Int64(0)) { $0 + $1.fileSizeBytes }
-        let formattedTotalSize = formatFileSize(bytes: totalSize)
+
+    public static func generateManifestHTML(assets: [DeliverableAsset], folderName: String, rootFolderURL: URL? = nil,
+                                            target: LoudnessTarget = .current, colors: ReportColors = .standard) -> String {
+        let esc = QCUtilities.escapeHTML
+        let now = Date()
+        let title = esc(folderName)
+        let totalSize = formatFileSize(bytes: assets.reduce(Int64(0)) { $0 + $1.fileSizeBytes })
         let mismatchCount = assets.filter { $0.hasAnyNameMismatch }.count
-        let rawCSV = generateManifestCSV(assets: assets, rootFolderURL: rootFolderURL, target: target)
-        let rawTSV = generateManifestTSV(assets: assets, rootFolderURL: rootFolderURL, target: target)
-        
+        let verdict = mismatchCount == 0
+            ? "<span class=\"tag ok big\">All Match</span>"
+            : "<span class=\"tag bad big\">\(mismatchCount) Mismatch\(mismatchCount == 1 ? "" : "es")</span>"
+        let none = "<span class=\"dim\">None</span>"
+
         var html = """
         <!DOCTYPE html>
         <html lang="en" data-theme="dark">
         <head>
             <meta charset="UTF-8">
             <meta name="viewport" content="width=device-width, initial-scale=1.0">
-            <title>DELIVERABLES SPECS // \(QCUtilities.escapeHTML(folderName.uppercased()))</title>
+            <title>Inspect · \(title)</title>
             <style>
-                @import url('https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@400;600;700;800;900&family=JetBrains+Mono:wght@400;500;700&display=swap');
-
-                :root {
-                    --bg: #0a0a0a;
-                    --panel: #111111;
-                    --border: #222222;
-                    --border-strong: #333333;
-                    --text: #ffffff;
-                    --text-secondary: #888888;
-                    --text-muted: #555555;
-                    --red: #a14746;
-                    --red-muted: rgba(161, 71, 70, 0.15);
-                    --positive: #2e6f40;
-                    --positive-muted: rgba(46, 111, 64, 0.15);
-                    --table-th-bg: #0d0d0d;
-                    --font-heading: 'Barlow Condensed', 'Helvetica Neue', 'Helvetica', -apple-system, sans-serif;
-                    --font-mono: 'JetBrains Mono', 'SF Mono', 'Menlo', monospace;
-                }
-
-                [data-theme="light"] {
-                    --bg: #f8f8f8;
-                    --panel: #ffffff;
-                    --border: #e0e0e0;
-                    --border-strong: #cccccc;
-                    --text: #0a0a0a;
-                    --text-secondary: #555555;
-                    --text-muted: #888888;
-                    --red: #a14746;
-                    --red-muted: rgba(161, 71, 70, 0.12);
-                    --positive: #2e6f40;
-                    --positive-muted: rgba(46, 111, 64, 0.12);
-                    --table-th-bg: #f0f0f0;
-                }
-
-                * { box-sizing: border-box; margin: 0; padding: 0; }
-
-                body {
-                    background-color: var(--bg);
-                    color: var(--text);
-                    font-family: var(--font-heading);
-                    text-transform: uppercase;
-                    padding: 48px 32px;
-                    line-height: 1.2;
-                    transition: background-color 0.15s ease, color 0.15s ease;
-                    -webkit-font-smoothing: antialiased;
-                }
-
-                .container { max-width: 1320px; margin: 0 auto; }
-
-                .masthead {
-                    display: flex;
-                    justify-content: space-between;
-                    align-items: flex-end;
-                    border-bottom: 2px solid var(--text);
-                    padding-bottom: 24px;
-                    margin-bottom: 32px;
-                }
-
-                .title-block h1 {
-                    font-size: 56px;
-                    font-weight: 900;
-                    letter-spacing: -0.02em;
-                    line-height: 0.95;
-                }
-
-                .title-block .subtitle {
-                    font-size: 14px;
-                    font-weight: 600;
-                    letter-spacing: 0.15em;
-                    color: var(--text-secondary);
-                    margin-top: 8px;
-                }
-
-                .header-actions {
-                    display: flex;
-                    align-items: center;
-                    gap: 10px;
-                }
-
-                .action-btn {
-                    background: var(--panel);
-                    color: var(--text);
-                    border: 1px solid var(--border-strong);
-                    padding: 8px 14px;
-                    font-family: var(--font-mono);
-                    font-size: 11px;
-                    font-weight: 700;
-                    cursor: pointer;
-                    text-transform: uppercase;
-                    letter-spacing: 0.08em;
-                }
-                .action-btn:hover { background: var(--border); }
-                .action-btn-primary { background: var(--text); color: var(--bg); border-color: var(--text); }
-
-                /* Stats Strip */
-                .stats-strip {
-                    display: grid;
-                    grid-template-columns: repeat(4, 1fr);
-                    gap: 16px;
-                    margin-bottom: 36px;
-                }
-
-                .stat-box {
-                    border-top: 1px solid var(--border-strong);
-                    padding-top: 12px;
-                }
-
-                .stat-box .num {
-                    font-size: 38px;
-                    font-weight: 900;
-                    letter-spacing: -0.02em;
-                    line-height: 1;
-                }
-
-                .stat-box .label {
-                    font-size: 11px;
-                    font-weight: 700;
-                    letter-spacing: 0.15em;
-                    color: var(--text-secondary);
-                    margin-top: 6px;
-                }
-
-                .stat-box.highlight .num { color: var(--red); }
-
-                /* Table */
-                .table-container {
-                    background: var(--panel);
-                    border: 1px solid var(--border);
-                    margin-bottom: 48px;
-                    overflow-x: auto;
-                }
-
-                table {
-                    width: 100%;
-                    border-collapse: collapse;
-                    font-size: 12px;
-                }
-
-                th {
-                    background: var(--table-th-bg);
-                    color: var(--text-muted);
-                    font-size: 10px;
-                    font-weight: 700;
-                    letter-spacing: 0.12em;
-                    padding: 12px 14px;
-                    text-align: center;
-                    border-bottom: 1px solid var(--border);
-                    white-space: nowrap;
-                }
-                th:nth-child(2), th:last-child {
-                    text-align: left;
-                }
-
-                td {
-                    padding: 12px 14px;
-                    border-bottom: 1px solid var(--border);
-                    font-weight: 600;
-                    vertical-align: middle;
-                    text-align: center;
-                }
-                td:nth-child(2), td:last-child {
-                    text-align: left;
-                }
-
-                tr:last-child td { border-bottom: none; }
-                tr.mismatch-row { background: var(--red-muted); }
-                tr.mismatch-row td:first-child { border-left: 3px solid var(--red); }
-
-                .fn-cell {
-                    font-size: 13px;
-                    font-weight: 800;
-                    letter-spacing: 0.02em;
-                    word-break: break-word;
-                    overflow-wrap: anywhere;
-                }
-
-                .mono-cell {
-                    font-family: var(--font-mono);
-                    font-weight: 700;
-                    letter-spacing: 0.05em;
-                    white-space: nowrap;
-                }
-
-                .tag {
-                    display: inline-block;
-                    padding: 2px 6px;
-                    border: 1px solid var(--border-strong);
-                    font-family: var(--font-mono);
-                    font-size: 10px;
-                    font-weight: 700;
-                    white-space: nowrap;
-                    border-radius: 4px;
-                }
-
-                .tag-mismatch {
-                    background: var(--red);
-                    color: #ffffff;
-                    border-color: var(--red);
-                }
-
-                .tag-ok {
-                    background: var(--positive);
-                    color: #ffffff;
-                    border-color: var(--positive);
-                }
-
-                .warning-pill {
-                    font-size: 10px;
-                    font-weight: 800;
-                    font-family: var(--font-mono);
-                    color: var(--red);
-                    display: block;
-                    margin-top: 3px;
-                    white-space: nowrap;
-                }
-
-                .audio-detail-sub {
-                    color: var(--text-secondary);
-                    font-size: 10px;
-                    font-family: var(--font-mono);
-                    margin-top: 3px;
-                    white-space: nowrap;
-                }
-
-                #toast {
-                    position: fixed;
-                    bottom: 24px;
-                    right: 24px;
-                    background: var(--text);
-                    color: var(--bg);
-                    padding: 12px 20px;
-                    font-family: var(--font-mono);
-                    font-size: 12px;
-                    font-weight: 700;
-                    display: none;
-                    border: 1px solid var(--border-strong);
-                    z-index: 1000;
-                }
-
-                footer {
-                    border-top: 1px solid var(--border);
-                    padding-top: 24px;
-                    display: flex;
-                    justify-content: space-between;
-                    font-size: 11px;
-                    color: var(--text-muted);
-                    letter-spacing: 0.1em;
-                }
+        \(ReportStyle.css(colors))
             </style>
         </head>
         <body>
-            <div class="container">
-                <div class="masthead">
-                    <div class="title-block">
-                        <h1>DELIVERABLES SPECS</h1>
-                        <div class="subtitle">ASSET SPECIFICATION AUDIT // \(QCUtilities.escapeHTML(folderName.uppercased()))</div>
+            <div class="page wide">
+                <div class="top">
+                    <div>
+                        <div class="brand">QCpie · Inspect</div>
+                        <h1>\(title)</h1>
+                        <div class="sub">\(ReportStyle.dateString(now))</div>
                     </div>
-                    <div class="header-actions">
-                        <button class="action-btn action-btn-primary" onclick="openGoogleSheets()">[ OPEN GOOGLE SHEETS ]</button>
-                        <button class="action-btn" onclick="downloadCSV()">[ DOWNLOAD CSV ]</button>
-                        <button class="action-btn" onclick="toggleTheme()">[ THEME: <span id="theme-text">DARK</span> ]</button>
-                    </div>
+                    \(ReportStyle.actions(extra: verdict))
                 </div>
 
-                <div class="stats-strip">
-                    <div class="stat-box">
-                        <div class="num">\(String(format: "%02d", assets.count))</div>
-                        <div class="label">TOTAL DELIVERABLES</div>
-                    </div>
-                    <div class="stat-box \(mismatchCount > 0 ? "highlight" : "")">
-                        <div class="num">\(String(format: "%02d", mismatchCount))</div>
-                        <div class="label">NAME MISMATCHES</div>
-                    </div>
-                    <div class="stat-box">
-                        <div class="num">\(formattedTotalSize)</div>
-                        <div class="label">TOTAL BATCH SIZE</div>
-                    </div>
-                    <div class="stat-box">
-                        <div class="num" style="font-size: 20px; padding-top: 14px; font-family: var(--font-mono)">\(dateString)</div>
-                        <div class="label">AUDIT TIMESTAMP</div>
-                    </div>
+                <div class="stats">
+                    <div class="stat"><div class="num">\(assets.count)</div><div class="label">Files</div></div>
+                    <div class="stat\(mismatchCount > 0 ? " bad" : "")"><div class="num">\(mismatchCount)</div><div class="label">Name Mismatches</div></div>
+                    <div class="stat"><div class="num">\(esc(totalSize))</div><div class="label">Total Size</div></div>
                 </div>
 
-                <div class="table-container">
+                <div class="card scroll" style="margin-top:20px">
                     <table>
                         <thead>
                             <tr>
-                                <th>#</th>
-                                <th>FILE NAME</th>
-                                <th>STATUS</th>
-                                <th>LENGTH / TC</th>
-                                <th>RATIO & RESOLUTION</th>
-                                <th>FPS</th>
-                                <th>FILE SIZE</th>
-                                <th>CREATED</th>
-                                <th>SUBS / CC</th>
-                                <th>VIDEO</th>
-                                <th>AUDIO (CODEC • BITRATE)</th>
-                                <th>FILE PATH</th>
+                                <th>#</th><th>File Name</th><th>Status</th><th>Length · TC</th><th>Ratio · Resolution</th>
+                                <th>FPS</th><th>Size</th><th>Created</th><th>Subs</th><th>Video</th><th>Audio</th><th>Path</th>
                             </tr>
                         </thead>
                         <tbody>
         """
-        
+
         var currentFolder = ""
         for (idx, a) in assets.enumerated() {
             var folderRel = ""
@@ -1433,131 +1160,62 @@ public struct DeliverablesInspector: Sendable {
             }
             if !folderRel.isEmpty && folderRel != currentFolder {
                 currentFolder = folderRel
-                html += """
-                                <tr class="folder-header-row">
-                                    <td colspan="12" style="background:var(--table-th-bg); font-weight:800; font-family:var(--font-mono); font-size:11px; text-align:left; border-top:2px solid var(--border-strong); border-bottom:1px solid var(--border); padding:10px 14px; color:var(--text);">
-                                        📁 /\(folderRel.uppercased())/
-                                    </td>
-                                </tr>
-                """
+                html += "<tr class=\"folder\"><td colspan=\"12\">\(esc(folderRel))</td></tr>\n"
             }
-            
-            let rowClass = a.hasAnyNameMismatch ? "class='mismatch-row'" : ""
-            let statusTag = a.hasAnyNameMismatch ? "<span class='tag tag-mismatch'>MISMATCH</span>" : "<span class='tag tag-ok'>OK</span>"
-            let subTag = a.hasSubtitles ? "<span class='tag tag-ok'>\(QCUtilities.escapeHTML(a.subtitlesInfo))</span>" : "<span style='color:var(--text-muted); font-family:var(--font-mono); font-size:11px'>NONE</span>"
-            
-            let audioDisplay: String
+
+            let v = a.validation
+            let status = a.hasAnyNameMismatch ? "<span class=\"tag bad\">Mismatch</span>" : "<span class=\"tag ok\">OK</span>"
+            let subs = a.hasSubtitles ? "<span class=\"tag ok\">\(esc(a.subtitlesInfo))</span>" : none
+
+            let audio: String
             if !a.hasAudio {
-                audioDisplay = "<span style='color:var(--text-muted); font-family:var(--font-mono)'>NONE</span>"
-            } else if a.validation.isAudioMute {
-                let muteText = a.validation.audioMuteDetail ?? "MUTE"
-                audioDisplay = """
-                <div style="display:flex; align-items:center;">
-                    <span class="mono-cell">\(QCUtilities.escapeHTML(a.audioCodec))</span>
-                    <span class="tag tag-ok" style="margin-left:5px">\(muteText)</span>
-                </div>
-                """
+                audio = none
+            } else if v.isAudioMute {
+                audio = "<span class=\"nowrap\">\(esc(a.audioCodec))</span> <span class=\"tag bad\">\(esc(v.audioMuteDetail ?? "Mute"))</span>"
             } else {
-                let bitrateTag = a.audioBitrate != "--" ? "<span class='tag' style='margin-left:4px'>\(a.audioBitrate)</span>" : ""
-                var levelTag = ""
+                var tags = a.audioBitrate != "--" ? "<span class=\"tag\">\(esc(a.audioBitrate))</span>" : ""
                 if let m = a.loudness {
                     let result = target.evaluate(m)
-                    let colour = ["PASS": "", "WARN": " color:#f5a623;", "FAIL": " color:#e5484d;"][result.verdict.rawValue] ?? ""
-                    levelTag = "<span class='tag\(result.verdict == .pass ? " tag-ok" : "")' style='margin-left:4px;\(colour)' title='\(QCUtilities.escapeHTML(result.issues.joined(separator: "; ")))'>\(result.verdict.rawValue) · \(m.summary)</span>"
+                    let tone = ["PASS": "ok", "WARN": "amber", "FAIL": "bad"][result.verdict.rawValue] ?? ""
+                    let label = result.verdict.rawValue.capitalized
+                    tags += "<span class=\"tag \(tone)\" title=\"\(esc(result.issues.joined(separator: "; ")))\">\(label) · \(esc(m.summary))</span>"
                 }
-                let subLine = !a.audioFormatDetail.isEmpty ? "<div class='audio-detail-sub'>\(a.audioFormatDetail)</div>" : ""
-                audioDisplay = """
-                <div style="display:flex; align-items:center;">
-                    <span class="mono-cell">\(QCUtilities.escapeHTML(a.audioCodec))</span>\(bitrateTag)\(levelTag)
-                </div>\(subLine)
-                """
+                let detail = a.audioFormatDetail.isEmpty ? "" : "<span class=\"detail\">\(esc(a.audioFormatDetail))</span>"
+                audio = "<span class=\"nowrap\">\(esc(a.audioCodec))</span> \(tags)\(detail)"
             }
-            
+
             html += """
-                            <tr \(rowClass)>
-                                <td style="color:var(--text-muted); font-family:var(--font-mono)">\(String(format: "%02d", idx + 1))</td>
-                                <td class="fn-cell" title="\(QCUtilities.escapeHTML(a.fileName.uppercased()))">
-                                    \(QCUtilities.escapeHTML(a.fileName.uppercased()))
-                                </td>
-                                <td>
-                                    \(statusTag)
-                                </td>
-                                <td class="mono-cell">
-                                    \(a.timecode) <span style="color:var(--text-muted); font-size:11px">(\(a.formattedDuration))</span>
-                                    \(a.validation.isDurationMismatch ? "<span class='warning-pill'>\(a.validation.durationMismatchDetail ?? "")</span>" : "")
-                                </td>
-                                <td>
-                                    <span class="tag \(a.validation.isRatioMismatch ? "tag-mismatch" : "")">\(a.aspectRatioString)</span> 
-                                    <span class="mono-cell" style="font-size:11px; margin-left:4px">\(a.resolutionString)</span>
-                                    \(a.validation.isRatioMismatch ? "<span class='warning-pill'>\(a.validation.ratioMismatchDetail ?? "")</span>" : "")
-                                </td>
-                                <td class="mono-cell">\(String(format: "%.2f", a.fps)) FPS</td>
-                                <td class="mono-cell">\(a.formattedFileSize)</td>
-                                <td class="mono-cell" style="font-size:11px">\(a.formattedCreationDate)</td>
-                                <td>\(subTag)</td>
-                                <td>\(QCUtilities.escapeHTML(a.videoCodec))</td>
-                                <td>\(audioDisplay)</td>
-                                <td class="mono-cell" style="font-size:11px; max-width:280px; overflow:hidden; text-overflow:ellipsis;" title="\(QCUtilities.escapeHTML(a.fileURL.path))">\(QCUtilities.escapeHTML(a.fileURL.path))</td>
+                            <tr\(a.hasAnyNameMismatch ? " class=\"mismatch\"" : "")>
+                                <td class="num-cell">\(idx + 1)</td>
+                                <td class="name-cell" title="\(esc(a.fileURL.path))">\(esc(a.fileName))</td>
+                                <td>\(status)</td>
+                                <td class="nowrap"><span class="mono">\(esc(a.timecode))</span> <span class="dim">\(esc(a.formattedDuration))</span>\(v.isDurationMismatch ? "<span class=\"note\">\(esc(v.durationMismatchDetail ?? ""))</span>" : "")</td>
+                                <td class="nowrap"><span class="tag\(v.isRatioMismatch ? " bad" : "")">\(esc(a.aspectRatioString))</span> \(esc(a.resolutionString))\(v.isRatioMismatch ? "<span class=\"note\">\(esc(v.ratioMismatchDetail ?? ""))</span>" : "")</td>
+                                <td class="nowrap">\(String(format: "%.2f", a.fps))</td>
+                                <td class="nowrap">\(esc(a.formattedFileSize))</td>
+                                <td class="nowrap dim">\(esc(a.formattedCreationDate))</td>
+                                <td>\(subs)</td>
+                                <td class="nowrap">\(esc(a.videoCodec))</td>
+                                <td>\(audio)</td>
+                                <td><div class="path" title="\(esc(a.fileURL.path))">\(esc(a.fileURL.path))</div></td>
                             </tr>
             """
         }
-        
+
         html += """
                         </tbody>
                     </table>
                 </div>
 
-                <footer>
-                    <div>QCpie // DELIVERABLES ENGINE</div>
-                    <div>AUTOMATED POST-PRODUCTION SPEC AUDIT</div>
-                </footer>
+                <footer><div>QCpie Inspect</div><div>\(ReportStyle.dateString(now))</div></footer>
             </div>
-
             <div id="toast"></div>
-
-            <script>
-                const csvData = `\(QCUtilities.escapeJSTemplate(rawCSV))`;
-                const tsvData = `\(QCUtilities.escapeJSTemplate(rawTSV))`;
-
-                function toggleTheme() {
-                    const current = document.documentElement.getAttribute('data-theme') || 'dark';
-                    const next = current === 'dark' ? 'light' : 'dark';
-                    document.documentElement.setAttribute('data-theme', next);
-                    document.getElementById('theme-text').innerText = next.toUpperCase();
-                }
-
-                function showToast(msg) {
-                    const t = document.getElementById('toast');
-                    t.innerText = msg;
-                    t.style.display = 'block';
-                    setTimeout(() => { t.style.display = 'none'; }, 4000);
-                }
-
-                function downloadCSV() {
-                    const blob = new Blob([csvData], { type: 'text/csv;charset=utf-8;' });
-                    const link = document.createElement('a');
-                    link.href = URL.createObjectURL(blob);
-                    link.download = "Deliverables_Specs.csv";
-                    document.body.appendChild(link);
-                    link.click();
-                    document.body.removeChild(link);
-                    showToast('CSV DOWNLOADED // Deliverables_Specs.csv');
-                }
-
-                function openGoogleSheets() {
-                    navigator.clipboard.writeText(tsvData).then(() => {
-                        window.open('https://sheets.new', '_blank');
-                        showToast('SPECS COPIED TO CLIPBOARD // OPENING GOOGLE SHEETS (PRESS CMD+V)');
-                    }).catch(() => {
-                        downloadCSV();
-                        window.open('https://sheets.new', '_blank');
-                    });
-                }
-            </script>
+        \(ReportStyle.script(csv: generateManifestCSV(assets: assets, rootFolderURL: rootFolderURL, target: target),
+                             tsv: generateManifestTSV(assets: assets, rootFolderURL: rootFolderURL, target: target),
+                             csvFileName: "Deliverables_Specs.csv", what: "Specs"))
         </body>
         </html>
         """
-        
         return html
     }
 }

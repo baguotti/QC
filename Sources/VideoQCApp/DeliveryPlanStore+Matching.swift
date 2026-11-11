@@ -131,6 +131,13 @@ extension DeliveryPlanStore {
 
     func recomputeStates() {
         statesRevision &+= 1
+        // No sheet linked: nothing is "in" or "not in" a plan. Matching still ran (every file came out as an extra),
+        // which put a "Not in plan" pill on every Inspect file and its chips over the table.
+        guard config != nil else {
+            if !fileIndex.isEmpty { fileIndex = [:] }
+            if !localExtras.isEmpty { localExtras = [] }
+            return
+        }
         let dates = Dictionary(files.compactMap { f in f.modified.map { (f.url, $0) } }, uniquingKeysWith: { a, _ in a })
         var newStates: [String: PlanRowState] = [:]
         var index: [URL: PlanFileInfo] = [:]

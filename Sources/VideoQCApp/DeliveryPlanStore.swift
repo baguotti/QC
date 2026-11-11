@@ -175,16 +175,21 @@ final class DeliveryPlanStore: ObservableObject {
             let tabs = Self.planTabs(meta.tabs)
             guard !tabs.isEmpty else { phase = .failed("No tabs found in the sheet."); return }
             // One tab to start with (sheets often list the same files twice, e.g. by placement and by edit): the tab
-            // the link points at, else the one with the most rows. Others are a click away in the ••• menu.
+            // the link points at, else the one with the most coded rows, then the most rows (a tab without a Code
+            // column can't take statuses or links, even when it lists more files). Others are in the ••• menu.
             let data = try await api.values(link.sheetID, ranges: tabs.map { SheetsAPI.quoted($0.name) })
-            let counts = try await Task.detached(priority: .userInitiated) { () -> [String: Int] in
+            let (counts, coded) = try await Task.detached(priority: .userInitiated) { () -> ([String: Int], [String: Int]) in
                 let tables = try SheetsAPI.tables(data)
-                var out: [String: Int] = [:]
-                for (tab, table) in zip(tabs, tables) { out[tab.gid] = PlanParser.parse(table: table, tab: tab.name).rows.count }
-                return out
+                var counts: [String: Int] = [:], coded: [String: Int] = [:]
+                for (tab, table) in zip(tabs, tables) {
+                    let rows = PlanParser.parse(table: table, tab: tab.name).rows
+                    counts[tab.gid] = rows.count
+                    coded[tab.gid] = rows.count { !($0.code ?? "").isEmpty }
+                }
+                return (counts, coded)
             }.value
             let chosen = link.gid.flatMap { gid in tabs.contains { $0.gid == gid } ? gid : nil }
-                ?? tabs.max { (counts[$0.gid] ?? 0) < (counts[$1.gid] ?? 0) }?.gid
+                ?? Self.startingTab(tabs.map(\.gid), counts: counts, coded: coded)
             // Relinking the same sheet keeps the edits waiting to be sent.
             let kept = config?.link.sheetID == link.sheetID ? outbox : PlanOutbox()
             resetState()
@@ -204,6 +209,11 @@ final class DeliveryPlanStore: ObservableObject {
             Log.plan.error("Linking the sheet failed", error)
             phase = .failed(Self.describe(error))
         }
+    }
+
+    /// The tab a link without a gid starts on: most coded rows, then most rows.
+    nonisolated static func startingTab(_ gids: [String], counts: [String: Int], coded: [String: Int]) -> String? {
+        gids.max { (coded[$0] ?? 0, counts[$0] ?? 0) < (coded[$1] ?? 0, counts[$1] ?? 0) }
     }
 
     /// The tabs a plan can show: visible ones, not the QCpie tab.

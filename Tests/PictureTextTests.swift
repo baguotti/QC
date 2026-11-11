@@ -62,6 +62,9 @@ struct PictureTextTests {
         let subbed = PictureTextCheck(subtitlesLikely: true)
         #expect(titled.nameMismatches(for: "x_CLEAN.mov") == ["Named CLEAN but shows text graphics"])
         #expect(subbed.nameMismatches(for: "x_CLEAN.mov") == ["Named CLEAN but shows subtitles"])
+        // A language beside CLEAN asks for subtitles: CLEAN only rules out logos and titles there.
+        #expect(subbed.nameMismatches(for: "SS27_TEASER_15s_16x9_EN_CLEAN_KL01002.mp4").isEmpty)
+        #expect(titled.nameMismatches(for: "SS27_TEASER_15s_16x9_EN_CLEAN_KL01002.mp4") == ["Named CLEAN but shows text graphics"])
         #expect(clean.nameMismatches(for: "x_CLEAN.mov").isEmpty)
         #expect(clean.nameMismatches(for: "x_TITLED.mov").count == 1 && clean.nameMismatches(for: "x_SUBS.mov").count == 1)
         #expect(clean.nameMismatches(for: "x_16x9.mov").isEmpty)

@@ -137,13 +137,24 @@ public struct PictureTextCheck: Equatable, Sendable {
         return out
     }
 
+    /// Language codes a delivery name carries (`_EN_`, `_FR_`, `_ENG_`…).
+    static let languageTokens: Set<String> = ["EN", "ENG", "FR", "FRA", "DE", "GER", "ES", "SPA", "IT", "ITA", "PT", "NL", "JA",
+                                               "JP", "ZH", "CN", "KO", "KR", "AR", "RU", "PL", "SV", "DA", "FI", "TR"]   // not NO: it negates (NO_LOGO)
+
+    static func namesLanguage(_ name: String) -> Bool {
+        !languageTokens.isDisjoint(with: (name as NSString).deletingPathExtension.uppercased()
+            .split { !$0.isLetter && !$0.isNumber }.map(String.init))
+    }
+
     /// Where the picture disagrees with what the name says (empty: no disagreement, or nothing to compare).
     public func nameMismatches(for name: String) -> [String] {
         guard !isUnreadable, !isUnavailable else { return [] }
         let promised = Self.promises(inName: name)
         var out: [String] = []
-        if promised.contains(.clean), !isClean {
-            out.append("Named CLEAN but shows \(subtitlesLikely ? "subtitles" : "text graphics")")
+        // "…_EN_CLEAN_…": a language beside CLEAN asks for subtitles, so CLEAN only rules out logos and titles.
+        let subsAllowed = Self.namesLanguage(name)
+        if promised.contains(.clean), hasGraphics || (subtitlesLikely && !subsAllowed) {
+            out.append("Named CLEAN but shows \(hasGraphics ? "text graphics" : "subtitles")")
         }
         if promised.contains(.titled), !hasGraphics {
             out.append("Named as titled but no text graphics were found")

@@ -326,7 +326,7 @@ public final class ScannerState: ObservableObject {
         let folder = folderURL ?? videoFiles.first?.deletingLastPathComponent() ?? URL(fileURLWithPath: NSTemporaryDirectory())
         
         let csvFileName = "QC_Report.csv"
-        let htmlString = ReportWriter.generateHTMLReport(folderURL: folder, config: config, results: scanResults, csvFileName: csvFileName)
+        let htmlString = ReportWriter.generateHTMLReport(folderURL: folder, config: config, results: scanResults, csvFileName: csvFileName, colors: .current)
         
         let savePanel = NSSavePanel()
         savePanel.allowedContentTypes = [.html]

@@ -433,6 +433,7 @@ extension ContentView {
                                 Text(hasPendingAudioAnalysis ? "Check Loudness" : "Recheck Loudness")
                                     .font(.ui(size: 10, weight: .semibold))
                                 Spacer()
+                            checkScopeLabel
                             }
                         }
                         .frame(maxWidth: .infinity, alignment: .center)
@@ -446,7 +447,7 @@ extension ContentView {
                     }
                     .buttonStyle(.plain)
                     .disabled(specsState.deliverableAssets.isEmpty)
-                    .explain("Measures loudness (LUFS), true peak, loudness range and channel problems (silent channel, out of phase, dual mono) per ITU-R BS.1770-4, and checks them against the target.")
+                    .explain("Measures loudness (LUFS), true peak, loudness range and channel problems (silent channel, out of phase, dual mono) per ITU-R BS.1770-4, and checks them against the target. Runs on the selected files, or on all of them when none are selected.")
 
                     loudnessTargetMenu
                 }
@@ -469,6 +470,7 @@ extension ContentView {
                             Text(hasPendingEndFrameCheck ? "Check End Frames" : "Recheck End Frames")
                                 .font(.ui(size: 10, weight: .semibold))
                             Spacer()
+                            checkScopeLabel
                         }
                     }
                     .frame(maxWidth: .infinity, alignment: .center)
@@ -480,7 +482,7 @@ extension ContentView {
                 }
                 .buttonStyle(.plain)
                 .disabled(specsState.deliverableAssets.isEmpty)
-                .explain("Checks whether each video ends on a pure black frame (decodes only the last frame of each file).")
+                .explain("Checks whether each video ends on a pure black frame (decodes only the last frame of each file). Runs on the selected files, or on all of them when none are selected.")
 
                 // Subs & Graphics (on demand: reads the picture's text twice a second)
                 Button(action: {
@@ -503,6 +505,7 @@ extension ContentView {
                             Text(hasPendingPictureTextCheck ? "Check Subs & Graphics" : "Recheck Subs & Graphics")
                                 .font(.ui(size: 10, weight: .semibold))
                             Spacer()
+                            checkScopeLabel
                         }
                     }
                     .frame(maxWidth: .infinity, alignment: .center)
@@ -514,7 +517,7 @@ extension ContentView {
                 }
                 .buttonStyle(.plain)
                 .disabled(specsState.deliverableAssets.isEmpty)
-                .explain("Reads the text in each video's picture: likely burned-in subtitles, and text graphics (titles, supers, text logos) with when they appear. Flags files named CLEAN, TITLED or SUBS that don't match. Logos without letters aren't seen.")
+                .explain("Reads the text in each video's picture: likely burned-in subtitles, and text graphics (titles, supers, text logos) with when they appear. Flags files named CLEAN, TITLED or SUBS that don't match. Logos without letters aren't seen. Runs on the selected files, or on all of them when none are selected.")
                 
                 // Subtitle Cross-Check (selection with 2+ files, otherwise the whole list)
                 let crossCheckTargets = subtitleCrossCheckTargets
@@ -1223,7 +1226,7 @@ extension ContentView {
     }
 
     var hasPendingAudioAnalysis: Bool {
-        specsState.deliverableAssets.contains { $0.hasAudio && $0.loudness == nil && !$0.isAudioMute }
+        specsState.checkTargets.contains { $0.hasAudio && $0.loudness == nil && !$0.isAudioMute }
     }
     
     var flattenedDeliverableNodes: [FileSystemTreeNode] {
@@ -1989,8 +1992,19 @@ struct EquatableRow<Key: Equatable, Content: View>: View, Equatable {
 // MARK: - Subs & Graphics Columns
 
 extension ContentView {
+    /// "3 selected" on a check button while files are selected (the check runs on those only).
+    @ViewBuilder var checkScopeLabel: some View {
+        let count = specsState.checkSelectionCount
+        if count > 0 {
+            Text("\(count) selected")
+                .font(.ui(size: 10))
+                .monospacedDigit()
+                .foregroundColor(textMuted)
+        }
+    }
+
     var hasPendingPictureTextCheck: Bool {
-        specsState.deliverableAssets.contains { $0.pictureText == nil }
+        specsState.checkTargets.contains { $0.pictureText == nil }
     }
 
     /// Opens the file in the Player at `seconds`.
@@ -2105,7 +2119,7 @@ extension ContentView {
 
 extension ContentView {
     var hasPendingEndFrameCheck: Bool {
-        specsState.deliverableAssets.contains { $0.endFrame == nil }
+        specsState.checkTargets.contains { $0.endFrame == nil }
     }
     
     @ViewBuilder

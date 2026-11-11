@@ -1,5 +1,6 @@
 import SwiftUI
 import AppKit
+import VideoQCLib
 
 // MARK: - Hex Conversion Helpers
 
@@ -645,5 +646,15 @@ public enum AccentSlot: String, CaseIterable, Identifiable, Sendable {
         case .warn:
             return "Detected line glitches, QC failures, warning banners."
         }
+    }
+}
+
+extension ReportColors {
+    /// The current theme's accents, for the HTML reports.
+    @MainActor static var current: ReportColors {
+        let t = ThemeManager.shared.currentTheme
+        return ReportColors(positive: t.slotaHex(isLight: false), positiveLight: t.slotaHex(isLight: true),
+                            accent: t.playHex(isLight: false), accentLight: t.playHex(isLight: true),
+                            warn: t.warnHex(isLight: false), warnLight: t.warnHex(isLight: true))
     }
 }

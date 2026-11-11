@@ -83,6 +83,19 @@ public final class SpecsState: ObservableObject {
     public func isSelected(_ url: URL) -> Bool {
         selectedDeliverableURLs.contains(url)
     }
+
+    /// What Inspect's checks (loudness, end frames, subs & graphics) run on: the selected files, else every file.
+    public var checkTargets: [DeliverableAsset] {
+        let selected = selectedDeliverableURLs
+        guard !selected.isEmpty else { return deliverableAssets }
+        let picked = deliverableAssets.filter { selected.contains($0.fileURL) }
+        return picked.isEmpty ? deliverableAssets : picked
+    }
+
+    /// Selected files the checks would run on (0 = all files).
+    public var checkSelectionCount: Int {
+        selectedDeliverableURLs.isEmpty ? 0 : deliverableAssets.reduce(0) { $0 + (selectedDeliverableURLs.contains($1.fileURL) ? 1 : 0) }
+    }
     
     /// Click handling like Finder. `displayOrder` is the list as shown (for ⇧-click ranges).
     public func handleClick(on url: URL, modifiers: NSEvent.ModifierFlags, displayOrder: [URL]) {
@@ -561,7 +574,7 @@ public final class SpecsState: ObservableObject {
         guard !deliverableAssets.isEmpty else { return }
         cancelAudioAnalysis()
         
-        let assetsToAnalyze = deliverableAssets
+        let assetsToAnalyze = checkTargets
         totalAudioCount = assetsToAnalyze.count
         analyzedAudioCount = 0
         audioAnalysisProgress = 0.0
@@ -592,11 +605,11 @@ public final class SpecsState: ObservableObject {
         }
     }
     
-    /// Classifies the last frame of every listed deliverable (BLACK / NEAR BLACK / NOT BLACK).
+    /// Classifies the last frame of each `checkTargets` file (BLACK / NEAR BLACK / NOT BLACK).
     public func checkEndFrames() {
         guard !deliverableAssets.isEmpty else { return }
         cancelEndFrameCheck()
-        let urls = deliverableAssets.map(\.fileURL)
+        let urls = checkTargets.map(\.fileURL)
         totalEndFrameCount = urls.count
         checkedEndFrameCount = 0
         isCheckingEndFrames = true
@@ -619,11 +632,11 @@ public final class SpecsState: ObservableObject {
         }
     }
     
-    /// Reads the text in every listed video's picture: burned-in subtitles and text graphics (two files at a time).
+    /// Reads the text in each `checkTargets` video's picture: burned-in subtitles and text graphics (two files at a time).
     public func checkPictureText() {
         guard !deliverableAssets.isEmpty else { return }
         cancelPictureTextCheck()
-        let urls = deliverableAssets.map(\.fileURL)
+        let urls = checkTargets.map(\.fileURL)
         totalPictureTextCount = urls.count
         checkedPictureTextCount = 0
         isCheckingPictureText = true
@@ -805,7 +818,7 @@ public final class SpecsState: ObservableObject {
         guard !deliverableAssets.isEmpty else { return }
         
         let folderName = (rootFolderURL ?? deliverableAssets.first?.fileURL.deletingLastPathComponent())?.lastPathComponent ?? "DELIVERY_ASSETS"
-        let htmlString = DeliverablesInspector.generateManifestHTML(assets: deliverableAssets, folderName: folderName, rootFolderURL: rootFolderURL)
+        let htmlString = DeliverablesInspector.generateManifestHTML(assets: deliverableAssets, folderName: folderName, rootFolderURL: rootFolderURL, colors: .current)
         let tempURL = FileManager.default.temporaryDirectory.appendingPathComponent("Deliverables_Specs_\(UUID().uuidString).html")
         
         do {

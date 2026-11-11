@@ -11,7 +11,7 @@ struct DeliveryPlanFixtureTests {
         .appendingPathComponent("_TEST")
 
     @Test("Mock delivery as a Frame.io listing: right files link by themselves, doubtful ones are only suggested",
-          arguments: ["DeliveryPlanMock", "DeliveryPlanMock_v2"])
+          arguments: ["DeliveryPlanMock", "DeliveryPlanMock_v2", "DeliveryPlanMock_v3"])
     func linking(_ folder: String) throws {
         let root = Self.tests.appendingPathComponent(folder)
         guard let csv = try? String(contentsOf: root.appendingPathComponent("_PLAN.csv"), encoding: .utf8),

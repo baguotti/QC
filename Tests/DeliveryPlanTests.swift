@@ -326,4 +326,14 @@ extension DeliveryPlanTests {
         cut.damage = "CUT OFF: only 40% of the data is in the file"
         #expect(PlanMatcher.problems(row, cut).count == 1)
     }
+
+    @Test("Linking without a tab in the link starts on the tab with codes, even when another lists more rows")
+    func startingTab() {
+        // A "Placement" tab with 1,075 coded rows and an "Edits" tab with 1,163 rows and no Code column.
+        let counts = ["placement": 1075, "edits": 1163, "naming": 2]
+        #expect(DeliveryPlanStore.startingTab(["placement", "edits", "naming"], counts: counts,
+                                              coded: ["placement": 1075, "edits": 0, "naming": 0]) == "placement")
+        // No codes anywhere: the most rows, as before.
+        #expect(DeliveryPlanStore.startingTab(["placement", "edits"], counts: counts, coded: [:]) == "edits")
+    }
 }
