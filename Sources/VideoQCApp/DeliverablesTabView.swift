@@ -238,7 +238,7 @@ extension ContentView {
     private func needsAttention(_ url: URL, assets: [URL: DeliverableAsset]) -> Bool {
         if let state = planFiles[url]?.state, [.check, .needsFix].contains(state) { return true }
         guard let asset = assets[url] else { return false }
-        return (asset.validation.hasAnyMismatch || specsState.hasSubtitleMismatch(url)) && !specsState.isMismatchDismissed(for: url)
+        return (asset.hasAnyNameMismatch || specsState.hasSubtitleMismatch(url)) && !specsState.isMismatchDismissed(for: url)
     }
 
     /// The Delivery Plan's filter chips, as in the plan: % done, All, a chip per state with its file count, Not in Plan.
@@ -481,6 +481,40 @@ extension ContentView {
                 .buttonStyle(.plain)
                 .disabled(specsState.deliverableAssets.isEmpty)
                 .explain("Checks whether each video ends on a pure black frame (decodes only the last frame of each file).")
+
+                // Subs & Graphics (on demand: reads the picture's text twice a second)
+                Button(action: {
+                    if specsState.isCheckingPictureText { specsState.cancelPictureTextCheck() } else { specsState.checkPictureText() }
+                }) {
+                    HStack(spacing: 6) {
+                        if specsState.isCheckingPictureText {
+                            ProgressView().controlSize(.mini).scaleEffect(0.65).frame(width: 10, height: 10)
+                            ObservingView(model: specsState.pictureTextProgress) { progress in
+                                Text("Checking Subs & Graphics \(Int(progress.fraction * 100))% (\(specsState.checkedPictureTextCount)/\(specsState.totalPictureTextCount))")
+                                    .font(.ui(size: 10, weight: .semibold))
+                                    .monospacedDigit()
+                                    .foregroundColor(accentBlue)
+                            }
+                            Spacer()
+                            Image(systemName: "xmark.circle.fill").font(.system(size: StudioTheme.scaleFont(9), weight: .bold)).foregroundColor(textMuted)
+                        } else {
+                            Image(systemName: "textformat")
+                                .font(.system(size: StudioTheme.scaleFont(8.5), weight: .bold))
+                            Text(hasPendingPictureTextCheck ? "Check Subs & Graphics" : "Recheck Subs & Graphics")
+                                .font(.ui(size: 10, weight: .semibold))
+                            Spacer()
+                        }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .center)
+                    .frame(height: 28)
+                    .padding(.horizontal, 8)
+                    .foregroundColor(specsState.deliverableAssets.isEmpty ? textMuted : (hasPendingPictureTextCheck ? textMain : textSubtle))
+                    .studioBox(background: hasPendingPictureTextCheck ? accentBlue.opacity(0.12) : bgSubtle,
+                               border: hasPendingPictureTextCheck ? accentBlue.opacity(0.5) : borderLine)
+                }
+                .buttonStyle(.plain)
+                .disabled(specsState.deliverableAssets.isEmpty)
+                .explain("Reads the text in each video's picture: likely burned-in subtitles, and text graphics (titles, supers, text logos) with when they appear. Flags files named CLEAN, TITLED or SUBS that don't match. Logos without letters aren't seen.")
                 
                 // Subtitle Cross-Check (selection with 2+ files, otherwise the whole list)
                 let crossCheckTargets = subtitleCrossCheckTargets
@@ -648,7 +682,7 @@ extension ContentView {
         let displayAssets = filteredDeliverableAssets
         let totalBytes = displayAssets.reduce(Int64(0)) { $0 + $1.fileSizeBytes }
         let totalSeconds = displayAssets.reduce(0.0) { $0 + $1.durationSeconds }
-        let mismatchCount = displayAssets.filter { $0.validation.hasAnyMismatch && !specsState.isMismatchDismissed(for: $0.fileURL) }.count
+        let mismatchCount = displayAssets.filter { $0.hasAnyNameMismatch && !specsState.isMismatchDismissed(for: $0.fileURL) }.count
         let target = loudnessTarget
         let measured = displayAssets.compactMap(\.loudness)
         let loudnessFails = measured.filter { target.evaluate($0).verdict == .fail }.count
@@ -802,6 +836,8 @@ extension ContentView {
                                                alignment: .leading)
                             if specsState.isColumnVisible(.timecode) { sortableHeaderCell("Timecode (TC)", column: .timecode) }
                             if specsState.isColumnVisible(.endFrame) { sortableHeaderCell("End Frame", column: .endFrame) }
+                            if specsState.isColumnVisible(.burnedSubs) { sortableHeaderCell("Subs", column: .burnedSubs) }
+                            if specsState.isColumnVisible(.graphics) { sortableHeaderCell("Graphics", column: .graphics) }
                             if specsState.isColumnVisible(.ratio) { sortableHeaderCell("Ratio & Size", column: .ratio) }
                             if specsState.isColumnVisible(.fps) { sortableHeaderCell("FPS", column: .fps) }
                             if specsState.isColumnVisible(.size) { sortableHeaderCell("File Size", column: .size) }
@@ -1229,7 +1265,7 @@ extension ContentView {
     private func deliverablesFolderBannerRow(node: FileSystemTreeNode, assetMap: [URL: DeliverableAsset], rowWidth: CGFloat = 0) -> some View {
         let isCollapsed = isDeliverablesFolderRowCollapsed(node)
         let folderAssets = node.videoURLs.compactMap { assetMap[$0] }
-        let folderMismatches = folderAssets.filter { $0.validation.hasAnyMismatch && !specsState.isMismatchDismissed(for: $0.fileURL) }.count
+        let folderMismatches = folderAssets.filter { $0.hasAnyNameMismatch && !specsState.isMismatchDismissed(for: $0.fileURL) }.count
         let totalBytes = folderAssets.reduce(Int64(0)) { $0 + $1.fileSizeBytes }
         let totalSeconds = folderAssets.reduce(0.0) { $0 + $1.durationSeconds }
         let formattedSize = DeliverablesInspector.formatFileSize(bytes: totalBytes)
@@ -1402,7 +1438,7 @@ extension ContentView {
     ) -> some View {
         let isDismissed = specsState.isMismatchDismissed(for: asset.fileURL)
         let hasSubtitleMismatch = specsState.hasSubtitleMismatch(asset.fileURL)
-        let hasMismatch = (asset.validation.hasAnyMismatch || hasSubtitleMismatch) && !isDismissed
+        let hasMismatch = (asset.hasAnyNameMismatch || hasSubtitleMismatch) && !isDismissed
         let isSelected = specsState.isSelected(asset.fileURL)
         let srtURL = specsState.subtitleURL(for: asset.fileURL)
         
@@ -1518,6 +1554,14 @@ extension ContentView {
             if specsState.isColumnVisible(.endFrame) {
                 endFrameCell(asset.endFrame)
                     .frame(width: CGFloat(specsState.columnWidth(for: .endFrame)), alignment: .center)
+            }
+            if specsState.isColumnVisible(.burnedSubs) {
+                burnedSubsCell(asset, isDismissed: isDismissed)
+                    .frame(width: CGFloat(specsState.columnWidth(for: .burnedSubs)), alignment: .center)
+            }
+            if specsState.isColumnVisible(.graphics) {
+                graphicsCell(asset, isDismissed: isDismissed)
+                    .frame(width: CGFloat(specsState.columnWidth(for: .graphics)), alignment: .center)
             }
             
             if specsState.isColumnVisible(.ratio) {
@@ -1736,7 +1780,7 @@ extension ContentView {
             if let srtURL = srtURL {
                 Button("Reveal Subtitles in Finder") { NSWorkspace.shared.activateFileViewerSelecting([srtURL]) }
             }
-            if asset.validation.hasAnyMismatch || hasSubtitleMismatch {
+            if asset.hasAnyNameMismatch || hasSubtitleMismatch {
                 Divider()
                 Button(action: {
                     specsState.toggleDismissMismatch(for: asset.fileURL)
@@ -1937,6 +1981,95 @@ struct EquatableRow<Key: Equatable, Content: View>: View, Equatable {
     }
     
     var body: some View { content() }
+}
+
+// MARK: - Subs & Graphics Columns
+
+extension ContentView {
+    var hasPendingPictureTextCheck: Bool {
+        specsState.deliverableAssets.contains { $0.pictureText == nil }
+    }
+
+    /// Opens the file in the Player at `seconds`.
+    func openInPlayer(_ video: URL, at seconds: Double, fps: Double) {
+        withAnimation(Motion.snap) { selectedTab = .player }
+        playerEngine.loadVideo(url: video, into: .slotA, initialSeekFrame: max(0, Int(ceil(seconds * max(1, fps) - 0.5))))
+    }
+
+    private func pictureTextTimecode(_ seconds: Double, fps: Double) -> String {
+        TimecodeFormatter.format(frameIndex: max(0, Int((seconds * max(1, fps)).rounded(.down))), fps: max(1, fps))
+    }
+
+    /// A check's word in a cell: red with a warning when it disagrees with the file name (unless dismissed).
+    private func pictureTextLabel(_ text: String, mismatch: Bool, found: Bool) -> some View {
+        HStack(spacing: 4) {
+            if mismatch {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .font(.system(size: StudioTheme.scaleFont(8), weight: .bold))
+            }
+            Text(text)
+                .font(.ui(size: 10, weight: .semibold))
+                .lineLimit(1)
+                .truncationMode(.tail)
+        }
+        .foregroundColor(mismatch ? alertRed : (found ? textMain : textMuted))
+    }
+
+    @ViewBuilder
+    func burnedSubsCell(_ asset: DeliverableAsset, isDismissed: Bool) -> some View {
+        if let check = asset.pictureText {
+            let mismatches = check.nameMismatches(for: asset.fileName).filter { $0.contains("subtitle") }
+            let flagged = !mismatches.isEmpty && !isDismissed
+            let label = pictureTextLabel(check.subsLabel,
+                                         mismatch: flagged, found: check.subtitlesLikely)
+            if let first = check.subtitleExamples.first {
+                Button(action: { openInPlayer(asset.fileURL, at: first.start, fps: asset.fps) }) { label }
+                    .buttonStyle(.plain)
+                    .help((mismatches.map { $0 + ". " }.joined()) + "Text that changes in the lower centre of the picture, e.g. at "
+                          + check.subtitleExamples.map { "\(pictureTextTimecode($0.start, fps: asset.fps)): “\($0.text)”" }.joined(separator: ", ")
+                          + ". Click to open it in the Player.")
+            } else {
+                label.help(check.isUnavailable ? "No picture to check (audio, a still or an image sequence)"
+                           : check.isUnreadable ? "The video couldn't be read to the end: it may be cut short or damaged, or its drive went away"
+                           : (mismatches.map { $0 + ". " }.joined()) + "No changing text in the lower centre of the picture")
+            }
+        } else {
+            Text("—")
+                .font(.ui(size: 10, weight: .semibold))
+                .foregroundColor(textMuted)
+                .help("Not checked yet: use Check Subs & Graphics")
+        }
+    }
+
+    @ViewBuilder
+    func graphicsCell(_ asset: DeliverableAsset, isDismissed: Bool) -> some View {
+        if let check = asset.pictureText {
+            let mismatches = check.nameMismatches(for: asset.fileName).filter { !$0.contains("subtitle") || $0.hasPrefix("Named CLEAN") }
+            let flagged = !mismatches.isEmpty && !isDismissed
+            let text = check.isUnavailable ? "—" : check.isUnreadable ? "CAN'T READ"
+                : check.graphics.isEmpty ? (check.isClean ? "CLEAN" : "NONE")
+                : check.graphics.map(\.text).joined(separator: " · ").replacingOccurrences(of: "\n", with: " ")
+            let label = pictureTextLabel(text, mismatch: flagged, found: check.hasGraphics)
+            let help = (mismatches.map { $0 + ". " }.joined())
+                + (check.isUnavailable ? "No picture to check (audio, a still or an image sequence)"
+                   : check.isUnreadable ? "The video couldn't be read to the end: it may be cut short or damaged, or its drive went away"
+                   : check.graphics.isEmpty ? "No text graphics found (logos without letters aren't seen)"
+                   : check.graphics.map { "“\($0.text)” \(pictureTextTimecode($0.start, fps: asset.fps))–\(pictureTextTimecode($0.end, fps: asset.fps))" }
+                        .joined(separator: "\n") + "\nClick to open the first in the Player.")
+            if let first = check.graphics.min(by: { $0.start < $1.start }) {
+                Button(action: { openInPlayer(asset.fileURL, at: first.start, fps: asset.fps) }) { label }
+                    .buttonStyle(.plain)
+                    .help(help)
+            } else {
+                label.help(help)
+            }
+        } else {
+            Text("—")
+                .font(.ui(size: 10, weight: .semibold))
+                .foregroundColor(textMuted)
+                .help("Not checked yet: use Check Subs & Graphics")
+        }
+    }
 }
 
 // MARK: - End Frame Column

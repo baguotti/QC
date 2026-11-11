@@ -1,0 +1,18 @@
+# path (relative to the repo, or absolute) | subs: yes/no | graphics: yes/no
+_TEST/CK/Clean/CK_FA26_HOME_30Sec_16x9_E6.0_CLEAN.mp4 | no | no
+_TEST/CK/Clean/CK_FA26_HOME_30Sec_1x1_E6.0_CLEAN.mp4 | no | no
+_TEST/CK/Clean/CK_FA26_HOME_30Sec_9x16_E6.0_CLEAN.mp4 | no | no
+_TEST/CK/MP4/CK_HOME26_30sec_16x9_E3.0.mp4 | no | yes
+_TEST/CK/MP4/CK_HOME26_30sec_1x1_E3.0.mp4 | no | yes
+_TEST/CK/MP4/CK_HOME26_30sec_9x16_E3.0.mp4 | no | yes
+_TEST/Social/PEARL 26_SOCIAL_1_9x16_Logo.mp4 | no | yes
+_TEST/Social/PEARL 26_SOCIAL_2_9x16_Logo.mp4 | no | yes
+_TEST/Social/PEARL 26_SOCIAL_3_9x16_logo.mp4 | no | yes
+_TEST/Social/PEARL 26_SOCIAL_4_9x16_Logo.mp4 | no | yes
+_TEST/MOVER SHAKER/1563_ADIDAS_Y3_MOVER SHAKER_10SEC_16x9_E1.0_OPTION A.mp4 | no | yes
+_TEST/GALACTIC MOJO/1563_ADIDAS_Y3_GALACTIC MOJO_10SEC_16x9_E1.0_OPTON A.mp4 | no | yes
+_TEST/O&O/06/CK_FA26_BTW_O&O_06sec_16x9_E1.0.mp4 | no | yes
+_TEST/O&O/06/CK_FA26_BTW_O&O_06sec_4x5_E1.0.mp4 | no | yes
+/Volumes/RIC_2TB/LNEH_ROUGHCUT_24fps_E6.2_SUBS_TEST.mp4 | yes | any
+_TEST/MUSIC/Y2Mate.is - Jean-Paul Belmondo _ Tango Marseillais.mp3 | n/a | n/a
+_TEST/Paris_Photos/44590001.JPG | n/a | n/a

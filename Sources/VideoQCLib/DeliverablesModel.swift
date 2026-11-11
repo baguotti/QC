@@ -63,6 +63,8 @@ public enum SpecsSortColumn: String, CaseIterable, Equatable, Sendable {
     case videoCodec = "videoCodec"
     case audioCodec = "audioCodec"
     case endFrame = "endFrame"
+    case burnedSubs = "burnedSubs"
+    case graphics = "graphics"
     case path = "path"
     
     public var displayName: String {
@@ -76,6 +78,8 @@ public enum SpecsSortColumn: String, CaseIterable, Equatable, Sendable {
         case .videoCodec: return "Video Codec"
         case .audioCodec: return "Audio Spec"
         case .endFrame: return "End Frame"
+        case .burnedSubs: return "Burned-in Subs"
+        case .graphics: return "Graphics (Text)"
         case .path: return "File Path"
         }
     }
@@ -91,6 +95,8 @@ public enum SpecsSortColumn: String, CaseIterable, Equatable, Sendable {
         case .videoCodec: return 140.0
         case .audioCodec: return 165.0
         case .endFrame: return 95.0
+        case .burnedSubs: return 80.0
+        case .graphics: return 110.0
         case .path: return 160.0
         }
     }
@@ -106,6 +112,8 @@ public enum SpecsSortColumn: String, CaseIterable, Equatable, Sendable {
         case .videoCodec: return 80.0
         case .audioCodec: return 80.0
         case .endFrame: return 70.0
+        case .burnedSubs: return 60.0
+        case .graphics: return 70.0
         case .path: return 100.0
         }
     }
@@ -121,6 +129,8 @@ public enum SpecsSortColumn: String, CaseIterable, Equatable, Sendable {
         case .videoCodec: return 400.0
         case .audioCodec: return 400.0
         case .endFrame: return 200.0
+        case .burnedSubs: return 200.0
+        case .graphics: return 400.0
         case .path: return 2000.0
         }
     }
@@ -157,6 +167,8 @@ public struct DeliverableAsset: Identifiable, Sendable, Equatable {
     public let validation: DeliverableValidation
     /// Result of the on-demand last-frame check (nil until CHECK END FRAMES runs).
     public var endFrame: EndFrameCheck? = nil
+    /// Text in the picture (nil until Check Subs & Graphics runs).
+    public var pictureText: PictureTextCheck? = nil
     
     public var hasAudio: Bool {
         audioConfig != "NONE" && audioCodec != "NONE"
@@ -197,6 +209,7 @@ public struct DeliverableAsset: Identifiable, Sendable, Equatable {
             validation: validation
         )
         copy.endFrame = endFrame
+        copy.pictureText = pictureText
         copy.loudness = levels.loudness
         return copy
     }
@@ -288,4 +301,18 @@ public struct EndFrameCheck: Equatable, Sendable {
     
     public static let unavailable = EndFrameCheck(verdict: .unavailable, meanLuma: 0, litPercent: 0, timecode: "--")
     public static let unreadable = EndFrameCheck(verdict: .unreadable, meanLuma: 0, litPercent: 0, timecode: "--")
+}
+
+public extension DeliverableAsset {
+    /// The picture's text disagrees with the file name (CLEAN with text, TITLED or SUBS without).
+    var hasPictureTextMismatch: Bool { !(pictureText?.nameMismatches(for: fileName).isEmpty ?? true) }
+    /// Any mismatch Inspect flags on the row: specs against the name, or the picture's text against it.
+    var hasAnyNameMismatch: Bool { validation.hasAnyMismatch || hasPictureTextMismatch }
+    /// Export notes: the spec notes, plus any picture-text mismatch.
+    var notesWithPictureText: String {
+        let picture = pictureText?.nameMismatches(for: fileName) ?? []
+        guard !picture.isEmpty else { return validation.summaryString }
+        let specs = validation.summaryString
+        return (specs == "MATCHED" ? [] : [specs]).joined() + (specs == "MATCHED" ? "" : " • ") + picture.joined(separator: " • ")
+    }
 }

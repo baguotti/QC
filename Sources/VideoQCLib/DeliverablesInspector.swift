@@ -1045,7 +1045,7 @@ public struct DeliverablesInspector: Sendable {
     }
 
     public static func generateManifestCSV(assets: [DeliverableAsset], rootFolderURL: URL? = nil, target: LoudnessTarget = .current) -> String {
-        var csv = "Folder,File Name,Status,Validation Notes,Timecode,Duration,Total Frames,Resolution,Aspect Ratio,FPS,File Size,Created Date,Subtitles / CC,Video Codec,Audio Codec,Audio Bitrate,Audio Details,Loudness (LUFS),True Peak (dBTP),LRA (LU),Max Short-Term (LUFS),Loudness Verdict,Loudness Notes,End Frame,Container,File Path\n"
+        var csv = "Folder,File Name,Status,Validation Notes,Timecode,Duration,Total Frames,Resolution,Aspect Ratio,FPS,File Size,Created Date,Subtitles / CC,Video Codec,Audio Codec,Audio Bitrate,Audio Details,Loudness (LUFS),True Peak (dBTP),LRA (LU),Max Short-Term (LUFS),Loudness Verdict,Loudness Notes,End Frame,Burned-in Subs,Graphics (Text),Container,File Path\n"
         
         for a in assets {
             var folderRel = ""
@@ -1060,9 +1060,9 @@ public struct DeliverablesInspector: Sendable {
             if folderRel.isEmpty {
                 folderRel = a.fileURL.deletingLastPathComponent().lastPathComponent
             }
-            let status = a.validation.hasAnyMismatch ? "MISMATCH FLAGGED" : "MATCHED"
-            let notes = a.validation.summaryString
-            csv += "\(QCUtilities.escapeCSV(folderRel)),\(QCUtilities.escapeCSV(a.fileName)),\(QCUtilities.escapeCSV(status)),\(QCUtilities.escapeCSV(notes)),\(QCUtilities.escapeCSV(a.timecode)),\(QCUtilities.escapeCSV(a.formattedDuration)),\(a.totalFrames),\(QCUtilities.escapeCSV(a.resolutionString)),\(QCUtilities.escapeCSV(a.aspectRatioString)),\(String(format: "%.2f", a.fps)),\(QCUtilities.escapeCSV(a.formattedFileSize)),\(QCUtilities.escapeCSV(a.formattedCreationDate)),\(QCUtilities.escapeCSV(a.subtitlesInfo)),\(QCUtilities.escapeCSV(a.videoCodec)),\(QCUtilities.escapeCSV(a.audioCodec)),\(QCUtilities.escapeCSV(a.audioBitrate)),\(QCUtilities.escapeCSV(a.audioConfig)),\(loudnessColumns(a, target: target).map(QCUtilities.escapeCSV).joined(separator: ",")),\(QCUtilities.escapeCSV(a.endFrame?.verdict.rawValue ?? "")),\(QCUtilities.escapeCSV(a.container)),\(QCUtilities.escapeCSV(a.fileURL.path))\n"
+            let status = a.hasAnyNameMismatch ? "MISMATCH FLAGGED" : "MATCHED"
+            let notes = a.notesWithPictureText
+            csv += "\(QCUtilities.escapeCSV(folderRel)),\(QCUtilities.escapeCSV(a.fileName)),\(QCUtilities.escapeCSV(status)),\(QCUtilities.escapeCSV(notes)),\(QCUtilities.escapeCSV(a.timecode)),\(QCUtilities.escapeCSV(a.formattedDuration)),\(a.totalFrames),\(QCUtilities.escapeCSV(a.resolutionString)),\(QCUtilities.escapeCSV(a.aspectRatioString)),\(String(format: "%.2f", a.fps)),\(QCUtilities.escapeCSV(a.formattedFileSize)),\(QCUtilities.escapeCSV(a.formattedCreationDate)),\(QCUtilities.escapeCSV(a.subtitlesInfo)),\(QCUtilities.escapeCSV(a.videoCodec)),\(QCUtilities.escapeCSV(a.audioCodec)),\(QCUtilities.escapeCSV(a.audioBitrate)),\(QCUtilities.escapeCSV(a.audioConfig)),\(loudnessColumns(a, target: target).map(QCUtilities.escapeCSV).joined(separator: ",")),\(QCUtilities.escapeCSV(a.endFrame?.verdict.rawValue ?? "")),\(QCUtilities.escapeCSV(a.pictureText?.subsLabel ?? "")),\(QCUtilities.escapeCSV(a.pictureText?.graphicsLabel(for: a.fileName) ?? "")),\(QCUtilities.escapeCSV(a.container)),\(QCUtilities.escapeCSV(a.fileURL.path))\n"
         }
         
         return csv
@@ -1071,7 +1071,7 @@ public struct DeliverablesInspector: Sendable {
     // MARK: - TSV Generator (Google Sheets / Clipboard)
     
     public static func generateManifestTSV(assets: [DeliverableAsset], rootFolderURL: URL? = nil, target: LoudnessTarget = .current) -> String {
-        var tsv = "Folder\tFile Name\tStatus\tValidation Notes\tTimecode\tDuration\tTotal Frames\tResolution\tAspect Ratio\tFPS\tFile Size\tCreated Date\tSubtitles / CC\tVideo Codec\tAudio Codec\tAudio Bitrate\tAudio Details\tLoudness (LUFS)\tTrue Peak (dBTP)\tLRA (LU)\tMax Short-Term (LUFS)\tLoudness Verdict\tLoudness Notes\tEnd Frame\tContainer\tFile Path\n"
+        var tsv = "Folder\tFile Name\tStatus\tValidation Notes\tTimecode\tDuration\tTotal Frames\tResolution\tAspect Ratio\tFPS\tFile Size\tCreated Date\tSubtitles / CC\tVideo Codec\tAudio Codec\tAudio Bitrate\tAudio Details\tLoudness (LUFS)\tTrue Peak (dBTP)\tLRA (LU)\tMax Short-Term (LUFS)\tLoudness Verdict\tLoudness Notes\tEnd Frame\tBurned-in Subs\tGraphics (Text)\tContainer\tFile Path\n"
         
         for a in assets {
             var folderRel = ""
@@ -1086,9 +1086,9 @@ public struct DeliverablesInspector: Sendable {
             if folderRel.isEmpty {
                 folderRel = a.fileURL.deletingLastPathComponent().lastPathComponent
             }
-            let status = a.validation.hasAnyMismatch ? "MISMATCH FLAGGED" : "MATCHED"
-            let notes = a.validation.summaryString
-            tsv += "\(QCUtilities.escapeTSV(folderRel))\t\(QCUtilities.escapeTSV(a.fileName))\t\(QCUtilities.escapeTSV(status))\t\(QCUtilities.escapeTSV(notes))\t\(QCUtilities.escapeTSV(a.timecode))\t\(QCUtilities.escapeTSV(a.formattedDuration))\t\(a.totalFrames)\t\(QCUtilities.escapeTSV(a.resolutionString))\t\(QCUtilities.escapeTSV(a.aspectRatioString))\t\(String(format: "%.2f", a.fps))\t\(QCUtilities.escapeTSV(a.formattedFileSize))\t\(QCUtilities.escapeTSV(a.formattedCreationDate))\t\(QCUtilities.escapeTSV(a.subtitlesInfo))\t\(QCUtilities.escapeTSV(a.videoCodec))\t\(QCUtilities.escapeTSV(a.audioCodec))\t\(QCUtilities.escapeTSV(a.audioBitrate))\t\(QCUtilities.escapeTSV(a.audioConfig))\t\(loudnessColumns(a, target: target).map(QCUtilities.escapeTSV).joined(separator: "\t"))\t\(QCUtilities.escapeTSV(a.endFrame?.verdict.rawValue ?? ""))\t\(QCUtilities.escapeTSV(a.container))\t\(QCUtilities.escapeTSV(a.fileURL.path))\n"
+            let status = a.hasAnyNameMismatch ? "MISMATCH FLAGGED" : "MATCHED"
+            let notes = a.notesWithPictureText
+            tsv += "\(QCUtilities.escapeTSV(folderRel))\t\(QCUtilities.escapeTSV(a.fileName))\t\(QCUtilities.escapeTSV(status))\t\(QCUtilities.escapeTSV(notes))\t\(QCUtilities.escapeTSV(a.timecode))\t\(QCUtilities.escapeTSV(a.formattedDuration))\t\(a.totalFrames)\t\(QCUtilities.escapeTSV(a.resolutionString))\t\(QCUtilities.escapeTSV(a.aspectRatioString))\t\(String(format: "%.2f", a.fps))\t\(QCUtilities.escapeTSV(a.formattedFileSize))\t\(QCUtilities.escapeTSV(a.formattedCreationDate))\t\(QCUtilities.escapeTSV(a.subtitlesInfo))\t\(QCUtilities.escapeTSV(a.videoCodec))\t\(QCUtilities.escapeTSV(a.audioCodec))\t\(QCUtilities.escapeTSV(a.audioBitrate))\t\(QCUtilities.escapeTSV(a.audioConfig))\t\(loudnessColumns(a, target: target).map(QCUtilities.escapeTSV).joined(separator: "\t"))\t\(QCUtilities.escapeTSV(a.endFrame?.verdict.rawValue ?? ""))\t\(QCUtilities.escapeTSV(a.pictureText?.subsLabel ?? ""))\t\(QCUtilities.escapeTSV(a.pictureText?.graphicsLabel(for: a.fileName) ?? ""))\t\(QCUtilities.escapeTSV(a.container))\t\(QCUtilities.escapeTSV(a.fileURL.path))\n"
         }
         
         return tsv
@@ -1104,7 +1104,7 @@ public struct DeliverablesInspector: Sendable {
         
         let totalSize = assets.reduce(Int64(0)) { $0 + $1.fileSizeBytes }
         let formattedTotalSize = formatFileSize(bytes: totalSize)
-        let mismatchCount = assets.filter { $0.validation.hasAnyMismatch }.count
+        let mismatchCount = assets.filter { $0.hasAnyNameMismatch }.count
         let rawCSV = generateManifestCSV(assets: assets, rootFolderURL: rootFolderURL, target: target)
         let rawTSV = generateManifestTSV(assets: assets, rootFolderURL: rootFolderURL, target: target)
         
@@ -1442,8 +1442,8 @@ public struct DeliverablesInspector: Sendable {
                 """
             }
             
-            let rowClass = a.validation.hasAnyMismatch ? "class='mismatch-row'" : ""
-            let statusTag = a.validation.hasAnyMismatch ? "<span class='tag tag-mismatch'>MISMATCH</span>" : "<span class='tag tag-ok'>OK</span>"
+            let rowClass = a.hasAnyNameMismatch ? "class='mismatch-row'" : ""
+            let statusTag = a.hasAnyNameMismatch ? "<span class='tag tag-mismatch'>MISMATCH</span>" : "<span class='tag tag-ok'>OK</span>"
             let subTag = a.hasSubtitles ? "<span class='tag tag-ok'>\(QCUtilities.escapeHTML(a.subtitlesInfo))</span>" : "<span style='color:var(--text-muted); font-family:var(--font-mono); font-size:11px'>NONE</span>"
             
             let audioDisplay: String

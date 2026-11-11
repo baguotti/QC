@@ -59,6 +59,16 @@ public final class SpecsState: ObservableObject {
     @Published public var checkedEndFrameCount: Int = 0
     @Published public var totalEndFrameCount: Int = 0
     private var endFrameTask: Task<Void, Never>? = nil
+    @Published public var isCheckingPictureText: Bool = false
+    @Published public var checkedPictureTextCount: Int = 0
+    @Published public var totalPictureTextCount: Int = 0
+    private var pictureTextTask: Task<Void, Never>? = nil
+    private var pictureTextRun = 0
+    /// Read off the main thread by the scan, set on it: a run superseded or stopped makes the batch stop.
+    private let pictureTextStop = PictureTextStop()
+    /// Share of the whole run read so far, for the button (its own object: it changes often, and a publish on
+    /// `SpecsState` redraws the window).
+    public let pictureTextProgress = PictureTextProgress()
     /// Bumped per end-frame check: a cancelled run's late callbacks and its ending must not touch a newer run.
     private var endFrameRun = 0
     
@@ -275,8 +285,8 @@ public final class SpecsState: ObservableObject {
     /// Built in, always offered: everything, the columns delivery QC needs, and a narrow one.
     public static let builtInTemplates: [ColumnTemplate] = [
         ColumnTemplate(name: "All Columns", hidden: [], widths: [:]),
-        ColumnTemplate(name: "Delivery QC", hidden: [SpecsSortColumn.date, .endFrame, .path].map(\.rawValue), widths: [:]),
-        ColumnTemplate(name: "Compact", hidden: [SpecsSortColumn.date, .endFrame, .path, .fps, .videoCodec, .audioCodec].map(\.rawValue), widths: [:]),
+        ColumnTemplate(name: "Delivery QC", hidden: [SpecsSortColumn.date, .endFrame, .path, .burnedSubs].map(\.rawValue), widths: [:]),
+        ColumnTemplate(name: "Compact", hidden: [SpecsSortColumn.date, .endFrame, .burnedSubs, .graphics, .path, .fps, .videoCodec, .audioCodec].map(\.rawValue), widths: [:]),
     ]
 
     @Published public private(set) var columnTemplates: [ColumnTemplate] =
@@ -442,7 +452,8 @@ public final class SpecsState: ObservableObject {
     }
 
     public func sortDeliverableAssets(_ assets: [DeliverableAsset]) -> [DeliverableAsset] {
-        assets.sorted { a, b in
+        let sortColumn = specsSortColumn
+        return assets.sorted { a, b in
             let order: ComparisonResult
             switch specsSortColumn {
             case .name:
@@ -499,6 +510,17 @@ public final class SpecsState: ObservableObject {
                     }
                 }
                 order = rank(a) == rank(b) ? .orderedSame : (rank(a) < rank(b) ? .orderedAscending : .orderedDescending)
+            case .burnedSubs, .graphics:
+                // Mismatches with the name first, then what was found, clean, unreadable, unchecked.
+                func rank(_ asset: DeliverableAsset) -> Int {
+                    guard let check = asset.pictureText else { return 5 }
+                    if check.isUnreadable || check.isUnavailable { return 4 }
+                    if !check.nameMismatches(for: asset.fileName).isEmpty { return 0 }
+                    let found = sortColumn == .burnedSubs ? check.subtitlesLikely : check.hasGraphics
+                    return found ? 1 : 3
+                }
+                order = rank(a) == rank(b) ? a.fileName.localizedStandardCompare(b.fileName)
+                    : (rank(a) < rank(b) ? .orderedAscending : .orderedDescending)
             case .audioCodec:
                 let aAudio = "\(a.audioCodec) \(a.audioBitrate)"
                 let bAudio = "\(b.audioCodec) \(b.audioBitrate)"
@@ -536,6 +558,7 @@ public final class SpecsState: ObservableObject {
                         // `updatedAsset` is the copy taken when this run started: keep what other checks wrote since.
                         var merged = updatedAsset
                         merged.endFrame = self.deliverableAssets[index].endFrame
+                        merged.pictureText = self.deliverableAssets[index].pictureText
                         self.deliverableAssets[index] = merged
                     }
                     self.analyzedAudioCount = completed
@@ -576,6 +599,49 @@ public final class SpecsState: ObservableObject {
         }
     }
     
+    /// Reads the text in every listed video's picture: burned-in subtitles and text graphics (two files at a time).
+    public func checkPictureText() {
+        guard !deliverableAssets.isEmpty else { return }
+        cancelPictureTextCheck()
+        let urls = deliverableAssets.map(\.fileURL)
+        totalPictureTextCount = urls.count
+        checkedPictureTextCount = 0
+        isCheckingPictureText = true
+        pictureTextRun += 1
+        let run = pictureTextRun
+        let stop = pictureTextStop
+        stop.set(run)
+        Log.inspect.notice("Checking subs & graphics of \(urls.count) file(s)")
+        let progress = pictureTextProgress
+        progress.start(files: urls.count)
+        pictureTextTask = Task(priority: .utility) { @MainActor [weak self] in
+            await PictureTextScanner.checkBatch(urls: urls, isCancelled: { !stop.isCurrent(run) },
+                                                reading: { url, share in
+                                                    Task { @MainActor in if stop.isCurrent(run) { progress.update(url, share) } }
+                                                }) { [weak self] url, result, completed in
+                Task { @MainActor [weak self] in
+                    guard let self, self.pictureTextRun == run else { return }
+                    if let index = self.deliverableAssets.firstIndex(where: { $0.fileURL == url }) {
+                        self.deliverableAssets[index].pictureText = result
+                    }
+                    self.checkedPictureTextCount = completed
+                    progress.update(url, 1)
+                }
+            }
+            guard let self, self.pictureTextRun == run else { return }
+            self.isCheckingPictureText = false
+            self.pictureTextTask = nil
+        }
+    }
+
+    public func cancelPictureTextCheck() {
+        pictureTextRun += 1
+        pictureTextStop.set(pictureTextRun)
+        pictureTextTask?.cancel()
+        pictureTextTask = nil
+        isCheckingPictureText = false
+    }
+
     public func cancelEndFrameCheck() {
         endFrameRun += 1
         endFrameTask?.cancel()
@@ -601,6 +667,7 @@ public final class SpecsState: ObservableObject {
     public func clearDeliverables() {
         cancelAudioAnalysis()
         cancelEndFrameCheck()
+        cancelPictureTextCheck()
         inspectGeneration += 1
         inspectionsRunning = 0
         appendedSinceReplace = []
@@ -613,6 +680,7 @@ public final class SpecsState: ObservableObject {
         cancelAudioAnalysis()
         if !append {
             cancelEndFrameCheck()
+            cancelPictureTextCheck()
             inspectGeneration += 1
             inspectionsRunning = 0
             appendedSinceReplace = []
@@ -716,5 +784,34 @@ public struct SubtitleCrossCheckReport: Sendable {
             files[index].differences = files[index].videoURL == referenceVideo ? [] :
                 SubtitleCrossCheck.compare(reference: reference.cues, other: files[index].cues, options: options)
         }
+    }
+}
+
+
+/// The current Check Subs & Graphics run, readable from the scan's threads.
+final class PictureTextStop: @unchecked Sendable {
+    private let lock = NSLock()
+    private var run = 0
+    func set(_ value: Int) { lock.withLock { run = value } }
+    func isCurrent(_ value: Int) -> Bool { lock.withLock { run == value } }
+}
+
+/// How far Check Subs & Graphics has got across all its files (0…1), counting partly read files.
+@MainActor
+public final class PictureTextProgress: ObservableObject {
+    @Published public private(set) var fraction: Double = 0
+    private var shares: [URL: Double] = [:]
+    private var files = 1
+
+    func start(files: Int) {
+        shares = [:]
+        self.files = max(1, files)
+        fraction = 0
+    }
+
+    func update(_ url: URL, _ share: Double) {
+        shares[url] = max(shares[url] ?? 0, share)
+        let value = shares.values.reduce(0, +) / Double(files)
+        if abs(value - fraction) >= 0.01 || value >= 1 { fraction = value }
     }
 }
