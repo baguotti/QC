@@ -831,10 +831,11 @@ extension ContentView {
                                 Text("Preview").frame(width: CGFloat(specsThumbnailWidth), alignment: .center)
                             }
                             
-                            // With Path hidden, File Name takes the spare width Path would have (no blank strip).
-                            sortableHeaderCell("File Name", column: .name,
-                                               customWidth: specsState.isColumnVisible(.path) ? nil : CGFloat(effectiveFileNameColumnWidth) + extraWidth,
-                                               alignment: .leading)
+                            // Every column keeps the width it was given; spare width goes to Path (the last column) when it's
+                            // shown, else stays blank on the right. File Name used to take it with Path hidden: widening
+                            // any column then shrank File Name by as much, so the columns slid the wrong way under the
+                            // pointer, and File Name's own divider did nothing.
+                            sortableHeaderCell("File Name", column: .name, alignment: .leading)
                             if specsState.isColumnVisible(.timecode) { sortableHeaderCell("Timecode (TC)", column: .timecode) }
                             if specsState.isColumnVisible(.endFrame) { sortableHeaderCell("End Frame", column: .endFrame) }
                             if specsState.isColumnVisible(.burnedSubs) { sortableHeaderCell("Subs", column: .burnedSubs) }
@@ -1506,9 +1507,7 @@ extension ContentView {
                 .buttonStyle(.plain)
                 .help("Media Info (⌘I)")
             }
-            .frame(width: specsState.isColumnVisible(.path) ? CGFloat(effectiveFileNameColumnWidth)
-                   : CGFloat(effectiveFileNameColumnWidth) + max(0, pathWidth - CGFloat(specsState.columnWidth(for: .path))),
-                   alignment: .leading)
+            .frame(width: CGFloat(effectiveFileNameColumnWidth), alignment: .leading)
             
             if specsState.isColumnVisible(.timecode) {
                 // Timecode Cell with Warning

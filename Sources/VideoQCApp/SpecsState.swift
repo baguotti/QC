@@ -467,6 +467,19 @@ public final class SpecsState: ObservableObject {
 
     public func sortDeliverableAssets(_ assets: [DeliverableAsset]) -> [DeliverableAsset] {
         let sortColumn = specsSortColumn
+        // Subs / Text on Screen: each file ranked once (the name check parses the name), not in every comparison.
+        var textRanks: [UUID: Int] = [:]
+        if sortColumn == .burnedSubs || sortColumn == .graphics {
+            for asset in assets {
+                // Mismatches with the name first, then what was found, clean, unreadable, unchecked.
+                textRanks[asset.id] = {
+                    guard let check = asset.pictureText else { return 5 }
+                    if check.isUnreadable || check.isUnavailable { return 4 }
+                    if asset.hasPictureTextMismatch { return 0 }
+                    return (sortColumn == .burnedSubs ? check.subtitlesLikely : check.hasGraphics) ? 1 : 3
+                }()
+            }
+        }
         return assets.sorted { a, b in
             let order: ComparisonResult
             switch specsSortColumn {
@@ -525,16 +538,8 @@ public final class SpecsState: ObservableObject {
                 }
                 order = rank(a) == rank(b) ? .orderedSame : (rank(a) < rank(b) ? .orderedAscending : .orderedDescending)
             case .burnedSubs, .graphics:
-                // Mismatches with the name first, then what was found, clean, unreadable, unchecked.
-                func rank(_ asset: DeliverableAsset) -> Int {
-                    guard let check = asset.pictureText else { return 5 }
-                    if check.isUnreadable || check.isUnavailable { return 4 }
-                    if !check.nameMismatches(for: asset.fileName).isEmpty { return 0 }
-                    let found = sortColumn == .burnedSubs ? check.subtitlesLikely : check.hasGraphics
-                    return found ? 1 : 3
-                }
-                order = rank(a) == rank(b) ? a.fileName.localizedStandardCompare(b.fileName)
-                    : (rank(a) < rank(b) ? .orderedAscending : .orderedDescending)
+                let ra = textRanks[a.id] ?? 5, rb = textRanks[b.id] ?? 5
+                order = ra == rb ? a.fileName.localizedStandardCompare(b.fileName) : (ra < rb ? .orderedAscending : .orderedDescending)
             case .audioCodec:
                 let aAudio = "\(a.audioCodec) \(a.audioBitrate)"
                 let bAudio = "\(b.audioCodec) \(b.audioBitrate)"

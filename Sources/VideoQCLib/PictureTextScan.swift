@@ -28,12 +28,29 @@ public struct PictureTextCheck: Equatable, Sendable {
     /// Different subtitle lines read (0 when none).
     public var subtitleLineCount: Int
     /// Every appearance of other text, as read, in order.
-    public var allGraphics: [Sighting]
+    public var allGraphics: [Sighting] { didSet { refresh() } }
     /// Texts marked Not a Graphic (normalised, `BurnedSubtitleReader.normalise`): misreads, signs in the footage.
-    public var dismissed: Set<String>
+    public var dismissed: Set<String> { didSet { refresh() } }
 
-    /// The appearances without the dismissed texts (an appearance whose texts are all dismissed is gone).
-    public var graphics: [Sighting] {
+    /// The appearances without the dismissed texts (an appearance whose texts are all dismissed is gone). Worked out
+    /// when the readings or the dismissals change, not on every read: sorting 1,000 files read it ~20,000 times.
+    public private(set) var graphics: [Sighting] = []
+    /// Every text in `graphics`, once each, in order of first appearance.
+    public private(set) var graphicTexts: [String] = []
+
+    private mutating func refresh() {
+        graphics = Self.visible(allGraphics, dismissed: dismissed)
+        var texts: [String] = []
+        for sighting in graphics {
+            for text in sighting.text.components(separatedBy: " · ")
+            where !texts.contains(where: { BurnedSubtitleReader.textDistance($0, text) <= 0.25 }) {
+                texts.append(text)
+            }
+        }
+        graphicTexts = texts
+    }
+
+    private static func visible(_ allGraphics: [Sighting], dismissed: Set<String>) -> [Sighting] {
         guard !dismissed.isEmpty else { return allGraphics }
         return allGraphics.compactMap { sighting in
             // Close matches count: the same misread can come back slightly different on the next check.
@@ -57,17 +74,6 @@ public struct PictureTextCheck: Equatable, Sendable {
 
     public var hasGraphics: Bool { !graphics.isEmpty }
 
-    /// Every text read in the graphics, once each, in order of first appearance.
-    public var graphicTexts: [String] {
-        var out: [String] = []
-        for sighting in graphics {
-            for text in sighting.text.components(separatedBy: " · ")
-            where !out.contains(where: { BurnedSubtitleReader.textDistance($0, text) <= 0.25 }) {
-                out.append(text)
-            }
-        }
-        return out
-    }
     public var isClean: Bool { !isUnreadable && !isUnavailable && !subtitlesLikely && graphics.isEmpty }
 
     public init(subtitlesLikely: Bool, subtitleExamples: [Sighting] = [], subtitleLineCount: Int = 0, graphics: [Sighting] = [],
@@ -79,6 +85,7 @@ public struct PictureTextCheck: Equatable, Sendable {
         self.dismissed = dismissed
         self.isUnreadable = isUnreadable
         self.isUnavailable = isUnavailable
+        refresh()
     }
 
     public static let unreadable = PictureTextCheck(subtitlesLikely: false, isUnreadable: true)
@@ -239,7 +246,9 @@ public enum PictureTextScanner {
     static func readSamples(asset: AVAsset, track: AVAssetTrack, size: CGSize?, orientation: CGImagePropertyOrientation,
                             isCancelled: () -> Bool, sampled: (Double) -> Void = { _ in }) -> [Sample]? {
         guard let reader = try? AVAssetReader(asset: asset) else { return nil }
-        var settings: [String: Any] = [kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA]
+        // The decoder's own 4:2:0 format, which Vision reads directly: converting every frame to BGRA (most are never
+        // read) cost more than half the decode (measured, 1080p H.264: 0.93 s → 0.39 s per 30 s, same text read).
+        var settings: [String: Any] = [kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange]
         if let size {
             settings[kCVPixelBufferWidthKey as String] = Int(size.width)
             settings[kCVPixelBufferHeightKey as String] = Int(size.height)

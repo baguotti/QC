@@ -410,3 +410,36 @@ extension PictureTextTests {
         state.pictureTextFilter = .all
     }
 }
+
+extension PictureTextTests {
+    /// Sorting by Subs / Text on Screen once re-parsed names and re-filtered dismissals in every comparison: 13 s for
+    /// 1,000 files (debug build). Now ~20 ms; the limits leave room for a slow machine.
+    @Test("1,000 checked files: sorting, chip counts and export stay fast") @MainActor
+    func largeList() {
+        let state = SpecsState()
+        state.deliverableAssets = (0..<1000).map { i in
+            let name = "Spot_\(i)_\(i % 3 == 0 ? "CLEAN" : "TITLED")_16x9.mov"
+            var a = DeliverableAsset(fileURL: URL(fileURLWithPath: "/tmp/p/\(name)"), fileName: name, fileSizeBytes: 1, formattedFileSize: "1 B",
+                                     width: 1920, height: 1080, resolutionString: "1920x1080", aspectRatioString: "16:9", durationSeconds: 30,
+                                     formattedDuration: "30s", totalFrames: 750, timecode: "00:00:30:00", fps: 25, videoCodec: "H.264",
+                                     audioConfig: "NONE", container: "MOV")
+            let g = (0..<(i % 6)).map { PictureTextCheck.Sighting(text: "TITLE \(i) PART \($0) · BRAND NAME · LINE \($0)", start: Double($0) * 3, end: Double($0) * 3 + 2) }
+            a.pictureText = PictureTextCheck(subtitlesLikely: i % 4 == 0, subtitleLineCount: 5, graphics: g,
+                                             dismissed: i % 2 == 0 ? ["brand name", "misread one", "another"] : [])
+            return a
+        }
+        let previous = state.specsSortColumnRaw
+        defer { state.specsSortColumnRaw = previous }
+        var t0 = CFAbsoluteTimeGetCurrent()
+        state.specsSortColumnRaw = SpecsSortColumn.graphics.rawValue
+        let sorted = state.sortDeliverableAssets(state.deliverableAssets)
+        #expect(CFAbsoluteTimeGetCurrent() - t0 < 0.5)
+        #expect(sorted.first?.hasPictureTextMismatch == true)
+        t0 = CFAbsoluteTimeGetCurrent()
+        _ = state.pictureTextCounts
+        #expect(CFAbsoluteTimeGetCurrent() - t0 < 0.2)
+        t0 = CFAbsoluteTimeGetCurrent()
+        _ = DeliverablesInspector.generateManifestCSV(assets: state.deliverableAssets)
+        #expect(CFAbsoluteTimeGetCurrent() - t0 < 0.5)
+    }
+}
