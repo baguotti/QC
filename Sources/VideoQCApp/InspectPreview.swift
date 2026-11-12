@@ -413,6 +413,13 @@ struct InspectPreviewWindow: View {
             .preferredColorScheme(isLightMode ? .light : .dark)
             .onAppear { poppedOut = true }
             .onDisappear { poppedOut = false }
+            // Closed with its X: back into Inspect, unfolded. A `Window` scene's view isn't always torn down on close,
+            // so onDisappear alone can leave the panel saying the preview is elsewhere.
+            .onReceive(NotificationCenter.default.publisher(for: NSWindow.willCloseNotification)) { note in
+                guard (note.object as? NSWindow)?.identifier?.rawValue.hasPrefix(Self.id) == true else { return }
+                poppedOut = false
+                UserDefaults.standard.set(false, forKey: "inspectPreviewCollapsed")
+            }
     }
 }
 

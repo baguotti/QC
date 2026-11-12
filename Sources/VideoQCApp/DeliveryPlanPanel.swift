@@ -250,13 +250,13 @@ struct DeliveryPlanPanel: View {
             Spacer(minLength: 4)
             runChecksMenu
             viewPicker
-            Button { Task { await store.refresh() } } label: {
+            Button { Task { await store.refreshNow() } } label: {
                 Image(systemName: "arrow.clockwise")
                     .font(.system(size: StudioTheme.scaleFont(11), weight: .medium))
             }
             .buttonStyle(TransportIconButtonStyle())
             .disabled(store.phase == .loading)
-            .tip("Read the sheet again now (it's re-read every minute while this panel is open).")
+            .tip("Read the sheet and Frame.io again now: links to files deleted on Frame.io are cleared.")
             Menu {
                 if let config = store.config {
                     Button("Open Sheet in Browser") { NSWorkspace.shared.open(config.link.webURL) }

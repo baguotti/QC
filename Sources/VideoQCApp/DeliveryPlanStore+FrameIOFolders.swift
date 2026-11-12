@@ -115,6 +115,9 @@ extension DeliveryPlanStore {
             rootFolders = tree
             frameioFolders = frameioFolders.filter { tree.contains($0.key) }
             saveFrameIOFolders()
+            // Linked files in no folder of the tree: deleted (or the folder holding them was), or moved out of it.
+            let listed = Set(frameioFolders.values.flatMap { $0.flatMap(\.ids) })
+            checkFrameIOLinks(linkedIDs().subtracting(listed), account: root.account)
         }
         let now = Date()
         lastRootScan = now
@@ -221,7 +224,7 @@ extension DeliveryPlanStore {
         return id.isEmpty ? nil : id.lowercased()
     }
 
-    func recordListing(_ items: [FrameIO.Item], folder: String?) {
+    func recordListing(_ items: [FrameIO.Item], folder: String?, account: String? = nil) {
         guard let folder = folder ?? items.first(where: { !$0.isFolder })?.parentID else { return }
         let files = items.filter { !$0.isFolder }.compactMap { item -> ListedFile? in
             guard let url = item.viewURL else { return nil }
@@ -237,6 +240,12 @@ extension DeliveryPlanStore {
             next = holdsPlanFiles ? files : nil
         }
         guard frameioFolders[folder] != next else { return }
+        // Linked files this folder held last time and no longer does: deleted on Frame.io, or moved.
+        if let before = frameioFolders[folder] {
+            let now = Set((next ?? files).flatMap(\.ids))
+            let linked = linkedIDs()
+            checkFrameIOLinks(Set(before.flatMap(\.ids)).subtracting(now).intersection(linked), account: account)
+        }
         frameioFolders[folder] = next
         saveFrameIOFolders()
         scheduleRecompute()
@@ -370,6 +379,91 @@ extension DeliveryPlanStore {
         } catch FrameIO.Failure.http(404, _) {
             frameIOGone([fileID])
         } catch {}
+    }
+
+    /// The Frame.io ids the rows link to (lower case).
+    func linkedIDs() -> Set<String> { Set(rows.compactMap { Self.frameIOID(frameioLink($0)) }) }
+
+    /// Asks Frame.io about linked files that stopped showing in listings: those it no longer has lose their links
+    /// (`isGone`). Moved files keep them (the link follows the id). One
+    /// at a time, 0.25 s apart, after any check already running.
+    func checkFrameIOLinks(_ ids: Set<String>, account: String?) {
+        let ids = ids.subtracting(checkingLinks)
+        guard !ids.isEmpty else { return }
+        checkingLinks.formUnion(ids)
+        // Each id's project, from its row's link: a file only counts as gone in a project this Mac can open.
+        var projects: [String: String] = [:]
+        for row in rows {
+            let link = frameioLink(row)
+            guard let id = Self.frameIOID(link), ids.contains(id), let project = (try? FrameIOLink.parse(link))?.project else { continue }
+            projects[id] = project
+        }
+        let previous = linkCheckTask
+        linkCheckTask = Task { [weak self] in
+            await previous?.value
+            // Every account, the listing's first: a file outside the plan's folder may be in another, where this one
+            // would answer 404. No account list (offline, signed out): nothing is checked.
+            let all = (try? await FrameIO.shared.accounts())?.map(\.id) ?? []
+            let accounts = all.isEmpty ? [] : (account.map { [$0] } ?? []) + all.filter { $0 != account }
+            var gone = Set<String>()
+            var projectAccounts: [String: String?] = [:]   // nil: no account here opens it
+            for id in ids.sorted() where !accounts.isEmpty {
+                if Task.isCancelled { break }
+                guard let project = projects[id] else { continue }
+                if projectAccounts[project] == nil { projectAccounts[project] = await Self.account(opening: project, in: accounts) }
+                guard let account = projectAccounts[project] ?? nil else { continue }
+                if await Self.isGone(id, account: account) { gone.insert(id) }
+                try? await Task.sleep(for: .milliseconds(250))
+            }
+            guard let self, !Task.isCancelled else { return }   // cancelled: another sheet was linked
+            self.checkingLinks.subtract(ids)
+            if !gone.isEmpty {
+                Log.plan.notice("Frame.io: \(gone.count) linked file(s) deleted, links cleared")
+                self.frameIOGone(gone)
+            }
+        }
+    }
+
+    /// The first account in which `project` opens; nil when none does (a colleague's other account, access removed,
+    /// the project deleted) or Frame.io didn't answer: the links are shared through the sheet, so those keep them.
+    nonisolated private static func account(opening project: String, in accounts: [String]) async -> String? {
+        for account in accounts {
+            do {
+                _ = try await FrameIO.shared.item(account: account, kind: "projects", id: project)
+                return account
+            } catch FrameIO.Failure.http(let code, _) where code == 403 || code == 404 {
+                continue
+            } catch {
+                return nil
+            }
+        }
+        return nil
+    }
+
+    /// Gone: 404 as a file and as a version stack in the account holding its project. Offline, signed out or a server
+    /// error keeps the link.
+    nonisolated private static func isGone(_ id: String, account: String) async -> Bool {
+        for kind in ["files", "version_stacks"] {
+            do {
+                _ = try await FrameIO.shared.item(account: account, kind: kind, id: id)
+                return false
+            } catch FrameIO.Failure.http(404, _) {
+                continue
+            } catch {
+                return false
+            }
+        }
+        return true
+    }
+
+    /// The plan panel's Refresh: the sheet, then Frame.io now (the folder's tree; without one, every linked file).
+    func refreshNow() async {
+        await refresh()
+        if config?.frameioRoot != nil {
+            scanFrameIORoot()
+        } else {
+            checkFrameIOLinks(linkedIDs(), account: nil)
+        }
     }
 
     /// Frame.io files or stacks deleted (in the browser, or found gone): rows linked to them lose the link.

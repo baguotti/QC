@@ -237,6 +237,7 @@ final class DeliveryPlanStore: ObservableObject {
         health = PlanHealth()
         linkSuggestions = [:]
         rootScanTask?.cancel(); rootScanTask = nil; rootFolders = []; lastRootScan = nil; rootScan = .idle
+        linkCheckTask?.cancel(); linkCheckTask = nil; checkingLinks = []
     }
 
     func unlink() {
@@ -313,6 +314,9 @@ final class DeliveryPlanStore: ObservableObject {
     /// Inspect files not in the plan, without the dismissed ones.
     @Published var localExtras: [URL] = []
     var dismissedSaveTask: Task<Void, Never>?
+    /// Linked Frame.io ids being checked (`checkFrameIOLinks`), and the chain of checks.
+    var checkingLinks: Set<String> = []
+    var linkCheckTask: Task<Void, Never>?
     // MARK: Frame.io folders
     /// The files of listed Frame.io folders that hold plan files (a plan code or a linked file), by folder id: what
     /// "On Frame.io, not in the plan" and Frame.io's file sizes come from. Replaced by each new listing of the folder,

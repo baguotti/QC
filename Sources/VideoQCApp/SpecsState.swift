@@ -119,6 +119,12 @@ public final class SpecsState: ObservableObject {
                 selectedDeliverableURLs.insert(key)
             }
             selectedDeliverableURL = url
+        } else if selectedDeliverableURLs == [key], Self.isSingleClick(NSApp.currentEvent) {
+            // Clicking the only selected file clears the selection: the checks then run on every file. Not the second
+            // click of a double-click (that one opens the preview).
+            selectedDeliverableURLs = []
+            selectedDeliverableURL = nil
+            selectionAnchorURL = nil
         } else {
             selectedDeliverableURLs = [key]
             selectedDeliverableURL = url
@@ -126,6 +132,12 @@ public final class SpecsState: ObservableObject {
         }
     }
     
+    /// Not the second click of a double-click. `clickCount` throws for anything but a mouse event.
+    private static func isSingleClick(_ event: NSEvent?) -> Bool {
+        guard let event, [.leftMouseDown, .leftMouseUp].contains(event.type) else { return true }
+        return event.clickCount <= 1
+    }
+
     /// Keyboard selection: `index` in `order` (clamped). Extending selects the range from the anchor to it (going back
     /// shrinks it), as in Finder. Returns the newly focused file.
     @discardableResult

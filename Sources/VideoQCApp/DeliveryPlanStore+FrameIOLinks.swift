@@ -91,16 +91,16 @@ extension DeliveryPlanStore {
     /// Files listed on Frame.io (the browser, the favourites crawl): a row without a link gets the file whose name holds
     /// its code, when exactly one such file was in the listing (stacks: the stack, so the link survives new versions).
     /// Only into a sheet that has a Frame.io column, and never over a link already there.
-    func frameIOListed(_ items: [FrameIO.Item], folder: String?) {
+    func frameIOListed(_ items: [FrameIO.Item], folder: String?, account: String? = nil) {
         guard config != nil else { return }
         // Browsing before the plan was opened this session: load its cached rows once, then look again.
         if rows.isEmpty, !loadedFromDisk {
-            Task { await self.loadCachedIfNeeded(); if !self.rows.isEmpty { self.frameIOListed(items, folder: folder) } }
+            Task { await self.loadCachedIfNeeded(); if !self.rows.isEmpty { self.frameIOListed(items, folder: folder, account: account) } }
             return
         }
         // Bound to a Frame.io folder: listings outside its tree aren't the plan's (no links, no extras from them).
         guard inPlanTree(folder) else { return }
-        recordListing(items, folder: folder)
+        recordListing(items, folder: folder, account: account)
         // Found while browsing: only into a sheet with the QCpie tab (it's set up on purpose; links wait in the outbox
         // while this Mac is signed out).
         guard hasQCTab, !rows.isEmpty else { return }

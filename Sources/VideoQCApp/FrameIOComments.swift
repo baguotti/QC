@@ -106,7 +106,7 @@ actor FrameIOLinks {
 
     /// Records the files of a listing (stacks: their current version) for matching clips by name and size later.
     func remember(_ items: [FrameIO.Item], account: String, folder: String? = nil) {
-        Task { @MainActor in DeliveryPlanStore.shared.frameIOListed(items, folder: folder) }
+        Task { @MainActor in DeliveryPlanStore.shared.frameIOListed(items, folder: folder, account: account) }
         var seen = state.seen ?? [:]
         var changed = false
         for item in items where !item.isFolder {

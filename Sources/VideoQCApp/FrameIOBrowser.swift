@@ -52,6 +52,18 @@ final class FrameIOBrowser: ObservableObject {
             path.filter { $0.level == .project || $0.level == .folder || $0.level == .stack }.dropLast().map(\.title)
                 .joined(separator: " › ")
         }
+
+        /// Its page on the Frame.io website, built from the saved path (formats in `FrameIOLink`).
+        var webURL: URL? {
+            guard let project = path.last(where: { $0.level == .project })?.id, let place = path.last else { return nil }
+            let base = "https://next.frame.io/project/\(project)"
+            switch place.level {
+            case .project: return URL(string: base)
+            case .folder: return URL(string: "\(base)/\(place.id)")
+            case .stack: return URL(string: "\(base)/view/\(place.id)")
+            default: return nil
+            }
+        }
     }
 
     /// A short message under the list, with Undo for the last rename or move.

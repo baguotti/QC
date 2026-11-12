@@ -46,7 +46,8 @@ extension DeliveryPlanStore {
         if !dismissed.isEmpty { dismissedMismatches.formUnion(dismissed); scheduleRecompute() }
         if let tree, tree.root == config.frameioRoot?.folder {
             rootFolders.formUnion(tree.folders)
-            if lastRootScan == nil { lastRootScan = tree.scanned; rootScan = .done(tree.scanned) }
+            // Shown as done, but read again when a panel opens: files deleted while QCpie was closed lose their links.
+            if rootScan == .idle { rootScan = .done(tree.scanned) }
         }
         self.seen = seen
         // Listings that came in before this read are newer than the saved ones.

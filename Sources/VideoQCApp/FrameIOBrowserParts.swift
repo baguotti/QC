@@ -398,6 +398,9 @@ struct FavouriteChip: View {
         .animation(Motion.hover, value: isHovered)
         .contextMenu {
             Button(action: onOpen) { Label("Open", systemImage: "arrow.right.circle") }
+            if let url = favourite.webURL {
+                Button { NSWorkspace.shared.open(url) } label: { Label("Open in Frame.io", systemImage: "arrow.up.forward.square") }
+            }
             if pages.count > 1 {
                 Menu {
                     ForEach(Array(pages.enumerated()), id: \.offset) { index, name in
