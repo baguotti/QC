@@ -407,12 +407,13 @@ extension DeliveryPlanStore {
             let accounts = all.isEmpty ? [] : (account.map { [$0] } ?? []) + all.filter { $0 != account }
             var gone = Set<String>()
             var projectAccounts: [String: String?] = [:]   // nil: no account here opens it
+            var listings: [String: Set<String>?] = [:]
             for id in ids.sorted() where !accounts.isEmpty {
                 if Task.isCancelled { break }
                 guard let project = projects[id] else { continue }
                 if projectAccounts[project] == nil { projectAccounts[project] = await Self.account(opening: project, in: accounts) }
                 guard let account = projectAccounts[project] ?? nil else { continue }
-                if await Self.isGone(id, account: account) { gone.insert(id) }
+                if await Self.isGone(id, account: account, listings: &listings) { gone.insert(id) }
                 try? await Task.sleep(for: .milliseconds(250))
             }
             guard let self, !Task.isCancelled else { return }   // cancelled: another sheet was linked
@@ -440,20 +441,29 @@ extension DeliveryPlanStore {
         return nil
     }
 
-    /// Gone: 404 as a file and as a version stack in the account holding its project. Offline, signed out or a server
-    /// error keeps the link.
-    nonisolated private static func isGone(_ id: String, account: String) async -> Bool {
-        for kind in ["files", "version_stacks"] {
+    /// Gone: 404 as a file and as a version stack in the account holding its project, or found but no longer listed in
+    /// its parent folder (Frame.io keeps deleted files in Recently Deleted, where a lookup by id still finds them).
+    /// `listings` caches each parent's ids for one check. Offline, signed out or a server error keeps the link; so does
+    /// a parent that can't be listed (a version inside a stack).
+    nonisolated private static func isGone(_ id: String, account: String, listings: inout [String: Set<String>?]) async -> Bool {
+        var found: FrameIO.Item?
+        for kind in ["files", "version_stacks"] where found == nil {
             do {
-                _ = try await FrameIO.shared.item(account: account, kind: kind, id: id)
-                return false
+                found = try await FrameIO.shared.item(account: account, kind: kind, id: id)
             } catch FrameIO.Failure.http(404, _) {
                 continue
             } catch {
                 return false
             }
         }
-        return true
+        guard let item = found else { return true }
+        guard let parent = item.parentID else { return false }
+        if listings[parent] == nil {
+            let children = try? await FrameIO.shared.children(account: account, folder: parent, thumbnails: false)
+            listings[parent] = children.map { Set($0.flatMap { [$0.id.lowercased(), $0.headVersion?.id.lowercased()].compactMap { $0 } }) }
+        }
+        guard let listed = listings[parent] ?? nil else { return false }
+        return !listed.contains(id.lowercased())
     }
 
     /// The plan panel's Refresh: the sheet, then Frame.io now (the folder's tree; without one, every linked file).
