@@ -276,6 +276,8 @@ final class DeliveryPlanStore: ObservableObject {
     // MARK: Files
     var assetsTask: Task<Void, Never>?
     var filesByURL: [URL: PlanFile] = [:]
+    /// What Inspect's checks found in each file (subs, graphics, loudness), compared with its row (`PlanContentCheck`).
+    var fileContent: [URL: PlanContent] = [:]
     /// The inspection each file's date was read for (a re-inspection gets a new id and a new stat).
     var assetIDs: [URL: UUID] = [:]
     // MARK: States

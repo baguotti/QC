@@ -153,11 +153,17 @@ struct PlanPill: View {
                 Text(state.title)
                     .font(.ui(size: 10, weight: .medium))
                     .foregroundColor(PlanRowView.color(state, palette))
-                if info.upload != .none || !info.mismatches.isEmpty {
-                    // Filled: on Frame.io; outlined: not there (yet should be). Amber: a mismatch.
+                let frameIOMismatch = info.mismatches.contains { $0.isFrameIO }
+                if info.upload != .none || frameIOMismatch {
+                    // Filled: on Frame.io; outlined: not there (yet should be). Amber: a Frame.io mismatch.
                     Image(systemName: info.upload != .none ? "arrow.up.circle.fill" : "arrow.up.circle")
                         .font(.system(size: StudioTheme.scaleFont(9)))
-                        .foregroundColor(info.mismatches.isEmpty ? palette.accentBlue : TagTone.amber.color(palette.isLight))
+                        .foregroundColor(frameIOMismatch ? TagTone.amber.color(palette.isLight) : palette.accentBlue)
+                }
+                if info.mismatches.contains(.content) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .font(.system(size: StudioTheme.scaleFont(8)))
+                        .foregroundColor(TagTone.amber.color(palette.isLight))
                 }
             } else {
                 Text("Not in plan")
@@ -172,7 +178,8 @@ struct PlanPill: View {
         .background(RoundedRectangle(cornerRadius: Radius.control).fill(palette.bgSubtle))
         .help(info.state == nil ? "Not in the Delivery Plan." : "Delivery Plan row \(info.line)\(info.code.isEmpty ? "" : " · \(info.code)") · \(info.state!.title)"
               + (info.upload != .none ? " · On Frame.io" : "")
-              + info.mismatches.map { " · \($0.title)" }.joined())
+              + info.mismatches.map { " · \($0.title)" }.joined()
+              + info.contentFlags.map { "\n\($0.text)" }.joined())
     }
 }
 

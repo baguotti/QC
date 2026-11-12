@@ -774,7 +774,7 @@ struct PlanRowState: Equatable, Sendable {
 enum PlanMismatch: Int, CaseIterable, Sendable {
     /// Only kinds someone acts on. ("No file here" and "on Frame.io before QC" were dropped: the first is normal on a
     /// Mac without the delivery, the second is often on purpose, client previews.) Raw values stay: filters store them.
-    case differs = 2, notUploaded = 5, frameioExtra = 6, localExtra = 7
+    case differs = 2, notUploaded = 5, frameioExtra = 6, localExtra = 7, content = 8
 
     var title: String {
         switch self {
@@ -782,6 +782,7 @@ enum PlanMismatch: Int, CaseIterable, Sendable {
         case .notUploaded: return "Passed, Not on Frame.io"
         case .frameioExtra: return "On Frame.io, Not in the Plan"
         case .localExtra: return "Here, Not in the Plan"
+        case .content: return "Picture or Sound Differs"
         }
     }
 
@@ -791,11 +792,14 @@ enum PlanMismatch: Int, CaseIterable, Sendable {
         case .notUploaded: return "QC Passed, Approved or Delivered, but the row has no Frame.io link."
         case .frameioExtra: return "Files in the plan's Frame.io folders that no row links to."
         case .localExtra: return "Inspect files that don't match any row."
+        case .content: return "After Check Subs & Graphics or Check Loudness: the logo, subtitles or sound aren't what the row asks for."
         }
     }
 
     /// Kinds a file on this Mac can have (Inspect's menu).
-    var isLocal: Bool { self == .differs || self == .notUploaded || self == .localExtra }
+    var isLocal: Bool { self == .differs || self == .notUploaded || self == .localExtra || self == .content }
+    /// About Frame.io (the arrow by a row's status turns amber); the others get their own mark.
+    var isFrameIO: Bool { self != .content && self != .localExtra }
 
     /// Filter values → title: the two presence filters, then the mismatches.
     static func filterTitle(_ value: Int) -> String {
@@ -898,6 +902,10 @@ struct PlanFileInfo: Equatable, Sendable {
     var frameio: String = ""
     var upload: PlanUpload = .none
     var mismatches: [PlanMismatch] = []
+    /// How its picture or sound differs from the row (undismissed), by Inspect cell.
+    var contentFlags: [PlanContentFlag] = []
+    /// The row's Sound says none: a silent track is what it asks for.
+    var noSound = false
 
     /// The Frame.io filter on a file: "Here, Not in the Plan" passes files without a row; the rest need one.
     func passes(_ filter: Int) -> Bool {

@@ -59,8 +59,10 @@ extension DeliveryPlanStore {
         }, uniquingKeysWith: { a, _ in a })
         assetsTask?.cancel()
         assetsTask = Task {
-            let newFiles = await Task.detached(priority: .utility) {
-                measured.map { asset -> PlanFile in
+            let (newFiles, content) = await Task.detached(priority: .utility) {
+                let content = Dictionary(measured.compactMap { asset in PlanContent(asset).map { (asset.fileURL, $0) } },
+                                         uniquingKeysWith: { a, _ in a })
+                return (measured.map { asset -> PlanFile in
                     var file = PlanFile(asset)
                     if let date = known[asset.fileURL] {
                         file.modified = date
@@ -68,11 +70,17 @@ extension DeliveryPlanStore {
                         file.modified = (try? FileManager.default.attributesOfItem(atPath: asset.fileURL.path))?[.modificationDate] as? Date
                     }
                     return file
-                }
+                }, content)
             }.value
             guard !Task.isCancelled else { return }
             assetIDs = Dictionary(measured.map { ($0.fileURL, $0.id) }, uniquingKeysWith: { a, _ in a })
-            guard newFiles != files else { return }
+            // A finished check changes only what was found: the rows' flags, not the matching.
+            let contentChanged = content != fileContent
+            if contentChanged { fileContent = content }
+            guard newFiles != files else {
+                if contentChanged { recomputeStates(); publishGrids() }
+                return
+            }
             files = newFiles
             filesByURL = Dictionary(newFiles.map { ($0.url, $0) }, uniquingKeysWith: { a, _ in a })
             if hasFiles != !files.isEmpty { hasFiles = !files.isEmpty }
@@ -217,16 +225,30 @@ extension DeliveryPlanStore {
             } else if tracksFrameIO, state.state.isDone {
                 found.append((.notUploaded, "\(state.state.title), but not on Frame.io."))
             }
+            // The picture and sound against the row, once the checks have run (not for dropped rows).
+            var contentFlags: [URL: [PlanContentFlag]] = [:]
+            if state.state != .dropped {
+                for url in result.files {
+                    guard let content = fileContent[url] else { continue }
+                    let flags = PlanContentCheck.flags(row, content)
+                    guard !flags.isEmpty else { continue }
+                    contentFlags[url] = flags
+                    let prefix = result.files.count > 1 ? "\(url.lastPathComponent): " : ""
+                    for flag in flags { found.append((.content, prefix + flag.text)) }
+                }
+            }
             // Dismissed ones stay quiet until what they were about changes (another link, a newer local file).
             let newest = result.files.compactMap { dates[$0] }.max()
+            var dismissedKinds = Set<PlanMismatch>()
             for (kind, flag) in found {
                 if !dismissedMismatches.isEmpty, dismissedMismatches.contains(Self.mismatchKey(row.id, kind, link: link, newest: newest)) {
-                    dismissedNow += 1
+                    if dismissedKinds.insert(kind).inserted { dismissedNow += 1 }
                     continue
                 }
-                state.mismatches.append(kind)
+                if !state.mismatches.contains(kind) { state.mismatches.append(kind) }
                 state.flags.append(flag)
             }
+            if !state.mismatches.contains(.content) { contentFlags = [:] }   // dismissed
             for kind in state.mismatches { mismatchCounts[kind, default: 0] += 1 }
             if !state.mismatches.isEmpty { mismatchTotal += 1 }
             newStates[row.id] = state
@@ -239,6 +261,7 @@ extension DeliveryPlanStore {
             for url in result.files where index[url] == nil {
                 index[url] = PlanFileInfo(code: row.code ?? "", line: row.line, rowID: row.id, state: state.state,
                                           batch: rowBatch, frameio: link, upload: state.upload, mismatches: state.mismatches,
+                                          contentFlags: contentFlags[url] ?? [], noSound: PlanContentCheck.isNo(row.value(.sound)),
                                           channel: PlanGrid.normalized(row.value(.channel)), text: row.searchText)
             }
         }

@@ -168,6 +168,13 @@ struct PlanSummaryView: View, Equatable {
                     if !summary.batches.isEmpty { groupSection("Batches", summary.batches) { .batch($0) } }
                     if !summary.channels.isEmpty { groupSection("Channels", summary.channels) { .channel($0) } }
                     if showsFrameIO { frameIOSection }
+                    if (mismatches[.content] ?? 0) > 0 {
+                        // After the checks: logo, subtitles or sound not what the row asks for.
+                        VStack(alignment: .leading, spacing: 4) {
+                            sectionTitle("Picture & Sound")
+                            mismatchRow(.content)
+                        }
+                    }
                     if !summary.recent.isEmpty { recentSection }
                 }
             }
@@ -292,21 +299,25 @@ struct PlanSummaryView: View, Equatable {
             uploadRow("Not on Frame.io", summary.uploads.none, live, palette.textSubtle, filter: 0)
             if let stale = mismatches[.differs], stale > 0 { uploadRow("Changed Locally", stale, live, TagTone.amber.color(palette.isLight), filter: PlanMismatch.differs.rawValue) }
             // Every other way the plan, this Mac and Frame.io disagree (amber: the mismatch colour).
-            ForEach(PlanMismatch.allCases.filter { $0 != .differs && (mismatches[$0] ?? 0) > 0 }, id: \.self) { kind in
-                SummaryButton(isLightMode: isLightMode, action: { open(.upload(kind.rawValue)) }) {
-                    HStack(spacing: 8) {
-                        Image(systemName: "exclamationmark.triangle.fill")
-                            .font(.system(size: StudioTheme.scaleFont(8)))
-                            .foregroundColor(TagTone.amber.color(palette.isLight))
-                            .frame(width: 6)
-                        Text(kind.title).font(.ui(size: 11, weight: .medium)).foregroundColor(palette.textMain).lineLimit(1)
-                        Spacer(minLength: 6)
-                        Text("\(mismatches[kind] ?? 0)").font(.ui(size: 11, weight: .semibold)).monospacedDigit().foregroundColor(palette.textMain)
-                    }
-                }
-                .tip(kind.explanation)
+            ForEach(PlanMismatch.allCases.filter { $0 != .differs && $0 != .content && (mismatches[$0] ?? 0) > 0 }, id: \.self) { kind in
+                mismatchRow(kind)
             }
         }
+    }
+
+    private func mismatchRow(_ kind: PlanMismatch) -> some View {
+        SummaryButton(isLightMode: isLightMode, action: { open(.upload(kind.rawValue)) }) {
+            HStack(spacing: 8) {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .font(.system(size: StudioTheme.scaleFont(8)))
+                    .foregroundColor(TagTone.amber.color(palette.isLight))
+                    .frame(width: 6)
+                Text(kind.title).font(.ui(size: 11, weight: .medium)).foregroundColor(palette.textMain).lineLimit(1)
+                Spacer(minLength: 6)
+                Text("\(mismatches[kind] ?? 0)").font(.ui(size: 11, weight: .semibold)).monospacedDigit().foregroundColor(palette.textMain)
+            }
+        }
+        .tip(kind.explanation)
     }
 
     private func uploadRow(_ title: String, _ n: Int, _ live: Int, _ color: Color, filter: Int) -> some View {

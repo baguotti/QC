@@ -152,7 +152,7 @@ extension DeliveryPlanStore {
     nonisolated static func mismatchKey(_ rowID: String, _ kind: PlanMismatch, link: String, newest: Date?) -> String {
         let id = frameIOID(link) ?? ""
         // "Another version" comes back when the local file changes again.
-        let stamp = kind == .differs ? newest.map { String(Int($0.timeIntervalSince1970)) } ?? "" : ""
+        let stamp = kind == .differs || kind == .content ? newest.map { String(Int($0.timeIntervalSince1970)) } ?? "" : ""
         return "\(rowID)|\(kind.rawValue)|\(id)|\(stamp)"
     }
 

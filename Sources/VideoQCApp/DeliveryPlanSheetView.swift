@@ -16,6 +16,8 @@ struct PlanSheetMark: Equatable {
     var upload: PlanUpload = .none
     /// The plan, this Mac and Frame.io disagree: the arrow turns amber (outlined when the row isn't on Frame.io).
     var mismatch = false
+    /// The file's picture or sound differs from the row: an amber warning triangle after the arrow.
+    var content = false
 }
 
 /// App colours for the chrome around the sheet (gutter, column letters, selection). The cells use the sheet's own.
@@ -96,7 +98,7 @@ struct PlanSheetLayout {
     let frozenHeight: CGFloat
 
     static let letterBar: CGFloat = 20
-    static let gutterWidth: CGFloat = 58
+    static let gutterWidth: CGFloat = 64
 
     init(grid: PlanGrid, shownLines: Set<Int>?, zoom: CGFloat) {
         self.zoom = zoom
@@ -698,6 +700,20 @@ final class PlanSheetGutter: PlanSheetPart {
             color.setFill(); color.setStroke()
             if mark.upload != .none { arrow.fill() } else { arrow.lineWidth = 1; arrow.stroke() }
             CGRect(x: x - 0.75, y: y + 1, width: 1.5, height: s).fill()
+        }
+        if let mark, mark.content, let color = chrome.statusColors[.check] {
+            // A small filled triangle with a gap for the "!": the same warning as Inspect's cells.
+            let x = rect.minX + 28, y = rect.midY, s: CGFloat = 4
+            let triangle = NSBezierPath()
+            triangle.move(to: CGPoint(x: x, y: y - s))
+            triangle.line(to: CGPoint(x: x + s, y: y + s * 0.8))
+            triangle.line(to: CGPoint(x: x - s, y: y + s * 0.8))
+            triangle.close()
+            color.setFill()
+            triangle.fill()
+            chrome.gutter.setFill()
+            CGRect(x: x - 0.6, y: y - s * 0.35, width: 1.2, height: s * 0.6).fill()
+            CGRect(x: x - 0.6, y: y + s * 0.4, width: 1.2, height: 1.1).fill()
         }
         let right = NSMutableParagraphStyle()
         right.alignment = .right

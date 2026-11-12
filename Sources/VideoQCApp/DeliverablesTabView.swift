@@ -1384,7 +1384,11 @@ extension ContentView {
                     }
                 }
 
+                let plan = hidePlanTags ? nil : planFiles[asset.fileURL]
+                let planSound = (plan?.contentFlags ?? []).filter { $0.area == .sound }.map(\.text)
                 if asset.validation.isAudioMute {
+                    // Silent where the plan asks for no sound is what it should be: grey, not red.
+                    let tone = plan?.noSound == true ? textMuted : alertRed
                     HStack(spacing: 3) {
                         Image(systemName: "speaker.slash.fill")
                             .font(.system(size: StudioTheme.scaleFont(7), weight: .bold))
@@ -1393,21 +1397,23 @@ extension ContentView {
                     }
                     .padding(.horizontal, 5)
                     .padding(.vertical, 1.5)
-                    .foregroundColor(alertRed)
-                    .background(alertRed.opacity(0.12))
+                    .foregroundColor(tone)
+                    .background(tone.opacity(0.12))
                     .overlay(
                         RoundedRectangle(cornerRadius: 3)
-                            .stroke(alertRed.opacity(0.35), lineWidth: 0.8)
+                            .stroke(tone.opacity(0.35), lineWidth: 0.8)
                     )
                     .cornerRadius(3)
                     .lineLimit(1)
                     .minimumScaleFactor(0.8)
-                    .help("Audio Track is Mute: \(asset.audioLevelString) (Codec: \(asset.audioCodec))")
+                    .help(planSound.map { $0 + " " }.joined()
+                          + (plan?.noSound == true ? "Silent, as the plan asks. " : "")
+                          + "Audio Track is Mute: \(asset.audioLevelString) (Codec: \(asset.audioCodec))")
                 } else if let loudness = asset.loudness {
                     let result = loudnessTarget.evaluate(loudness)
                     HStack(spacing: 3) {
-                        if result.verdict != .pass {
-                            Image(systemName: result.verdict == .fail ? "exclamationmark.triangle.fill" : "exclamationmark.circle")
+                        if result.verdict != .pass || !planSound.isEmpty {
+                            Image(systemName: result.verdict == .fail || !planSound.isEmpty ? "exclamationmark.triangle.fill" : "exclamationmark.circle")
                                 .font(.system(size: StudioTheme.scaleFont(7), weight: .bold))
                         }
                         Text(loudness.summary)
@@ -1415,7 +1421,8 @@ extension ContentView {
                             .lineLimit(1)
                             .minimumScaleFactor(0.8)
                     }
-                    .foregroundColor(loudnessColor(result.verdict))
+                    .foregroundColor(planSound.isEmpty ? loudnessColor(result.verdict) : alertRed)
+                    .help(planSound.map { $0 + " " }.joined() + loudnessHelp(for: asset))
                 } else {
                     HStack(spacing: 4) {
                         if !asset.audioFormatDetail.isEmpty {
@@ -2039,7 +2046,18 @@ extension ContentView {
         }
     }
 
-    /// A check's word in a cell: red with a warning when it disagrees with the file name (unless dismissed).
+    /// The file's plan flags for one Inspect cell (none while plan tags are hidden).
+    func planFlags(_ asset: DeliverableAsset, _ area: PlanContentFlag.Area) -> [String] {
+        guard !hidePlanTags else { return [] }
+        return (planFiles[asset.fileURL]?.contentFlags ?? []).filter { $0.area == area }.map(\.text)
+    }
+
+    /// Mismatch notes as the start of a tooltip (name checks have no full stop, plan flags do).
+    static func sentences(_ notes: [String]) -> String {
+        notes.map { $0.hasSuffix(".") ? $0 + " " : $0 + ". " }.joined()
+    }
+
+    /// A check's word in a cell: red with a warning when it disagrees with the file name or the plan (unless dismissed).
     private func pictureTextLabel(_ text: String, mismatch: Bool, found: Bool) -> some View {
         HStack(spacing: 4) {
             if mismatch {
@@ -2057,20 +2075,21 @@ extension ContentView {
     @ViewBuilder
     func burnedSubsCell(_ asset: DeliverableAsset, isDismissed: Bool) -> some View {
         if let check = asset.pictureText {
-            let mismatches = check.nameMismatches(for: asset.fileName).filter { $0.contains("subtitle") }
-            let flagged = !mismatches.isEmpty && !isDismissed
+            let named = isDismissed ? [] : check.nameMismatches(for: asset.fileName).filter { $0.contains("subtitle") }
+            let mismatches = named + planFlags(asset, .subtitles)
+            let flagged = !mismatches.isEmpty
             let label = pictureTextLabel(check.subsLabel,
                                          mismatch: flagged, found: check.subtitlesLikely)
             if let first = check.subtitleExamples.first {
                 Button(action: { openInPlayer(asset.fileURL, at: first.start, fps: asset.fps) }) { label }
                     .buttonStyle(.plain)
-                    .help((mismatches.map { $0 + ". " }.joined()) + "Check the frames: text that changes in the lower centre of the picture (\(check.subtitleLineCount) different lines), e.g. at "
+                    .help(Self.sentences(mismatches) + "Check the frames: text that changes in the lower centre of the picture (\(check.subtitleLineCount) different lines), e.g. at "
                           + check.subtitleExamples.map { "\(pictureTextTimecode($0.start, fps: asset.fps)): “\($0.text)”" }.joined(separator: ", ")
                           + ". Click to open it in the Player.")
             } else {
                 label.help(check.isUnavailable ? "No picture to check (audio, a still or an image sequence)"
                            : check.isUnreadable ? "The video couldn't be read to the end: it may be cut short or damaged, or its drive went away"
-                           : (mismatches.map { $0 + ". " }.joined()) + "No changing text in the lower centre of the picture")
+                           : Self.sentences(mismatches) + "No changing text in the lower centre of the picture")
             }
         } else {
             Text("—")
@@ -2083,13 +2102,14 @@ extension ContentView {
     @ViewBuilder
     func graphicsCell(_ asset: DeliverableAsset, isDismissed: Bool) -> some View {
         if let check = asset.pictureText {
-            let mismatches = check.nameMismatches(for: asset.fileName).filter { !$0.contains("subtitle") || $0.hasPrefix("Named CLEAN") }
-            let flagged = !mismatches.isEmpty && !isDismissed
+            let named = isDismissed ? [] : check.nameMismatches(for: asset.fileName).filter { !$0.contains("subtitle") || $0.hasPrefix("Named CLEAN") }
+            let mismatches = named + planFlags(asset, .graphics)
+            let flagged = !mismatches.isEmpty
             let text = check.isUnavailable ? "—" : check.isUnreadable ? "CAN'T READ"
                 : check.graphics.isEmpty ? (check.isClean ? "CLEAN" : "NONE")
                 : check.graphicTexts.joined(separator: " · ").replacingOccurrences(of: "\n", with: " ")
             let label = pictureTextLabel(text, mismatch: flagged, found: check.hasGraphics)
-            let help = (mismatches.map { $0 + ". " }.joined())
+            let help = Self.sentences(mismatches)
                 + (check.isUnavailable ? "No picture to check (audio, a still or an image sequence)"
                    : check.isUnreadable ? "The video couldn't be read to the end: it may be cut short or damaged, or its drive went away"
                    : check.graphics.isEmpty ? (check.dismissed.isEmpty ? "No text on screen found (logos without letters aren't seen)"

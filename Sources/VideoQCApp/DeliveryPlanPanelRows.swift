@@ -19,7 +19,8 @@ extension DeliveryPlanPanel {
             let byLine = Dictionary(tabRows.map { ($0.line, $0) }, uniquingKeysWith: { a, _ in a })
             let marks = byLine.mapValues { PlanSheetMark(status: store.state($0).state, changed: store.changes[$0.id] != nil,
                                                          checks: checkSummary($0).result, upload: store.state($0).upload,
-                                                         mismatch: !store.state($0).mismatches.isEmpty) }
+                                                         mismatch: store.state($0).mismatches.contains { $0.isFrameIO },
+                                                         content: store.state($0).mismatches.contains(.content)) }
             let highlighted = highlightedRows(tabRows, match: match)
             let selected = selectedRow.flatMap { id in tabRows.first { $0.id == id } } ?? highlighted.first
             VStack(spacing: 0) {

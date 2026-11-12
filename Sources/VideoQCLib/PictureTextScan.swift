@@ -1,6 +1,7 @@
 @preconcurrency import AVFoundation
 import CoreMedia
 import Foundation
+import NaturalLanguage
 import UniformTypeIdentifiers
 import Vision
 
@@ -27,6 +28,11 @@ public struct PictureTextCheck: Equatable, Sendable {
     public var subtitleExamples: [Sighting]
     /// Different subtitle lines read (0 when none).
     public var subtitleLineCount: Int
+    /// Different lines read in the subtitle area, subtitles or not: one line in a short clip is too little to call
+    /// subtitles, but enough not to report them missing when a delivery plan asks for them.
+    public var lowerLineCount: Int = 0
+    /// The subtitles' language (`NLLanguage` raw value: "en", "fr"…), when the lines read clearly as one.
+    public var subtitleLanguage: String? = nil
     /// Every appearance of other text, as read, in order.
     public var allGraphics: [Sighting] { didSet { refresh() } }
     /// Texts marked Not a Graphic (normalised, `BurnedSubtitleReader.normalise`): misreads, signs in the footage.
@@ -503,8 +509,19 @@ public enum PictureTextScanner {
         }
         let graphics = (kept.compactMap { run in appearance(run, interval: interval, aspect: aspect) } + persistent)
             .sorted { $0.start < $1.start }
-        return PictureTextCheck(subtitlesLikely: subtitlesLikely, subtitleExamples: examples,
-                                subtitleLineCount: subtitlesLikely ? distinct.count : 0, graphics: Array(graphics.prefix(30)))
+        var check = PictureTextCheck(subtitlesLikely: subtitlesLikely, subtitleExamples: examples,
+                                     subtitleLineCount: subtitlesLikely ? distinct.count : 0, graphics: Array(graphics.prefix(30)))
+        check.lowerLineCount = distinct.count
+        if subtitlesLikely { check.subtitleLanguage = language(of: distinct) }
+        return check
+    }
+
+    /// The language the lines read as, when it's clear (≥ 70%): a few short lines can read as a neighbour language.
+    static func language(of lines: [String]) -> String? {
+        let recognizer = NLLanguageRecognizer()
+        recognizer.processString(lines.joined(separator: "\n"))
+        guard let (language, confidence) = recognizer.languageHypotheses(withMaximum: 1).first, confidence >= 0.7 else { return nil }
+        return language.rawValue
     }
 
     /// The same text read twice: a close match, or one reading inside the other (a title typing itself out).
