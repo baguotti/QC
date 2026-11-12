@@ -81,7 +81,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 }
 
-@main
+/// Started from `main.swift` (after the worker-mode check).
 struct QCpieApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
     

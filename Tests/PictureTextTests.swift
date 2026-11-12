@@ -1,4 +1,6 @@
 import Foundation
+import CoreVideo
+import os
 import Testing
 @testable import VideoQCLib
 @testable import QCpie
@@ -444,5 +446,97 @@ extension PictureTextTests {
         t0 = CFAbsoluteTimeGetCurrent()
         _ = DeliverablesInspector.generateManifestCSV(assets: state.deliverableAssets)
         #expect(CFAbsoluteTimeGetCurrent() - t0 < 0.5)
+    }
+
+    /// A 4:2:0 frame of mid grey with a white block at `block` (pixel rect), or none.
+    static func frame(width: Int = 1920, height: Int = 1080, block: CGRect? = nil) -> CVPixelBuffer {
+        var buffer: CVPixelBuffer?
+        CVPixelBufferCreate(nil, width, height, kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange, nil, &buffer)
+        let b = buffer!
+        CVPixelBufferLockBaseAddress(b, [])
+        let base = CVPixelBufferGetBaseAddressOfPlane(b, 0)!.assumingMemoryBound(to: UInt8.self)
+        let stride = CVPixelBufferGetBytesPerRowOfPlane(b, 0)
+        for y in 0..<height {
+            for x in 0..<width { base[y * stride + x] = block?.contains(CGPoint(x: x, y: y)) == true ? 235 : 120 }
+        }
+        CVPixelBufferUnlockBaseAddress(b, [])
+        return b
+    }
+
+    @Test("Same picture: an identical frame matches; a changed subtitle-sized word doesn't")
+    func sameFrame() throws {
+        let plain = try #require(PictureTextScanner.lumaGrid(Self.frame()))
+        #expect(PictureTextScanner.sameFrame(plain, try #require(PictureTextScanner.lumaGrid(Self.frame()))))
+        // One letter's stroke of a 1080p subtitle: 6 × 40 px.
+        let letter = try #require(PictureTextScanner.lumaGrid(Self.frame(block: CGRect(x: 900, y: 950, width: 6, height: 40))))
+        #expect(!PictureTextScanner.sameFrame(plain, letter))
+        #expect(plain.count == 48 * 27)
+    }
+
+    @Test("Helpers: as many as the memory allows")
+    func helperCount() {
+        let gb: UInt64 = 1_073_741_824
+        #expect(PictureTextWorkers.recommendedCount(memory: 8 * gb) == 0)
+        #expect(PictureTextWorkers.recommendedCount(memory: 16 * gb) == 2)
+        #expect(PictureTextWorkers.recommendedCount(memory: 36 * gb) == 4)
+        #expect(PictureTextWorkers.recommendedCount(memory: 96 * gb) == 4)
+    }
+
+    @Test("Helper protocol: a paused helper holds its file, resumes, and stops when its input closes", .timeLimit(.minutes(1)))
+    func helperProtocol() async throws {
+        let clip = try BurnedSubtitleTests.makeClip([(from: 0, to: 30, text: "The first line of dialogue")], frames: 60)
+        defer { try? FileManager.default.removeItem(at: clip) }
+        let toWorker = Pipe(), fromWorker = Pipe()
+        let served = Task { await PictureTextWorkers.serve(input: toWorker.fileHandleForReading, output: fromWorker.fileHandleForWriting) }
+        func send(_ m: PictureTextWorkers.Message) throws { try toWorker.fileHandleForWriting.write(contentsOf: JSONEncoder().encode(m) + [10]) }
+        let lines = AsyncStream<PictureTextWorkers.Message> { out in
+            Thread {
+                PictureTextWorkers.forEachLine(of: fromWorker.fileHandleForReading) { line in
+                    if let m = try? JSONDecoder().decode(PictureTextWorkers.Message.self, from: line) { out.yield(m) }
+                }
+                out.finish()
+            }.start()
+        }
+        try send(.init(pause: true))
+        try send(.init(file: clip.path))
+        let arrived = OSAllocatedUnfairLock(initialState: false)
+        let first = Task { () -> PictureTextWorkers.Message? in
+            for await m in lines where m.reading != nil { arrived.withLock { $0 = true }; return m }
+            return nil
+        }
+        try await Task.sleep(for: .seconds(1.5))
+        #expect(!arrived.withLock { $0 })   // held while paused (the clip reads in well under a second)
+        try send(.init(pause: false))
+        let reading = try #require(await first.value?.reading)
+        #expect(PictureTextScanner.check(from: reading) == (await PictureTextScanner.check(clip)))
+        try toWorker.fileHandleForWriting.close()
+        await served.value
+        try fromWorker.fileHandleForWriting.close()
+    }
+
+    @Test("Helper processes give the same results as reading in the app; a helper that can't start falls back", .timeLimit(.minutes(1)))
+    func helperProcesses() async throws {
+        let binary = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent(".build/debug/QCpie")
+        let subs = try BurnedSubtitleTests.makeClip([(from: 0, to: 30, text: "The first line of dialogue"),
+                                                     (from: 30, to: 60, text: "and then another one follows"),
+                                                     (from: 60, to: 90, text: "and a third to be sure")], frames: 100)
+        var style = BurnedSubtitleTests.Style(); style.fontSize = 60; style.top = true
+        let titled = try BurnedSubtitleTests.makeClip([(from: 20, to: 80, text: "BIG TITLE")], frames: 100, style: style)
+        let clean = try BurnedSubtitleTests.makeClip([], frames: 60), clean2 = try BurnedSubtitleTests.makeClip([], frames: 40)
+        let bogus = FileManager.default.temporaryDirectory.appendingPathComponent("not-a-video-\(UUID().uuidString).mov")
+        try Data("nope".utf8).write(to: bogus)
+        let urls = [subs, titled, clean, clean2, bogus, subs, titled]
+        defer { [subs, titled, clean, clean2, bogus].forEach { try? FileManager.default.removeItem(at: $0) } }
+        var expected: [URL: PictureTextCheck] = [:]
+        for url in urls { expected[url] = await PictureTextScanner.check(url) }
+        for executable in [binary, URL(fileURLWithPath: "/nonexistent/QCpie")] where FileManager.default.isExecutableFile(atPath: binary.path) {
+            let got = OSAllocatedUnfairLock(initialState: [(URL, PictureTextCheck)]())
+            await PictureTextScanner.checkBatch(urls: urls, workers: .init(executable: executable, count: 4) { false },
+                                                isCancelled: { false }) { url, result, _ in got.withLock { $0.append((url, result)) } }
+            let results = got.withLock { $0 }
+            #expect(results.count == urls.count)
+            for (url, result) in results { #expect(result == expected[url], "\(url.lastPathComponent) via \(executable.path)") }
+        }
     }
 }

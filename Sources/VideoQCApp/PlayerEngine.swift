@@ -155,7 +155,7 @@ public final class PlayerEngine: ObservableObject {
         didSet {
             guard isPlaying != oldValue else { return }
             updateDisplaySleepAssertion()
-            UploadThrottle.setPlaying(isPlaying)
+            PlaybackActivity.setPlaying(isPlaying)
         }
     }
     /// Held while playing so the display doesn't sleep mid-review (released on pause).
@@ -610,7 +610,9 @@ public final class PlayerEngine: ObservableObject {
     }
     
     @Published public var shuttleStateText: String = "PAUSE"
-    @Published public var isScrubbing: Bool = false
+    @Published public var isScrubbing: Bool = false {
+        didSet { if isScrubbing != oldValue { PlaybackActivity.setScrubbing(isScrubbing) } }
+    }
     public internal(set) var wasPlayingBeforeScrub: Bool = false
     var playbackRateBeforeScrub: Float = 1.0
     

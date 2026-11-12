@@ -632,7 +632,8 @@ public final class SpecsState: ObservableObject {
         }
     }
     
-    /// Reads the text in each `checkTargets` video's picture: burned-in subtitles and text graphics (two files at a time).
+    /// Reads the text in each `checkTargets` video's picture: burned-in subtitles and text graphics (two files at a time,
+    /// plus helper processes on Macs with the memory for them).
     public func checkPictureText() {
         guard !deliverableAssets.isEmpty else { return }
         cancelPictureTextCheck()
@@ -648,7 +649,7 @@ public final class SpecsState: ObservableObject {
         let progress = pictureTextProgress
         progress.start(files: urls.count)
         pictureTextTask = Task(priority: .utility) { @MainActor [weak self] in
-            await PictureTextScanner.checkBatch(urls: urls, isCancelled: { !stop.isCurrent(run) },
+            await PictureTextScanner.checkBatch(urls: urls, workers: ScanWorkers.options, isCancelled: { !stop.isCurrent(run) },
                                                 reading: { url, share in
                                                     Task { @MainActor in if stop.isCurrent(run) { progress.update(url, share) } }
                                                 }) { [weak self] url, result, completed in

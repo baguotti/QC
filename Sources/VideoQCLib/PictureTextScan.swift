@@ -166,11 +166,12 @@ public struct PictureTextCheck: Equatable, Sendable {
     }
 }
 
-/// Samples one frame a second of each file and reads its text with Vision. Two files at a time, each on a dispatch
-/// thread (never Swift's shared task threads: a read blocks for seconds).
+/// Samples two frames a second of each file and reads their text with Vision. Two files at a time in the app, each on
+/// a dispatch thread (never Swift's shared task threads: a read blocks for seconds), plus helper processes
+/// (`PictureTextWorkers`) on Macs with the memory for them.
 public enum PictureTextScanner {
     /// One text box seen in one sample (`box` normalised, origin bottom-left).
-    public struct Observation: Equatable, Sendable {
+    public struct Observation: Equatable, Sendable, Codable {
         public var text: String
         public var box: CGRect
 
@@ -180,7 +181,7 @@ public enum PictureTextScanner {
         }
     }
 
-    public struct Sample: Equatable, Sendable {
+    public struct Sample: Equatable, Sendable, Codable {
         public var time: Double
         public var observations: [Observation]
 
@@ -190,35 +191,74 @@ public enum PictureTextScanner {
         }
     }
 
+    /// What reading a file gave, before classifying (what a helper process sends back).
+    public enum Reading: Equatable, Sendable, Codable {
+        case samples([Sample], aspect: Double)
+        case unreadable
+        case unavailable
+    }
+
     public static let samplesPerSecond = 2.0
     public static var sampleInterval: Double { 1 / samplesPerSecond }
 
-    /// Checks `urls` two at a time; `progress` gets each result as it lands (url, result, files done).
-    /// `reading` gets each file's share read so far (0…1), at most a few times a second per file.
-    public static func checkBatch(urls: [URL], isCancelled: @escaping @Sendable () -> Bool,
+    /// Checks `urls` two at a time in the app plus one at a time in each of `workers`' helper processes; `progress`
+    /// gets each result as it lands (url, result, files done). `reading` gets each file's share read so far (0…1), at
+    /// most a few times a second per file.
+    public static func checkBatch(urls: [URL], workers: PictureTextWorkers.Options? = nil,
+                                  isCancelled: @escaping @Sendable () -> Bool,
                                   reading: @escaping @Sendable (URL, Double) -> Void = { _, _ in },
                                   progress: @escaping @Sendable (URL, PictureTextCheck, Int) -> Void) async {
         let counter = Counter()
+        let queue = URLQueue(urls)
+        let pool = workers.flatMap { PictureTextWorkers(options: $0, files: urls.count, isCancelled: isCancelled) }
+        func finish(_ url: URL, _ result: PictureTextCheck) {
+            guard !isCancelled() else { return }
+            progress(url, result, counter.increment())
+        }
         await withTaskGroup(of: Void.self) { group in
-            var next = 0
-            func submit() {
-                guard next < urls.count, !isCancelled() else { return }
-                let url = urls[next]
-                next += 1
+            for _ in 0..<2 {
                 group.addTask {
-                    let result = await check(url, isCancelled: isCancelled) { reading(url, $0) }
-                    guard !isCancelled() else { return }
-                    progress(url, result, counter.increment())
+                    while !isCancelled(), let url = queue.next() {
+                        finish(url, await check(url, isCancelled: isCancelled) { reading(url, $0) })
+                    }
                 }
             }
-            for _ in 0..<2 { submit() }
-            for await _ in group { submit() }
+            for worker in pool?.workers ?? [] {
+                group.addTask {
+                    while !isCancelled(), let url = queue.next() {
+                        if let result = await worker.read(url, reading: { reading(url, $0) }) {
+                            finish(url, check(from: result))
+                        } else {
+                            // The helper went away (a crash, or macOS reclaiming memory): this file is read here, and
+                            // the other lanes take the rest.
+                            guard !isCancelled() else { return }
+                            finish(url, await check(url, isCancelled: isCancelled) { reading(url, $0) })
+                            return
+                        }
+                    }
+                }
+            }
+        }
+        pool?.stop()
+    }
+
+    /// Reads and classifies one file.
+    public static func check(_ url: URL, isCancelled: @escaping @Sendable () -> Bool = { false },
+                             reading: @escaping @Sendable (Double) -> Void = { _ in }) async -> PictureTextCheck {
+        check(from: await read(url, isCancelled: isCancelled, reading: reading))
+    }
+
+    public static func check(from reading: Reading) -> PictureTextCheck {
+        switch reading {
+        case .samples(let samples, let aspect): classify(samples, aspect: aspect)
+        case .unreadable: .unreadable
+        case .unavailable: .unavailable
         }
     }
 
-    /// Reads one file (nil when cancelled).
-    public static func check(_ url: URL, isCancelled: @escaping @Sendable () -> Bool = { false },
-                             reading: @escaping @Sendable (Double) -> Void = { _ in }) async -> PictureTextCheck {
+    /// Reads one file's text, sample by sample (`.unreadable` when cancelled or cut short).
+    public static func read(_ url: URL, isCancelled: @escaping @Sendable () -> Bool = { false },
+                            reading: @escaping @Sendable (Double) -> Void = { _ in }) async -> Reading {
         var isFolder: ObjCBool = false
         guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isFolder) else { return .unreadable }
         guard !isFolder.boolValue else { return .unavailable }   // an image sequence
@@ -251,7 +291,7 @@ public enum PictureTextScanner {
         // read isn't the whole picture.
         guard let samples, let lastTime = samples.last?.time,
               !duration.isFinite || duration <= 0 || lastTime >= duration - max(1.5, duration * 0.02) else { return .unreadable }
-        return classify(samples, aspect: aspect)
+        return .samples(samples, aspect: aspect)
     }
 
     static func readSamples(asset: AVAsset, track: AVAssetTrack, size: CGSize?, orientation: CGImagePropertyOrientation,
@@ -273,22 +313,87 @@ public enum PictureTextScanner {
         var nextTime = 0.0
         // The last frame is always read too: an end logo can sit in the final half second, between two samples.
         var last: (time: Double, buffer: CVPixelBuffer)? = nil
+        // Reading text is ~35 ms a frame whatever the settings, and Vision runs one read at a time, so the only saving
+        // is reading fewer frames: a sample showing the same picture as the last one read reuses its text, and a
+        // half-second sample waits for the next whole second and is read in full only when text is around.
+        var lastRead: (grid: [UInt8], observations: [Observation])? = nil
+        var pending: (time: Double, buffer: CVPixelBuffer)? = nil
+        func read(_ buffer: CVPixelBuffer, onlyIfText: Bool = false) -> [Observation] {
+            autoreleasepool {
+                let grid = lumaGrid(buffer)
+                if let grid, let lastRead, sameFrame(grid, lastRead.grid) { return lastRead.observations }
+                if onlyIfText, !hasText(buffer, orientation: orientation) { return [] }
+                let observations = recognise(buffer, orientation: orientation)
+                if let grid { lastRead = (grid, observations) }
+                return observations
+            }
+        }
+        func add(_ time: Double, _ observations: [Observation]) {
+            samples.append(Sample(time: time, observations: observations))
+            sampled(time)
+        }
+        func flushPending(next: [Observation]?) {
+            guard let held = pending else { return }
+            pending = nil
+            let textAround = !(samples.last?.observations.isEmpty ?? true) || !(next?.isEmpty ?? true)
+            add(held.time, read(held.buffer, onlyIfText: next != nil && !textAround))
+        }
         while let sample = output.copyNextSampleBuffer() {
             if isCancelled() { return samples }
             let time = CMSampleBufferGetPresentationTimeStamp(sample).seconds
             guard time.isFinite, let buffer = CMSampleBufferGetImageBuffer(sample) else { continue }
             guard time >= nextTime else { last = (time, buffer); continue }
             last = nil
-            nextTime = (time / (1 / samplesPerSecond)).rounded(.down) * (1 / samplesPerSecond) + 1 / samplesPerSecond
-            let observations = autoreleasepool { recognise(buffer, orientation: orientation) }
-            samples.append(Sample(time: time, observations: observations))
-            sampled(time)
+            let slot = Int((time * samplesPerSecond).rounded(.down))
+            nextTime = Double(slot + 1) / samplesPerSecond
+            if slot % 2 == 1 {
+                flushPending(next: nil)   // sparse frames: two half-second samples in a row
+                pending = (time, buffer)
+                continue
+            }
+            let observations = read(buffer)
+            flushPending(next: observations)
+            add(time, observations)
         }
+        flushPending(next: nil)
         if let last, !isCancelled() {
-            samples.append(Sample(time: last.time, observations: autoreleasepool { recognise(last.buffer, orientation: orientation) }))
+            add(last.time, read(last.buffer))
         }
         if reader.status == .failed { return nil }
         return samples
+    }
+
+    /// Mean luma of a 48×27 grid of cells (nil if the buffer isn't planar 4:2:0), to tell two samples of the same picture.
+    static func lumaGrid(_ buffer: CVPixelBuffer) -> [UInt8]? {
+        guard CVPixelBufferIsPlanar(buffer), CVPixelBufferLockBaseAddress(buffer, .readOnly) == kCVReturnSuccess else { return nil }
+        defer { CVPixelBufferUnlockBaseAddress(buffer, .readOnly) }
+        guard let base = CVPixelBufferGetBaseAddressOfPlane(buffer, 0) else { return nil }
+        let width = CVPixelBufferGetWidthOfPlane(buffer, 0), height = CVPixelBufferGetHeightOfPlane(buffer, 0)
+        let stride = CVPixelBufferGetBytesPerRowOfPlane(buffer, 0)
+        let columns = 48, rows = 27
+        guard width >= columns, height >= rows else { return nil }
+        let pixels = base.assumingMemoryBound(to: UInt8.self)
+        var sums = [UInt32](repeating: 0, count: columns * rows), counts = [UInt32](repeating: 0, count: columns * rows)
+        for y in Swift.stride(from: 0, to: height, by: 2) {
+            let row = pixels + y * stride, cellRow = y * rows / height * columns
+            for x in Swift.stride(from: 0, to: width, by: 2) {
+                let cell = cellRow + x * columns / width
+                sums[cell] += UInt32(row[x]); counts[cell] += 1
+            }
+        }
+        return zip(sums, counts).map { UInt8($0 / max(1, $1)) }
+    }
+
+    /// Same picture: no cell's mean luma moved by more than 2 levels (a changed subtitle or card moves its cells by far more).
+    static func sameFrame(_ a: [UInt8], _ b: [UInt8]) -> Bool {
+        a.count == b.count && zip(a, b).allSatisfy { abs(Int($0) - Int($1)) <= 2 }
+    }
+
+    /// A quick text detection (~1 ms): misses some stylised wordmarks, so it only decides the in-between samples.
+    static func hasText(_ buffer: CVPixelBuffer, orientation: CGImagePropertyOrientation) -> Bool {
+        let request = VNDetectTextRectanglesRequest()
+        try? VNImageRequestHandler(cvPixelBuffer: buffer, orientation: orientation, options: [:]).perform([request])
+        return !(request.results ?? []).isEmpty
     }
 
     static func recognise(_ buffer: CVPixelBuffer, orientation: CGImagePropertyOrientation) -> [Observation] {
@@ -470,5 +575,13 @@ public enum PictureTextScanner {
         private let lock = NSLock()
         private var value = 0
         func increment() -> Int { lock.withLock { value += 1; return value } }
+    }
+
+    /// The files still to read, handed out one at a time to whichever lane is free.
+    private final class URLQueue: @unchecked Sendable {
+        private let lock = NSLock()
+        private var urls: ArraySlice<URL>
+        init(_ urls: [URL]) { self.urls = urls[...] }
+        func next() -> URL? { lock.withLock { urls.popFirst() } }
     }
 }

@@ -470,17 +470,12 @@ final class UploadEngine: Sendable {
 enum UploadThrottle {
     static let maxStreamsKey = "prefUploadMaxStreams"       // 0 = automatic (up to 16)
     static let gentleKey = "prefUploadGentleWhilePlaying"
-    nonisolated(unsafe) private static var playing = false
-    private static let lock = NSLock()
-
-    static func setPlaying(_ value: Bool) { lock.withLock { playing = value } }
-
     static func cap(_ limit: Int) -> Int {
         let defaults = UserDefaults.standard
         var limit = limit
         let maximum = defaults.integer(forKey: maxStreamsKey)
         if maximum > 0 { limit = min(limit, maximum) }
-        if defaults.bool(forKey: gentleKey), lock.withLock({ playing }) { limit = min(limit, 2) }
+        if defaults.bool(forKey: gentleKey), PlaybackActivity.isPlaying { limit = min(limit, 2) }
         return limit
     }
 }
