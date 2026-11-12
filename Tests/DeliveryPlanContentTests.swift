@@ -75,11 +75,13 @@ struct DeliveryPlanContentTests {
         let rows = [Self.row(logos: "Yes - first 2s", subs: "Yes - FR", sound: "Yes"), Self.row(logos: "No", graphics: "No", subs: "No", sound: "No")]
         var content = Self.picture(subtitles: true, lines: 3, language: "fr", graphics: [Self.logo])
         content.silent = false
-        let t0 = CFAbsoluteTimeGetCurrent()
+        // This thread's CPU time, not the clock: the suite runs beside the video-reading tests.
+        func cpu() -> Double { Double(clock_gettime_nsec_np(CLOCK_THREAD_CPUTIME_ID)) / 1e9 }
+        let t0 = cpu()
         var count = 0
         for i in 0..<2_000 { count += PlanContentCheck.flags(rows[i % 2], content).count }
         #expect(count == 3_000)   // the second row, 1,000 times: text on screen, subtitles and sound where it says none
-        #expect(CFAbsoluteTimeGetCurrent() - t0 < 0.1)
+        #expect(cpu() - t0 < 0.1)
     }
 
     @Test("Plan wording")

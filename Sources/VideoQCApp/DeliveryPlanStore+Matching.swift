@@ -76,7 +76,10 @@ extension DeliveryPlanStore {
             assetIDs = Dictionary(measured.map { ($0.fileURL, $0.id) }, uniquingKeysWith: { a, _ in a })
             // A finished check changes only what was found: the rows' flags, not the matching.
             let contentChanged = content != fileContent
-            if contentChanged { fileContent = content }
+            if contentChanged {
+                fileContent = content
+                contentFlagCache = contentFlagCache.filter { content[$0.key] != nil }
+            }
             guard newFiles != files else {
                 if contentChanged { recomputeStates(); publishGrids() }
                 return
@@ -230,7 +233,13 @@ extension DeliveryPlanStore {
             if state.state != .dropped {
                 for url in result.files {
                     guard let content = fileContent[url] else { continue }
-                    let flags = PlanContentCheck.flags(row, content)
+                    let flags: [PlanContentFlag]
+                    if let cached = contentFlagCache[url], cached.content == content, cached.row == row {
+                        flags = cached.flags
+                    } else {
+                        flags = PlanContentCheck.flags(row, content)
+                        contentFlagCache[url] = (row, content, flags)
+                    }
                     guard !flags.isEmpty else { continue }
                     contentFlags[url] = flags
                     let prefix = result.files.count > 1 ? "\(url.lastPathComponent): " : ""

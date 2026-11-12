@@ -278,6 +278,8 @@ final class DeliveryPlanStore: ObservableObject {
     var filesByURL: [URL: PlanFile] = [:]
     /// What Inspect's checks found in each file (subs, graphics, loudness), compared with its row (`PlanContentCheck`).
     var fileContent: [URL: PlanContent] = [:]
+    /// Each file's flags with the row and content they were worked out for: a plan update re-checks only what changed.
+    var contentFlagCache: [URL: (row: PlanRow, content: PlanContent, flags: [PlanContentFlag])] = [:]
     /// The inspection each file's date was read for (a re-inspection gets a new id and a new stat).
     var assetIDs: [URL: UUID] = [:]
     // MARK: States

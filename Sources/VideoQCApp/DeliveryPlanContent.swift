@@ -102,7 +102,7 @@ enum PlanContentCheck {
                 guard picture.lowerLines == 0 else { return [] }   // one line read: too little to say either way
                 return [.init(area: .subtitles, text: "The plan asks for subtitles (\(shown)), but none were found.")]
             }
-            if let wanted = language(in: subs), let read = picture.language, !wanted.codes.contains(where: { read.hasPrefix($0) }) {
+            if let read = picture.language, let wanted = language(in: subs), !wanted.codes.contains(where: { read.hasPrefix($0) }) {
                 let readName = Locale(identifier: "en").localizedString(forLanguageCode: read) ?? read
                 return [.init(area: .subtitles, text: "The plan asks for \(wanted.name) subtitles (\(shown)), but they read as \(readName).")]
             }
@@ -121,10 +121,12 @@ enum PlanContentCheck {
 
     /// A plain no. Only whole answers: "No VO" or "No music" still has sound, so it says nothing.
     static func isNo(_ value: String) -> Bool {
-        let t = value.lowercased().trimmingCharacters(in: CharacterSet.whitespaces.union(.punctuationCharacters))
-        return ["no", "n", "none", "clean", "silent", "mute", "no sound", "no audio", "no logo", "no logos",
-                "no graphics", "no subs", "no subtitles"].contains(t)
+        guard !value.isEmpty else { return false }
+        return noWords.contains(value.lowercased().trimmingCharacters(in: trimmed))
     }
+    private static let trimmed = CharacterSet.whitespaces.union(.punctuationCharacters)
+    private static let noWords: Set<String> = ["no", "n", "none", "clean", "silent", "mute", "no sound", "no audio", "no logo",
+                                               "no logos", "no graphics", "no subs", "no subtitles"]
 
     /// "Yes - first 2s" → 2 (a number right after "first", then s / sec / seconds). No regex: this runs for every
     /// checked file on each plan update.
