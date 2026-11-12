@@ -233,7 +233,9 @@ extension ContentView {
         let activeURL = (playerEngine.activeTarget == .slotB && playerEngine.slotB.url != nil) ? playerEngine.slotB.url : (playerEngine.activeURL ?? playerEngine.slotA.url)
         let activeName = (playerEngine.activeTarget == .slotB && playerEngine.slotB.url != nil) ? (playerEngine.slotB.url?.lastPathComponent ?? "Deliverable") : playerEngine.activeFileName
         let standardizedActiveURL = activeURL?.standardizedFileURL
-        let matchedAsset = specsState.deliverableAssets.first { $0.fileURL.standardizedFileURL == standardizedActiveURL } ?? propertiesAsset
+        // Only an asset for the loaded clip: another file's asset would make the drawer show that file instead.
+        let matchedAsset = specsState.deliverableAssets.first { $0.fileURL.standardizedFileURL == standardizedActiveURL }
+            ?? propertiesAsset.flatMap { $0.fileURL.standardizedFileURL == standardizedActiveURL ? $0 : nil }
         
         NotesDrawerPanelView(
             isPresented: $showNotesDrawer,

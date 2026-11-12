@@ -72,6 +72,10 @@ struct MediaInfoPanel: View {
             } else if let info = loader.info {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 14) {
+                        summary(info: info)
+                        if let asset = effectiveAsset, asset.pictureText != nil || asset.loudness != nil {
+                            contentView(asset)
+                        }
                         fileView(info: info)
                         tracksView(info: info)
                     }
@@ -134,7 +138,6 @@ struct MediaInfoPanel: View {
                         if track.typeName == "IMAGE" {
                             ForEach(info.imageDetails) { row in drawerInfoRow(label: row.label, value: row.value) }
                         } else if track.typeName.contains("VIDEO") {
-                            drawerInfoRow(label: "Format:", value: info.videoFormat)
                             drawerInfoRow(label: "Codec:", value: track.codec)
                             if let asset = effectiveAsset {
                                 drawerInfoRow(label: "Size:", value: "\(asset.width)×\(asset.height) (\(asset.aspectRatioString))")
@@ -143,12 +146,9 @@ struct MediaInfoPanel: View {
                             if info.videoBitrate != "--" {
                                 drawerInfoRow(label: "Bit Rate:", value: info.videoBitrate)
                             }
-                            drawerInfoRow(label: "Colorspace:", value: info.colorspace)
-                            drawerInfoRow(label: "Primaries:", value: info.primaries)
+                            colourRow(info: info)
                             drawerInfoRow(label: "Pixel Format:", value: info.pixelFormat)
-                            drawerInfoRow(label: "Decoder:", value: info.hwDecoder)
                         } else if track.typeName.contains("AUDIO") {
-                            drawerInfoRow(label: "Format:", value: info.audioFormat)
                             drawerInfoRow(label: "Codec:", value: track.codec)
                             drawerInfoRow(label: "Channels:", value: info.audioChannels)
                             drawerInfoRow(label: "Sample Rate:", value: info.audioSampleRate != "--" ? "\(info.audioSampleRate) Hz" : "--")
@@ -201,7 +201,7 @@ struct MediaInfoPanel: View {
                         
                         if let url = url {
                             Button(action: { revealInFinder(url) }) {
-                                Text(fileName)
+                                Text(Self.breakable(fileName))
                                     .font(.ui(size: 11, weight: .semibold))
                                     .foregroundColor(palette.textMain)
                                     .multilineTextAlignment(.leading)
@@ -273,13 +273,11 @@ struct MediaInfoPanel: View {
                                         .font(.system(size: StudioTheme.scaleFont(9.5)))
                                         .foregroundColor(palette.accentBlue)
                                     
-                                    Text(url.path)
+                                    Text(url.deletingLastPathComponent().lastPathComponent)
                                         .font(.ui(size: 10, weight: .medium))
                                         .foregroundColor(palette.textMain)
-                                        .lineLimit(3)
+                                        .lineLimit(1)
                                         .truncationMode(.middle)
-                                        .multilineTextAlignment(.leading)
-                                        .fixedSize(horizontal: false, vertical: true)
                                     
                                     Spacer(minLength: 4)
                                     
@@ -303,7 +301,7 @@ struct MediaInfoPanel: View {
                             .onHover { hovering in
                                 if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
                             }
-                            .help("Left click to reveal in Finder")
+                            .help(url.path)
                         }
                     }
                     .padding(.vertical, 2)
@@ -327,11 +325,9 @@ struct MediaInfoPanel: View {
                     
                     VStack(alignment: .leading, spacing: 4) {
                         if !info.isImage {
-                            drawerInfoRow(label: "Duration:", value: "\(asset.timecode) (\(asset.formattedDuration))")
-                            drawerInfoRow(label: "Frames:", value: "\(asset.totalFrames) frames")
+                            drawerInfoRow(label: "Duration:", value: "\(asset.timecode) · \(asset.totalFrames) f (\(asset.formattedDuration))")
                         }
                         drawerInfoRow(label: "Aspect:", value: asset.aspectRatioString)
-                        drawerInfoRow(label: "Pixel Aspect:", value: "1.0 (Square)")
                         if asset.validation.hasAnyMismatch {
                             drawerInfoRow(label: "QC Alert:", value: asset.validation.summaryString)
                         } else {
@@ -345,6 +341,122 @@ struct MediaInfoPanel: View {
         }
     }
     
+    // MARK: Summary
+
+    /// One line with what most checks need: size, aspect, rate, length, codecs, loudness.
+    private func summary(info: ExtendedMediaInfo) -> some View {
+        var parts: [String] = []
+        if let asset = effectiveAsset {
+            if asset.width > 0 { parts.append("\(asset.width)×\(asset.height)") }
+            if !asset.aspectRatioString.isEmpty { parts.append(asset.aspectRatioString) }
+        }
+        if let fps = Double(info.fpsString), fps > 0 { parts.append("\(QCUtilities.formatFPS(fps)) fps") }
+        if let asset = effectiveAsset, !info.isImage, asset.durationSeconds > 0 { parts.append(asset.formattedDuration) }
+        // videoFormat defaults to "h264": only name it when there is a video track.
+        if info.tracks.contains(where: { $0.typeName.hasPrefix("VIDEO") }) { parts.append(info.videoFormat.uppercased()) }
+        if info.hasAudio {
+            parts.append(info.audioChannels == "--" ? info.audioFormat.uppercased() : "\(info.audioFormat.uppercased()) \(info.audioChannels)")
+            if let loudness = effectiveAsset?.loudness {
+                parts.append(loudness.integrated.map { String(format: "%.1f LUFS", $0) } ?? "Silent")
+            }
+        }
+        let text = parts.joined(separator: " · ")
+        return Text(text)
+            .font(.ui(size: 11, weight: .semibold))
+            .foregroundColor(palette.textMain)
+            .fixedSize(horizontal: false, vertical: true)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(10)
+            .studioBox(background: palette.bgCardSubtle, border: palette.borderLine)
+            .contextMenu {
+                Button("Copy") { copyToClipboard(text); onToast("Copied summary") }
+            }
+    }
+
+    /// What Check Subs & Graphics and Check Loudness found; rows appear only for checks that have run.
+    private func contentView(_ asset: DeliverableAsset) -> some View {
+        let amber = TagTone.amber.color(palette.isLight)
+        return VStack(alignment: .leading, spacing: 6) {
+            Text("Content")
+                .font(.ui(size: 11, weight: .semibold))
+                .foregroundColor(palette.textMain)
+            VStack(alignment: .leading, spacing: 4) {
+                if let check = asset.pictureText {
+                    if check.isUnavailable || check.isUnreadable {
+                        drawerInfoRow(label: "Subtitles:", value: check.isUnreadable ? "Can't read" : "Not checked")
+                    } else {
+                        drawerInfoRow(label: "Subtitles:", value: Self.subtitles(check))
+                        drawerInfoRow(label: "On Screen:", value: Self.graphics(check))
+                    }
+                }
+                if asset.hasAudio, let loudness = asset.loudness {
+                    if loudness.isSilent {
+                        contentRow("Sound:", "Silent", color: amber)
+                    } else if !loudness.channelNotes.isEmpty {
+                        contentRow("Channels:", loudness.channelNotes.joined(separator: "\n"), color: amber)
+                    } else {
+                        drawerInfoRow(label: "Channels:", value: "No problems found")
+                    }
+                }
+            }
+            .padding(10)
+            .studioBox(background: palette.bgCardSubtle, border: palette.borderLine)
+        }
+    }
+
+    private func contentRow(_ label: String, _ value: String, color: Color) -> some View {
+        HStack(alignment: .top, spacing: 6) {
+            Text(label)
+                .font(.ui(size: 11, weight: .semibold))
+                .foregroundColor(palette.textMuted)
+                .frame(width: 84, alignment: .leading)
+            Text(value)
+                .font(.ui(size: 11, weight: .medium))
+                .foregroundColor(color)
+                .fixedSize(horizontal: false, vertical: true)
+            Spacer(minLength: 2)
+        }
+        .padding(.vertical, 1.5)
+    }
+
+    private static func subtitles(_ check: PictureTextCheck) -> String {
+        guard check.subtitlesLikely else { return "None" }
+        let language = check.subtitleLanguage.map { Locale(identifier: "en").localizedString(forLanguageCode: $0) ?? $0.uppercased() }
+        return "Burned in" + (language.map { " · \($0)" } ?? "")
+    }
+
+    /// "“LOGO” at 0.2 s, “SHOP NOW” at 28.5 s": the first four, then a count.
+    private static func graphics(_ check: PictureTextCheck) -> String {
+        guard !check.graphics.isEmpty else { return "No text graphics" }
+        let shown = check.graphics.prefix(4).map { "“\($0.text)” at \(String(format: "%.1f", $0.start)) s" }
+        let more = check.graphics.count > 4 ? "\n+\(check.graphics.count - 4) more" : ""
+        return shown.joined(separator: "\n") + more
+    }
+
+    /// Primaries and transfer in one row; amber when untagged (players then guess, usually Rec.709).
+    @ViewBuilder
+    private func colourRow(info: ExtendedMediaInfo) -> some View {
+        let untagged = info.primaries == "Untagged" || info.colorspace == "Untagged"
+        HStack(alignment: .top, spacing: 6) {
+            Text("Colour:")
+                .font(.ui(size: 11, weight: .semibold))
+                .foregroundColor(palette.textMuted)
+                .frame(width: 84, alignment: .leading)
+            Text(info.primaries == info.colorspace ? info.primaries : "\(info.primaries) / \(info.colorspace)")
+                .font(.ui(size: 11, weight: .medium))
+                .foregroundColor(untagged ? TagTone.amber.color(palette.isLight) : palette.textMain)
+                .fixedSize(horizontal: false, vertical: true)
+                .help(untagged ? "Colour tags missing: players will guess, usually Rec.709." : "Primaries / transfer")
+            Spacer(minLength: 2)
+        }
+        .padding(.vertical, 1.5)
+    }
+
+    /// Lets long underscored file names wrap at any character instead of mid-word on the few breaks they have.
+    private static func breakable(_ name: String) -> String {
+        name.map(String.init).joined(separator: "\u{200B}")
+    }
+
     // MARK: Info Row
     
     private func drawerInfoRow(label: String, value: String, copyable: Bool = false) -> some View {

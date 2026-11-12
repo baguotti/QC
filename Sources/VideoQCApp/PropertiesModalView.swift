@@ -72,6 +72,12 @@ public struct ExtendedMediaInfo: Sendable {
     }
     
     public init() {}
+
+    /// "12.4 Mbps", or kbps below 1 Mbps (a small proxy read "0.0 Mbps").
+    static func formatBitrate(_ bitsPerSecond: Double) -> String {
+        bitsPerSecond >= 1_000_000 ? String(format: "%.1f Mbps", bitsPerSecond / 1_000_000)
+            : String(format: "%.0f kbps", max(1, bitsPerSecond / 1_000))
+    }
     
     /// Extracts full metadata from AVURLAsset asynchronously
     public static func extract(url: URL, baseAsset: DeliverableAsset?) async -> ExtendedMediaInfo {
@@ -109,10 +115,10 @@ public struct ExtendedMediaInfo: Sendable {
             // Estimated Video Bitrate
             let dataRate = (try? await vTrack.load(.estimatedDataRate)) ?? 0
             if dataRate > 0 {
-                info.videoBitrate = String(format: "%.1f Mbps", Double(dataRate) / 1_000_000.0)
+                info.videoBitrate = Self.formatBitrate(Double(dataRate))
             } else if let base = baseAsset, base.durationSeconds > 0 {
                 let estMbps = (Double(base.fileSizeBytes) * 8.0) / (base.durationSeconds * 1_000_000.0)
-                info.videoBitrate = String(format: "%.1f Mbps", max(0.1, estMbps))
+                info.videoBitrate = Self.formatBitrate(estMbps * 1_000_000)
             }
             
             // Video Format Descriptions
@@ -293,7 +299,7 @@ public struct ExtendedMediaInfo: Sendable {
             let fps = (try? await v.load(.nominalFrameRate)) ?? 25.0
             trackItems.append(MediaTrackItem(
                 id: trackIdx,
-                typeName: "VIDEO (STREAM #\(idx))",
+                typeName: videoTracks.count > 1 ? "VIDEO \(idx + 1)" : "VIDEO",
                 format: info.videoFormat,
                 codec: info.videoCodecLong,
                 details: size.width.isFinite && size.height.isFinite && abs(size.width) < 1_000_000 && abs(size.height) < 1_000_000
@@ -310,11 +316,11 @@ public struct ExtendedMediaInfo: Sendable {
             if lang == nil || lang?.isEmpty == true {
                 lang = (try? await a.load(.languageCode))
             }
-            let langStr = (lang != nil && !lang!.isEmpty) ? lang!.uppercased() : "Undetermined"
+            let langStr = lang.map { $0.uppercased() }.flatMap { $0.isEmpty || $0 == "UND" ? nil : $0 } ?? "Undetermined"
             
             trackItems.append(MediaTrackItem(
                 id: trackIdx,
-                typeName: "AUDIO (STREAM #\(idx))",
+                typeName: audioTracks.count > 1 ? "AUDIO \(idx + 1)" : "AUDIO",
                 format: info.audioFormat,
                 codec: info.audioCodecLong,
                 details: info.audioSampleRate == "--" ? info.audioChannels : "\(info.audioChannels) • \(info.audioSampleRate) Hz",
@@ -331,11 +337,11 @@ public struct ExtendedMediaInfo: Sendable {
             if sLang == nil || sLang?.isEmpty == true {
                 sLang = (try? await s.load(.languageCode))
             }
-            let sLangStr = (sLang != nil && !sLang!.isEmpty) ? sLang!.uppercased() : "Undetermined"
+            let sLangStr = sLang.map { $0.uppercased() }.flatMap { $0.isEmpty || $0 == "UND" ? nil : $0 } ?? "Undetermined"
             
             trackItems.append(MediaTrackItem(
                 id: trackIdx,
-                typeName: "SUBTITLE (STREAM #\(idx))",
+                typeName: subTracks.count > 1 ? "SUBTITLE \(idx + 1)" : "SUBTITLE",
                 format: "sub",
                 codec: "Embedded Subtitles / CC",
                 details: "Timed Text Stream",
