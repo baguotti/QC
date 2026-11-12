@@ -60,7 +60,7 @@ extension FrameIOBrowserView {
                     Color.clear
                         .frame(height: 60)
                         .contentShape(Rectangle())
-                        .onTapGesture { browser.selection = [] }
+                        .onTapGesture { browser.selection = []; UploadQueue.shared.attention = .browser }
                 }
                 .onChange(of: browser.revealID) { _, id in
                     guard let id else { return }

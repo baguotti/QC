@@ -237,7 +237,7 @@ final class DeliveryPlanStore: ObservableObject {
         health = PlanHealth()
         linkSuggestions = [:]
         rootScanTask?.cancel(); rootScanTask = nil; rootFolders = []; lastRootScan = nil; rootScan = .idle
-        linkCheckTask?.cancel(); linkCheckTask = nil; checkingLinks = []
+        linkCheckTask?.cancel(); linkCheckTask = nil; checkingLinks = []; confirmedLinks = [:]
     }
 
     func unlink() {
@@ -316,6 +316,8 @@ final class DeliveryPlanStore: ObservableObject {
     var dismissedSaveTask: Task<Void, Never>?
     /// Linked Frame.io ids being checked (`checkFrameIOLinks`), and the chain of checks.
     var checkingLinks: Set<String> = []
+    /// Linked ids Frame.io confirmed present, and when: the 15-minute scan doesn't ask again within the hour.
+    var confirmedLinks: [String: Date] = [:]
     var linkCheckTask: Task<Void, Never>?
     // MARK: Frame.io folders
     /// The files of listed Frame.io folders that hold plan files (a plan code or a linked file), by folder id: what

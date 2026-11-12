@@ -275,6 +275,7 @@ final class FrameIOBrowser: ObservableObject {
     // MARK: Navigation
 
     func open(_ item: FrameIO.Item) {
+        UploadQueue.shared.attention = .browser
         guard let next = childLevel else { return }
         if next == .folder && item.isVersionStack {
             path.append(Crumb(level: .stack, id: item.id, title: item.title, folderID: nil))
@@ -320,6 +321,7 @@ final class FrameIOBrowser: ObservableObject {
     }
 
     func goTo(depth: Int) {
+        UploadQueue.shared.attention = .browser
         guard depth < path.count else { return }
         path.removeSubrange(depth...)
         reload()
@@ -462,6 +464,7 @@ final class FrameIOBrowser: ObservableObject {
     }
 
     func open(_ favourite: Favourite) {
+        UploadQueue.shared.attention = .browser
         path = favourite.path
         reload()
     }
@@ -592,12 +595,16 @@ final class FrameIOBrowser: ObservableObject {
     /// Click selects, ⌘-click toggles, ⇧-click selects the range from the last click; clicking the only selected item
     /// again deselects it.
     func click(_ id: String) {
+        UploadQueue.shared.attention = .browser
         let flags = NSEvent.modifierFlags
         let visible = visibleItems
-        if flags.contains(.shift), let anchor, let a = visible.firstIndex(where: { $0.id == anchor }),
-           let b = visible.firstIndex(where: { $0.id == id }) {
+        if flags.contains(.shift), let b = visible.firstIndex(where: { $0.id == id }),
+           // From the last plain click; without one (after ⌘A), from the selected item nearest the click, as in Finder.
+           let a = anchor.flatMap({ anchor in visible.firstIndex { $0.id == anchor } })
+               ?? visible.indices.filter({ selection.contains(visible[$0].id) }).min(by: { abs($0 - b) < abs($1 - b) }) {
             let range = visible[min(a, b)...max(a, b)].map(\.id)
             selection = flags.contains(.command) ? selection.union(range) : Set(range)
+            if anchor == nil { anchor = visible[a].id }
             return
         }
         if flags.contains(.command) {
@@ -606,6 +613,13 @@ final class FrameIOBrowser: ObservableObject {
             selection = selection == [id] ? [] : [id]
         }
         anchor = id
+    }
+
+    /// ⌘A: every item shown (the filter applies).
+    func selectAll() {
+        UploadQueue.shared.attention = .browser
+        selection = Set(visibleItems.map(\.id))
+        anchor = visibleItems.first?.id
     }
 
     /// What a right-click or drag on `item` acts on: the selection when the item is part of it, else the item alone.

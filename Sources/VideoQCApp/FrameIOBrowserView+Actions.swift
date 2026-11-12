@@ -150,13 +150,16 @@ extension FrameIOBrowserView {
 
     /// Starts uploading queue files dragged onto a Frame.io folder.
     static func startUpload(_ text: String, into folder: String, titles: [String]) {
-        let paths = text.dropFirst(UploadQueue.dragPrefix.count).split(separator: "\n").map(String.init)
+        let lines = text.dropFirst(UploadQueue.dragPrefix.count).split(separator: "\n").map(String.init)
+        let roots = lines.filter { $0.hasPrefix(UploadQueue.dragRootPrefix) }.map { String($0.dropFirst(UploadQueue.dragRootPrefix.count)) }
+        let paths = lines.filter { !$0.hasPrefix(UploadQueue.dragRootPrefix) }
         guard !paths.isEmpty, let account = FrameIOBrowser.shared.accountID else { return }
         guard !UploadQueue.shared.isRunning else {
             FrameIOBrowser.shared.notify("An upload is already running: wait for it to finish or cancel it.", isError: true)
             return
         }
-        UploadQueue.shared.start(to: .init(account: account, folder: folder, path: titles.joined(separator: " › ")), paths: Set(paths))
+        UploadQueue.shared.start(to: .init(account: account, folder: folder, path: titles.joined(separator: " › ")), paths: Set(paths),
+                                  roots: roots.isEmpty ? nil : roots)
     }
 
     // MARK: Toast

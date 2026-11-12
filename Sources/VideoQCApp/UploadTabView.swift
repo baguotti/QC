@@ -167,7 +167,6 @@ struct UploadQueuePanel: View {
     var onPlay: (URL) -> Void
     @ObservedObject private var queue = UploadQueue.shared
     /// Last row clicked without Shift: the other end of a Shift-click range.
-    @State private var anchor: String?
     @AppStorage("queueDisplayMode") private var displayMode: String = "inline"
     @AppStorage("playerThumbnailSize") private var thumbnailSize: Double = 52.0
 
@@ -236,7 +235,7 @@ struct UploadQueuePanel: View {
                                         // Double-click plays it (the first click already selected it).
                                         if (NSApp.currentEvent?.clickCount ?? 1) >= 2 { onPlay(node.url) } else { click([node.url.path]) }
                                     }
-                                    .onDrag { dragProvider([node.url.path]) }
+                                    .onDrag { dragProvider([node.url.path], folder: nil) }
                                     .contextMenu {
                                         Button("Play") { onPlay(node.url) }
                                         Button("Reveal in Finder") { NSWorkspace.shared.activateFileViewerSelecting([node.url]) }
@@ -251,7 +250,7 @@ struct UploadQueuePanel: View {
                     Color.clear
                         .frame(height: 40)
                         .contentShape(Rectangle())
-                        .onTapGesture { queue.selection = []; anchor = nil }
+                        .onTapGesture { queue.selection = []; queue.anchor = nil; queue.attention = .queue }
                 }
                 .clipped()
                 .frame(maxHeight: .infinity)
@@ -310,7 +309,7 @@ struct UploadQueuePanel: View {
         .background(RoundedRectangle(cornerRadius: StudioTheme.cornerRadius).fill(isSelected ? palette.accentBlue : .clear))
         .contentShape(Rectangle())
         .onTapGesture { click(files) }
-        .onDrag { dragProvider(files) }
+        .onDrag { dragProvider(files, folder: node) }
         .contextMenu {
             // Like the Play queue's Clear Folder; on a selected folder, clears every selected folder.
             let selected = selectedFolders(in: nodes)
@@ -334,22 +333,39 @@ struct UploadQueuePanel: View {
         }
     }
 
-    private func dragProvider(_ paths: [String]) -> NSItemProvider {
+    /// The dragged files, then what was dragged as "root:" lines (for Keep subfolders: the dragged folders are created
+    /// with what's below them, nothing above). Dragging the selection: its whole folders and its loose files.
+    private func dragProvider(_ paths: [String], folder: FileSystemTreeNode?) -> NSItemProvider {
         let dragged = queue.isRunning ? [] : queue.dragPaths(for: paths)
-        return NSItemProvider(object: (UploadQueue.dragPrefix + dragged.joined(separator: "\n")) as NSString)
+        let roots: [String]
+        if !paths.isEmpty && paths.allSatisfy(queue.selection.contains) {
+            let folders = selectedFolders(in: nodes).map(\.url.path)
+            roots = folders + dragged.filter { file in !folders.contains { file.hasPrefix($0 + "/") } }
+        } else {
+            roots = folder.map { [$0.url.path] } ?? dragged
+        }
+        let lines = dragged + roots.map { UploadQueue.dragRootPrefix + $0 }
+        return NSItemProvider(object: (UploadQueue.dragPrefix + lines.joined(separator: "\n")) as NSString)
     }
 
     /// Finder selection: click selects (a folder selects everything in it), ⌘-click adds or removes, ⇧-click selects
     /// the range from the last clicked row, in queue order.
     private func click(_ paths: [String]) {
+        queue.attention = .queue
         guard let first = paths.first, !queue.isRunning else { return }
         let flags = NSEvent.modifierFlags
-        if flags.contains(.shift), let anchor {
+        if flags.contains(.shift) {
             let order = Self.rows(in: nodes).map(\.url.path)
-            let ends = [anchor, first, paths.last ?? first].compactMap { order.firstIndex(of: $0) }
+            // From the last plain click; without one (after ⌘A, or a cleared selection), from the selected row nearest
+            // the click, as in Finder; with nothing selected, just the clicked rows.
+            let clicked = order.firstIndex(of: first) ?? 0
+            let start = queue.anchor.flatMap { order.firstIndex(of: $0) }
+                ?? order.indices.filter { queue.selection.contains(order[$0]) }.min { abs($0 - clicked) < abs($1 - clicked) }
+            let ends = ([start].compactMap { $0 } + [first, paths.last ?? first].compactMap { order.firstIndex(of: $0) })
             if let low = ends.min(), let high = ends.max() {
                 let range = order[low...high]
                 queue.selection = flags.contains(.command) ? queue.selection.union(range) : Set(range)
+                if queue.anchor == nil { queue.anchor = start.map { order[$0] } ?? first }
                 return
             }
         }
@@ -360,7 +376,7 @@ struct UploadQueuePanel: View {
             let clicked = Set(paths)
             queue.selection = queue.selection == clicked ? [] : clicked
         }
-        anchor = first
+        queue.anchor = first
     }
 
     private func toggleAllFolders() {

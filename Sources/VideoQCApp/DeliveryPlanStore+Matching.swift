@@ -211,16 +211,23 @@ extension DeliveryPlanStore {
             var found: [(kind: PlanMismatch, flag: String)] = []
             if !link.isEmpty {
                 state.upload = .uploaded
-                // The local file changed after the upload (a minute's grace: the upload stamp has no seconds).
+                // One local file of the same kind as the listed Frame.io file: their sizes say whether they're the same.
+                var sameSize: Bool?
+                if result.files.count == 1, let local = result.files.first, QCUtilities.mediaKind(of: local) != .image,
+                   let remote = Self.frameIOID(link).flatMap({ listed[$0] }), remote.size > 0,
+                   let bytes = filesByURL[local]?.bytes, bytes > 0,
+                   (remote.name as NSString).pathExtension.lowercased() == local.pathExtension.lowercased() {
+                    sameSize = bytes == remote.size
+                }
+                // The local file changed after the upload (a minute's grace: the upload stamp has no seconds). Not when
+                // Frame.io's file is the same size: a copy or a touch moves the date without changing the file.
                 let uploadedOn = pending?[.uploaded] ?? row.value(.uploaded)
-                if let when = PlanUpload.date(uploadedOn), let newest = result.files.compactMap({ dates[$0] }).max(),
+                if sameSize != true, let when = PlanUpload.date(uploadedOn), let newest = result.files.compactMap({ dates[$0] }).max(),
                    newest > when.addingTimeInterval(60) {
                     state.upload = .stale
                     found.append((.differs, "Changed after its upload to Frame.io (\(uploadedOn)): Frame.io has an older version."))
-                } else if result.files.count == 1, let local = result.files.first, QCUtilities.mediaKind(of: local) != .image,
-                          let remote = Self.frameIOID(link).flatMap({ listed[$0] }), remote.size > 0,
-                          let bytes = filesByURL[local]?.bytes, bytes > 0, bytes != remote.size,
-                          (remote.name as NSString).pathExtension.lowercased() == local.pathExtension.lowercased() {
+                } else if sameSize == false, let local = result.files.first,
+                          let remote = Self.frameIOID(link).flatMap({ listed[$0] }), let bytes = filesByURL[local]?.bytes {
                     // Same kind of file, another size: Frame.io holds another version (or another file).
                     state.upload = .stale
                     found.append((.differs, "Frame.io's file is \(Self.byteText(remote.size)), this one \(Self.byteText(bytes)): Frame.io has another version."))

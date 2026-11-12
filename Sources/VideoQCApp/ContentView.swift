@@ -1708,7 +1708,7 @@ struct ContentView: View {
             onToggleLooping: { self.playerEngine.isLooping.toggle() },
             onToggleAutoplay: { self.playerEngine.isAutoplayEnabled.toggle() },
             onToggleWaveforms: { self.playerEngine.drawsWaveforms.toggle() },
-            onSelectAllUploads: { UploadQueue.shared.selectAll() },
+            onSelectAllUploads: { UploadQueue.selectAllInFocus() },
             onUndoFrameIO: { FrameIOBrowser.shared.performUndo() },
             onDeleteFrameIO: { FrameIOBrowser.shared.deleteSelection() },
             onInspectNav: { self.handleInspectNav($0) },

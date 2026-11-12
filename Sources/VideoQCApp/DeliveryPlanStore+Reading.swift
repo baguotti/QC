@@ -207,9 +207,17 @@ extension DeliveryPlanStore {
         guard let old, let new, !adoptAsSeen else { return }
         let stamp = PlanStatusResolver.stamp(Date(), by: "Sheets")
         var stamped = false
-        defer { if stamped { saveOutbox(); scheduleFlush(after: 1) } }
+        var cleared: [String] = []
+        defer {
+            if stamped { saveOutbox(); scheduleFlush(after: 1) }
+            // A Frame.io link deleted in the sheet (by someone, not QCpie) is a Clear: listings don't link it back.
+            if !cleared.isEmpty { dismiss(cleared) }
+        }
         for (key, values) in new.values where outbox.records[key] == nil {
             let before = old.values[key] ?? [:]
+            if (values[.frameio] ?? "").isEmpty, let file = Self.frameIOID(PlanGrid.normalized(before[.frameio] ?? "")) {
+                cleared.append(Self.unlinkedKey(code: key, fileID: file))
+            }
             guard (values[.qcStatus] ?? "") != (before[.qcStatus] ?? ""), (values[.qcUpdated] ?? "") == (before[.qcUpdated] ?? ""),
                   !(values[.qcStatus] ?? "").isEmpty else { continue }
             outbox.set(code: key, name: "", [.qcUpdated: stamp], quiet: true)

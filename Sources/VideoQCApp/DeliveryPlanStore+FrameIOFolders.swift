@@ -117,7 +117,8 @@ extension DeliveryPlanStore {
             saveFrameIOFolders()
             // Linked files in no folder of the tree: deleted (or the folder holding them was), or moved out of it.
             let listed = Set(frameioFolders.values.flatMap { $0.flatMap(\.ids) })
-            checkFrameIOLinks(linkedIDs().subtracting(listed), account: root.account)
+            // Files linked outside the tree are confirmed at most hourly (each costs a lookup and a folder listing).
+            checkFrameIOLinks(linkedIDs().subtracting(listed), account: root.account, skipConfirmed: true)
         }
         let now = Date()
         lastRootScan = now
@@ -387,8 +388,9 @@ extension DeliveryPlanStore {
     /// Asks Frame.io about linked files that stopped showing in listings: those it no longer has lose their links
     /// (`isGone`). Moved files keep them (the link follows the id). One
     /// at a time, 0.25 s apart, after any check already running.
-    func checkFrameIOLinks(_ ids: Set<String>, account: String?) {
-        let ids = ids.subtracting(checkingLinks)
+    func checkFrameIOLinks(_ ids: Set<String>, account: String?, skipConfirmed: Bool = false) {
+        let hourAgo = Date().addingTimeInterval(-3600)
+        let ids = ids.subtracting(checkingLinks).filter { !skipConfirmed || (confirmedLinks[$0] ?? .distantPast) < hourAgo }
         guard !ids.isEmpty else { return }
         checkingLinks.formUnion(ids)
         // Each id's project, from its row's link: a file only counts as gone in a project this Mac can open.
@@ -406,6 +408,8 @@ extension DeliveryPlanStore {
             let all = (try? await FrameIO.shared.accounts())?.map(\.id) ?? []
             let accounts = all.isEmpty ? [] : (account.map { [$0] } ?? []) + all.filter { $0 != account }
             var gone = Set<String>()
+            var stacked: [String: FrameIO.Item] = [:]
+            var present = Set<String>()
             var projectAccounts: [String: String?] = [:]   // nil: no account here opens it
             var listings: [String: Set<String>?] = [:]
             for id in ids.sorted() where !accounts.isEmpty {
@@ -413,15 +417,23 @@ extension DeliveryPlanStore {
                 guard let project = projects[id] else { continue }
                 if projectAccounts[project] == nil { projectAccounts[project] = await Self.account(opening: project, in: accounts) }
                 guard let account = projectAccounts[project] ?? nil else { continue }
-                if await Self.isGone(id, account: account, listings: &listings) { gone.insert(id) }
+                switch await Self.whereIs(id, account: account, listings: &listings) {
+                case .gone: gone.insert(id)
+                case .inStack(let stack): stacked[id] = stack
+                case .present: present.insert(id)
+                case .unknown: break
+                }
                 try? await Task.sleep(for: .milliseconds(250))
             }
             guard let self, !Task.isCancelled else { return }   // cancelled: another sheet was linked
             self.checkingLinks.subtract(ids)
+            let now = Date()
+            for id in present { self.confirmedLinks[id] = now }
             if !gone.isEmpty {
                 Log.plan.notice("Frame.io: \(gone.count) linked file(s) deleted, links cleared")
                 self.frameIOGone(gone)
             }
+            if !stacked.isEmpty { self.followIntoStacks(stacked) }
         }
     }
 
@@ -445,7 +457,12 @@ extension DeliveryPlanStore {
     /// its parent folder (Frame.io keeps deleted files in Recently Deleted, where a lookup by id still finds them).
     /// `listings` caches each parent's ids for one check. Offline, signed out or a server error keeps the link; so does
     /// a parent that can't be listed (a version inside a stack).
-    nonisolated private static func isGone(_ id: String, account: String, listings: inout [String: Set<String>?]) async -> Bool {
+    /// `unknown`: Frame.io didn't answer clearly (offline, an error): the link stays and is asked about again.
+    enum LinkedPlace { case present, gone, inStack(FrameIO.Item), unknown }
+
+    /// Where a linked id is now: gone (404 as a file and as a stack, or no longer listed in its parent folder), or a
+    /// version inside a stack (a new version was added on Frame.io), whose link the row should follow.
+    nonisolated private static func whereIs(_ id: String, account: String, listings: inout [String: Set<String>?]) async -> LinkedPlace {
         var found: FrameIO.Item?
         for kind in ["files", "version_stacks"] where found == nil {
             do {
@@ -453,17 +470,40 @@ extension DeliveryPlanStore {
             } catch FrameIO.Failure.http(404, _) {
                 continue
             } catch {
-                return false
+                return .unknown
             }
         }
-        guard let item = found else { return true }
-        guard let parent = item.parentID else { return false }
+        guard let item = found else { return .gone }
+        guard let parent = item.parentID else { return .unknown }
         if listings[parent] == nil {
             let children = try? await FrameIO.shared.children(account: account, folder: parent, thumbnails: false)
             listings[parent] = children.map { Set($0.flatMap { [$0.id.lowercased(), $0.headVersion?.id.lowercased()].compactMap { $0 } }) }
         }
-        guard let listed = listings[parent] ?? nil else { return false }
-        return !listed.contains(id.lowercased())
+        if let listed = listings[parent] ?? nil { return listed.contains(id.lowercased()) ? .present : .gone }
+        // The parent isn't a folder: a version stack holding the file.
+        if !item.isVersionStack, let stack = try? await FrameIO.shared.item(account: account, kind: "version_stacks", id: parent),
+           stack.viewURL != nil {
+            return .inStack(stack)
+        }
+        return .unknown
+    }
+
+    /// Rows linked to a file that's now a version inside a stack link the stack (so they see its newer versions), with
+    /// Uploaded moved to the stack's last change.
+    func followIntoStacks(_ stacks: [String: FrameIO.Item]) {
+        var changed = false
+        for (id, stack) in stacks {
+            guard let url = stack.viewURL else { continue }
+            let targets = rows.filter { Self.frameIOID(frameioLink($0)) == id }
+            guard !targets.isEmpty else { continue }
+            let date = Self.listedDate(stack)
+            queueQC(targets, quiet: true, refresh: false) { entry in
+                entry[.frameio] = url
+                if let date { entry[.uploaded] = Self.uploadStamp(date) }
+            }
+            changed = true
+        }
+        if changed { recomputeStates(); publishGrids() }
     }
 
     /// The plan panel's Refresh: the sheet, then Frame.io now (the folder's tree; without one, every linked file).
@@ -530,8 +570,18 @@ extension DeliveryPlanStore {
         return FrameIOLink.Failure.notFound.errorDescription ?? "That file wasn't found in your Frame.io accounts."
     }
 
+    /// Clear Link: the file it pointed to isn't linked to these codes again by a listing (a link by hand still is).
     func clearFrameIO(rowIDs: [String]) {
         let ids = Set(rowIDs)
-        queueQC(rows.filter { ids.contains($0.id) }) { item in item[.frameio] = ""; item[.uploaded] = "" }
+        let targets = rows.filter { ids.contains($0.id) }
+        let keys = targets.compactMap { row -> String? in
+            guard let code = row.code, let file = Self.frameIOID(frameioLink(row)) else { return nil }
+            return Self.unlinkedKey(code: code, fileID: file)
+        }
+        queueQC(targets) { item in item[.frameio] = ""; item[.uploaded] = "" }
+        dismiss(keys)
     }
+
+    /// A file cleared from a code's rows by hand (`dismissedMismatches`): listings don't link it there again.
+    nonisolated static func unlinkedKey(code: String, fileID: String) -> String { "nl|\(code.lowercased())|\(fileID.lowercased())" }
 }

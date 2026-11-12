@@ -116,7 +116,8 @@ extension DeliveryPlanStore {
             localFiles: { self.match.result($0).files.map(\.lastPathComponent) })
         var queued = false
         for decision in decisions {
-            guard let item = byID[decision.fileID], let url = item.viewURL else { continue }
+            guard let item = byID[decision.fileID], let url = item.viewURL,
+                  !dismissedMismatches.contains(Self.unlinkedKey(code: decision.code, fileID: item.id)) else { continue }
             let targets = rows(withCode: decision.code)
             let date = Self.listedDate(item)
             guard decision.certain else {

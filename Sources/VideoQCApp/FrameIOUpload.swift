@@ -11,6 +11,12 @@ import VideoQCLib
 final class UploadQueue: ObservableObject {
     static let shared = UploadQueue()
 
+    /// The Upload tab's two lists: ⌘A selects in the one last clicked or used.
+    enum Attention { case queue, browser }
+    var attention: Attention = .browser
+    /// The last row clicked in the queue without ⇧: where a ⇧-click range starts.
+    var anchor: String?
+
     enum Status: Equatable {
         case queued, uploading, paused, done, skipped, cancelled
         case failed(String)
@@ -98,6 +104,13 @@ final class UploadQueue: ObservableObject {
         selection = Set(jobs.map(\.url.path))
     }
 
+    /// ⌘A in the Upload tab: the queue or the Frame.io list, whichever was used last (the queue when the list shows
+    /// nothing to select).
+    static func selectAllInFocus() {
+        let browser = FrameIOBrowser.shared
+        if shared.attention == .browser, !browser.visibleItems.isEmpty { browser.selectAll() } else { shared.selectAll() }
+    }
+
     /// Jobs of the current or last run: the progress summary counts these only.
     @Published private(set) var runIDs: Set<UUID> = []
 
@@ -111,6 +124,8 @@ final class UploadQueue: ObservableObject {
 
     /// Pasteboard text identifying queue files dragged onto a Frame.io folder.
     nonisolated static let dragPrefix = "qcpie-upload\n"
+    /// A line of a queue drag naming what was dragged (a folder or file), not a file to upload.
+    nonisolated static let dragRootPrefix = "root:"
 
     /// Posted with `[URL]`: Finder files dropped on a Frame.io folder, for `ContentView` to add to the queue. It answers
     /// with `finderFilesQueued(version:)` once they're in.
@@ -149,7 +164,7 @@ final class UploadQueue: ObservableObject {
             return
         }
         guard !isRunning else { return }
-        start(to: drop.destination, paths: Set(matches.map(\.url.path)))
+        start(to: drop.destination, paths: Set(matches.map(\.url.path)), roots: drop.paths)
     }
 
     /// What dragging these rows carries: the whole selection when the row is part of it (Finder), else just the row.
@@ -212,7 +227,10 @@ final class UploadQueue: ObservableObject {
     /// interrupted upload is discarded first, keeping the files this upload reuses.
     /// First checks the files (`UploadPreflight`: names already in the folder, files still being written, odd files)
     /// and asks about any it flags.
-    func start(to destination: Destination, paths: Set<String>? = nil, share: Bool = false) {
+    /// `roots`: what was dragged (Finder items, queue folders or files). With Keep subfolders, each file then lands in
+    /// the dragged folder holding it and the folders below it, never the ones above (`placement`); without roots (the
+    /// Upload button), the queue's own subfolders.
+    func start(to destination: Destination, paths: Set<String>? = nil, share: Bool = false, roots: [String]? = nil) {
         guard !isRunning else { return }
         guard !isChecking else {
             FrameIOBrowser.shared.notify("Still checking the last files: drop these again in a moment", isError: true)
@@ -223,9 +241,13 @@ final class UploadQueue: ObservableObject {
         let targets = paths ?? (selection.isEmpty ? Set(jobs.map(\.url.path)) : selection)
         // Read once: the checks and the upload must agree on where files go.
         let keep = keepStructure
+        let placed = roots.map { roots in
+            Dictionary(jobs.filter { targets.contains($0.url.path) }.map { ($0.url.path, Self.placement($0.url, roots: roots)) },
+                       uniquingKeysWith: { a, _ in a })
+        }
         let rows = jobs.filter { targets.contains($0.url.path) }.map {
             UploadPreflight.Row(path: $0.url.path, name: $0.url.lastPathComponent, files: $0.files, sizes: $0.fileSizes,
-                                topLevel: !keep || $0.folders.isEmpty)
+                                topLevel: !keep || (placed?[$0.url.path] ?? $0.folders).isEmpty)
         }
         isChecking = true
         Task {
@@ -240,15 +262,15 @@ final class UploadQueue: ObservableObject {
             report.unreadable = await unreadable
             isChecking = false
             guard !isRunning else { return }
-            guard !report.isEmpty else { return begin(to: destination, targets: targets, keepStructure: keep) }
+            guard !report.isEmpty else { return begin(to: destination, targets: targets, keepStructure: keep, placed: placed) }
             let names = Dictionary(rows.map { ($0.path, $0.name) }, uniquingKeysWith: { a, _ in a })
             confirm(report, names: names, folder: destination.path.split(separator: "›").last.map { "“\($0.trimmingCharacters(in: .whitespaces))”" } ?? "the folder") { choice in
                 switch choice {
                 case .skip:
                     let rest = targets.subtracting(report.flagged)
-                    if rest.isEmpty { FrameIOBrowser.shared.notify("Nothing left to upload") } else { self.begin(to: destination, targets: rest, keepStructure: keep) }
+                    if rest.isEmpty { FrameIOBrowser.shared.notify("Nothing left to upload") } else { self.begin(to: destination, targets: rest, keepStructure: keep, placed: placed) }
                 case .all:
-                    self.begin(to: destination, targets: targets, keepStructure: keep)
+                    self.begin(to: destination, targets: targets, keepStructure: keep, placed: placed)
                 case .cancel:
                     break
                 }
@@ -282,10 +304,23 @@ final class UploadQueue: ObservableObject {
         }
     }
 
-    private func begin(to destination: Destination, targets: Set<String>, keepStructure keep: Bool) {
+    private func begin(to destination: Destination, targets: Set<String>, keepStructure keep: Bool, placed: [String: [String]]?) {
         guard !isRunning else { return }
         let reused = resumable == nil ? nil : Set(jobs.filter { targets.contains($0.url.path) }.flatMap { $0.files.map(\.path) })
-        run(to: destination, targets: targets, keepStructure: keep, discardingFirst: reused)
+        run(to: destination, targets: targets, keepStructure: keep, placed: placed, discardingFirst: reused)
+    }
+
+    /// The Frame.io subfolders for `file` under what was dragged: the outermost dragged folder holding it, then the
+    /// folders between that and the file; nothing for a file dragged by itself or outside every dragged folder.
+    nonisolated static func placement(_ file: URL, roots: [String]) -> [String] {
+        let path = file.standardizedFileURL.path
+        let holding = roots.map { URL(fileURLWithPath: $0).standardizedFileURL.path }
+            .filter { $0 != path && path.hasPrefix($0.hasSuffix("/") ? $0 : $0 + "/") }
+            .min { $0.count < $1.count }
+        guard let root = holding else { return [] }
+        let between = file.standardizedFileURL.deletingLastPathComponent().path.dropFirst(root.count)
+            .split(separator: "/").map(String.init)
+        return [URL(fileURLWithPath: root).lastPathComponent] + between
     }
 
     // MARK: Upload & Share
@@ -301,6 +336,9 @@ final class UploadQueue: ObservableObject {
     private var runShare: ShareRequest?
     /// Whether the current run recreates the queue's subfolders (where its files land, for the share).
     private var runKeepsStructure = false
+    /// Where each job of the run goes under the destination (`placement` for dragged items, else the queue's folders).
+    private var runFolders: [UUID: [String]] = [:]
+    private func folders(_ job: Job) -> [String] { runFolders[job.id] ?? job.folders }
 
     /// Shares what the run put in the destination (the folder itself when that's everything in it), and copies the link.
     /// Never the whole folder when it holds other things: those weren't part of this upload.
@@ -335,7 +373,9 @@ final class UploadQueue: ObservableObject {
                             fileSizes: job.sizes, folders: job.folders))
         }
         run(to: Destination(account: saved.account, folder: saved.folder, path: saved.destinationPath),
-            targets: Set(saved.jobs.map(\.path)), keepStructure: saved.keepStructure)
+            targets: Set(saved.jobs.map(\.path)), keepStructure: saved.keepStructure,
+            // Where the paused run was putting each file (a dragged folder's placement), not the queue's folders.
+            placed: Dictionary(saved.jobs.map { ($0.path, $0.folders) }, uniquingKeysWith: { a, _ in a }))
     }
 
     /// Stops sending; nothing is deleted on Frame.io, and Resume continues from the next unsent part.
@@ -366,7 +406,8 @@ final class UploadQueue: ObservableObject {
     }
 
     /// `discardingFirst`: drop the paused/interrupted upload before starting, keeping these files' placeholders.
-    private func run(to destination: Destination, targets: Set<String>, keepStructure keep: Bool, discardingFirst reused: Set<String>? = nil) {
+    private func run(to destination: Destination, targets: Set<String>, keepStructure keep: Bool, placed: [String: [String]]? = nil,
+                     discardingFirst reused: Set<String>? = nil) {
         for index in jobs.indices where targets.contains(jobs[index].url.path) {
             jobs[index].status = .queued
             jobs[index].sent = 0
@@ -376,6 +417,7 @@ final class UploadQueue: ObservableObject {
         runIDs = Set(work.map(\.id))
         runShare = pendingShare
         runKeepsStructure = keep
+        runFolders = Dictionary(work.map { ($0.id, placed?[$0.url.path] ?? $0.folders) }, uniquingKeysWith: { a, _ in a })
         pendingShare = nil
         runDestination = destination.path
         currentRunID = TransferLog.shared.begin(.upload, destination: destination.path, keepStructure: keep)
@@ -395,8 +437,8 @@ final class UploadQueue: ObservableObject {
                                                               reason: "Uploading to Frame.io")
         let saved = UploadResumeStore.SavedRun(
             account: destination.account, folder: destination.folder, destinationPath: destination.path, keepStructure: keep,
-            jobs: work.map { .init(path: $0.url.path, files: $0.files.map(\.path), sizes: $0.fileSizes, folders: $0.folders) })
-        let items = work.map { UploadWork(jobID: $0.id, files: $0.files, sizes: $0.fileSizes, folders: keep ? $0.folders : []) }
+            jobs: work.map { .init(path: $0.url.path, files: $0.files.map(\.path), sizes: $0.fileSizes, folders: self.folders($0)) })
+        let items = work.map { UploadWork(jobID: $0.id, files: $0.files, sizes: $0.fileSizes, folders: keep ? self.folders($0) : []) }
         let paths = Dictionary(uniqueKeysWithValues: work.map { ($0.id, $0.url.path) })
         let engine = engine
         let store = store
@@ -438,7 +480,7 @@ final class UploadQueue: ObservableObject {
         if case .failed(let text) = outcome { message = text }
         guard let currentRunID else { return }
         TransferLog.shared.record(UploadLogEntry(id: UUID(), name: job.files.count > 1 ? "\(job.url.lastPathComponent) (\(job.files.count) frames)" : job.url.lastPathComponent,
-                              destination: ([destination] + (keep ? job.folders : [])).joined(separator: " › "), bytes: job.size,
+                              destination: ([destination] + (keep ? folders(job) : [])).joined(separator: " › "), bytes: job.size,
                               started: started, finished: Date(), outcome: entryOutcome, message: message),
                                   in: currentRunID)
     }
@@ -473,7 +515,7 @@ final class UploadQueue: ObservableObject {
             if let share = runShare, uploaded + skipped > 0 {
                 // Top-level names in the destination: the file, or its first subfolder when keeping the structure.
                 let names = Set(finished.filter { $0.status == .done || $0.status == .skipped }.flatMap { job in
-                    (runKeepsStructure ? job.folders.first : nil).map { [$0] } ?? job.files.map(\.lastPathComponent)
+                    (runKeepsStructure ? folders(job).first : nil).map { [$0] } ?? job.files.map(\.lastPathComponent)
                 })
                 Task { await self.shareRun(share, names: names) }
             }
