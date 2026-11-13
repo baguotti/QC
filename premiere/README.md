@@ -15,7 +15,9 @@ to false by hand so no `.xmp` sidecar is written). The exporter ignores its size
 
 ## Mac installer (`package/build_mac.sh`)
 
-Builds, in `package/dist/` (git-ignored): `LineFinder-<panel version>.pkg`, `LineFinder-<panel version>.ccx` (the panel
+Builds, in `package/dist/` (git-ignored): `LineFinder-<panel version>.pkg`, `LineFinder-<panel version>.dmg` (the .pkg
+and a link to System Settings → Privacy & Security, for first installs: macOS blocks the unsigned .pkg until Open
+Anyway), `LineFinder-<panel version>.ccx` (the panel
 alone) and `LineFinderAnalysis-<exporter/VERSION>.zip` (the exporter alone, stored without compression). The .pkg
 installs the exporter into `/Library/Application Support/Adobe/Common/Plug-ins/7.0/MediaCore/LineFinder/` and makes that
 folder the logged-in user's (so the panel can update it without a password), removes a loose
@@ -27,7 +29,7 @@ Without Creative Cloud's agent, double-clicking the .ccx installs the panel. Rem
 
 - Premiere loads plug-ins only from `/Library/…/MediaCore` (and its subfolders) and its own app bundle, not from
   `~/Library` (its `Plugin Loading.log` lists the folders it scans): hence the user-owned subfolder.
-- **Releasing:** every QCpie release attaches all three files (`scripts/Release.sh publish` does, and stops if one is
+- **Releasing:** every QCpie release attaches all four files (`scripts/Release.sh publish` does, and stops if one is
   missing). A new plugin version: bump `panel/manifest.json` (and `exporter/VERSION` when the exporter changed), run
   `build_mac.sh`. QCpie's gear menu → LineFinder for Premiere Pro opens `releases/latest` (`AppConfig.latestReleaseWebURL`).
 - The .ccx manifest needs `host` as an object: as an array the agent fails with status -267 ("failed to generate mxi").

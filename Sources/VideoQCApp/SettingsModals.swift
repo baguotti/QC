@@ -547,6 +547,7 @@ struct UserSettingsModalView: View {
     @AppStorage(Notifier.problemsOnlyKey) private var problemsOnly = false
     @State private var downloadFolder = UserDefaults.standard.url(forKey: DownloadQueue.folderKey)
     @State private var maintenanceNote: String?
+    @State private var isCleaningNotes = false
     @ObservedObject private var notifier = Notifier.shared
     
     private var palette: StudioPalette { StudioPalette(isLightMode) }
@@ -771,6 +772,22 @@ struct UserSettingsModalView: View {
                         maintenanceNote = "Caches cleared."
                     }
                     .font(.ui(size: 11))
+                }
+                rowDivider
+                row("note.text", "Orphaned notes", "Notes left next to clips that were deleted or renamed. Scans a folder and its subfolders.") {
+                    Button("Clean Up…") {
+                        isCleaningNotes = true
+                        Task {
+                            defer { isCleaningNotes = false }
+                            if let note = await SettingsTransfer.cleanUpOrphanedNotes(progress: { maintenanceNote = $0 }) {
+                                maintenanceNote = note
+                            } else if maintenanceNote?.hasPrefix("Scanning") == true {
+                                maintenanceNote = nil
+                            }
+                        }
+                    }
+                    .font(.ui(size: 11))
+                    .disabled(isCleaningNotes)
                 }
                 rowDivider
                 row("arrow.counterclockwise", "Reset all settings", "Back to QCpie's defaults, appearance included. Frame.io favourites and sign-in are kept.") {
@@ -1205,6 +1222,32 @@ enum SettingsTransfer {
         for key in defaults.dictionaryRepresentation().keys where isSetting(key) { defaults.removeObject(forKey: key) }
         ThemeManager.shared.resetToDefault()
         return true
+    }
+
+    /// Asks for a folder, finds notes left behind by deleted or renamed clips (off the main thread) and removes them
+    /// after a confirmation. Returns the line shown under the section.
+    static func cleanUpOrphanedNotes(progress: @escaping (String) -> Void) async -> String? {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.prompt = "Scan"
+        panel.message = "Choose a folder to scan, subfolders included, for notes whose clip is gone."
+        guard panel.runModal() == .OK, let folder = panel.url else { return nil }
+        progress("Scanning \(folder.lastPathComponent)…")
+        let orphans = await Task.detached(priority: .utility) { QCNotesManager.orphanedSidecars(in: folder) }.value
+        guard !orphans.isEmpty else { return "No orphaned notes in \(folder.lastPathComponent)." }
+        let alert = NSAlert()
+        alert.messageText = "Remove \(orphans.count) orphaned notes file\(orphans.count == 1 ? "" : "s")?"
+        let sample = orphans.prefix(5).compactMap { QCNotesManager.mediaName(ofSidecar: $0.lastPathComponent) }
+        alert.informativeText = "Their clips are no longer in the folder (deleted or renamed): "
+            + sample.joined(separator: ", ") + (orphans.count > sample.count ? ", and \(orphans.count - sample.count) more" : "")
+            + ".\n\nThey go to the Trash; on a server without one they are deleted for good."
+        alert.addButton(withTitle: "Cancel")
+        alert.addButton(withTitle: "Remove")
+        guard alert.runModal() == .alertSecondButtonReturn else { return nil }
+        let removed = await Task.detached(priority: .utility) { QCNotesManager.removeSidecars(orphans) }.value
+        return removed == orphans.count ? "Removed \(removed) orphaned notes file\(removed == 1 ? "" : "s")."
+            : "Removed \(removed) of \(orphans.count). The rest couldn't be removed (see Logs)."
     }
 
     static func clearCaches() {

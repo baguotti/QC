@@ -3,9 +3,10 @@
 #   LineFinder-<panel version>.pkg            the exporter into MediaCore/LineFinder (made the logged-in user's, so the
 #                                             panel can update it later without a password) and the UXP panel
 #                                             (LineFinder.ccx, installed for that user with Adobe's agent)
+#   LineFinder-<panel version>.dmg            the .pkg plus a Privacy & Security link, for first installs
 #   LineFinder-<panel version>.ccx            the panel alone, for the panel's own updates
 #   LineFinderAnalysis-<exporter version>.zip the exporter alone (stored, no compression: the panel unzips it)
-# Every QCpie release attaches all three. Bump exporter/VERSION when the exporter changes.
+# Every QCpie release attaches all four. Bump exporter/VERSION when the exporter changes.
 #
 # Unsigned by default: Gatekeeper then blocks the .pkg on other Macs (right-click → Open, or System Settings →
 # Privacy & Security → Open Anyway). For distribution set:
@@ -82,4 +83,11 @@ if [[ -n "${NOTARY_PROFILE:-}" ]]; then
   xcrun notarytool submit "$PKG" --keychain-profile "$NOTARY_PROFILE" --wait
   xcrun stapler staple "$PKG"
 fi
-echo "Built $PKG, LineFinder-$VERSION.ccx, LineFinderAnalysis-$EXPORTER_VERSION.zip"
+# First installs: the .pkg in a DMG with a link to Privacy & Security (macOS blocks the unsigned .pkg until Open Anyway).
+STAGE="$WORK/dmg"
+mkdir -p "$STAGE"
+cp "$PKG" "$STAGE/"
+"$PREMIERE/../scripts/privacy-link.sh" "$STAGE" "the installer"
+rm -f "$DIST/LineFinder-$VERSION.dmg"
+hdiutil create -quiet -volname "LineFinder $VERSION" -srcfolder "$STAGE" -ov -format UDZO "$DIST/LineFinder-$VERSION.dmg"
+echo "Built $PKG, LineFinder-$VERSION.dmg, LineFinder-$VERSION.ccx, LineFinderAnalysis-$EXPORTER_VERSION.zip"
