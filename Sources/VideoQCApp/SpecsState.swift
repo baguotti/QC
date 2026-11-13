@@ -751,6 +751,12 @@ public final class SpecsState: ObservableObject {
     private var inspectionsRunning = 0
     /// Files added (append batches) since the queue was replaced: kept when the replacing batch lands after them.
     private var appendedSinceReplace: Set<URL> = []
+    /// Files being inspected now: a tab switch while a batch runs doesn't start them again.
+    private var inspecting: Set<URL> = []
+    /// Queue files the inspector returned nothing for: not retried on every visit (each retry also stops loudness analysis).
+    private var uninspectable: Set<URL> = []
+    /// Clips Media Info read outside this list (not published: nothing draws from it). Cleared with the queue.
+    var mediaInfoCache: [URL: DeliverableAsset] = [:]
 
     /// Empties the list; inspections still running for the old queue are dropped when they finish.
     public func clearDeliverables() {
@@ -760,11 +766,29 @@ public final class SpecsState: ObservableObject {
         inspectGeneration += 1
         inspectionsRunning = 0
         appendedSinceReplace = []
+        inspecting = []
+        uninspectable = []
+        mediaInfoCache = [:]
         isInspectingDeliverables = false
         deliverableAssets = []
     }
 
-    public func inspectDeliverablesBatch(urls: [URL], append: Bool = false) {
+    /// Opening Inspect: inspects the queue's files the list doesn't have yet. All of them on a first visit; on later
+    /// visits the files added while another tab was shown (they're inspected only here, to keep loads light).
+    public func inspectMissing(from queue: [URL]) {
+        guard !queue.isEmpty else { return }
+        if deliverableAssets.isEmpty && inspecting.isEmpty {
+            inspectDeliverablesBatch(urls: queue)
+            return
+        }
+        let have = inspecting.union(uninspectable).union(deliverableAssets.map { $0.fileURL.standardizedFileURL })
+        let missing = queue.filter { !have.contains($0.standardizedFileURL) }
+        guard !missing.isEmpty else { return }
+        inspectDeliverablesBatch(urls: missing, append: true, order: queue)
+    }
+
+    /// `order`: the queue, to put appended files in queue order instead of at the end.
+    public func inspectDeliverablesBatch(urls: [URL], append: Bool = false, order: [URL]? = nil) {
         guard !urls.isEmpty else { return }
         cancelAudioAnalysis()
         if !append {
@@ -773,7 +797,12 @@ public final class SpecsState: ObservableObject {
             inspectGeneration += 1
             inspectionsRunning = 0
             appendedSinceReplace = []
+            inspecting = []
+            uninspectable = []
+            mediaInfoCache = [:]   // a refresh re-reads changed files: Media Info must too
         }
+        let batch = urls.map(\.standardizedFileURL)
+        inspecting.formUnion(batch)
         let generation = inspectGeneration
         inspectionsRunning += 1
         isInspectingDeliverables = true
@@ -784,12 +813,23 @@ public final class SpecsState: ObservableObject {
             let assets = await DeliverablesInspector.inspectBatch(urls: urls, maxConcurrency: 8)
             guard generation == self.inspectGeneration else { return }
             self.inspectionsRunning -= 1
+            self.inspecting.subtract(batch)
+            self.uninspectable.formUnion(Set(batch).subtracting(assets.map { $0.fileURL.standardizedFileURL }))
             if append {
                 var seen = Set(self.deliverableAssets.map { $0.fileURL.standardizedFileURL })
                 let newAssets = assets.filter { seen.insert($0.fileURL.standardizedFileURL).inserted }
                 self.appendedSinceReplace.formUnion(newAssets.map { $0.fileURL.standardizedFileURL })
                 if !newAssets.isEmpty {
-                    self.deliverableAssets += newAssets
+                    var merged = self.deliverableAssets + newAssets
+                    if let order {
+                        let rank = Dictionary(order.enumerated().map { ($1.standardizedFileURL, $0) }, uniquingKeysWith: { a, _ in a })
+                        merged = merged.enumerated().sorted {
+                            let l = rank[$0.element.fileURL.standardizedFileURL] ?? Int.max
+                            let r = rank[$1.element.fileURL.standardizedFileURL] ?? Int.max
+                            return l != r ? l < r : $0.offset < $1.offset
+                        }.map(\.element)
+                    }
+                    self.deliverableAssets = merged
                 }
             } else {
                 // Read again without their check results: their Player markers go too.

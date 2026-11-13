@@ -100,7 +100,7 @@ struct UpdateModalView: View {
                 primaryButton("Quit QCpie") { updateManager.quitAppToReplace() }
             }
         case .failed(let message):
-            header(title: "Couldn't check for updates", detail: message, badge: .failed)
+            header(title: updateManager.hasUpdate ? "Couldn't update QCpie" : "Couldn't check for updates", detail: message, badge: .failed)
             actions(leading: {
                 if let url = updateManager.remoteWebURL {
                     linkButton("View on GitHub") { NSWorkspace.shared.open(url) }

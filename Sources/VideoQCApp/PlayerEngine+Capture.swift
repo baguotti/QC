@@ -64,6 +64,7 @@ extension PlayerEngine {
     
     public func setScanResults(_ results: [VideoQCResult]) {
         var map: [URL: [PlayerTimelineMarker]] = [:]
+        var lines: [URL: LineMarkFrames] = [:]
         for res in results {
             var fileMarkers: [PlayerTimelineMarker] = []
             for seg in res.glitchSegments {
@@ -77,7 +78,14 @@ extension PlayerEngine {
                 fileMarkers.append(marker)
             }
             map[res.fileURL.standardizedFileURL] = fileMarkers   // Player URLs are standardized
+            let dims = res.resolution.split(separator: "x").compactMap { Double($0) }
+            if dims.count == 2, !res.errorFrames.isEmpty {
+                lines[res.fileURL.standardizedFileURL] = LineMarkFrames(
+                    size: CGSize(width: dims[0], height: dims[1]),
+                    frames: Dictionary(res.errorFrames.map { ($0.frameIndex, $0.detections) }, uniquingKeysWith: { a, _ in a }))
+            }
         }
+        self.lineMarks = lines
         self.markersMap = map
         if let active = activeURL {
             self.activeMarkers = map[active] ?? []

@@ -107,8 +107,10 @@ public final class UpdateManager: NSObject, ObservableObject {
             
             self.remoteWebURL = URL(string: release.htmlUrl)
             
-            // Find DMG asset if available
-            if let dmgAsset = release.assets.first(where: { $0.name.lowercased().hasSuffix(".dmg") }),
+            // QCpie.dmg by name: releases also carry the Premiere plugin's files, and GitHub lists assets alphabetically.
+            let dmgAsset = release.assets.first { $0.name == "QCpie.dmg" }
+                ?? release.assets.first { $0.name.lowercased().hasSuffix(".dmg") && !$0.name.hasPrefix("LineFinder") }
+            if let dmgAsset,
                let downloadURL = URL(string: dmgAsset.browserDownloadUrl) {
                 self.remoteDMGURL = downloadURL
             } else {
@@ -296,6 +298,12 @@ public final class UpdateManager: NSObject, ObservableObject {
             }
         }
         
+        // Only QCpie replaces QCpie: a wrong asset (another app's disk image) must not overwrite it.
+        guard Bundle(url: sourceAppURL)?.bundleIdentifier == "com.studio.qcpie" else {
+            unmountDMG()
+            throw AutoUpdateError.appNotFound
+        }
+
         onStatusUpdate("Staging application bundle...")
         let stagedDir = workDir.appendingPathComponent("staged", isDirectory: true)
         try FileManager.default.createDirectory(at: stagedDir, withIntermediateDirectories: true)
@@ -524,7 +532,7 @@ private enum AutoUpdateError: LocalizedError {
         case .mountFailed(let detail):
             return "Failed to mount installer disk image: \(detail)"
         case .appNotFound:
-            return "Application bundle not found inside disk image."
+            return "The download doesn't contain QCpie. Download it from GitHub instead."
         case .stagingFailed(let detail):
             return "Failed to extract application bundle: \(detail)"
         case .scriptCreationFailed(let detail):

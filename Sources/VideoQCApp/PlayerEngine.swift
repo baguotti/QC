@@ -193,6 +193,10 @@ public final class PlayerEngine: ObservableObject {
     
     // Legal-range zebra on paused frames; the preset is shared with Frame Check.
     @Published public var showLegalZebra: Bool = false
+    /// Outlines Line Check's findings on paused frames (`VideoViewportView.updateLineMarks`).
+    @Published public var showLineMarks: Bool = UserDefaults.standard.object(forKey: "prefShowLineMarks") as? Bool ?? true {
+        didSet { UserDefaults.standard.set(showLineMarks, forKey: "prefShowLineMarks") }
+    }
     @Published public var legalRangePreset: String = LegalRangeSpec.current.name {
         didSet { UserDefaults.standard.set(legalRangePreset, forKey: LegalRangeSpec.preferenceKey) }
     }
@@ -222,6 +226,8 @@ public final class PlayerEngine: ObservableObject {
             isNineBySixteen: isNineBySixteen,
             showCenterCrosshair: showCenterCrosshair,
             showLegalZebra: showLegalZebra,
+            showLineMarks: showLineMarks,
+            hasLineMarks: !activeMarkers.isEmpty,
             legalRangePreset: legalRangePreset,
             clipInfoOverlayMode: clipInfoOverlayMode,
             lastScreenshotPreset: lastScreenshotPreset,
@@ -575,6 +581,8 @@ public final class PlayerEngine: ObservableObject {
     // Glitch Markers from Line Scanner
     @Published public var markersMap: [URL: [PlayerTimelineMarker]] = [:]
     @Published public var activeMarkers: [PlayerTimelineMarker] = []
+    /// Set with `markersMap` (whose publish redraws the viewport); read only on paused frames.
+    var lineMarks: [URL: LineMarkFrames] = [:]
     
     // Review Notes from Companion Sidecar (.qcnotes)
     @Published public var activeNotes: [QCFileNote] = []

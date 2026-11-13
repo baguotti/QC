@@ -15,9 +15,9 @@ to false by hand so no `.xmp` sidecar is written). The exporter ignores its size
 
 ## Mac installer (`package/build_mac.sh`)
 
-Builds, in `package/dist/` (git-ignored): `LineFinder-<panel version>.pkg`, `LineFinder-<panel version>.dmg` (the .pkg
-and a link to System Settings → Privacy & Security, for first installs: macOS blocks the unsigned .pkg until Open
-Anyway), `LineFinder-<panel version>.ccx` (the panel
+Builds, in `package/dist/` (git-ignored): `LineFinder-<panel version>.pkg`, `LineFinder-Installer-<panel version>.zip`
+(the .pkg and a link to System Settings → Privacy & Security, for first installs: macOS blocks the unsigned .pkg until
+Open Anyway; a zip, not a DMG, because QCpie's own updater takes the first `.dmg` on a release), `LineFinder-<panel version>.ccx` (the panel
 alone) and `LineFinderAnalysis-<exporter/VERSION>.zip` (the exporter alone, stored without compression). The .pkg
 installs the exporter into `/Library/Application Support/Adobe/Common/Plug-ins/7.0/MediaCore/LineFinder/` and makes that
 folder the logged-in user's (so the panel can update it without a password), removes a loose

@@ -3,7 +3,7 @@
 #   LineFinder-<panel version>.pkg            the exporter into MediaCore/LineFinder (made the logged-in user's, so the
 #                                             panel can update it later without a password) and the UXP panel
 #                                             (LineFinder.ccx, installed for that user with Adobe's agent)
-#   LineFinder-<panel version>.dmg            the .pkg plus a Privacy & Security link, for first installs
+#   LineFinder-Installer-<panel version>.zip  the .pkg plus a Privacy & Security link, for first installs
 #   LineFinder-<panel version>.ccx            the panel alone, for the panel's own updates
 #   LineFinderAnalysis-<exporter version>.zip the exporter alone (stored, no compression: the panel unzips it)
 # Every QCpie release attaches all four. Bump exporter/VERSION when the exporter changes.
@@ -83,11 +83,12 @@ if [[ -n "${NOTARY_PROFILE:-}" ]]; then
   xcrun notarytool submit "$PKG" --keychain-profile "$NOTARY_PROFILE" --wait
   xcrun stapler staple "$PKG"
 fi
-# First installs: the .pkg in a DMG with a link to Privacy & Security (macOS blocks the unsigned .pkg until Open Anyway).
-STAGE="$WORK/dmg"
+# First installs: the .pkg in a zip with a link to Privacy & Security (macOS blocks the unsigned .pkg until Open Anyway).
+# A zip, not a DMG: QCpie 0.15.15 and older update from the first .dmg a release lists, and GitHub lists by name.
+STAGE="$WORK/installer/LineFinder $VERSION"
 mkdir -p "$STAGE"
 cp "$PKG" "$STAGE/"
 "$PREMIERE/../scripts/privacy-link.sh" "$STAGE" "the installer"
-rm -f "$DIST/LineFinder-$VERSION.dmg"
-hdiutil create -quiet -volname "LineFinder $VERSION" -srcfolder "$STAGE" -ov -format UDZO "$DIST/LineFinder-$VERSION.dmg"
-echo "Built $PKG, LineFinder-$VERSION.dmg, LineFinder-$VERSION.ccx, LineFinderAnalysis-$EXPORTER_VERSION.zip"
+rm -f "$DIST/LineFinder-Installer-$VERSION.zip"
+ditto -c -k --keepParent "$STAGE" "$DIST/LineFinder-Installer-$VERSION.zip"
+echo "Built $PKG, LineFinder-Installer-$VERSION.zip, LineFinder-$VERSION.ccx, LineFinderAnalysis-$EXPORTER_VERSION.zip"

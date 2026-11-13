@@ -91,6 +91,12 @@ public final class PlayerContainerNSView: NSView {
     private var zebraShownKey: [SlotTarget: String] = [:]
     private var zebraPendingKey: [SlotTarget: String] = [:]
     private var zebraTasks: [SlotTarget: Task<Void, Never>] = [:]
+
+    // Line marks: outlines around Line Check's findings, sublayers of the still layers like the zebra. Paused only;
+    // geometry from the scan results (no decode), rebuilt only when the frame, size or zoom changed.
+    private let lineMarkLayerA = CALayer()
+    private let lineMarkLayerB = CALayer()
+    private var lineMarksKey: [SlotTarget: String] = [:]
     
     // Split Divider & Handle
     private let splitDividerLayer = CALayer()
@@ -305,6 +311,12 @@ public final class PlayerContainerNSView: NSView {
             zebra.actions = ["hidden": NSNull(), "contents": NSNull(), "position": NSNull(), "bounds": NSNull(), "frame": NSNull()]
             still.addSublayer(zebra)
         }
+        for marks in [lineMarkLayerA, lineMarkLayerB] {
+            marks.isHidden = true
+            marks.actions = ["hidden": NSNull(), "sublayers": NSNull(), "position": NSNull(), "bounds": NSNull(), "frame": NSNull()]
+        }
+        stillFrameLayerA.addSublayer(lineMarkLayerA)
+        stillFrameLayerB.addSublayer(lineMarkLayerB)
         
         // Mask Layer for Layer A (disables implicit animation for instantaneous 120fps wipe tracking)
         maskLayerA.actions = ["position": NSNull(), "bounds": NSNull(), "path": NSNull(), "frame": NSNull()]
@@ -652,6 +664,7 @@ public final class PlayerContainerNSView: NSView {
     
     /// Shows the zebra mask for each visible paused video frame, decoding it when the frame or standard changed.
     private func updateZebra() {
+        updateLineMarks()
         guard let engine = engine else { return }
         let isActive = engine.showLegalZebra && !engine.isPlaying && !engine.isScrubbing
             && engine.compareMode != .difference && engine.compareMode != .overlay
@@ -701,6 +714,75 @@ public final class PlayerContainerNSView: NSView {
         }
     }
     
+    // MARK: - Line Marks
+
+    /// Outlines the lines Line Check found on each visible paused video frame.
+    private func updateLineMarks() {
+        guard let engine = engine else { return }
+        let isActive = engine.showLineMarks && !engine.isPlaying && !engine.isScrubbing
+            && engine.compareMode != .difference && engine.compareMode != .overlay
+        // The canvas is scaled for zoom: outlines are divided by it so they stay a hairline on screen.
+        let zoom = max(0.01, canvasLayer.affineTransform().a)
+        for slot in [SlotTarget.slotA, .slotB] {
+            let container = slot == .slotA ? lineMarkLayerA : lineMarkLayerB
+            let state = slot == .slotA ? engine.slotA : engine.slotB
+            let still = stillLayer(for: slot)
+            let time = (slot == .slotA ? lastCapturedTimeA : lastCapturedTimeB) ?? .invalid
+            guard isActive, let url = state.url, state.mediaKind == .video, state.sequence == nil, !still.isHidden,
+                  time.isNumeric, let marks = engine.lineMarks[url.standardizedFileURL],
+                  let detections = marks.frames[frameIndex(of: time, fps: state.fps)], !detections.isEmpty else {
+                if !container.isHidden { container.isHidden = true }   // may run per tick while playing: touch nothing
+                continue
+            }
+            let bounds = still.bounds
+            // The detections themselves are in the key: a new Line Check of this clip can change them on the same frame.
+            let lines = detections.map { "\($0.edge.rawValue)\($0.thickness)/\($0.position ?? -1)" }.joined(separator: ",")
+            let key = "\(url.path)|\(lines)|\(bounds.size)|\(zoom)"
+            if lineMarksKey[slot] != key {
+                lineMarksKey[slot] = key
+                CATransaction.begin()
+                CATransaction.setDisableActions(true)
+                container.frame = bounds
+                container.sublayers = Self.lineMarkRects(detections, picture: marks.size, shown: state.videoSize, in: bounds, zoom: zoom)
+                    .map { rect in
+                        let mark = CALayer()
+                        mark.frame = rect
+                        mark.borderWidth = 1 / zoom
+                        mark.borderColor = NSColor(red: 1, green: 0.27, blue: 0.23, alpha: 0.9).cgColor
+                        mark.actions = ["position": NSNull(), "bounds": NSNull()]
+                        return mark
+                    }
+                CATransaction.commit()
+            }
+            if container.isHidden { container.isHidden = false }
+        }
+    }
+
+    /// Outline rects (layer coordinates, origin bottom-left) for detections in a `picture`-sized frame (before
+    /// rotation; `shown` is the on-screen size, only its orientation is used) drawn into `bounds`.
+    nonisolated static func lineMarkRects(_ detections: [LineDetection], picture: CGSize, shown: CGSize, in bounds: CGRect, zoom: CGFloat) -> [CGRect] {
+        var size = picture
+        if (size.width > size.height) != (shown.width > shown.height) { size = CGSize(width: size.height, height: size.width) }
+        guard size.width > 0, size.height > 0 else { return [] }
+        let w = size.width, h = size.height
+        let sx = bounds.width / w, sy = bounds.height / h
+        let pad = 2 / zoom
+        return detections.map { line in
+            let t = CGFloat(max(1, line.thickness)), p = CGFloat(line.position ?? 0)
+            let rect: CGRect   // picture pixels, origin top-left
+            switch line.edge {
+            case .top: rect = CGRect(x: 0, y: p, width: w, height: t)
+            case .bottom: rect = CGRect(x: 0, y: h - p - t, width: w, height: t)
+            case .left: rect = CGRect(x: p, y: 0, width: t, height: h)
+            case .right: rect = CGRect(x: w - p - t, y: 0, width: t, height: h)
+            case .splitHorizontal: rect = CGRect(x: 0, y: p, width: w, height: t)
+            case .splitVertical: rect = CGRect(x: p, y: 0, width: t, height: h)
+            }
+            return CGRect(x: rect.minX * sx, y: bounds.height - rect.maxY * sy, width: rect.width * sx, height: rect.height * sy)
+                .insetBy(dx: -pad, dy: -pad)
+        }
+    }
+
     // MARK: - Display Link & Live Playback
     
     public override func viewWillMove(toWindow newWindow: NSWindow?) {
@@ -1285,6 +1367,7 @@ public final class PlayerContainerNSView: NSView {
         canvasLayer.setAffineTransform(CGAffineTransform(scaleX: zoomScale, y: zoomScale))
         
         updateGuideOverlays()
+        updateLineMarks()
         updateResolutionLabels()
         
         CATransaction.commit()
@@ -1367,6 +1450,7 @@ public final class PlayerContainerNSView: NSView {
             splitDividerLayer.isHidden = true
             splitHandleLayer.isHidden = true
             updateGuideOverlays()
+            updateLineMarks()
             updateLayerVisibility()
             updateResolutionLabels()
             CATransaction.commit()
@@ -1604,6 +1688,7 @@ public final class PlayerContainerNSView: NSView {
         }
         
         updateGuideOverlays()
+        updateLineMarks()
         updateLayerVisibility()
         updateResolutionLabels()
         CATransaction.commit()

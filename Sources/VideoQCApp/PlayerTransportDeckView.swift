@@ -233,6 +233,19 @@ struct PlayerTransportDeckView: View, Equatable {
                     }
                 }
                 
+                if transportState.hasLineMarks {
+                    transportBtn(
+                        icon: "rectangle.dashed",
+                        tooltip: "Line Marks: \(transportState.showLineMarks ? "ON" : "OFF"). Outlines the lines Line Check found, on paused frames.",
+                        isActive: transportState.showLineMarks,
+                        size: 12,
+                        weight: .semibold,
+                        width: 26
+                    ) {
+                        engine.showLineMarks.toggle()
+                    }
+                }
+
                 customTransportBtn(
                     tooltip: transportState.hasSubtitles
                         ? "Subtitles: \(transportState.showSubtitles ? "ON" : "OFF") (\(engine.subtitleFileName ?? ".srt")). Drag them on the video to move (double-click to reset). Right-click to import or remove."

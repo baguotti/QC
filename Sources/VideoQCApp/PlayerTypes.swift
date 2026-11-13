@@ -334,6 +334,9 @@ public struct TransportState: Equatable, Sendable {
     public let isNineBySixteen: Bool
     public let showCenterCrosshair: Bool
     public let showLegalZebra: Bool
+    public let showLineMarks: Bool
+    /// Line Check found lines in slot A's clip (the line-marks toggle shows only then).
+    public let hasLineMarks: Bool
     public let legalRangePreset: String
     public let clipInfoOverlayMode: ClipInfoOverlayMode
     public let lastScreenshotPreset: ScreenshotPreset
@@ -354,6 +357,8 @@ public struct TransportState: Equatable, Sendable {
         isNineBySixteen: Bool,
         showCenterCrosshair: Bool,
         showLegalZebra: Bool,
+        showLineMarks: Bool,
+        hasLineMarks: Bool,
         legalRangePreset: String,
         clipInfoOverlayMode: ClipInfoOverlayMode,
         lastScreenshotPreset: ScreenshotPreset,
@@ -371,6 +376,8 @@ public struct TransportState: Equatable, Sendable {
         self.isNineBySixteen = isNineBySixteen
         self.showCenterCrosshair = showCenterCrosshair
         self.showLegalZebra = showLegalZebra
+        self.showLineMarks = showLineMarks
+        self.hasLineMarks = hasLineMarks
         self.legalRangePreset = legalRangePreset
         self.clipInfoOverlayMode = clipInfoOverlayMode
         self.lastScreenshotPreset = lastScreenshotPreset
@@ -381,6 +388,13 @@ public struct TransportState: Equatable, Sendable {
         self.hasTimeline = hasTimeline
         self.hasVideo = hasVideo
     }
+}
+
+/// Line Check's findings for one clip, by frame, for the Player's line marks. `size` is the decoded picture
+/// (`naturalSize`, before rotation); detections are already in on-screen orientation.
+public struct LineMarkFrames: Sendable {
+    public let size: CGSize
+    public let frames: [Int: [LineDetection]]
 }
 
 // MARK: - Playback Clock

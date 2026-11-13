@@ -25,6 +25,8 @@ Section numbers match the old single AGENTS.md, so older commit messages and not
 
 - **Not a Line** (`LineCheckDismissals`, `ScannerState.swift`): a finding dismissed in the results is stored per clip (file name + frame count: no disk reads) as edge + frame range and removed (±2 frames) from every later scan of that clip before Finder tags, reports, notifications and Player markers see it (`VideoQCResult.removingDetections`). `ScannerState` keeps the raw results so Restore (card header, or Restore All above the cards for clips whose findings are all hidden) brings them back. Completed files are filtered one at a time (refiltering everything per file was O(n²)).
 
+- **Player line marks** (`VideoViewportView.updateLineMarks`, toggle `PlayerEngine.showLineMarks`, `prefShowLineMarks`, button shown only for clips with findings): `setScanResults` keeps each clip's `errorFrames` by frame (`PlayerEngine.lineMarks`, not published) and the viewport outlines that frame's detections with bordered `CALayer`s, sublayers of `stillFrameLayerA/B` like the zebra. **Paused only**, no decode: rects come from thickness / position (`lineMarkRects`, buffer size from `resolution`, swapped when the on-screen orientation differs), rebuilt only when the frame's lines, the still's size or the zoom change; border and padding are divided by the canvas zoom so they stay a hairline.
+
 ## 8e. Scan tab → Frame Check (`FrameCheck.swift`)
 
 - One decode pass per video finds three things: **frame-rate mismatch** (stutter), **flash frames** and **Media Offline** frames. Results list only flagged files, one row per finding.

@@ -272,9 +272,7 @@ struct ContentView: View {
             }
             .onChange(of: selectedTab) { _, newTab in
                 if newTab != .upload { FrameIOPreview.shared.close() }
-                if newTab == .specs && specsState.deliverableAssets.isEmpty && !videoFiles.isEmpty {
-                    specsState.inspectDeliverablesBatch(urls: videoFiles)
-                }
+                if newTab == .specs { specsState.inspectMissing(from: videoFiles) }
             }
     }
 
@@ -888,8 +886,8 @@ struct ContentView: View {
         let idle = isHovered ? textMain : textMuted.opacity(0.72)
         return Button(action: {
             selectedTab = tab
-            if tab == .specs && specsState.deliverableAssets.isEmpty && !videoFiles.isEmpty {
-                specsState.inspectDeliverablesBatch(urls: videoFiles)
+            if tab == .specs {
+                specsState.inspectMissing(from: videoFiles)
             } else if tab == .player && playerEngine.activeURL == nil, let first = videoFiles.first {
                 playerEngine.loadVideo(url: first)
             }
@@ -1662,9 +1660,7 @@ struct ContentView: View {
                 withAnimation(Motion.snap) {
                     self.selectedTab = .specs
                 }
-                if self.specsState.deliverableAssets.isEmpty && !self.videoFiles.isEmpty {
-                    self.specsState.inspectDeliverablesBatch(urls: self.videoFiles)
-                }
+                self.specsState.inspectMissing(from: self.videoFiles)
             },
             onSelectLineFinderTab: {
                 withAnimation(Motion.snap) {
@@ -2082,7 +2078,8 @@ struct ContentView: View {
     
     func openProperties(for url: URL, showModal: Bool = true) {
         propertiesURL = url
-        if let existing = specsState.deliverableAssets.first(where: { $0.fileURL.standardizedFileURL == url.standardizedFileURL }) {
+        if let existing = specsState.deliverableAssets.first(where: { $0.fileURL.standardizedFileURL == url.standardizedFileURL })
+            ?? specsState.mediaInfoCache[url.standardizedFileURL] {
             propertiesAsset = existing
             isInspectingProperties = false
             if showModal {
@@ -2100,12 +2097,12 @@ struct ContentView: View {
             }
             
             Task { @MainActor in
-                if let asset = await DeliverablesInspector.inspectFile(url: url) {
-                    self.propertiesAsset = asset
-                    if !self.specsState.deliverableAssets.contains(where: { $0.fileURL.standardizedFileURL == url.standardizedFileURL }) {
-                        self.specsState.deliverableAssets.append(asset)
-                    }
-                }
+                // Not added to Inspect's list: a list holding only this clip read as "already inspected" and hid the queue.
+                let asset = await DeliverablesInspector.inspectFile(url: url)
+                if let asset { self.specsState.mediaInfoCache[url.standardizedFileURL] = asset }
+                // A slower read of the previous clip must not land over this one.
+                guard self.propertiesURL == url else { return }
+                self.propertiesAsset = asset
                 self.isInspectingProperties = false
             }
         }
