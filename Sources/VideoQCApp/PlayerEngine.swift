@@ -227,7 +227,7 @@ public final class PlayerEngine: ObservableObject {
             showCenterCrosshair: showCenterCrosshair,
             showLegalZebra: showLegalZebra,
             showLineMarks: showLineMarks,
-            hasLineMarks: !activeMarkers.isEmpty,
+            hasLineMarks: [slotA.url, slotB.url].contains { $0.flatMap { lineMarks[$0.standardizedFileURL] } != nil },
             legalRangePreset: legalRangePreset,
             clipInfoOverlayMode: clipInfoOverlayMode,
             lastScreenshotPreset: lastScreenshotPreset,

@@ -737,7 +737,9 @@ public final class PlayerContainerNSView: NSView {
             let bounds = still.bounds
             // The detections themselves are in the key: a new Line Check of this clip can change them on the same frame.
             let lines = detections.map { "\($0.edge.rawValue)\($0.thickness)/\($0.position ?? -1)" }.joined(separator: ",")
-            let key = "\(url.path)|\(lines)|\(bounds.size)|\(zoom)"
+            // Orientation too: a rotated clip's on-screen size arrives after its first frames.
+            let portrait = state.videoSize.height > state.videoSize.width
+            let key = "\(url.path)|\(lines)|\(bounds.size)|\(zoom)|\(portrait)"
             if lineMarksKey[slot] != key {
                 lineMarksKey[slot] = key
                 CATransaction.begin()

@@ -335,7 +335,7 @@ public struct TransportState: Equatable, Sendable {
     public let showCenterCrosshair: Bool
     public let showLegalZebra: Bool
     public let showLineMarks: Bool
-    /// Line Check found lines in slot A's clip (the line-marks toggle shows only then).
+    /// Line Check found lines in a loaded clip, A or B (the line-marks toggle shows only then).
     public let hasLineMarks: Bool
     public let legalRangePreset: String
     public let clipInfoOverlayMode: ClipInfoOverlayMode
