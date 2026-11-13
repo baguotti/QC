@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 import VideoQCLib
 
 extension MediaKind {
@@ -72,6 +73,11 @@ struct MediaKindFilterChips: View {
             ForEach(MediaKind.allCases.filter { present & $0.bit != 0 }, id: \.bit) { kind in
                 let isOn = effective & kind.bit != 0
                 Button(action: {
+                    if NSEvent.modifierFlags.contains(.shift) {
+                        // ⇧-click solos this kind; ⇧-click it again while soloed shows everything.
+                        mask = effective & present == kind.bit ? MediaKindFilter.all : kind.bit
+                        return
+                    }
                     let toggled = effective ^ kind.bit
                     if toggled & present != 0 { mask = toggled }
                 }) {
@@ -83,7 +89,7 @@ struct MediaKindFilterChips: View {
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .explain("\(isOn ? "Hide" : "Show") \(kind.label.lowercased())")
+                .explain("\(isOn ? "Hide" : "Show") \(kind.label.lowercased()) · ⇧-click to show only \(kind.label.lowercased())")
             }
         }
     }

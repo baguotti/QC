@@ -100,7 +100,7 @@ Before committing any changes affecting `VideoViewportView.swift`, `PlayerEngine
 > 1. **DO NOT commit to git (`git commit`)** unless the user explicitly requests a commit in their prompt.
 > 2. **DO NOT push to remote repositories (`git push`)** unless the user explicitly requests a push.
 > 3. **DO NOT run packaging/release scripts (`BuildApp.sh`, `Release.sh`, etc.)** unless the user explicitly instructs to package or build the release.
-> 4. **Releasing** (when asked): bump `APP_VERSION` in `BuildApp.sh` (plus `AppVersion.swift`, `README.md`), commit, `scripts/Release.sh build`, have the DMG opened on the oldest supported macOS (15: SDK availability marks have been wrong, 0.13.10–0.14.1 didn't launch there), then `scripts/Release.sh publish "notes"`.
+> 4. **Releasing** (when asked): bump `APP_VERSION` in `BuildApp.sh` (plus `AppVersion.swift`, `README.md`), commit, `scripts/Release.sh build`, have the DMG opened on the oldest supported macOS (15: SDK availability marks have been wrong, 0.13.10–0.14.1 didn't launch there), then `scripts/Release.sh publish "notes"`. **Every release attaches the current Premiere plugin installer** (`premiere/package/dist/LineFinder-<panel/manifest.json version>.pkg`) next to `QCpie.dmg`: the plugin's Update button reads the latest release. `Release.sh publish` attaches it and stops if it is missing; when releasing by hand, pass both files to `gh release create`.
 > 5. **Testing code changes**: ALWAYS use `swift build` (quick debug build) to verify compilation correctness and 0 errors/warnings. Never commit or package as part of routine verification.
 
 ---

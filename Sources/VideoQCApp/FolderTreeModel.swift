@@ -277,41 +277,35 @@ public struct FileSystemTreeBuilder {
         
         var result: [FileSystemTreeNode] = []
         
-        func traverse(_ list: [FileSystemTreeNode]) {
+        /// A folder whose row is hidden lifts what's inside it by one level: left at their own depth, its contents
+        /// read as part of the folder shown above them.
+        func shifted(_ node: FileSystemTreeNode, by lift: Int) -> FileSystemTreeNode {
+            guard lift > 0 else { return node }
+            return FileSystemTreeNode(id: node.id, name: node.name, url: node.url, isDirectory: node.isDirectory,
+                                      relativePath: node.relativePath, depth: max(0, node.depth - lift),
+                                      children: node.children, videoURLs: node.videoURLs)
+        }
+
+        func traverse(_ list: [FileSystemTreeNode], lift: Int) {
             for node in list {
                 guard (cleanFilter.isEmpty && kindMask == MediaKindFilter.all) || nodeMatches(node) else { continue }
-                
+
                 if node.isDirectory {
                     let isBannerHidden = hideAllFolders || hiddenIDs.contains(node.id)
                     if !isBannerHidden {
-                        result.append(node)
+                        result.append(shifted(node, by: lift))
                     }
                     let isCollapsed = !isBannerHidden && cleanFilter.isEmpty && collapsedIDs.contains(node.id)
                     if !isCollapsed {
-                        traverse(node.children)
+                        traverse(node.children, lift: isBannerHidden ? lift + 1 : lift)
                     }
                 } else {
-                    let adjustedNode: FileSystemTreeNode
-                    if hideAllFolders {
-                        adjustedNode = FileSystemTreeNode(
-                            id: node.id,
-                            name: node.name,
-                            url: node.url,
-                            isDirectory: node.isDirectory,
-                            relativePath: node.relativePath,
-                            depth: 0,
-                            children: node.children,
-                            videoURLs: node.videoURLs
-                        )
-                    } else {
-                        adjustedNode = node
-                    }
-                    result.append(adjustedNode)
+                    result.append(hideAllFolders ? shifted(node, by: node.depth) : shifted(node, by: lift))
                 }
             }
         }
-        
-        traverse(nodes)
+
+        traverse(nodes, lift: 0)
         
         if flattenCache.count >= maxCacheEntries {
             flattenCache.removeFirst()
