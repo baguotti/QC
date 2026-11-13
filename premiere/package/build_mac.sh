@@ -1,6 +1,11 @@
 #!/bin/zsh
-# Builds dist/LineFinder-<version>.pkg: the exporter into Premiere's MediaCore plug-ins folder and the UXP panel
-# (LineFinder.ccx, installed for the logged-in user with Adobe's Unified Plugin Installer Agent).
+# Builds, in dist/:
+#   LineFinder-<panel version>.pkg            the exporter into MediaCore/LineFinder (made the logged-in user's, so the
+#                                             panel can update it later without a password) and the UXP panel
+#                                             (LineFinder.ccx, installed for that user with Adobe's agent)
+#   LineFinder-<panel version>.ccx            the panel alone, for the panel's own updates
+#   LineFinderAnalysis-<exporter version>.zip the exporter alone (stored, no compression: the panel unzips it)
+# Every QCpie release attaches all three. Bump exporter/VERSION when the exporter changes.
 #
 # Unsigned by default: Gatekeeper then blocks the .pkg on other Macs (right-click → Open, or System Settings →
 # Privacy & Security → Open Anyway). For distribution set:
@@ -13,16 +18,17 @@ PREMIERE="$(dirname "$HERE")"
 VERSION="$(python3 -c "import json; print(json.load(open('$PREMIERE/panel/manifest.json'))['version'])")"
 WORK="$HERE/build"
 DIST="$HERE/dist"
+EXPORTER_VERSION="$(tr -d '[:space:]' < "$PREMIERE/exporter/VERSION")"
 PKG="$DIST/LineFinder-$VERSION.pkg"
 rm -rf "$WORK" && mkdir -p "$WORK/root" "$DIST"
 
 # Exporter
 # REUSE_EXPORTER=1: package the existing exporter/build bundle (no Premiere SDK on this Mac, exporter unchanged).
 [[ -n "${REUSE_EXPORTER:-}" ]] || "$PREMIERE/exporter/build.sh"
-MEDIACORE="$WORK/root/Library/Application Support/Adobe/Common/Plug-ins/7.0/MediaCore"
+MEDIACORE="$WORK/root/Library/Application Support/Adobe/Common/Plug-ins/7.0/MediaCore/LineFinder"
 mkdir -p "$MEDIACORE"
 cp -R "$PREMIERE/exporter/build/LineFinderAnalysis.bundle" "$MEDIACORE/"
-/usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $VERSION" -c "Set :CFBundleVersion $VERSION" \
+/usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $EXPORTER_VERSION" -c "Set :CFBundleVersion $EXPORTER_VERSION" \
   "$MEDIACORE/LineFinderAnalysis.bundle/Contents/Info.plist"
 if [[ -n "${DEVELOPER_ID_APP:-}" ]]; then
   codesign --force --options runtime --timestamp --sign "$DEVELOPER_ID_APP" "$MEDIACORE/LineFinderAnalysis.bundle"
@@ -34,6 +40,9 @@ fi
 SUPPORT="$WORK/root/Library/Application Support/LineFinder"
 mkdir -p "$SUPPORT"
 (cd "$PREMIERE/panel" && zip -qrX "$SUPPORT/LineFinder.ccx" manifest.json index.html index.js presets -x "*.DS_Store")
+cp "$SUPPORT/LineFinder.ccx" "$DIST/LineFinder-$VERSION.ccx"
+rm -f "$DIST/LineFinderAnalysis-$EXPORTER_VERSION.zip"
+(cd "$MEDIACORE" && COPYFILE_DISABLE=1 zip -qr0X "$DIST/LineFinderAnalysis-$EXPORTER_VERSION.zip" LineFinderAnalysis.bundle -x "*.DS_Store")
 cp "$HERE/uninstall.sh" "$SUPPORT/uninstall.sh"
 chmod 755 "$SUPPORT/uninstall.sh"
 
@@ -73,4 +82,4 @@ if [[ -n "${NOTARY_PROFILE:-}" ]]; then
   xcrun notarytool submit "$PKG" --keychain-profile "$NOTARY_PROFILE" --wait
   xcrun stapler staple "$PKG"
 fi
-echo "Built $PKG"
+echo "Built $PKG, LineFinder-$VERSION.ccx, LineFinderAnalysis-$EXPORTER_VERSION.zip"

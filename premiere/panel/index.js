@@ -479,14 +479,22 @@ async function writeLogFile() {
 
 // MARK: Updates
 
-// On opening (at most every 6 h) the panel asks GitHub for the latest QCpie release, which carries
-// LineFinder-<version>.pkg. A newer one shows a banner: Update downloads the .pkg and opens it in Installer, which
-// updates the exporter and the panel together; Premiere then needs a restart.
-const RELEASES = "https://api.github.com/repos/baguotti/QC/releases/latest";
+// Each time the panel opens it reads the 10 newest QCpie releases and takes the highest LineFinder-<version>.pkg
+// among them (a release without it doesn't hide an update). Releases also carry LineFinder-<version>.ccx
+// (the panel) and LineFinderAnalysis-<version>.zip (the exporter, stored without compression).
+// Update, in the panel: a newer exporter is written into MediaCore/LineFinder (the installer makes that folder the
+// user's), then the .ccx is handed to Creative Cloud. No Installer, no password; Premiere restarts only for a new
+// exporter. The .pkg is the fallback: first install, the old layout (exporter loose in MediaCore), or any failure.
+const RELEASES = "https://api.github.com/repos/baguotti/QC/releases?per_page=10";
 const RELEASES_PAGE = "https://github.com/baguotti/QC/releases/latest";
-const UPDATE_KEY = "linefinder.update";
-const CHECK_EVERY_MS = 6 * 3600 * 1000;
-let update = null;  // { version, url, name }
+// Not cached: a remembered answer hid a release published minutes later. One request per panel open is well
+// within GitHub's 60 an hour per address.
+const MEDIACORE = "/Library/Application Support/Adobe/Common/Plug-ins/7.0/MediaCore";
+const EXPORTER_FOLDER = "LineFinder";
+const EXPORTER = "LineFinderAnalysis.bundle";
+const STAGED = "LineFinderAnalysis.new";   // not *.bundle: Premiere loads every *.bundle under MediaCore
+const REPLACED = "LineFinderAnalysis.old";
+let update = null;  // { release, panel, exporter, viaPanel }
 
 function newer(a, b) {
   const pa = a.split(".").map(Number), pb = b.split(".").map(Number);
@@ -502,43 +510,167 @@ async function installedVersion() {
   return JSON.parse(await manifest.read()).version;
 }
 
+async function entryAt(path) {
+  try { return await fs.getEntryWithUrl("file:" + path); } catch { /* spaces, on some versions */ }
+  try { return await fs.getEntryWithUrl("file:" + encodeURI(path)); } catch { return null; }
+}
+
+async function child(folder, name) {
+  try { return await folder.getEntry(name); } catch { return null; }
+}
+
+async function removeEntry(entry) {
+  if (!entry) return;
+  if (entry.isFolder) for (const e of await entry.getEntries()) await removeEntry(e);
+  await entry.delete();
+}
+
+/// The exporter in the user's MediaCore/LineFinder folder: its version (null when not there) and whether the panel
+/// can replace it (false for the old root-owned layout).
+async function exporterState() {
+  const folder = await entryAt(`${MEDIACORE}/${EXPORTER_FOLDER}`);
+  if (!folder) return { version: null, writable: false, folder: null };
+  let version = null;
+  try {
+    const plist = await (await entryAt(`${MEDIACORE}/${EXPORTER_FOLDER}/${EXPORTER}/Contents/Info.plist`)).read();
+    version = (plist.match(/CFBundleShortVersionString<\/key>\s*<string>([^<]+)</) || [])[1] || null;
+  } catch { /* not installed */ }
+  let writable = false;
+  try {
+    const probe = await folder.createFile(".linefinder-write-test", { overwrite: true });
+    await probe.write("ok");
+    await probe.delete();
+    writable = true;
+  } catch { /* root-owned */ }
+  return { version, writable, folder };
+}
+
+async function latestRelease() {
+  const response = await fetch(RELEASES, { headers: { Accept: "application/vnd.github+json" } });
+  if (!response.ok) throw new Error(`GitHub answered ${response.status}`);
+  // The highest plugin version, not the first listed: GitHub's order isn't strictly newest first.
+  let best = null;
+  for (const r of await response.json()) {
+    if (r.draft || r.prerelease) continue;
+    const assets = r.assets || [];
+    const find = (re) => assets.find((a) => re.test(a.name));
+    const pkg = find(/^LineFinder-[\d.]+\.pkg$/);
+    if (!pkg) continue;
+    const ccx = find(/^LineFinder-[\d.]+\.ccx$/), zip = find(/^LineFinderAnalysis-[\d.]+\.zip$/);
+    const asset = (a, prefix, ext) => a && { url: a.browser_download_url, name: a.name, version: a.name.slice(prefix.length, -ext.length) };
+    const release = { version: pkg.name.slice(11, -4), pkg: asset(pkg, "LineFinder-", ".pkg"),
+                      ccx: asset(ccx, "LineFinder-", ".ccx"), zip: asset(zip, "LineFinderAnalysis-", ".zip") };
+    if (!best || newer(release.version, best.version)) best = release;
+  }
+  return best;
+}
+
 async function checkForUpdate() {
   const installed = await installedVersion();
-  let cached = null;
-  try { cached = JSON.parse(localStorage.getItem(UPDATE_KEY) || "null"); } catch { /* check again */ }
-  let latest = cached && Date.now() - cached.checked < CHECK_EVERY_MS ? cached.latest : undefined;
-  if (latest === undefined) {
-    const response = await fetch(RELEASES, { headers: { Accept: "application/vnd.github+json" } });
-    if (!response.ok) throw new Error(`GitHub answered ${response.status}`);
-    const asset = ((await response.json()).assets || []).find((a) => /^LineFinder-[\d.]+\.pkg$/.test(a.name));
-    latest = asset ? { version: asset.name.slice(11, -4), url: asset.browser_download_url, name: asset.name } : null;
-    try { localStorage.setItem(UPDATE_KEY, JSON.stringify({ checked: Date.now(), latest })); } catch { /* fine */ }
-  }
-  if (!latest || !newer(latest.version, installed)) return;
-  update = latest;
-  $("updateText").textContent = `LineFinder ${latest.version} is available (you have ${installed}).`;
+  const exporter = await exporterState();
+  if (exporter.writable) removeEntry(await child(exporter.folder, REPLACED)).catch(() => {});
+  $("versions").textContent = `LineFinder ${installed} · exporter ${exporter.version || "not found in MediaCore/LineFinder"}`;
+  const release = await latestRelease();
+  if (!release) return;
+  const panel = newer(release.version, installed) && release.ccx;
+  const exporterNeeded = release.zip && (!exporter.version || newer(release.zip.version, exporter.version));
+  if (!newer(release.version, installed) && !exporterNeeded) return;
+  // In the panel only when every part it needs is there and the exporter folder is the user's.
+  const viaPanel = (!newer(release.version, installed) || !!release.ccx) && (!exporterNeeded || exporter.writable);
+  update = { release, panel, exporter: exporterNeeded ? release.zip : null, viaPanel, folder: exporter.folder };
+  const what = newer(release.version, installed) ? `LineFinder ${release.version} is available (you have ${installed}).`
+    : `LineFinder exporter ${release.zip.version} is available (you have ${exporter.version || "none"}).`;
+  $("updateText").textContent = what + (viaPanel ? "" : " Installs with your password once.");
   $("update").classList.remove("hidden");
+}
+
+async function download(asset) {
+  const response = await fetch(asset.url);
+  if (!response.ok) throw new Error(`${asset.name}: download answered ${response.status}`);
+  return response.arrayBuffer();
+}
+
+/// Writes a zip made with `zip -0` (stored entries) into folder. Directories are made as needed.
+async function unzipStored(bytes, folder) {
+  const view = new DataView(bytes);
+  const binary = { format: require("uxp").storage.formats.binary };
+  let at = 0;
+  while (at + 30 <= bytes.byteLength && view.getUint32(at, true) === 0x04034b50) {
+    const flags = view.getUint16(at + 6, true), method = view.getUint16(at + 8, true);
+    const size = view.getUint32(at + 18, true);
+    const nameLength = view.getUint16(at + 26, true), extraLength = view.getUint16(at + 28, true);
+    const name = String.fromCharCode(...new Uint8Array(bytes, at + 30, nameLength));   // our names are ASCII
+    const start = at + 30 + nameLength + extraLength;
+    if (method !== 0 || flags & 8) throw new Error(`${name}: compressed or streamed zip entry`);
+    if (name.includes("..")) throw new Error(`${name}: unsafe path`);
+    const parts = name.split("/").filter(Boolean);
+    let dir = folder;
+    for (const part of name.endsWith("/") ? parts : parts.slice(0, -1)) {
+      dir = (await child(dir, part)) || (await dir.createFolder(part));
+    }
+    if (!name.endsWith("/")) {
+      const file = await dir.createFile(parts[parts.length - 1], { overwrite: true });
+      await file.write(bytes.slice(start, start + size), binary);
+    }
+    at = start + size;
+  }
+}
+
+/// Replaces the exporter without touching the loaded one's files: the new bundle is written under another name, the
+/// running one is renamed aside (Premiere keeps using it until it quits), then the new one takes its name.
+async function installExporter(asset, folder) {
+  const bytes = await download(asset);
+  await removeEntry(await child(folder, STAGED));
+  const staged = await folder.createFolder(STAGED);
+  await unzipStored(bytes, staged);
+  const bundle = await child(staged, EXPORTER);
+  if (!bundle) throw new Error(`${asset.name} has no ${EXPORTER}`);
+  await removeEntry(await child(folder, REPLACED));
+  const current = await child(folder, EXPORTER);
+  if (current) await current.moveTo(folder, { newName: REPLACED });
+  await bundle.moveTo(folder, { newName: EXPORTER });
+  await removeEntry(staged);
+}
+
+async function openInstaller(asset) {
+  const bytes = await download(asset);
+  const file = await (await fs.getDataFolder()).createFile(asset.name, { overwrite: true });
+  await file.write(bytes, { format: require("uxp").storage.formats.binary });
+  await require("uxp").shell.openPath(file.nativePath);
 }
 
 $("updateButton").addEventListener("click", async () => {
   if (!update || $("updateButton").hasAttribute("disabled")) return;
   const button = $("updateButton");
   button.setAttribute("disabled", "");
-  $("updateText").textContent = `Downloading ${update.version}…`;
+  const { release, panel, exporter, viaPanel, folder } = update;
   try {
-    const response = await fetch(update.url);
-    if (!response.ok) throw new Error(`download answered ${response.status}`);
-    const bytes = await response.arrayBuffer();
-    const file = await (await fs.getDataFolder()).createFile(update.name, { overwrite: true });
-    await file.write(bytes, { format: require("uxp").storage.formats.binary });
-    await require("uxp").shell.openPath(file.nativePath);
-    $("updateText").textContent = "Click Install in Installer, then restart Premiere Pro.";
+    if (!viaPanel) throw new Error("needs the installer");
+    if (exporter) {
+      $("updateText").textContent = `Installing exporter ${exporter.version}…`;
+      await installExporter(exporter, folder);
+    }
+    if (panel) {
+      $("updateText").textContent = `Downloading LineFinder ${release.version}…`;
+      await openInstaller(release.ccx);
+    }
+    $("updateText").textContent = exporter
+      ? (panel ? "Confirm in Creative Cloud, then restart Premiere Pro." : "Restart Premiere Pro to use the new exporter.")
+      : "Confirm in Creative Cloud. Reopen the panel if it doesn't reload.";
     button.classList.add("hidden");
   } catch (e) {
-    log("Update failed: " + (e.stack || e));
-    $("updateText").textContent = "Couldn't download the update. Opening the download page instead.";
-    require("uxp").shell.openExternal(RELEASES_PAGE).catch(() => {});
-    button.removeAttribute("disabled");
+    if (viaPanel) log("Update in the panel failed, using the installer: " + (e.stack || e));
+    try {
+      $("updateText").textContent = `Downloading the LineFinder ${release.version} installer…`;
+      await openInstaller(release.pkg);
+      $("updateText").textContent = "Click Install in Installer, then restart Premiere Pro.";
+      button.classList.add("hidden");
+    } catch (e2) {
+      log("Update failed: " + (e2.stack || e2));
+      $("updateText").textContent = "Couldn't download the update. Opening the download page instead.";
+      require("uxp").shell.openExternal(RELEASES_PAGE).catch(() => {});
+      button.removeAttribute("disabled");
+    }
   }
 });
 

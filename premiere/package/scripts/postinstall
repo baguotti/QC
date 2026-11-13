@@ -3,6 +3,13 @@
 CCX="/Library/Application Support/LineFinder/LineFinder.ccx"
 UPIA="/Library/Application Support/Adobe/Adobe Desktop Common/RemoteComponents/UPI/UnifiedPluginInstallerAgent/UnifiedPluginInstallerAgent.app/Contents/MacOS/UnifiedPluginInstallerAgent"
 USER_NAME="$(stat -f %Su /dev/console)"
+MEDIACORE="/Library/Application Support/Adobe/Common/Plug-ins/7.0/MediaCore"
+# 0.0.5 and older put the exporter loose in MediaCore: two copies would both load.
+rm -rf "$MEDIACORE/LineFinderAnalysis.bundle"
+# The panel replaces the exporter in this folder for later updates, without a password.
+if [[ -n "$USER_NAME" && "$USER_NAME" != "root" ]]; then
+  chown -R "$USER_NAME" "$MEDIACORE/LineFinder"
+fi
 if [[ ! -x "$UPIA" ]]; then
   echo "LineFinder: Adobe's plugin installer wasn't found (is Creative Cloud installed?). Double-click $CCX to install the panel."
   exit 0

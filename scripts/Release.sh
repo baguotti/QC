@@ -35,15 +35,20 @@ publish)
     clean; untagged
     # Every release carries the current Premiere plugin installer: its Update button reads the latest release.
     PLUGIN_VERSION="$(python3 -c "import json; print(json.load(open('premiere/panel/manifest.json'))['version'])")"
+    EXPORTER_VERSION="$(tr -d '[:space:]' < premiere/exporter/VERSION)"
     PKG="premiere/package/dist/LineFinder-${PLUGIN_VERSION}.pkg"
-    [ -f "$PKG" ] || { echo "Missing ${PKG}: run premiere/package/build_mac.sh first."; exit 1; }
+    CCX="premiere/package/dist/LineFinder-${PLUGIN_VERSION}.ccx"
+    EXPORTER_ZIP="premiere/package/dist/LineFinderAnalysis-${EXPORTER_VERSION}.zip"
+    for f in "$PKG" "$CCX" "$EXPORTER_ZIP"; do
+        [ -f "$f" ] || { echo "Missing ${f}: run premiere/package/build_mac.sh first."; exit 1; }
+    done
     [ -f "$DMG" ] && [ "$(cat "$STAMP" 2>/dev/null)" = "$(git rev-parse HEAD)" ] || { echo "Run 'scripts/Release.sh build' on this commit first."; exit 1; }
     read -r -p "Did ${VERSION} launch on the macOS 15 Mac? [y/N] " answer
     [ "$answer" = "y" ] || { echo "Not published."; exit 1; }
     git push origin main
     git tag "$TAG"
     git push origin "$TAG"
-    gh release create "$TAG" "$DMG" "$PKG" --latest --title "QCpie ${VERSION}" --notes "$NOTES"
+    gh release create "$TAG" "$DMG" "$PKG" "$CCX" "$EXPORTER_ZIP" --latest --title "QCpie ${VERSION}" --notes "$NOTES"
     ;;
 *)
     sed -n '2,5p' "$0" | sed 's/^# \{0,1\}//'; exit 1 ;;

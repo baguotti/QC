@@ -7,6 +7,7 @@ if [[ -x "$UPIA" ]]; then
   launchctl asuser "$(id -u "$USER_NAME")" sudo -u "$USER_NAME" "$UPIA" --remove LineFinder
 fi
 rm -rf "/Library/Application Support/Adobe/Common/Plug-ins/7.0/MediaCore/LineFinderAnalysis.bundle"
+rm -rf "/Library/Application Support/Adobe/Common/Plug-ins/7.0/MediaCore/LineFinder"
 rm -rf "/Library/Application Support/LineFinder"
 pkgutil --forget com.qcpie.linefinder >/dev/null 2>&1
 echo "LineFinder removed. Restart Premiere Pro."

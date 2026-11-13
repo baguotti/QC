@@ -18,16 +18,17 @@ cat > "$OUT/Contents/Info.plist" <<PLIST
   <key>CFBundleExecutable</key><string>LineFinderAnalysis</string>
   <key>CFBundleIdentifier</key><string>com.qcpie.linefinder.exporter</string>
   <key>CFBundlePackageType</key><string>BNDL</string>
-  <key>CFBundleShortVersionString</key><string>0.0.1</string>
-  <key>CFBundleVersion</key><string>0.0.1</string>
+  <key>CFBundleShortVersionString</key><string>$(tr -d '[:space:]' < VERSION)</string>
+  <key>CFBundleVersion</key><string>$(tr -d '[:space:]' < VERSION)</string>
 </dict></plist>
 PLIST
 codesign --force --sign - "$OUT"
 echo "Built $OUT"
 if [[ "${1:-}" == install ]]; then
-  DEST="/Library/Application Support/Adobe/Common/Plug-ins/7.0/MediaCore"
+  DEST="/Library/Application Support/Adobe/Common/Plug-ins/7.0/MediaCore/LineFinder"
   SUDO=; [[ -w "$DEST" ]] || SUDO=sudo
-  $SUDO rm -rf "$DEST/LineFinderAnalysis.bundle"
+  $SUDO mkdir -p "$DEST"
+  $SUDO rm -rf "$DEST/LineFinderAnalysis.bundle" "$DEST/../LineFinderAnalysis.bundle"
   $SUDO cp -R "$OUT" "$DEST/"
   echo "Installed to $DEST (restart Premiere Pro)"
 fi

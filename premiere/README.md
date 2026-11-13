@@ -15,18 +15,21 @@ to false by hand so no `.xmp` sidecar is written). The exporter ignores its size
 
 ## Mac installer (`package/build_mac.sh`)
 
-Builds `package/dist/LineFinder-<panel version>.pkg` (git-ignored). The .pkg installs the exporter into
-`/Library/Application Support/Adobe/Common/Plug-ins/7.0/MediaCore/` and `LineFinder.ccx` plus `uninstall.sh` into
+Builds, in `package/dist/` (git-ignored): `LineFinder-<panel version>.pkg`, `LineFinder-<panel version>.ccx` (the panel
+alone) and `LineFinderAnalysis-<exporter/VERSION>.zip` (the exporter alone, stored without compression). The .pkg
+installs the exporter into `/Library/Application Support/Adobe/Common/Plug-ins/7.0/MediaCore/LineFinder/` and makes that
+folder the logged-in user's (so the panel can update it without a password), removes a loose
+`MediaCore/LineFinderAnalysis.bundle` from 0.0.5 and older, and puts `LineFinder.ccx` plus `uninstall.sh` into
 `/Library/Application Support/LineFinder/`; its postinstall installs the .ccx for the logged-in user with Adobe's
 Unified Plugin Installer Agent (UXP plugins are per user: `~/Library/Application Support/Adobe/UXP/Plugins/External/`).
 Without Creative Cloud's agent, double-clicking the .ccx installs the panel. Remove with
 `sudo "/Library/Application Support/LineFinder/uninstall.sh"`.
 
-- **Releasing:** there is one visible release page, the latest QCpie release, with `LineFinder-<version>.pkg` attached
-  next to `QCpie.dmg`; older releases are drafts. A new plugin version: bump `panel/manifest.json`, run
-  `build_mac.sh`, `gh release upload <latest QCpie tag> package/dist/LineFinder-<version>.pkg`, delete the old .pkg
-  asset. A new QCpie release attaches the current .pkg too. QCpie's gear menu → LineFinder for Premiere Pro opens
-  `releases/latest` (`AppConfig.latestReleaseWebURL`).
+- Premiere loads plug-ins only from `/Library/…/MediaCore` (and its subfolders) and its own app bundle, not from
+  `~/Library` (its `Plugin Loading.log` lists the folders it scans): hence the user-owned subfolder.
+- **Releasing:** every QCpie release attaches all three files (`scripts/Release.sh publish` does, and stops if one is
+  missing). A new plugin version: bump `panel/manifest.json` (and `exporter/VERSION` when the exporter changed), run
+  `build_mac.sh`. QCpie's gear menu → LineFinder for Premiere Pro opens `releases/latest` (`AppConfig.latestReleaseWebURL`).
 - The .ccx manifest needs `host` as an object: as an array the agent fails with status -267 ("failed to generate mxi").
 - Unsigned unless `DEVELOPER_ID_APP`, `DEVELOPER_ID_INSTALLER` and `NOTARY_PROFILE` are set (Apple Developer ID,
   $99/yr): other Macs then need right-click → Open or System Settings → Privacy & Security → Open Anyway.
@@ -49,11 +52,21 @@ Without Creative Cloud's agent, double-clicking the .ccx installs the panel. Rem
 
 ## Updates
 
-- On opening (at most every 6 h, cached in `localStorage`) the panel reads `api.github.com/…/releases/latest` and looks
-  for `LineFinder-<version>.pkg`. A newer version shows a banner; **Update** downloads the .pkg into the data folder
-  and opens it in Installer (`shell.openPath`, `launchProcess` permission for `.pkg`), then says to restart Premiere.
-  A failed download opens the release page instead. So releasing = attaching the new .pkg to the latest QCpie release.
-- The .pkg has a distribution file without destination/customise pages: Continue → Install → password → Close.
+- Each time the panel opens it reads the 10 newest QCpie releases and uses the highest
+  `LineFinder-<version>.pkg` among them (GitHub's list isn't strictly newest first) (a release without it no longer hides an update). Nothing is cached (a remembered
+  answer hid a release published minutes later; one request per open is within GitHub's 60 an hour per address). The footer shows the installed panel and
+  exporter versions.
+- **Update in the panel** (no Installer, no password), when the exporter folder is the user's (installed by 0.0.6+):
+  a newer exporter (`LineFinderAnalysis-<v>.zip` against the installed bundle's `CFBundleShortVersionString`) is
+  unzipped to `MediaCore/LineFinder/LineFinderAnalysis.new`, the running bundle is renamed `LineFinderAnalysis.old`
+  (Premiere keeps using it until it quits; deleted on the next panel open) and the new one takes its name: restart
+  Premiere. A newer panel is the `.ccx`, handed to Creative Cloud (`shell.openPath`, one confirmation).
+  Needs `localFileSystem: fullAccess` and `launchProcess` for `.ccx`.
+- **The .pkg** is the fallback: first install, the old root-owned layout, a release without the .ccx/.zip, or any
+  failure in the panel. Installer pages: Continue → Install → password → Close.
+- Tested here: a bundle written without the executable bit loads (`CFBundleLoadExecutable`, `dlopen`) and keeps a
+  valid signature; Premiere doesn't quarantine files it writes. The unzip and swap run against a mock of the UXP
+  file API in Node. Not yet tested inside Premiere: `getEntryWithUrl` on `/Library` paths and `moveTo` on folders.
 - 0.0.3 and older have no updater: install 0.0.4 once by hand.
 
 ## Exporter (`exporter/LineFinderExporter.cpp`)
