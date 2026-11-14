@@ -2,6 +2,7 @@ import Foundation
 @preconcurrency import AVFoundation
 import CoreMedia
 import CoreVideo
+import Vision
 
 // MARK: - Results
 
@@ -44,7 +45,7 @@ public struct FrameRun: Identifiable, Sendable {
     public let start: Int
     public let count: Int
     public let timecode: String
-    /// Flash frames: "Black", "White" or "Solid #RRGGBB".
+    /// Flash frames: "Black", "White" or "Solid #RRGGBB". Media Offline: how it was confirmed.
     public let detail: String
 }
 
@@ -108,8 +109,17 @@ public struct FrameLook: Sendable {
     public var chromaSpread: Float
     /// Share of the frame in the saturated red of an NLE's offline card.
     public var redShare: Float
+    /// Share of the red pixels that are one colour (within ±5 of their commonest luma, and of their commonest Cr; the
+    /// smaller of the two): a card's red is flat, red footage (a backdrop, lipstick, a sunset) is shaded. Counted from
+    /// the commonest value, so a card dense with small text (its blurred edges are off-colour reds) still reads flat.
+    public var redFlatShare: Float
+    /// Share of the frame clearly brighter than the red: the card's text or icon. A plain red frame has none.
+    public var inkShare: Float
 
-    public init(luma: Float, cb: Float = 128, cr: Float = 128, spread: Float, chromaSpread: Float = 0, redShare: Float = 0) {
+    public init(luma: Float, cb: Float = 128, cr: Float = 128, spread: Float, chromaSpread: Float = 0, redShare: Float = 0,
+                redFlatShare: Float = 1, inkShare: Float = 0.05) {
+        self.redFlatShare = redFlatShare
+        self.inkShare = inkShare
         self.luma = luma
         self.cb = cb
         self.cr = cr
@@ -119,7 +129,12 @@ public struct FrameLook: Sendable {
     }
 
     var isSolid: Bool { spread <= FrameCheckAnalyzer.solidSpread && chromaSpread <= FrameCheckAnalyzer.solidSpread }
-    var isOffline: Bool { redShare >= FrameCheckAnalyzer.offlineRedShare }
+    /// Looks like an offline card: mostly one flat saturated red, with something bright on it. Whether it is one is
+    /// settled per run (`OfflineCardReader`: its text, or that it stands still).
+    var isOffline: Bool {
+        redShare >= FrameCheckAnalyzer.offlineRedShare && redFlatShare >= FrameCheckAnalyzer.offlineFlatShare
+            && inkShare >= FrameCheckAnalyzer.offlineInkShare
+    }
 
     /// "Black", "White" or "Solid #RRGGBB" (BT.709).
     var colorName: String {
@@ -140,6 +155,7 @@ public struct FrameLook: Sendable {
         for v in luma { lumaHist[Int(v)] += 1; lumaSum += Int(v) }
         var cbHist = [Int](repeating: 0, count: 256), crHist = [Int](repeating: 0, count: 256)
         var cbSum = 0, crSum = 0, red = 0
+        var redLuma = [Int](repeating: 0, count: 256), redCr = [Int](repeating: 0, count: 256)
         let cw = width / 2, ch = height / 2
         if chroma.count >= cw * ch * 2 {
             for y in 0..<ch {
@@ -149,16 +165,36 @@ public struct FrameLook: Sendable {
                     cbHist[cb] += 1; crHist[cr] += 1
                     cbSum += cb; crSum += cr
                     // Offline-card red (Premiere, Resolve, FCP): strong Cr, Cb near neutral (orange has low Cb, magenta high).
-                    if cr >= 180, cb >= 70, cb <= 140, luma[(2 * y) * width + 2 * x] <= 140 { red += 1 }
+                    let l = Int(luma[(2 * y) * width + 2 * x])
+                    if cr >= 180, cb >= 70, cb <= 140, l <= 140 {
+                        red += 1
+                        redLuma[l] += 1; redCr[cr] += 1
+                    }
                 }
             }
         }
         let chromaCount = max(1, cw * ch)
+        var flat: Float = 0, ink: Float = 0
+        if red > 0 {
+            let l = peakShare(redLuma, total: red), r = peakShare(redCr, total: red)
+            flat = min(l.share, r.share)
+            let bright = min(255, l.peak + FrameCheckAnalyzer.offlineInkStep)
+            ink = Float(lumaHist[bright...].reduce(0, +)) / Float(max(1, luma.count))
+        }
         return FrameLook(luma: Float(lumaSum) / Float(max(1, luma.count)),
                          cb: Float(cbSum) / Float(chromaCount), cr: Float(crSum) / Float(chromaCount),
                          spread: percentileRange(lumaHist, total: luma.count),
                          chromaSpread: max(percentileRange(cbHist, total: chromaCount), percentileRange(crHist, total: chromaCount)),
-                         redShare: Float(red) / Float(chromaCount))
+                         redShare: Float(red) / Float(chromaCount),
+                         redFlatShare: flat, inkShare: ink)
+    }
+
+    /// The commonest value and the share of `total` within ±5 of it.
+    private static func peakShare(_ hist: [Int], total: Int) -> (peak: Int, share: Float) {
+        var peak = 0
+        for v in 1..<256 where hist[v] > hist[peak] { peak = v }
+        let near = hist[max(0, peak - 5)...min(255, peak + 5)].reduce(0, +)
+        return (peak, Float(near) / Float(max(1, total)))
     }
 
     private static func percentileRange(_ hist: [Int], total: Int) -> Float {
@@ -192,6 +228,13 @@ public enum FrameCheckAnalyzer {
     /// The frames either side of a flash frame must be pictures, not a fade (a dip to black is no flash frame).
     static let pictureSpread: Float = 30
     static let offlineRedShare: Float = 0.6
+    /// The card's red is flat: this share of its red pixels is one colour (`FrameLook.redFlatShare`). Measured: cards 0.89–0.99 (0.93 for ten lines of small text), a gently shaded red backdrop 0.37–0.39.
+    static let offlineFlatShare: Float = 0.75
+    /// Text or an icon: pixels at least this much brighter than the red, over at least this share of the frame.
+    static let offlineInkStep = 40
+    static let offlineInkShare: Float = 0.002
+    /// A card stands still: median frame-to-frame motion inside the run (a repeat reads ≤ 0.2).
+    static let offlineStillMotion: Float = 1
 
     /// The frame-rate mismatch, if the motion shows one: repeats or skips at a regular spacing, or a blend cycle.
     /// One-off repeats and skips (a held frame, fast action) are not a mismatch and are not reported.
@@ -260,7 +303,8 @@ public enum FrameCheckAnalyzer {
         return runs
     }
 
-    /// Runs of frames that are mostly the saturated red of a Media Offline card.
+    /// Runs of frames that look like a Media Offline card (flat saturated red with something bright on it): candidates,
+    /// confirmed by `OfflineCardReader`.
     public static func offlineRuns(_ looks: [FrameLook], fps: Double) -> [FrameRun] {
         var runs: [FrameRun] = []
         var i = 0
@@ -273,6 +317,28 @@ public enum FrameCheckAnalyzer {
         }
         return runs
     }
+
+    /// Whether a candidate run stands still (a card does; red footage moves). A single frame can't tell.
+    static func isStill(_ run: FrameRun, metrics: [StutterFrameMetrics]) -> Bool {
+        guard run.count >= 2 else { return true }
+        var motion = (run.start + 1..<min(metrics.count, run.start + run.count)).map { metrics[$0].motion }
+        guard !motion.isEmpty else { return true }
+        motion.sort()
+        return motion[motion.count / 2] <= offlineStillMotion
+    }
+
+    /// What a candidate run is, from the text read on it (nil: nothing read) and whether it stands still. Returns the
+    /// finding's detail, or nil when it isn't an offline card: a card says so in words (Premiere, in ten languages;
+    /// Resolve), other words are a red title or end card, and a wordless one (FCP's icon) must at least stand still.
+    public static func offlineDetail(text: String?, isStill: Bool) -> String? {
+        let read = (text ?? "").lowercased()
+        if offlineWords.contains(where: read.contains) { return offlineReadDetail }
+        if read.unicodeScalars.filter(CharacterSet.alphanumerics.contains).count >= 3 { return nil }
+        return isStill ? "red card, no text read" : nil
+    }
+
+    static let offlineReadDetail = "card text read"
+    static let offlineWords = ["offline", "off-line", "hors ligne", "sin conexi", "non in linea", "missing", "オフライン", "脱机", "오프라인"]
 
     /// A regular spacing between events: at least 4 events, ≥ 60% of intervals within ±1 frame of the typical one.
     static func cadence(of frames: [Int], kind: StutterKind, fps: Double) -> FrameRateMismatch? {
@@ -474,7 +540,8 @@ public actor FrameCheckScanner {
         return FrameCheckResult(fileURL: url, fileName: url.lastPathComponent, fps: fps, totalFrames: metrics.count,
                                 mismatch: FrameCheckAnalyzer.mismatch(metrics, fps: fps),
                                 flashFrames: FrameCheckAnalyzer.flashFrames(looks, fps: fps),
-                                offline: FrameCheckAnalyzer.offlineRuns(looks, fps: fps),
+                                offline: await OfflineCardReader.confirm(FrameCheckAnalyzer.offlineRuns(looks, fps: fps), metrics: metrics,
+                                                                         url: url, fps: fps, cancellation: cancellation),
                                 legalRange: LegalRange.runs(parts.flatMap(\.legal), spec: legalSpec, fps: fps),
                                 legalSpec: legalSpec,
                                 readError: readError)
@@ -705,5 +772,51 @@ final class FrameCounter: @unchecked Sendable {
         guard now - lastSent > 0.2 else { return nil }
         lastSent = now
         return frames
+    }
+}
+
+// MARK: - Media Offline confirmation
+
+/// Settles the few runs that look like an offline card by reading one full-size frame of each (Vision): the scan's
+/// 192 px image can't tell "Media offline" from a white title on a red end card. Costs nothing for clips without a
+/// candidate, one frame decode and one text read (~0.1 s) per candidate run.
+enum OfflineCardReader {
+    /// Runs read per file: a clip of red title cards isn't read forever (later runs count only if they stand still).
+    static let maxReads = 8
+
+    static func confirm(_ runs: [FrameRun], metrics: [StutterFrameMetrics], url: URL, fps: Double,
+                        cancellation: CancellationState? = nil) async -> [FrameRun] {
+        guard !runs.isEmpty else { return [] }
+        let generator = AVAssetImageGenerator(asset: AVURLAsset(url: url))
+        generator.appliesPreferredTrackTransform = true
+        generator.maximumSize = CGSize(width: 1280, height: 1280)
+        generator.requestedTimeToleranceBefore = .zero
+        generator.requestedTimeToleranceAfter = .zero
+        var confirmed: [FrameRun] = []
+        for (index, run) in runs.enumerated() {
+            let still = FrameCheckAnalyzer.isStill(run, metrics: metrics)
+            var text: String? = nil
+            if cancellation?.isCancelled == true { return [] }
+            if index < maxReads {
+                let time = CMTime(seconds: (Double(run.start + run.count / 2) + 0.5) / max(1, fps), preferredTimescale: 600_000)
+                if let image = try? await generator.image(at: time).image { text = read(image) }
+            }
+            // Past the cap nothing is read: such a run counts only in a file where a card was already read as one
+            // (a clip of red title cards has none, and its later cards would pass as wordless ones).
+            if index >= maxReads, !confirmed.contains(where: { $0.detail == FrameCheckAnalyzer.offlineReadDetail }) { continue }
+            if let detail = FrameCheckAnalyzer.offlineDetail(text: text, isStill: still) {
+                confirmed.append(FrameRun(start: run.start, count: run.count, timecode: run.timecode, detail: detail))
+            }
+        }
+        return confirmed
+    }
+
+    static func read(_ image: CGImage) -> String? {
+        let request = VNRecognizeTextRequest()
+        request.recognitionLevel = .accurate
+        request.usesLanguageCorrection = false
+        guard (try? VNImageRequestHandler(cgImage: image).perform([request])) != nil else { return nil }
+        let lines = (request.results ?? []).compactMap { $0.topCandidates(1).first }.filter { $0.confidence >= 0.4 }.map(\.string)
+        return lines.isEmpty ? nil : lines.joined(separator: " ")
     }
 }

@@ -4,6 +4,7 @@
 import Foundation
 @preconcurrency import AVFoundation
 import CoreGraphics
+import CoreText
 
 let W = 640, H = 360
 
@@ -53,6 +54,39 @@ func card(_ r: CGFloat, _ g: CGFloat, _ b: CGFloat, text: Bool = false) -> CVPix
             for c in 0..<30 { ctx.fill(CGRect(x: 120 + c * 14, y: 90 + line * 40, width: 8, height: 18)) }
         }
     }
+    CVPixelBufferUnlockBaseAddress(buffer, [])
+    return buffer
+}
+
+/// A flat card with real words on it (white, centred): an offline card when they say so, a title card otherwise.
+func wordCard(_ r: CGFloat, _ g: CGFloat, _ b: CGFloat, lines: [String], size: CGFloat = CGFloat(H) / 9) -> CVPixelBuffer {
+    let buffer = card(r, g, b)
+    CVPixelBufferLockBaseAddress(buffer, [])
+    let ctx = CGContext(data: CVPixelBufferGetBaseAddress(buffer), width: W, height: H, bitsPerComponent: 8, bytesPerRow: CVPixelBufferGetBytesPerRow(buffer), space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedFirst.rawValue | CGBitmapInfo.byteOrder32Little.rawValue)!
+    let font = CTFontCreateWithName("Helvetica-Bold" as CFString, size, nil)
+    for (i, text) in lines.enumerated() {
+        let line = CTLineCreateWithAttributedString(NSAttributedString(string: text, attributes: [
+            NSAttributedString.Key(kCTFontAttributeName as String): font,
+            NSAttributedString.Key(kCTForegroundColorAttributeName as String): CGColor(red: 1, green: 1, blue: 1, alpha: 1)]))
+        let width = CTLineGetTypographicBounds(line, nil, nil, nil)
+        ctx.textPosition = CGPoint(x: (Double(W) - width) / 2, y: Double(H) * 0.5 + Double(size) * 1.3 * (Double(lines.count) / 2 - Double(i) - 0.7))
+        CTLineDraw(line, ctx)
+    }
+    CVPixelBufferUnlockBaseAddress(buffer, [])
+    return buffer
+}
+
+/// Red footage: a shaded red backdrop that drifts, with a bright shape crossing it.
+func redFootage(_ n: Int) -> CVPixelBuffer {
+    let buffer = card(0.7, 0.03, 0.03)
+    CVPixelBufferLockBaseAddress(buffer, [])
+    let ctx = CGContext(data: CVPixelBufferGetBaseAddress(buffer), width: W, height: H, bitsPerComponent: 8, bytesPerRow: CVPixelBufferGetBytesPerRow(buffer), space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedFirst.rawValue | CGBitmapInfo.byteOrder32Little.rawValue)!
+    let colors = [CGColor(red: 0.95, green: 0.12, blue: 0.1, alpha: 1), CGColor(red: 0.45, green: 0, blue: 0, alpha: 1)] as CFArray
+    let gradient = CGGradient(colorsSpace: CGColorSpaceCreateDeviceRGB(), colors: colors, locations: [0, 1])!
+    let shift = CGFloat(n * 6 % W)
+    ctx.drawLinearGradient(gradient, start: CGPoint(x: shift - CGFloat(W), y: 0), end: CGPoint(x: shift + CGFloat(W), y: CGFloat(H)), options: [.drawsBeforeStartLocation, .drawsAfterEndLocation])
+    ctx.setFillColor(CGColor(red: 1, green: 0.95, blue: 0.9, alpha: 1))
+    ctx.fillEllipse(in: CGRect(x: (n * 9) % W, y: H / 3, width: W / 8, height: H / 4))
     CVPixelBufferUnlockBaseAddress(buffer, [])
     return buffer
 }
@@ -145,6 +179,14 @@ let clips: [Clip] = [
         return render(Double(n) * speed, fade: fade)
     },
     Clip(name: "Media Offline card (1 s)", fps: f25, frames: 150, expect: .offline) { n in (50..<75).contains(n) ? card(0.78, 0.05, 0.05, text: true) : render(Double(n) * speed) },
+    Clip(name: "Media Offline card with its words", fps: f25, frames: 150, expect: .offline) { n in (50..<75).contains(n) ? wordCard(0.78, 0.05, 0.05, lines: ["Media offline", "Média hors ligne", "Offline-Medien"]) : render(Double(n) * speed) },
+    Clip(name: "Media Offline card dense with small text (ten languages)", fps: f25, frames: 150, expect: .offline) { n in
+        (50..<75).contains(n) ? wordCard(0.78, 0.05, 0.05, lines: ["Media offline", "Média hors ligne", "Offline-Medien", "Medios sin conexión", "Oggetto multimediale non in linea", "Mídia offline", "Media offline", "Médias hors ligne", "Offline-Medien", "Medios sin conexión"], size: CGFloat(H) / 16) : render(Double(n) * speed)
+    },
+    Clip(name: "1-frame Media Offline card", fps: f25, frames: 150, expect: .offline) { n in n == 60 ? wordCard(0.78, 0.05, 0.05, lines: ["Media Offline"]) : render(Double(n) * speed) },
+    Clip(name: "red end card with a white title (not offline)", fps: f25, frames: 150, expect: .clean) { n in n >= 100 ? wordCard(0.78, 0.05, 0.05, lines: ["WINTER SALE", "50% OFF"]) : render(Double(n) * speed) },
+    Clip(name: "red footage, shaded and moving (not offline)", fps: f25, frames: 150, expect: .clean) { n in (40..<110).contains(n) ? redFootage(n) : render(Double(n) * speed) },
+    Clip(name: "plain red hold, nothing on it (not offline)", fps: f25, frames: 150, expect: .clean) { n in (50..<75).contains(n) ? card(0.78, 0.05, 0.05) : render(Double(n) * speed) },
     Clip(name: "orange / magenta graphics (not offline)", fps: f25, frames: 100, expect: .clean) { n in
         n < 50 ? card(1, 0.5, 0, text: true) : card(1, 0, 1, text: true)
     },

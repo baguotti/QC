@@ -815,6 +815,8 @@ extension ContentView {
         let what: String
         let detail: String
         let frame: Int
+        /// Hovering shows this frame (findings that are one picture: an offline card, a flash frame).
+        var previews = false
     }
     
     private func frameCheckRows(_ result: FrameCheckResult) -> [FrameCheckRow] {
@@ -825,11 +827,12 @@ extension ContentView {
         for run in result.offline {
             let seconds = Double(run.count) / max(1, result.fps)
             rows.append(FrameCheckRow(id: "offline\(run.start)", kind: "Media Offline", what: run.timecode,
-                                      detail: "\(run.count) frame\(run.count == 1 ? "" : "s") (\(String(format: "%.1f", seconds)) s)", frame: run.start))
+                                      detail: "\(run.count) frame\(run.count == 1 ? "" : "s") (\(String(format: "%.1f", seconds)) s)\(run.detail.isEmpty ? "" : " · \(run.detail)")",
+                                      frame: run.start, previews: true))
         }
         for run in result.flashFrames {
             rows.append(FrameCheckRow(id: "flash\(run.start)", kind: "Flash frame", what: run.timecode,
-                                      detail: "\(run.detail), \(run.count) frame\(run.count == 1 ? "" : "s")", frame: run.start))
+                                      detail: "\(run.detail), \(run.count) frame\(run.count == 1 ? "" : "s")", frame: run.start, previews: true))
         }
         for run in result.legalRange {
             rows.append(FrameCheckRow(id: "legal\(run.start)", kind: "Legal range", what: run.timecode,
@@ -892,6 +895,9 @@ extension ContentView {
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
+                .modifier(RowFramePreview(row.previews ? FramePreviewOnHover(url: result.fileURL, frame: row.frame, fps: result.fps,
+                                                                             caption: "\(row.kind) · \(row.what) · click the row to open it in the Player",
+                                                                             isLightMode: isLightMode) : nil))
                 .explain(row.kind == "FPS mismatch"
                          ? "Open the first frame of the pattern in the Player (step with ← → to see it)."
                          : row.kind == "Legal range"
@@ -909,5 +915,15 @@ extension ContentView {
         }
         .studioBox(background: bgPanel, border: borderLine)
         .overlay(RoundedRectangle(cornerRadius: StudioTheme.cornerRadius).stroke(alertRed, lineWidth: 1))
+    }
+}
+
+/// Applies the hover preview only to rows that have one.
+private struct RowFramePreview: ViewModifier {
+    let preview: FramePreviewOnHover?
+    init(_ preview: FramePreviewOnHover?) { self.preview = preview }
+
+    func body(content: Content) -> some View {
+        if let preview { content.modifier(preview) } else { content }
     }
 }

@@ -231,9 +231,11 @@ public struct StudioPalette {
 
 // MARK: - Minimal Borderless Transport Button Style
 
-/// The chevron that slides a tab's side panel in and out (⌘⇧← / ⌘⇧→), the same on every tab: it points the way
-/// the panel will move, and animates with `Motion.sleeve`.
+/// The sidebar icon that slides a tab's side panel in and out (⌘⇧← / ⌘⇧→), the same on every tab. A chevron read as
+/// Back; the sidebar symbol is the macOS one (Finder, Mail), drawn like the transport toggles: accent while the panel
+/// is open, `textMain` while it's closed. Animates with `Motion.sleeve`.
 struct SleeveToggle: View {
+    @ObservedObject private var themeManager = ThemeManager.shared   // accent changes redraw (some hosts are isolated views)
     enum Side { case leading, trailing }
     let side: Side
     let isOpen: Bool
@@ -242,20 +244,13 @@ struct SleeveToggle: View {
     let help: String
     let action: () -> Void
 
-    private var symbol: String {
-        switch side {
-        case .leading: return isOpen ? "chevron.left" : "chevron.right"
-        case .trailing: return isOpen ? "chevron.right" : "chevron.left"
-        }
-    }
-
     var body: some View {
         let palette = StudioPalette(isLightMode)
         Button(action: { withAnimation(Motion.sleeve, action) }) {
-            Image(systemName: symbol)
-                .font(.system(size: StudioTheme.scaleFont(11), weight: .bold))
-                .frame(width: StudioTheme.scale(24), height: StudioTheme.scale(26))
-                .foregroundColor(isEnabled ? palette.textMain : palette.textMuted)
+            Image(systemName: side == .leading ? "sidebar.leading" : "sidebar.trailing")
+                .font(.system(size: StudioTheme.scaleFont(12), weight: .semibold))
+                .frame(width: StudioTheme.scale(26), height: StudioTheme.scale(26))
+                .foregroundColor(!isEnabled ? palette.textMuted : (isOpen ? palette.accentBlue : palette.textMain))
                 .contentShape(Rectangle())
         }
         .buttonStyle(TransportIconButtonStyle())

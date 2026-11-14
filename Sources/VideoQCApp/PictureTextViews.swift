@@ -41,6 +41,43 @@ struct PictureTextThumb: View {
     }
 }
 
+/// Shows a frame of `url` in a popover while the pointer rests on the view (Scan results: Media Offline and flash
+/// frame rows). Nothing is decoded until it opens.
+struct FramePreviewOnHover: ViewModifier {
+    let url: URL
+    let frame: Int
+    let fps: Double
+    let caption: String
+    let isLightMode: Bool
+    @State private var hovering = false
+    @State private var shown = false
+
+    func body(content: Content) -> some View {
+        content
+            .onHover { inside in
+                hovering = inside
+                if !inside { shown = false; return }
+                // A short wait: moving the pointer down the list doesn't open a preview on every row.
+                Task { @MainActor in
+                    try? await Task.sleep(for: .milliseconds(350))
+                    if hovering { shown = true }
+                }
+            }
+            .popover(isPresented: $shown, attachmentAnchor: .point(UnitPoint(x: 0.12, y: 1)), arrowEdge: .bottom) {
+                let palette = StudioPalette(isLightMode)
+                VStack(alignment: .leading, spacing: 6) {
+                    PictureTextThumb(url: url, seconds: (Double(frame) + 0.5) / max(1, fps), fps: fps, isLightMode: isLightMode, width: 240)
+                    Text(caption)
+                        .font(.ui(size: 10))
+                        .monospacedDigit()
+                        .foregroundColor(palette.textMuted)
+                }
+                .padding(10)
+                .frame(width: 260)
+            }
+    }
+}
+
 /// The text read in a file's picture, appearance by appearance: a frame, the text, when. Click a row to open it in the
 /// Player; Not a Graphic hides a misread or text in the footage (all its appearances, kept across checks).
 struct PictureTextListPopover: View {

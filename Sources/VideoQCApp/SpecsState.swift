@@ -800,6 +800,12 @@ public final class SpecsState: ObservableObject {
                 prewarm(queue, isPlayerBusy: isPlayerBusy)
             }
         case .added(let urls):
+            // A file added again may have been re-exported at the same path: read it afresh.
+            for url in urls {
+                let key = url.standardizedFileURL
+                mediaInfoCache[key] = nil
+                uninspectable.remove(key)
+            }
             if inspectShown {
                 inspectDeliverablesBatch(urls: urls, append: true)
             } else {
