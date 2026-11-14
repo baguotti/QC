@@ -6,15 +6,20 @@ extension QCNotesManager {
     /// Sidecars under `folder` (hidden `.<name>.qcnotes`, or the older visible `<name>.qcnotes`) whose `<name>` no longer
     /// sits next to them. Only files that decode as notes for exactly that name count, so exports (`<clip> - QC Notes.qcnotes`)
     /// and unreadable files are never touched.
-    nonisolated static func orphanedSidecars(in folder: URL, isCancelled: () -> Bool = { false }) -> [URL] {
+    /// `visited` reports the running item count every 500 items, for a progress line.
+    nonisolated static func orphanedSidecars(in folder: URL, isCancelled: () -> Bool = { false },
+                                             visited: (Int) -> Void = { _ in }) -> [URL] {
         let fm = FileManager.default
         guard let walker = fm.enumerator(at: folder, includingPropertiesForKeys: [],
                                          options: [.skipsPackageDescendants]) else { return [] }
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
         var orphans: [URL] = []
+        var count = 0
         for case let url as URL in walker {
             if isCancelled() { return [] }
+            count += 1
+            if count % 500 == 0 { visited(count) }
             guard let mediaName = mediaName(ofSidecar: url.lastPathComponent) else { continue }
             let media = url.deletingLastPathComponent().appendingPathComponent(mediaName)
             guard !fm.fileExists(atPath: media.path),

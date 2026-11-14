@@ -272,7 +272,7 @@ struct ContentView: View {
             }
             .onChange(of: selectedTab) { _, newTab in
                 if newTab != .upload { FrameIOPreview.shared.close() }
-                if newTab == .specs { specsState.inspectMissing(from: videoFiles) }
+                if newTab == .specs { inspectFollowsQueue(.inspectOpened) }
             }
     }
 
@@ -310,6 +310,15 @@ struct ContentView: View {
             }
             .onReceive(NotificationCenter.default.publisher(for: NotesSync.didMergeRemoteNotes)) { notification in
                 if let change = notification.object as? NotesSync.Change { applySyncedNotes(change) }
+            }
+            // Shared folders: a colleague's save to the shown clip's notes file arrives here (one stat every 4 s on the
+            // notes actor, never on the main thread; the file is read only when its date moved).
+            .task(id: playerEngine.activeNotesURL) {
+                guard let url = playerEngine.activeNotesURL else { return }
+                while !Task.isCancelled {
+                    try? await Task.sleep(for: .seconds(4))
+                    if !Task.isCancelled, let change = await QCNotesManager.shared.externalChange(for: url) { applySyncedNotes(change) }
+                }
             }
             // The Delivery Plan matches rows against Inspect's measured files (its own matching runs off the main thread).
             .task(id: specsState.assetsVersion) { DeliveryPlanStore.shared.setAssets(specsState.deliverableAssets) }
@@ -887,7 +896,7 @@ struct ContentView: View {
         return Button(action: {
             selectedTab = tab
             if tab == .specs {
-                specsState.inspectMissing(from: videoFiles)
+                inspectFollowsQueue(.inspectOpened)
             } else if tab == .player && playerEngine.activeURL == nil, let first = videoFiles.first {
                 playerEngine.loadVideo(url: first)
             }
@@ -1108,10 +1117,7 @@ struct ContentView: View {
                 self.updatePlayerTreeNodes()
                 onLoaded?(true)
 
-                // Inspect only if already on Specs tab, otherwise defer until tab is selected
-                if self.selectedTab == .specs {
-                    specsState.inspectDeliverablesBatch(urls: newlyAdded, append: true)
-                }
+                inspectFollowsQueue(.added(newlyAdded))
                 self.loadFinderTagsForQueue()
                 if self.playerEngine.activeURL == nil, let first = newlyAdded.first {
                     self.playerEngine.loadVideo(url: first)
@@ -1139,12 +1145,7 @@ struct ContentView: View {
                 self.scannerState.generatedReportURL = nil
                 self.scannerState.generatedCSVURL = nil
                 
-                // Populate deliverables if on Specs tab, otherwise defer until tab is selected
-                if self.selectedTab == .specs {
-                    specsState.inspectDeliverablesBatch(urls: uniqueVideos, append: false)
-                } else {
-                    specsState.clearDeliverables()
-                }
+                inspectFollowsQueue(.replaced)
                 self.loadFinderTagsForQueue()
                 if self.playerEngine.activeURL == nil, let first = uniqueVideos.first {
                     self.playerEngine.loadVideo(url: first)
@@ -1261,9 +1262,7 @@ struct ContentView: View {
                 self.videoFiles = mergedVideos
                 self.folderURL = self.determineFolderURL(for: mergedVideos, detectedFolder: self.folderURL ?? detectedFolder)
                 self.updatePlayerTreeNodes()
-                if self.selectedTab == .specs {
-                    self.specsState.inspectDeliverablesBatch(urls: newlyAdded, append: true)
-                }
+                self.inspectFollowsQueue(.added(newlyAdded))
                 self.loadFinderTagsForQueue()
             }
             
@@ -1660,7 +1659,7 @@ struct ContentView: View {
                 withAnimation(Motion.snap) {
                     self.selectedTab = .specs
                 }
-                self.specsState.inspectMissing(from: self.videoFiles)
+                self.inspectFollowsQueue(.inspectOpened)
             },
             onSelectLineFinderTab: {
                 withAnimation(Motion.snap) {
@@ -2078,8 +2077,7 @@ struct ContentView: View {
     
     func openProperties(for url: URL, showModal: Bool = true) {
         propertiesURL = url
-        if let existing = specsState.deliverableAssets.first(where: { $0.fileURL.standardizedFileURL == url.standardizedFileURL })
-            ?? specsState.mediaInfoCache[url.standardizedFileURL] {
+        if let existing = specsState.cachedDetails(for: url) {
             propertiesAsset = existing
             isInspectingProperties = false
             if showModal {
@@ -2097,9 +2095,8 @@ struct ContentView: View {
             }
             
             Task { @MainActor in
-                // Not added to Inspect's list: a list holding only this clip read as "already inspected" and hid the queue.
-                let asset = await DeliverablesInspector.inspectFile(url: url)
-                if let asset { self.specsState.mediaInfoCache[url.standardizedFileURL] = asset }
+                // Kept in SpecsState's cache, not in Inspect's list (a list holding only this clip hid the queue).
+                let asset = await self.specsState.details(for: url)
                 // A slower read of the previous clip must not land over this one.
                 guard self.propertiesURL == url else { return }
                 self.propertiesAsset = asset
@@ -2242,7 +2239,7 @@ struct ContentView: View {
         Task { @MainActor in
             // Line Check markers are written to disk once, when a scan finishes (`syncScanResultsToNotes`); rebuilding
             // them here from the scan results brought back markers the user had deleted.
-            let notes = await QCNotesManager.shared.loadNotes(for: url)
+            let notes = await QCNotesManager.shared.loadNotes(for: url, forDisplay: true)
             let targetURL = (self.playerEngine.activeTarget == .slotB && self.playerEngine.slotB.url != nil) ? self.playerEngine.slotB.url : self.playerEngine.activeURL
             if targetURL == url {
                 if self.playerEngine.activeNotesURL != url { self.unseenSyncedNoteIDs = [] }
@@ -2562,6 +2559,14 @@ struct ContentView: View {
                 return
             }
             await NotesSync.shared.push(url)
+        }
+    }
+
+    /// Every queue change and every opening of Inspect goes through here (`SpecsState.queueChanged` decides).
+    func inspectFollowsQueue(_ change: SpecsState.QueueChange) {
+        let engine = playerEngine
+        specsState.queueChanged(change, queue: videoFiles, inspectShown: selectedTab == .specs) {
+            engine.isPlaying || engine.isScrubbing
         }
     }
 

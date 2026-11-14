@@ -293,7 +293,9 @@ struct lc_detector {
 			int matte = matteThickness(f, e.walk, e.extent);
 			if (matte <= edgeDepth || (hasTarget && vmaxElement(target) < 30)) continue;
 			LineWalk inner{e.walk.origin + matte * e.walk.depthStride, e.walk.depthStride, e.walk.positionStride, e.walk.length};
-			if (findEdgeLine(e.edge, inner, f, (e.extent - 2 * matte) / 2 - 4, line)) {
+			// A band as dark as the bar is the bar itself (a dark backdrop ending where a title or product begins).
+			if (findEdgeLine(e.edge, inner, f, (e.extent - 2 * matte) / 2 - 4, line)
+				&& ((line.r * 54 + line.g * 183 + line.b * 19) >> 8) > 36) {
 				line.position = matte;
 				detections.push_back(line);
 			}

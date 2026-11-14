@@ -33,6 +33,61 @@ struct QCNotesStoreTests {
         _ = QCNotesManager.rescaled([note("huge", .max)], from: 1, to: 1000)
     }
 
+    /// A colleague's Mac writing the same notes file on a shared folder.
+    private func colleagueWrites(_ notes: [QCFileNote], for url: URL) throws {
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        let doc = QCNotesDocument(version: 1, mediaFileName: url.lastPathComponent, fps: 25, lastModified: Date(), notes: notes)
+        let sidecar = QCNotesManager.sidecarURL(for: url)
+        try encoder.encode(doc).write(to: sidecar)
+        // A later date than this Mac's last write, as a real second save has.
+        try FileManager.default.setAttributes([.modificationDate: Date().addingTimeInterval(5)], ofItemAtPath: sidecar.path)
+    }
+
+    @Test("Shared folder: a save keeps a colleague's notes added meanwhile, and their deletions")
+    func saveMergesWithAColleaguesSave() async throws {
+        let (dir, url) = try clip(); defer { cleanup(dir, url) }
+        let store = QCNotesManager.shared
+        let mine = note("mine", 5), shared = note("shared", 8), doomed = note("doomed", 9)
+        #expect(await store.saveNotes([mine, shared, doomed], for: url, fps: 25))
+        let shown = await store.loadNotes(for: url, forDisplay: true)
+        #expect(shown.count == 3)
+
+        // The colleague adds a note and deletes "doomed"; this Mac, unaware, edits its own and saves.
+        try colleagueWrites(shown.filter { $0.text != "doomed" } + [note("theirs", 20)], for: url)
+        var edited = shown
+        edited[0].text = "mine, edited"
+        #expect(await store.saveNotes(edited, for: url, fps: 25))
+        #expect(await store.loadNotes(for: url).map(\.text) == ["mine, edited", "shared", "theirs"])
+
+        // Deleting here still deletes: the next save doesn't bring the note back.
+        let now = await store.loadNotes(for: url)
+        #expect(await store.saveNotes(now.filter { $0.text != "shared" }, for: url, fps: 25))
+        #expect(await store.loadNotes(for: url).map(\.text) == ["mine, edited", "theirs"])
+    }
+
+    @Test("Shared folder: a colleague's save reaches the clip on screen once, and an unmounted share isn't a deletion")
+    func externalChangeIsReported() async throws {
+        let (dir, url) = try clip(); defer { cleanup(dir, url) }
+        let store = QCNotesManager.shared
+        #expect(await store.saveNotes([note("mine", 5)], for: url, fps: 25))
+        let shown = await store.loadNotes(for: url, forDisplay: true)
+        #expect(await store.externalChange(for: url) == nil)
+
+        try colleagueWrites(shown + [note("theirs", 20)], for: url)
+        let change = await store.externalChange(for: url)
+        #expect(change?.notes.map(\.text) == ["mine", "theirs"])
+        #expect(change?.localSnapshot.map(\.text) == ["mine"])
+        #expect(await store.externalChange(for: url) == nil)
+
+        // The share drops out: clip and notes file both unreachable. Nothing is reported, nothing is merged away.
+        let away = dir.appendingPathComponent("away")
+        try FileManager.default.createDirectory(at: away, withIntermediateDirectories: true)
+        try FileManager.default.moveItem(at: url, to: away.appendingPathComponent(url.lastPathComponent))
+        try FileManager.default.moveItem(at: QCNotesManager.sidecarURL(for: url), to: away.appendingPathComponent("notes"))
+        #expect(await store.externalChange(for: url) == nil)
+    }
+
     @Test("Save and load round trip; clearing removes the sidecar")
     func roundTrip() async throws {
         let (dir, url) = try clip(); defer { cleanup(dir, url) }

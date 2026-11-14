@@ -281,7 +281,10 @@ private struct BlendLineModel {
             guard matte > edgeDepth, !(target.map { $0.max() < 30 } ?? false) else { continue }
             let inner = LineWalk(origin: walk.origin + matte * walk.depthStride, depthStride: walk.depthStride,
                                  positionStride: walk.positionStride, length: walk.length)
-            if let detection = findEdgeLine(edge, walk: inner, frame: frame, maxDepth: (extent - 2 * matte) / 2 - 4) {
+            // A band as dark as the bar is the bar itself (a dark backdrop ending where a title or product begins).
+            if let detection = findEdgeLine(edge, walk: inner, frame: frame, maxDepth: (extent - 2 * matte) / 2 - 4),
+               case let c = detection.detectedColor,
+               (Int(c.r) * 54 + Int(c.g) * 183 + Int(c.b) * 19) >> 8 > Self.matteLineLuma {
                 detections.append(detection.withPosition(matte))
             }
         }
@@ -475,6 +478,9 @@ private struct BlendLineModel {
     }
     
     // MARK: Mattes
+    
+    /// A line inside a letterbox must be brighter than the bar (bar rows read ≤ 24, 12 apart at most).
+    static let matteLineLuma = 36
     
     /// Rows (columns) of uniform near-black bar from this edge inwards, up to 30% of the frame; 0 when there is none.
     private func matteThickness(_ frame: BGRAFrame, walk: LineWalk, extent: Int) -> Int {

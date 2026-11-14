@@ -343,6 +343,11 @@ struct LineCase: Sendable {
     ]
 
     static let negatives: [LineCase] = [
+        LineCase(name: "dark backdrop ending at a title is not a letterbox line", config: QCConfig(anyColor: true), expectedEdge: nil) {
+            var f = Scenes.picture()
+            for y in 0..<50 { for x in 0..<Scenes.width where y < 40 || x < Scenes.width * 7 / 10 { f[x, y] = (56, 3, 3) } }
+            return f
+        },
         LineCase(name: "letterboxed picture, green target", config: greenConfig, expectedEdge: nil) {
             var f = Scenes.picture()
             for y in 0..<40 { for x in 0..<Scenes.width { f[x, y] = (0, 0, 0); f[x, Scenes.height - 1 - y] = (0, 0, 0) } }

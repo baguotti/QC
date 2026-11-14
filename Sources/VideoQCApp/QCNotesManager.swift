@@ -22,6 +22,42 @@ public actor QCNotesManager {
     /// Sidecars that existed but couldn't be read at load (sync conflict, cloud placeholder, newer format). Their notes
     /// never reached the caller, so a save must not overwrite them.
     private var unreadableSidecars = Set<URL>()
+
+    /// Shared folders: the notes file as this Mac last showed or wrote it, per clip. A save merges against it when a
+    /// colleague changed the file meanwhile (three-way, like Notes Sync) instead of writing over their notes, and
+    /// `externalChange` hands their changes to the clip on screen. Loads that aren't shown (sync, checks) don't move it.
+    private var seen: [URL: [QCFileNote]] = [:]
+    private var seenStamp: [URL: String] = [:]
+
+    /// The notes file's date and size (shares round dates to a second or two: the size catches a save inside that).
+    private nonisolated static func stamp(for mediaURL: URL) -> String? {
+        newestSidecar(for: mediaURL).map { "\($0.date.timeIntervalSince1970)/\($0.size)" }
+    }
+
+    /// The notes on disk now, or nil when they can't be trusted: unreadable, or no notes file while the clip itself
+    /// can't be seen either (an unmounted share must not read as "a colleague deleted every note").
+    private func notesOnDisk(for mediaURL: URL) -> [QCFileNote]? {
+        guard let url = QCNotesManager.existingSidecar(for: mediaURL) else {
+            return FileManager.default.fileExists(atPath: mediaURL.path) ? [] : nil
+        }
+        guard let data = try? Data(contentsOf: url), let doc = try? decoder.decode(QCNotesDocument.self, from: data) else { return nil }
+        return doc.notes
+    }
+
+    /// A colleague's change to the shown clip's notes file since this Mac last showed or wrote it (nil when none).
+    /// One `stat` per call; the file is read only when its date moved.
+    func externalChange(for mediaURL: URL) -> NotesSync.Change? {
+        let key = mediaURL.standardizedFileURL
+        guard let base = seen[key] else { return nil }
+        let stamp = QCNotesManager.stamp(for: mediaURL)
+        guard stamp != seenStamp[key], let disk = notesOnDisk(for: mediaURL) else { return nil }
+        seenStamp[key] = stamp
+        guard Set(disk) != Set(base) else { return nil }
+        let notes = disk.sorted { $0.frameIndex < $1.frameIndex }
+        seen[key] = notes
+        QCNotesManager.updateCachedCount(notes.count, for: mediaURL)
+        return NotesSync.Change(url: mediaURL, notes: notes, localSnapshot: base)
+    }
     
     /// Returns the primary hidden companion `.<filename>.<ext>.qcnotes` sidecar URL in the same directory.
     public nonisolated static func sidecarURL(for mediaURL: URL) -> URL {
@@ -46,12 +82,17 @@ public actor QCNotesManager {
 
     /// The clip's notes file: the newest of the hidden sidecar, the legacy visible one and the fallback copy.
     nonisolated static func existingSidecar(for mediaURL: URL) -> URL? {
-        let candidates = [sidecarURL(for: mediaURL), visibleSidecarURL(for: mediaURL), fallbackURL(for: mediaURL)]
-            .compactMap { url -> (URL, Date)? in
+        newestSidecar(for: mediaURL)?.url
+    }
+
+    /// One `stat` per candidate: the file, its date and its size.
+    private nonisolated static func newestSidecar(for mediaURL: URL) -> (url: URL, date: Date, size: Int)? {
+        [sidecarURL(for: mediaURL), visibleSidecarURL(for: mediaURL), fallbackURL(for: mediaURL)]
+            .compactMap { url -> (url: URL, date: Date, size: Int)? in
                 guard let attributes = try? FileManager.default.attributesOfItem(atPath: url.path) else { return nil }
-                return (url, attributes[.modificationDate] as? Date ?? .distantPast)
+                return (url, attributes[.modificationDate] as? Date ?? .distantPast, attributes[.size] as? Int ?? 0)
             }
-        return candidates.max { $0.1 < $1.1 }?.0
+            .max { $0.date < $1.date }
     }
 
     private static let cacheLock = NSLock()
@@ -105,7 +146,18 @@ public actor QCNotesManager {
     }
     
     /// Loads notes from the companion sidecar file if present (checks hidden file first, falls back to visible).
-    public func loadNotes(for mediaURL: URL) -> [QCFileNote] {
+    /// `forDisplay`: these notes go on screen, so later saves and `externalChange` compare against them.
+    public func loadNotes(for mediaURL: URL, forDisplay: Bool = false) -> [QCFileNote] {
+        let notes = readNotes(for: mediaURL)
+        if forDisplay {
+            let key = mediaURL.standardizedFileURL
+            seen[key] = hasUnreadableNotes(for: mediaURL) ? nil : notes
+            seenStamp[key] = QCNotesManager.stamp(for: mediaURL)
+        }
+        return notes
+    }
+
+    private func readNotes(for mediaURL: URL) -> [QCFileNote] {
         guard let url = QCNotesManager.existingSidecar(for: mediaURL) else {
             QCNotesManager.updateCachedCount(0, for: mediaURL)
             return []
@@ -135,19 +187,44 @@ public actor QCNotesManager {
     @discardableResult
     public func updateNotes(for mediaURL: URL, fps: Double, _ change: @Sendable ([QCFileNote]) -> [QCFileNote]?) -> [QCFileNote]? {
         guard let notes = change(loadNotes(for: mediaURL)) else { return nil }
-        saveNotes(notes, for: mediaURL, fps: fps)
-        return notes
+        guard saveNotes(notes, for: mediaURL, fps: fps) else { return notes }
+        // What was written: a colleague's notes merged in at the save are part of it.
+        return seen[mediaURL.standardizedFileURL] ?? notes
     }
 
     /// Saves notes atomically to the hidden companion `.<filename>.<ext>.qcnotes` sidecar file.
     @discardableResult
     public func saveNotes(_ notes: [QCFileNote], for mediaURL: URL, fps: Double) -> Bool {
+        let key = mediaURL.standardizedFileURL
+        // Untouched since this Mac read or wrote it: known readable and nothing to merge, so the file isn't read again.
+        let untouched = seen[key] != nil && QCNotesManager.stamp(for: mediaURL) == seenStamp[key]
+        guard untouched || !hasUnreadableNotes(for: mediaURL) else { return false }
+        // As they will read back from disk (whole-second dates): a note only counts as changed when it really is.
+        let notes = (try? decoder.decode([QCFileNote].self, from: encoder.encode(notes))) ?? notes
+        // A colleague saved this clip's notes since this Mac last showed or wrote them: keep both sides' changes.
+        // The file is read only when its date or size moved.
+        var merged = notes
+        if !untouched, let base = seen[key], let disk = notesOnDisk(for: mediaURL), Set(disk) != Set(base) {
+            merged = QCNotesManager.threeWayMerge(local: notes, remote: disk, base: base)
+        }
+        let sortedNotes = merged.sorted { $0.frameIndex < $1.frameIndex }
+        guard write(sortedNotes, for: mediaURL, fps: fps) else { return false }
+        let didMerge = Set(sortedNotes) != Set(notes)
+        if seen[key] != nil || didMerge { seen[key] = sortedNotes }
+        seenStamp[key] = QCNotesManager.stamp(for: mediaURL)
+        if didMerge {
+            let change = NotesSync.Change(url: mediaURL, notes: sortedNotes, localSnapshot: notes)
+            Task { @MainActor in NotificationCenter.default.post(name: NotesSync.didMergeRemoteNotes, object: change) }
+        }
+        return true
+    }
+
+    /// Writes the notes file (or removes it for no notes); the local fallback copy when the folder can't be written.
+    private func write(_ sortedNotes: [QCFileNote], for mediaURL: URL, fps: Double) -> Bool {
         let hiddenURL = QCNotesManager.sidecarURL(for: mediaURL)
         let visibleURL = QCNotesManager.visibleSidecarURL(for: mediaURL)
         let fallbackURL = QCNotesManager.fallbackURL(for: mediaURL)
-        let sortedNotes = notes.sorted { $0.frameIndex < $1.frameIndex }
-        guard !hasUnreadableNotes(for: mediaURL) else { return false }
-        
+
         // If notes are completely empty, clean up every copy
         if sortedNotes.isEmpty {
             var removedAll = true

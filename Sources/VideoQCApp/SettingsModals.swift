@@ -547,7 +547,7 @@ struct UserSettingsModalView: View {
     @AppStorage(Notifier.problemsOnlyKey) private var problemsOnly = false
     @State private var downloadFolder = UserDefaults.standard.url(forKey: DownloadQueue.folderKey)
     @State private var maintenanceNote: String?
-    @State private var isCleaningNotes = false
+    @State private var notesCleanup: Task<Void, Never>?
     @ObservedObject private var notifier = Notifier.shared
     
     private var palette: StudioPalette { StudioPalette(isLightMode) }
@@ -775,11 +775,16 @@ struct UserSettingsModalView: View {
                 }
                 rowDivider
                 row("note.text", "Orphaned notes", "Notes left next to clips that were deleted or renamed. Scans a folder and its subfolders.") {
-                    Button("Clean Up…") {
-                        isCleaningNotes = true
-                        Task {
-                            defer { isCleaningNotes = false }
-                            if let note = await SettingsTransfer.cleanUpOrphanedNotes(progress: { maintenanceNote = $0 }) {
+                    Button(notesCleanup == nil ? "Clean Up…" : "Cancel") {
+                        if let running = notesCleanup {
+                            running.cancel()
+                            return
+                        }
+                        notesCleanup = Task {
+                            defer { notesCleanup = nil }
+                            // A late progress line must not replace the result.
+                            let note = await SettingsTransfer.cleanUpOrphanedNotes(progress: { if notesCleanup != nil { maintenanceNote = $0 } })
+                            if let note {
                                 maintenanceNote = note
                             } else if maintenanceNote?.hasPrefix("Scanning") == true {
                                 maintenanceNote = nil
@@ -787,7 +792,6 @@ struct UserSettingsModalView: View {
                         }
                     }
                     .font(.ui(size: 11))
-                    .disabled(isCleaningNotes)
                 }
                 rowDivider
                 row("arrow.counterclockwise", "Reset all settings", "Back to QCpie's defaults, appearance included. Frame.io favourites and sign-in are kept.") {
@@ -1164,17 +1168,35 @@ private struct NotificationKindRow: View {
 /// User Settings → General → Settings: export / import, reset, caches, the support folder.
 @MainActor
 enum SettingsTransfer {
-    /// Keys exported and reset: every User Settings choice. Prefix "pref" plus the older names.
-    private static let extraKeys: Set<String> = [
+    // Every UserDefaults key the app uses is in one of these three lists (or starts with "pref" / "notify."):
+    // `SettingsKeysTests` reads the sources and fails on a key that isn't, so a new choice can't silently miss
+    // export, import and reset.
+
+    /// Exported and reset: the user's choices. Prefix "pref" plus the older names.
+    static let extraKeys: Set<String> = [
         "isLightMode", "reviewerName", "queueDisplayMode", "specsDisplayMode", "isAutoplayEnabled", "drawsWaveforms",
         "mediaKindFilter", "imageSequenceFPS", "uploadKeepStructure", "frameioDownloadFolder", "frameioDownloadAddToQueue",
         "userSettingsSize", Notifier.enabledKey, Notifier.whileActiveKey, Notifier.soundKey, Notifier.problemsOnlyKey,
-        "QCpie_ActiveThemeID", "QCpie_CurrentThemeData", "QCpie_UserThemePresets", "QCpie_UIButtonZoomLevel"
+        "QCpie_ActiveThemeID", "QCpie_CurrentThemeData", "QCpie_UserThemePresets", "QCpie_UIButtonZoomLevel",
+        "tagInFinder", "specsHiddenColumns", "planCheckKinds", "planLinkFilters", "subtitleSpellLanguage",
+        "frameioThumbnails", "inspectGroupBy", "inspectHidePlanTags"
     ]
-    /// Exported (another Mac on the same Frame.io account can use them) but never reset.
-    private static let favouriteKeys: Set<String> = ["frameioFavourites", "frameioFavouritePages"]
+    /// Exported (things the user built, useful on another Mac) but never reset.
+    static let favouriteKeys: Set<String> = ["frameioFavourites", "frameioFavouritePages", "specsColumnTemplates"]
+    /// Not settings: window layout, where the user was, per-clip records, sign-in. Never exported or reset.
+    static let stateKeys: Set<String> = [
+        "deliveryPlanConfig", "deliveryPlanDataView", "deliveryPlanPoppedOut", "deliveryPlanView", "deliveryPlanZoom",
+        "dismissedGraphics", "frameioFavouritePage", "frameioFavouritesLayout", "frameioLastPath", "frameioProjectStatus",
+        "frameioThumbnailWidth", "hasSetDefaultListViewV2", "imageSequenceIndividual", "inspectPlanOpen", "inspectPlanSort",
+        "inspectPreviewCollapsed", "inspectPreviewMuted", "inspectPreviewPoppedOut", "lastQueueInputs",
+        "notesSyncDefaultProject", "notesSyncPassword", "notesSyncProjects", "planDrawerHeight", "playerQueueWidth",
+        "playerThumbnailSize", "resumePositions", "scanPanelWidth", "specsSortAscending", "specsSortColumn",
+        "specsThumbnailSize", "subtitleAttachments", "subtitlePositionX", "subtitlePositionY", "transferCardExpanded",
+        "transferLogFilter", "uploadDrawerTab", "uploadDrawerWidth", "uploadLogOpen", "uploadPanelWidth", "uploadQueueOpen",
+        "userSettingsPane", "userSettingsSection", "waveformLaneHeight", "lineCheckDismissed"
+    ]
 
-    private static func isSetting(_ key: String) -> Bool {
+    static func isSetting(_ key: String) -> Bool {
         key.hasPrefix("pref") || key.hasPrefix("notify.") || extraKeys.contains(key)
     }
 
@@ -1226,7 +1248,7 @@ enum SettingsTransfer {
 
     /// Asks for a folder, finds notes left behind by deleted or renamed clips (off the main thread) and removes them
     /// after a confirmation. Returns the line shown under the section.
-    static func cleanUpOrphanedNotes(progress: @escaping (String) -> Void) async -> String? {
+    static func cleanUpOrphanedNotes(progress: @escaping @MainActor @Sendable (String) -> Void) async -> String? {
         let panel = NSOpenPanel()
         panel.canChooseDirectories = true
         panel.canChooseFiles = false
@@ -1234,7 +1256,13 @@ enum SettingsTransfer {
         panel.message = "Choose a folder to scan, subfolders included, for notes whose clip is gone."
         guard panel.runModal() == .OK, let folder = panel.url else { return nil }
         progress("Scanning \(folder.lastPathComponent)…")
-        let orphans = await Task.detached(priority: .utility) { QCNotesManager.orphanedSidecars(in: folder) }.value
+        let scan = Task.detached(priority: .utility) {
+            QCNotesManager.orphanedSidecars(in: folder, isCancelled: { Task.isCancelled }, visited: { count in
+                Task { @MainActor in progress("Scanning \(folder.lastPathComponent)… \(count.formatted()) items") }
+            })
+        }
+        let orphans = await withTaskCancellationHandler { await scan.value } onCancel: { scan.cancel() }
+        guard !Task.isCancelled else { return "Scan cancelled." }
         guard !orphans.isEmpty else { return "No orphaned notes in \(folder.lastPathComponent)." }
         let alert = NSAlert()
         alert.messageText = "Remove \(orphans.count) orphaned notes file\(orphans.count == 1 ? "" : "s")?"

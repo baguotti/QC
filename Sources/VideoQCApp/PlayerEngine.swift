@@ -582,7 +582,8 @@ public final class PlayerEngine: ObservableObject {
     @Published public var markersMap: [URL: [PlayerTimelineMarker]] = [:]
     @Published public var activeMarkers: [PlayerTimelineMarker] = []
     /// Set with `markersMap` (whose publish redraws the viewport); read only on paused frames.
-    var lineMarks: [URL: LineMarkFrames] = [:]
+    var lineMarks: [URL: LineMarkFrames] = [:] { didSet { lineMarksRevision &+= 1 } }
+    private(set) var lineMarksRevision = 0
     
     // Review Notes from Companion Sidecar (.qcnotes)
     @Published public var activeNotes: [QCFileNote] = []

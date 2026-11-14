@@ -755,8 +755,11 @@ public final class SpecsState: ObservableObject {
     private var inspecting: Set<URL> = []
     /// Queue files the inspector returned nothing for: not retried on every visit (each retry also stops loudness analysis).
     private var uninspectable: Set<URL> = []
-    /// Clips Media Info read outside this list (not published: nothing draws from it). Cleared with the queue.
-    var mediaInfoCache: [URL: DeliverableAsset] = [:]
+    /// Clip details read outside this list: by Media Info, and by `prewarm` in the background after a queue load.
+    /// Opening Inspect takes them from here instead of reading the files again. Not published (nothing draws from it);
+    /// cleared with the queue and on a refresh.
+    private var mediaInfoCache: [URL: DeliverableAsset] = [:]
+    private var prewarmTask: Task<Void, Never>?
 
     /// Empties the list; inspections still running for the old queue are dropped when they finish.
     public func clearDeliverables() {
@@ -769,27 +772,138 @@ public final class SpecsState: ObservableObject {
         inspecting = []
         uninspectable = []
         mediaInfoCache = [:]
+        prewarmTask?.cancel()
         isInspectingDeliverables = false
         deliverableAssets = []
     }
 
+    /// What happened to the queue, for `queueChanged`.
+    public enum QueueChange {
+        /// A new queue replaced the old one.
+        case replaced
+        /// Files were added to the queue.
+        case added([URL])
+        /// The Inspect tab was opened.
+        case inspectOpened
+    }
+
+    /// The one place that decides how Inspect follows the queue. While Inspect is shown, files are read at once;
+    /// on other tabs the list is left alone (loads stay light) and details are read in the background, then listed
+    /// when Inspect opens.
+    public func queueChanged(_ change: QueueChange, queue: [URL], inspectShown: Bool, isPlayerBusy: @escaping @MainActor () -> Bool) {
+        switch change {
+        case .replaced:
+            if inspectShown {
+                inspectDeliverablesBatch(urls: queue)
+            } else {
+                clearDeliverables()
+                prewarm(queue, isPlayerBusy: isPlayerBusy)
+            }
+        case .added(let urls):
+            if inspectShown {
+                inspectDeliverablesBatch(urls: urls, append: true)
+            } else {
+                prewarm(queue, isPlayerBusy: isPlayerBusy)
+            }
+        case .inspectOpened:
+            inspectMissing(from: queue)
+        }
+    }
+
+    /// A clip's details for Media Info: from the list or the cache, else read now and kept for Inspect.
+    public func details(for url: URL) async -> DeliverableAsset? {
+        let key = url.standardizedFileURL
+        if let known = cachedDetails(for: url) { return known }
+        let generation = inspectGeneration
+        let asset = await DeliverablesInspector.inspectFile(url: url)
+        if let asset, generation == inspectGeneration { mediaInfoCache[key] = asset }
+        return asset
+    }
+
+    /// Details already in memory (no disk read).
+    public func cachedDetails(for url: URL) -> DeliverableAsset? {
+        listedAsset(for: url) ?? mediaInfoCache[url.standardizedFileURL]
+    }
+
+    /// The list's asset for a file, through an index rebuilt only when the list changed: view bodies ask on every
+    /// render, and a scan standardizes every URL in the list each time.
+    public func listedAsset(for url: URL) -> DeliverableAsset? {
+        if assetIndex?.version != assetsVersion {
+            var map: [URL: Int] = [:]
+            map.reserveCapacity(deliverableAssets.count)
+            for (index, asset) in deliverableAssets.enumerated() where map[asset.fileURL.standardizedFileURL] == nil {
+                map[asset.fileURL.standardizedFileURL] = index
+            }
+            assetIndex = (assetsVersion, map)
+        }
+        return assetIndex?.map[url.standardizedFileURL].map { deliverableAssets[$0] }
+    }
+    private var assetIndex: (version: Int, map: [URL: Int])?
+
     /// Opening Inspect: inspects the queue's files the list doesn't have yet. All of them on a first visit; on later
     /// visits the files added while another tab was shown (they're inspected only here, to keep loads light).
-    public func inspectMissing(from queue: [URL]) {
+    private func inspectMissing(from queue: [URL]) {
         guard !queue.isEmpty else { return }
-        if deliverableAssets.isEmpty && inspecting.isEmpty {
+        prewarmTask?.cancel()
+        if deliverableAssets.isEmpty && inspecting.isEmpty && mediaInfoCache.isEmpty {
             inspectDeliverablesBatch(urls: queue)
             return
         }
         let have = inspecting.union(uninspectable).union(deliverableAssets.map { $0.fileURL.standardizedFileURL })
-        let missing = queue.filter { !have.contains($0.standardizedFileURL) }
+        var missing = queue.filter { !have.contains($0.standardizedFileURL) }
+        // Already read by Media Info or in the background: listed at once, no second read.
+        let known = missing.compactMap { mediaInfoCache[$0.standardizedFileURL] }
+        if !known.isEmpty {
+            let landed = Set(known.map { $0.fileURL.standardizedFileURL })
+            appendedSinceReplace.formUnion(landed)
+            deliverableAssets = Self.inQueueOrder(deliverableAssets + known, queue: queue)
+            missing.removeAll { landed.contains($0.standardizedFileURL) }
+        }
         guard !missing.isEmpty else { return }
         inspectDeliverablesBatch(urls: missing, append: true, order: queue)
+    }
+
+    /// After a queue load on another tab: reads the clips' details one at a time at low priority, never while the
+    /// Player plays or scrubs, so Inspect opens filled in. Stops when Inspect opens (it reads the rest itself, 8 at a
+    /// time) or the queue is replaced.
+    private func prewarm(_ queue: [URL], isPlayerBusy: @escaping @MainActor () -> Bool) {
+        prewarmTask?.cancel()
+        let generation = inspectGeneration
+        let listed = Set(deliverableAssets.map { $0.fileURL.standardizedFileURL })
+        prewarmTask = Task(priority: .utility) { @MainActor [weak self] in
+            for url in queue {
+                let key = url.standardizedFileURL
+                if listed.contains(key) { continue }
+                while isPlayerBusy() {
+                    try? await Task.sleep(for: .seconds(1))
+                    if Task.isCancelled { return }
+                }
+                guard let self, !Task.isCancelled, generation == self.inspectGeneration else { return }
+                if self.mediaInfoCache[key] != nil { continue }
+                let asset = await DeliverablesInspector.inspectFile(url: url)
+                guard !Task.isCancelled, generation == self.inspectGeneration else { return }
+                // A file with nothing to read isn't tried again by every later prewarm or visit.
+                if let asset { self.mediaInfoCache[key] = asset } else { self.uninspectable.insert(key) }
+            }
+        }
+    }
+
+    private static func inQueueOrder(_ assets: [DeliverableAsset], queue: [URL]) -> [DeliverableAsset] {
+        let rank = Dictionary(queue.enumerated().map { ($1.standardizedFileURL, $0) }, uniquingKeysWith: { a, _ in a })
+        // Ranks looked up once per asset, not in the comparator (standardizing a URL isn't free).
+        var ranked: [(rank: Int, offset: Int, asset: DeliverableAsset)] = []
+        ranked.reserveCapacity(assets.count)
+        for (offset, asset) in assets.enumerated() {
+            ranked.append((rank[asset.fileURL.standardizedFileURL] ?? Int.max, offset, asset))
+        }
+        ranked.sort { $0.rank != $1.rank ? $0.rank < $1.rank : $0.offset < $1.offset }
+        return ranked.map(\.asset)
     }
 
     /// `order`: the queue, to put appended files in queue order instead of at the end.
     public func inspectDeliverablesBatch(urls: [URL], append: Bool = false, order: [URL]? = nil) {
         guard !urls.isEmpty else { return }
+        prewarmTask?.cancel()
         cancelAudioAnalysis()
         if !append {
             cancelEndFrameCheck()
@@ -820,16 +934,8 @@ public final class SpecsState: ObservableObject {
                 let newAssets = assets.filter { seen.insert($0.fileURL.standardizedFileURL).inserted }
                 self.appendedSinceReplace.formUnion(newAssets.map { $0.fileURL.standardizedFileURL })
                 if !newAssets.isEmpty {
-                    var merged = self.deliverableAssets + newAssets
-                    if let order {
-                        let rank = Dictionary(order.enumerated().map { ($1.standardizedFileURL, $0) }, uniquingKeysWith: { a, _ in a })
-                        merged = merged.enumerated().sorted {
-                            let l = rank[$0.element.fileURL.standardizedFileURL] ?? Int.max
-                            let r = rank[$1.element.fileURL.standardizedFileURL] ?? Int.max
-                            return l != r ? l < r : $0.offset < $1.offset
-                        }.map(\.element)
-                    }
-                    self.deliverableAssets = merged
+                    let merged = self.deliverableAssets + newAssets
+                    self.deliverableAssets = order.map { Self.inQueueOrder(merged, queue: $0) } ?? merged
                 }
             } else {
                 // Read again without their check results: their Player markers go too.

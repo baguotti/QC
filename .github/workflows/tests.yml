@@ -1,0 +1,21 @@
+# Builds QCpie and runs the test suite on every push to main and every pull request.
+# Benchmarks (scripts/*Bench) need local footage and stay a local step.
+name: Tests
+on:
+  push:
+    branches: [main]
+  pull_request:
+jobs:
+  test:
+    runs-on: macos-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Use the newest Xcode on the runner
+        run: sudo xcode-select -s "$(ls -d /Applications/Xcode*.app | sort -V | tail -1)"
+      - name: Build
+        run: swift build
+      - name: Test
+        run: swift test
+      - name: Design lint
+        run: python3 scripts/design_lint.py

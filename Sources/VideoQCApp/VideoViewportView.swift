@@ -97,6 +97,13 @@ public final class PlayerContainerNSView: NSView {
     private let lineMarkLayerA = CALayer()
     private let lineMarkLayerB = CALayer()
     private var lineMarksKey: [SlotTarget: String] = [:]
+    private struct LineMarkState: Equatable {
+        let url: URL, frame: Int, size: CGSize, zoom: CGFloat, portrait: Bool, revision: Int
+    }
+    private var lineMarkState: [SlotTarget: LineMarkState] = [:]
+    private var lineColourKey: [SlotTarget: String] = [:]
+    private var lineColourTasks: [SlotTarget: Task<Void, Never>] = [:]
+    private var lineMarkColours: [SlotTarget: [CGColor]] = [:]
     
     // Split Divider & Handle
     private let splitDividerLayer = CALayer()
@@ -731,32 +738,82 @@ public final class PlayerContainerNSView: NSView {
             guard isActive, let url = state.url, state.mediaKind == .video, state.sequence == nil, !still.isHidden,
                   time.isNumeric, let marks = engine.lineMarks[url.standardizedFileURL],
                   let detections = marks.frames[frameIndex(of: time, fps: state.fps)], !detections.isEmpty else {
-                if !container.isHidden { container.isHidden = true }   // may run per tick while playing: touch nothing
+                // May run per tick while playing: nothing is touched after the first time.
+                if !container.isHidden {
+                    container.isHidden = true
+                    lineColourTasks[slot]?.cancel()
+                    lineColourKey[slot] = nil
+                }
                 continue
             }
             let bounds = still.bounds
+            let frame = frameIndex(of: time, fps: state.fps)
+            // Nothing that the marks depend on moved since the last call (this runs on every redraw of a paused frame).
+            let shown = state.videoSize
+            let current = LineMarkState(url: url, frame: frame, size: bounds.size, zoom: zoom,
+                                        portrait: shown.height > shown.width, revision: engine.lineMarksRevision)
+            if lineMarkState[slot] == current, !container.isHidden { continue }
+            lineMarkState[slot] = current
             // The detections themselves are in the key: a new Line Check of this clip can change them on the same frame.
             let lines = detections.map { "\($0.edge.rawValue)\($0.thickness)/\($0.position ?? -1)" }.joined(separator: ",")
             // Orientation too: a rotated clip's on-screen size arrives after its first frames.
-            let portrait = state.videoSize.height > state.videoSize.width
-            let key = "\(url.path)|\(lines)|\(bounds.size)|\(zoom)|\(portrait)"
+            let key = "\(url.path)|\(lines)|\(bounds.size)|\(zoom)|\(current.portrait)"
             if lineMarksKey[slot] != key {
                 lineMarksKey[slot] = key
                 CATransaction.begin()
                 CATransaction.setDisableActions(true)
                 container.frame = bounds
-                container.sublayers = Self.lineMarkRects(detections, picture: marks.size, shown: state.videoSize, in: bounds, zoom: zoom)
-                    .map { rect in
+                // Drawn at once in the colours last picked (red the first time); `pickLineMarkColours` follows.
+                let colours = lineMarkColours[slot] ?? []
+                container.sublayers = Self.lineMarkRects(detections, picture: marks.size, shown: shown, in: bounds, zoom: zoom)
+                    .enumerated().map { index, rect in
                         let mark = CALayer()
                         mark.frame = rect
                         mark.borderWidth = 1 / zoom
-                        mark.borderColor = NSColor(red: 1, green: 0.27, blue: 0.23, alpha: 0.9).cgColor
-                        mark.actions = ["position": NSNull(), "bounds": NSNull()]
+                        mark.borderColor = index < colours.count ? colours[index] : Self.lineMarkColour(LineMarkColor.palette[0])
+                        mark.actions = ["position": NSNull(), "bounds": NSNull(), "borderColor": NSNull()]
                         return mark
                     }
                 CATransaction.commit()
             }
+            pickLineMarkColours(slot: slot, key: "\(url.path)|\(frame)|\(lines)", detections: detections, still: still, container: container)
             if container.isHidden { container.isHidden = false }
+        }
+    }
+
+    private static func lineMarkColour(_ c: SIMD3<Double>) -> CGColor {
+        NSColor(red: c.x, green: c.y, blue: c.z, alpha: 0.9).cgColor
+    }
+
+    /// Picks each outline's colour against this frame's picture (`LineMarkColor`): 80 ms after stepping settles, with
+    /// the 32 px copy of the still made off the main thread, so a held arrow key never pays for it.
+    private func pickLineMarkColours(slot: SlotTarget, key: String, detections: [LineDetection], still: CALayer, container: CALayer) {
+        guard lineColourKey[slot] != key, let contents = still.contents, CFGetTypeID(contents as CFTypeRef) == CGImage.typeID,
+              still.bounds.width > 0, still.bounds.height > 0 else { return }
+        lineColourKey[slot] = key
+        lineColourTasks[slot]?.cancel()
+        let image = contents as! CGImage   // immutable: safe to read off the main thread
+        let bounds = still.bounds
+        // The picture around each line, in the thumbnail's top-left unit square.
+        let near = (container.sublayers ?? []).map { mark in
+            CGRect(x: mark.frame.minX / bounds.width, y: 1 - mark.frame.maxY / bounds.height,
+                   width: mark.frame.width / bounds.width, height: mark.frame.height / bounds.height).insetBy(dx: -0.04, dy: -0.04)
+        }
+        let lineColours = detections.map { SIMD3(Double($0.detectedColor.r), Double($0.detectedColor.g), Double($0.detectedColor.b)) / 255 }
+        lineColourTasks[slot] = Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(80))
+            guard !Task.isCancelled else { return }
+            let picked = await Task.detached(priority: .userInitiated) { () -> [SIMD3<Double>] in
+                guard let thumbnail = LineMarkColor.thumbnail(of: image) else { return [] }
+                return zip(near, lineColours).map { LineMarkColor.pick(avoiding: [$1, LineMarkColor.average(thumbnail, in: $0)]) }
+            }.value
+            guard !Task.isCancelled, let self, self.lineColourKey[slot] == key, !picked.isEmpty else { return }
+            let colours = picked.map(Self.lineMarkColour)
+            self.lineMarkColours[slot] = colours
+            CATransaction.begin()
+            CATransaction.setDisableActions(true)
+            for (mark, colour) in zip(container.sublayers ?? [], colours) { mark.borderColor = colour }
+            CATransaction.commit()
         }
     }
 

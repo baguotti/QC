@@ -2,6 +2,7 @@
 # Release in two steps, so the build is opened on the oldest supported macOS before anyone gets it:
 #   scripts/Release.sh build              tests, release app, build/QCpie.dmg
 #   scripts/Release.sh publish "notes"    pushes main, tags vX.Y.Z, publishes the DMG as the latest GitHub release
+#                                         (add --yes to skip the macOS 15 question: it was checked already)
 # The version is APP_VERSION in BuildApp.sh; bump and commit it first.
 set -euo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
@@ -46,13 +47,15 @@ publish)
         [ -f "$f" ] || { echo "Missing ${f}: run premiere/package/build_mac.sh first."; exit 1; }
     done
     [ -f "$DMG" ] && [ "$(cat "$STAMP" 2>/dev/null)" = "$(git rev-parse HEAD)" ] || { echo "Run 'scripts/Release.sh build' on this commit first."; exit 1; }
-    read -r -p "Did ${VERSION} launch on the macOS 15 Mac? [y/N] " answer
-    [ "$answer" = "y" ] || { echo "Not published."; exit 1; }
+    if [ "${3:-}" != "--yes" ]; then
+        read -r -p "Did ${VERSION} launch on the macOS 15 Mac? [y/N] " answer
+        [ "$answer" = "y" ] || { echo "Not published."; exit 1; }
+    fi
     git push origin main
     git tag "$TAG"
     git push origin "$TAG"
     gh release create "$TAG" "$DMG" "$PLUGIN_INSTALLER" "$PKG" "$CCX" "$EXPORTER_ZIP" --latest --title "QCpie ${VERSION}" --notes "$NOTES"
     ;;
 *)
-    sed -n '2,5p' "$0" | sed 's/^# \{0,1\}//'; exit 1 ;;
+    sed -n '2,6p' "$0" | sed 's/^# \{0,1\}//'; exit 1 ;;
 esac

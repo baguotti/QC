@@ -29,4 +29,18 @@ import VideoQCLib
                                                     shown: CGSize(width: 1080, height: 1920), in: tall, zoom: 2)
         #expect(rects[0] == CGRect(x: 270, y: 0, width: 1, height: 960).insetBy(dx: -1, dy: -1))
     }
+
+    @Test func outlineColourAvoidsThePictureAndTheLine() {
+        let red = SIMD3<Double>(0.9, 0.2, 0.2), green = SIMD3<Double>(0, 1, 0), grey = SIMD3<Double>(0.4, 0.4, 0.4)
+        #expect(LineMarkColor.pick(avoiding: [green, grey]) == LineMarkColor.palette[0])   // red by default
+        #expect(LineMarkColor.pick(avoiding: [green, red]) != LineMarkColor.palette[0])    // never red on red
+        #expect(LineMarkColor.pick(avoiding: [SIMD3(1, 1, 1), SIMD3(1, 1, 1)]) != SIMD3(1, 1, 1))
+    }
+
+    @Test func averageReadsTheRegion() {
+        var thumb = [UInt8](repeating: 0, count: LineMarkColor.side * LineMarkColor.side * 4)
+        for i in stride(from: 0, to: LineMarkColor.side * 4, by: 4) { thumb[i] = 255 }   // top row red
+        #expect(LineMarkColor.average(thumb, in: CGRect(x: 0, y: 0, width: 1, height: 0.02)) == SIMD3(1, 0, 0))
+        #expect(LineMarkColor.average(thumb, in: CGRect(x: 0, y: 0.5, width: 1, height: 0.5)) == SIMD3(0, 0, 0))
+    }
 }

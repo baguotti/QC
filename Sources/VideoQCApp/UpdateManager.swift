@@ -108,9 +108,8 @@ public final class UpdateManager: NSObject, ObservableObject {
             self.remoteWebURL = URL(string: release.htmlUrl)
             
             // QCpie.dmg by name: releases also carry the Premiere plugin's files, and GitHub lists assets alphabetically.
-            let dmgAsset = release.assets.first { $0.name == "QCpie.dmg" }
-                ?? release.assets.first { $0.name.lowercased().hasSuffix(".dmg") && !$0.name.hasPrefix("LineFinder") }
-            if let dmgAsset,
+            if let name = Self.appDiskImage(among: release.assets.map(\.name)),
+               let dmgAsset = release.assets.first(where: { $0.name == name }),
                let downloadURL = URL(string: dmgAsset.browserDownloadUrl) {
                 self.remoteDMGURL = downloadURL
             } else {
@@ -143,6 +142,11 @@ public final class UpdateManager: NSObject, ObservableObject {
         }
     }
     
+    /// The release asset that is the app: `QCpie.dmg`, else a disk image that isn't the Premiere plugin's.
+    nonisolated static func appDiskImage(among names: [String]) -> String? {
+        names.first { $0 == "QCpie.dmg" } ?? names.first { $0.lowercased().hasSuffix(".dmg") && !$0.hasPrefix("LineFinder") }
+    }
+
     // MARK: - Start Download & Auto-Update
     
     /// Begins 1-click automatic update: downloads DMG, extracts in background, replaces app in /Applications, and relaunches.
