@@ -76,6 +76,38 @@ func wordCard(_ r: CGFloat, _ g: CGFloat, _ b: CGFloat, lines: [String], size: C
     return buffer
 }
 
+/// Premiere's Media Offline card as it renders: a vertical red gradient (bright top, dark bottom), its ten languages.
+func premiereCard(top: (CGFloat, CGFloat, CGFloat) = (0.86, 0.29, 0.3), bottom: (CGFloat, CGFloat, CGFloat) = (0.42, 0.08, 0.12)) -> CVPixelBuffer {
+    let buffer = wordCard(0.8, 0.2, 0.22, lines: [])
+    CVPixelBufferLockBaseAddress(buffer, [])
+    let ctx = CGContext(data: CVPixelBufferGetBaseAddress(buffer), width: W, height: H, bitsPerComponent: 8, bytesPerRow: CVPixelBufferGetBytesPerRow(buffer), space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedFirst.rawValue | CGBitmapInfo.byteOrder32Little.rawValue)!
+    let colors = [CGColor(red: top.0, green: top.1, blue: top.2, alpha: 1), CGColor(red: bottom.0, green: bottom.1, blue: bottom.2, alpha: 1)] as CFArray
+    ctx.drawLinearGradient(CGGradient(colorsSpace: CGColorSpaceCreateDeviceRGB(), colors: colors, locations: [0, 1])!,
+                           start: CGPoint(x: 0, y: H), end: CGPoint(x: 0, y: 0), options: [])
+    let font = CTFontCreateWithName("Helvetica" as CFString, CGFloat(H) / 22, nil)
+    let lines = ["Media offline", "メディアオフライン", "Média hors ligne", "Offline-Medien", "脱机媒体文件", "Medios sin conexión",
+                 "Oggetto multimediale non in linea", "미디어 오프라인", "Медиаданные в автономном режиме", "Mídia offline"]
+    for (i, text) in lines.enumerated() {
+        let line = CTLineCreateWithAttributedString(NSAttributedString(string: text, attributes: [
+            NSAttributedString.Key(kCTFontAttributeName as String): font,
+            NSAttributedString.Key(kCTForegroundColorAttributeName as String): CGColor(red: 1, green: 1, blue: 1, alpha: 1)]))
+        ctx.textPosition = CGPoint(x: Double(W) * 0.12, y: Double(H) * (0.8 - 0.062 * Double(i)))
+        CTLineDraw(line, ctx)
+    }
+    CVPixelBufferUnlockBaseAddress(buffer, [])
+    return buffer
+}
+
+/// The picture lit by a camera flash: the same frame, washed towards white.
+func flashLit(_ x: Double) -> CVPixelBuffer {
+    let buffer = render(x)
+    CVPixelBufferLockBaseAddress(buffer, [])
+    let ctx = CGContext(data: CVPixelBufferGetBaseAddress(buffer), width: W, height: H, bitsPerComponent: 8, bytesPerRow: CVPixelBufferGetBytesPerRow(buffer), space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedFirst.rawValue | CGBitmapInfo.byteOrder32Little.rawValue)!
+    ctx.setFillColor(CGColor(red: 1, green: 1, blue: 1, alpha: 0.6)); ctx.fill(CGRect(x: 0, y: 0, width: W, height: H))
+    CVPixelBufferUnlockBaseAddress(buffer, [])
+    return buffer
+}
+
 /// Red footage: a shaded red backdrop that drifts, with a bright shape crossing it.
 func redFootage(_ n: Int) -> CVPixelBuffer {
     let buffer = card(0.7, 0.03, 0.03)
@@ -182,6 +214,16 @@ let clips: [Clip] = [
     Clip(name: "Media Offline card with its words", fps: f25, frames: 150, expect: .offline) { n in (50..<75).contains(n) ? wordCard(0.78, 0.05, 0.05, lines: ["Media offline", "Média hors ligne", "Offline-Medien"]) : render(Double(n) * speed) },
     Clip(name: "Media Offline card dense with small text (ten languages)", fps: f25, frames: 150, expect: .offline) { n in
         (50..<75).contains(n) ? wordCard(0.78, 0.05, 0.05, lines: ["Media offline", "Média hors ligne", "Offline-Medien", "Medios sin conexión", "Oggetto multimediale non in linea", "Mídia offline", "Media offline", "Médias hors ligne", "Offline-Medien", "Medios sin conexión"], size: CGFloat(H) / 16) : render(Double(n) * speed)
+    },
+    Clip(name: "1-frame Premiere card (red gradient, ten languages)", fps: f25, frames: 150, expect: .offline) { n in n == 80 ? premiereCard() : render(Double(n) * speed) },
+    Clip(name: "1-frame graded card (Lumetri: blue-grey, not red)", fps: f25, frames: 150, expect: .offline) { n in n == 80 ? premiereCard(top: (0.45, 0.5, 0.62), bottom: (0.12, 0.14, 0.2)) : render(Double(n) * 2) },
+    Clip(name: "held graded card (1 s, not red)", fps: f25, frames: 150, expect: .offline) { n in (60..<85).contains(n) ? premiereCard(top: (0.45, 0.5, 0.62), bottom: (0.12, 0.14, 0.2)) : render(Double(n) * speed) },
+    Clip(name: "1 stray frame of another picture mid-shot", fps: f25, frames: 150, expect: .flash(count: 1, detail: "Stray")) { n in n == 70 ? render(3000, flip: true) : render(Double(n) * 2) },
+    Clip(name: "2 stray frames of another picture mid-shot", fps: f25, frames: 150, expect: .flash(count: 1, detail: "Stray")) { n in (n == 70 || n == 71) ? render(3000 + Double(n) * 2, flip: true) : render(Double(n) * 2) },
+    Clip(name: "1-frame graded card at the segment split of a long clip", fps: f25, frames: 600, expect: .offline) { n in n == 300 ? premiereCard(top: (0.45, 0.5, 0.62), bottom: (0.12, 0.14, 0.2)) : render(Double(n) * 2) },
+    Clip(name: "camera flash on the same picture (not a stray frame)", fps: f25, frames: 150, expect: .clean) { n in n == 70 ? flashLit(Double(n) * speed) : render(Double(n) * speed) },
+    Clip(name: "1-frame shot between two shots (not a stray frame)", fps: f25, frames: 150, expect: .clean) { n in
+        n < 70 ? render(Double(n) * speed) : n == 70 ? render(3000, flip: true) : render(1500 + Double(n) * speed)
     },
     Clip(name: "1-frame Media Offline card", fps: f25, frames: 150, expect: .offline) { n in n == 60 ? wordCard(0.78, 0.05, 0.05, lines: ["Media Offline"]) : render(Double(n) * speed) },
     Clip(name: "red end card with a white title (not offline)", fps: f25, frames: 150, expect: .clean) { n in n >= 100 ? wordCard(0.78, 0.05, 0.05, lines: ["WINTER SALE", "50% OFF"]) : render(Double(n) * speed) },

@@ -274,7 +274,9 @@ public enum PictureTextScanner {
             let type = UTType(filenameExtension: url.pathExtension.lowercased())
             return type.map { $0.conforms(to: .movie) || $0.conforms(to: .video) } == true ? .unreadable : .unavailable
         }
-        let duration = (try? await asset.load(.duration))?.seconds ?? 0
+        // The picture's own length: a clip whose sound runs on past its picture isn't "cut short".
+        let pictureEnd = (try? await track.load(.timeRange))?.end.seconds ?? 0
+        let duration = pictureEnd.isFinite && pictureEnd > 0 ? pictureEnd : (try? await asset.load(.duration))?.seconds ?? 0
         let natural = (try? await track.load(.naturalSize)) ?? .zero
         let upright = natural.applying((try? await track.load(.preferredTransform)) ?? .identity)
         let aspect = upright.height == 0 ? 16.0 / 9.0 : abs(upright.width / upright.height)
@@ -312,6 +314,7 @@ public enum PictureTextScanner {
         }
         let output = AVAssetReaderTrackOutput(track: track, outputSettings: settings)
         output.alwaysCopiesSampleData = false
+        guard reader.canAdd(output) else { return nil }
         reader.add(output)
         guard reader.startReading() else { return nil }
         defer { reader.cancelReading() }
@@ -347,7 +350,8 @@ public enum PictureTextScanner {
         while let sample = output.copyNextSampleBuffer() {
             if isCancelled() { return samples }
             let time = CMSampleBufferGetPresentationTimeStamp(sample).seconds
-            guard time.isFinite, let buffer = CMSampleBufferGetImageBuffer(sample) else { continue }
+            // An absurd time (damaged file) would trap in Int() below.
+            guard time.isFinite, abs(time) < 1e9, let buffer = CMSampleBufferGetImageBuffer(sample) else { continue }
             guard time >= nextTime else { last = (time, buffer); continue }
             last = nil
             let slot = Int((time * samplesPerSecond).rounded(.down))

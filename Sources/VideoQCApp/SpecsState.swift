@@ -885,7 +885,7 @@ public final class SpecsState: ObservableObject {
                     if Task.isCancelled { return }
                 }
                 guard let self, !Task.isCancelled, generation == self.inspectGeneration else { return }
-                if self.mediaInfoCache[key] != nil { continue }
+                if self.mediaInfoCache[key] != nil || self.uninspectable.contains(key) { continue }
                 let asset = await DeliverablesInspector.inspectFile(url: url)
                 guard !Task.isCancelled, generation == self.inspectGeneration else { return }
                 // A file with nothing to read isn't tried again by every later prewarm or visit.

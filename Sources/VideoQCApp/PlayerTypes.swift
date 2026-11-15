@@ -196,6 +196,9 @@ public final class PlayerSlot: ObservableObject {
     /// Images and the audio info card: shown on the still frame layer instead of decoded video frames.
     public var stillImage: CGImage? = nil
     public var lastDecodedFrame: CGImage? = nil
+    /// Presentation time of the frame the viewport last drew from the video output, and when (host time). Written per
+    /// frame, so never published; read once per pause (`PlayerEngine.alignPlayheadToShownFrame`).
+    var shownFrame: (time: CMTime, host: CFTimeInterval)? = nil
     /// The file's modification date when it was loaded: the same path re-exported since is loaded again.
     var loadedModificationDate: Date? = nil
     /// The video track has a rotation / flip (portrait phone clips). Its frames only reach the video output upright

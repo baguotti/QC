@@ -671,7 +671,7 @@ extension ContentView {
             
             checkCard {
                 checkRow("What It Finds", divider: false) {
-                    Text("Frame-rate mismatch (e.g. 23.976 fps material exported at 25 fps), flash frames (stray black or solid frames mid-edit), Media Offline frames and brightness or colour outside broadcast-legal levels. One fast pass per video.")
+                    Text("Frame-rate mismatch (e.g. 23.976 fps material exported at 25 fps), flash frames (stray black, solid or foreign frames mid-edit), Media Offline frames and brightness or colour outside broadcast-legal levels. One fast pass per video.")
                         .font(.ui(size: 11))
                         .foregroundColor(textSubtle)
                         .fixedSize(horizontal: false, vertical: true)

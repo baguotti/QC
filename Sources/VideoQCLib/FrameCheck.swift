@@ -91,10 +91,14 @@ public struct StutterFrameMetrics: Sendable {
     /// ~0.5 for normal motion or a repeat, ~0 for a frame blended from its neighbours. Nil when too little changes.
     public var blendRatio: Float?
 
-    public init(motion: Float, speed: Float? = nil, blendRatio: Float?) {
+    /// Set on the first of 1–4 frames that the picture jumps into and straight back out of (see `StrayFrames`).
+    public var stray: StrayFrames?
+
+    public init(motion: Float, speed: Float? = nil, blendRatio: Float?, stray: StrayFrames? = nil) {
         self.motion = motion
         self.speed = speed
         self.blendRatio = blendRatio
+        self.stray = stray
     }
 }
 
@@ -129,12 +133,10 @@ public struct FrameLook: Sendable {
     }
 
     var isSolid: Bool { spread <= FrameCheckAnalyzer.solidSpread && chromaSpread <= FrameCheckAnalyzer.solidSpread }
-    /// Looks like an offline card: mostly one flat saturated red, with something bright on it. Whether it is one is
-    /// settled per run (`OfflineCardReader`: its text, or that it stands still).
-    var isOffline: Bool {
-        redShare >= FrameCheckAnalyzer.offlineRedShare && redFlatShare >= FrameCheckAnalyzer.offlineFlatShare
-            && inkShare >= FrameCheckAnalyzer.offlineInkShare
-    }
+    /// Could be an offline card: mostly saturated red, with something bright on it. Whether it is one is settled per
+    /// run (`OfflineCardReader`: its words, or a flat red that stands still). Not flatness here: Premiere's card is a
+    /// vertical red gradient (bright top, dark bottom).
+    var isOffline: Bool { redShare >= FrameCheckAnalyzer.offlineRedShare && inkShare >= FrameCheckAnalyzer.offlineInkShare }
 
     /// "Black", "White" or "Solid #RRGGBB" (BT.709).
     var colorName: String {
@@ -165,8 +167,9 @@ public struct FrameLook: Sendable {
                     cbHist[cb] += 1; crHist[cr] += 1
                     cbSum += cb; crSum += cr
                     // Offline-card red (Premiere, Resolve, FCP): strong Cr, Cb near neutral (orange has low Cb, magenta high).
+                    // Premiere's gradient runs from Cr ~200 at the top to ~160 at the bottom.
                     let l = Int(luma[(2 * y) * width + 2 * x])
-                    if cr >= 180, cb >= 70, cb <= 140, l <= 140 {
+                    if cr >= FrameCheckAnalyzer.offlineRedCr, cb >= 70, cb <= 140, l <= 140 {
                         red += 1
                         redLuma[l] += 1; redCr[cr] += 1
                     }
@@ -208,6 +211,30 @@ public struct FrameLook: Sendable {
     }
 }
 
+/// A few frames with a jump in and a jump out, compared (luma correlation, −1…1) with the frames either side.
+public struct StrayFrames: Sendable {
+    public var count: Int
+    /// The frame before them against the frame after.
+    public var continuity: Float
+    /// What the shot itself reads over that same distance, just before them: `continuity` matches it when the shot
+    /// simply carries on (a pan decorrelates with distance; a new shot after a flash transition reads far lower).
+    public var expected: Float
+    /// The stray frames against their neighbours (the larger of before / first and last / after): near 0 for another
+    /// picture, high for the same picture brighter or darker (a camera flash, a strobe).
+    public var likeness: Float
+    /// How much the picture was already changing on the frame before them, as a share of the smaller jump: ~0 in a
+    /// steady shot, high inside a whip or shake transition (its smeared middle frame is no stray picture).
+    public var lead: Float
+
+    public init(count: Int, continuity: Float, expected: Float, likeness: Float, lead: Float = 0) {
+        self.lead = lead
+        self.count = count
+        self.continuity = continuity
+        self.expected = expected
+        self.likeness = likeness
+    }
+}
+
 // MARK: - Analysis (pure, testable)
 
 public enum FrameCheckAnalyzer {
@@ -227,8 +254,25 @@ public enum FrameCheckAnalyzer {
     static let solidSpread: Float = 12
     /// The frames either side of a flash frame must be pictures, not a fade (a dip to black is no flash frame).
     static let pictureSpread: Float = 30
+    /// Stray frames: the shot carries on after them as it would have without them (`continuity` within this of
+    /// `expected`), and the stray picture correlates little with its neighbours, clearly less than the shot does with
+    /// itself. Measured (continuity / expected / likeness): an offline card inside a slow shot 1.00 / 1.00 / 0.39;
+    /// another picture inside a fast pan over busy texture 0.34–0.50 / the same / 0.05–0.15; a light-leak transition
+    /// into a similar shot 0.57 / 1.00 / −0.05; a spinning shot 0.30 / 0.99 / −0.28, then likeness above expected.
+    /// The shot must be steady to begin with (`expected` at least this): in a picture that changes wildly every frame
+    /// (a spin, a strobe edit, a whip pan over busy texture: 0.2–0.5) a frame that comes back is chance.
+    static let straySteady: Float = 0.6
+    static let strayContinuityLoss: Float = 0.1
+    /// Measured `lead`: an offline card in a shot 0.01; the smeared frame of a shake transition 0.65.
+    static let strayLead: Float = 0.3
+    static let strayLikeness: Float = 0.5
+    static let strayGap: Float = 0.25
+    static func isStray(_ s: StrayFrames) -> Bool {
+        s.expected >= straySteady && s.lead <= strayLead && s.continuity >= s.expected - strayContinuityLoss && s.likeness <= strayLikeness && s.likeness <= min(s.continuity, s.expected) - strayGap
+    }
     static let offlineRedShare: Float = 0.6
-    /// The card's red is flat: this share of its red pixels is one colour (`FrameLook.redFlatShare`). Measured: cards 0.89–0.99 (0.93 for ten lines of small text), a gently shaded red backdrop 0.37–0.39.
+    static let offlineRedCr = 155
+    /// A card with no words read must be flat red: this share of its red pixels is one colour (`FrameLook.redFlatShare`). Measured: cards 0.89–0.99 (0.93 for ten lines of small text), a gently shaded red backdrop 0.37–0.39.
     static let offlineFlatShare: Float = 0.75
     /// Text or an icon: pixels at least this much brighter than the red, over at least this share of the frame.
     static let offlineInkStep = 40
@@ -303,6 +347,40 @@ public enum FrameCheckAnalyzer {
         return runs
     }
 
+    /// A different picture for 1–2 frames (a few more at high frame rates) inside a shot: the picture jumps away and
+    /// straight back to where it was, in a steady shot. Whatever the stray frames show (a frame of another clip, an offline card with
+    /// effects on it, a render glitch), unlike `flashFrames`, which needs them solid. Not a camera flash or a strobe
+    /// (the same picture, brighter), and not a very short shot between two other shots (the picture doesn't come back).
+    public static func strayFrames(_ m: [StutterFrameMetrics], fps: Double) -> [FrameRun] {
+        let maxRun = max(2, Int((fps / 12.5).rounded()))
+        var runs: [FrameRun] = []
+        for (i, metric) in m.enumerated() {
+            guard let s = metric.stray, s.count <= maxRun, (runs.last.map { $0.start + $0.count } ?? 0) <= i else { continue }
+            guard isStray(s) else { continue }
+            runs.append(FrameRun(start: i, count: s.count, timecode: TimecodeFormatter.format(frameIndex: i, fps: fps), detail: "Stray picture"))
+        }
+        return runs
+    }
+
+    /// Held pictures (≥ ⅕ s with no change): what a Media Offline card with effects or a grade on it still is.
+    /// The longest few, for `OfflineCardReader` to read.
+    static func heldRuns(_ m: [StutterFrameMetrics], fps: Double, limit: Int = 4) -> [FrameRun] {
+        let minimum = max(3, Int((fps / 5).rounded()))
+        var runs: [FrameRun] = []
+        var i = 1
+        while i < m.count {
+            guard m[i].motion <= repeatFloor else { i += 1; continue }
+            var end = i
+            while end + 1 < m.count && m[end + 1].motion <= repeatFloor { end += 1 }
+            // The run starts on the frame before the first unchanged one.
+            if end - i + 2 >= minimum {
+                runs.append(FrameRun(start: i - 1, count: end - i + 2, timecode: TimecodeFormatter.format(frameIndex: i - 1, fps: fps), detail: ""))
+            }
+            i = end + 1
+        }
+        return Array(runs.sorted { $0.count > $1.count }.prefix(limit))
+    }
+
     /// Runs of frames that look like a Media Offline card (flat saturated red with something bright on it): candidates,
     /// confirmed by `OfflineCardReader`.
     public static func offlineRuns(_ looks: [FrameLook], fps: Double) -> [FrameRun] {
@@ -327,14 +405,21 @@ public enum FrameCheckAnalyzer {
         return motion[motion.count / 2] <= offlineStillMotion
     }
 
-    /// What a candidate run is, from the text read on it (nil: nothing read) and whether it stands still. Returns the
-    /// finding's detail, or nil when it isn't an offline card: a card says so in words (Premiere, in ten languages;
-    /// Resolve), other words are a red title or end card, and a wordless one (FCP's icon) must at least stand still.
-    public static func offlineDetail(text: String?, isStill: Bool) -> String? {
+    /// Whether most of a run's frames are one flat red (a gradient or shaded red isn't).
+    static func isFlat(_ run: FrameRun, looks: [FrameLook]) -> Bool {
+        let frames = looks[run.start..<min(looks.count, run.start + run.count)]
+        return frames.filter { $0.redFlatShare >= offlineFlatShare }.count * 2 > frames.count
+    }
+
+    /// What a candidate run is, from the text read on it (nil: nothing read), whether it stands still and whether its
+    /// red is flat. Returns the finding's detail, or nil when it isn't an offline card: a card says so in words
+    /// (Premiere, in ten languages; Resolve), other words are a red title or end card, and a wordless one (FCP's icon)
+    /// must be flat red and stand still (red footage is shaded or moves).
+    public static func offlineDetail(text: String?, isStill: Bool, isFlat: Bool) -> String? {
         let read = (text ?? "").lowercased()
         if offlineWords.contains(where: read.contains) { return offlineReadDetail }
         if read.unicodeScalars.filter(CharacterSet.alphanumerics.contains).count >= 3 { return nil }
-        return isStill ? "red card, no text read" : nil
+        return isStill && isFlat ? "red card, no text read" : nil
     }
 
     static let offlineReadDetail = "card text read"
@@ -506,7 +591,7 @@ public actor FrameCheckScanner {
         let segments: [(range: CMTimeRange?, keep: Range<Double>)]
         if duration >= VideoScanner.splitMinimumSeconds {
             let split = (duration / 2 / frameDuration).rounded() * frameDuration
-            let overlap = 3 * frameDuration
+            let overlap = 6 * frameDuration   // stray frames need up to six frames of the shot before them
             segments = [
                 (CMTimeRange(start: .zero, end: CMTime(seconds: split + overlap, preferredTimescale: 600_000)), -Double.infinity..<split),
                 (CMTimeRange(start: CMTime(seconds: max(0, split - overlap), preferredTimescale: 600_000), end: .positiveInfinity), split..<Double.infinity)
@@ -537,11 +622,22 @@ public actor FrameCheckScanner {
         let metrics = parts.flatMap(\.metrics)
         let looks = parts.flatMap(\.looks)
         let readError = parts.lazy.compactMap(\.error).first ?? (metrics.isEmpty ? "No frames could be decoded" : nil)
+        func overlaps(_ a: FrameRun, _ b: FrameRun) -> Bool { a.start < b.start + b.count && b.start < a.start + a.count }
+        let solid = FrameCheckAnalyzer.flashFrames(looks, fps: fps)
+        let stray = FrameCheckAnalyzer.strayFrames(metrics, fps: fps).filter { run in !solid.contains { overlaps($0, run) } }
+        // Offline cards: red ones by colour, then (a card with effects or a grade isn't red) stray frames and held
+        // pictures, which count only when their words say so.
+        let red = FrameCheckAnalyzer.offlineRuns(looks, fps: fps)
+        let other = (stray + FrameCheckAnalyzer.heldRuns(metrics, fps: fps)).filter { run in !red.contains { overlaps($0, run) } }
+        let offline = await OfflineCardReader.confirm(red, wordsOnly: other, looks: looks, metrics: metrics, url: url, fps: fps,
+                                                      cancellation: cancellation)
+        // Stopped during the text reads: without them an offline card would be reported as a flash frame.
+        if cancellation?.isCancelled == true { return nil }
+        let flashes = (solid + stray).filter { run in !offline.contains { overlaps($0, run) } }.sorted { $0.start < $1.start }
         return FrameCheckResult(fileURL: url, fileName: url.lastPathComponent, fps: fps, totalFrames: metrics.count,
                                 mismatch: FrameCheckAnalyzer.mismatch(metrics, fps: fps),
-                                flashFrames: FrameCheckAnalyzer.flashFrames(looks, fps: fps),
-                                offline: await OfflineCardReader.confirm(FrameCheckAnalyzer.offlineRuns(looks, fps: fps), metrics: metrics,
-                                                                         url: url, fps: fps, cancellation: cancellation),
+                                flashFrames: flashes,
+                                offline: offline,
                                 legalRange: LegalRange.runs(parts.flatMap(\.legal), spec: legalSpec, fps: fps),
                                 legalSpec: legalSpec,
                                 readError: readError)
@@ -577,6 +673,9 @@ public actor FrameCheckScanner {
 
         var measure = SegmentMeasure()
         var frames: [[UInt8]] = []   // last three luma images
+        // The last twelve frames, to see a picture jump away and come back, and how the shot read over the same
+        // distance before that (index in `measure.metrics`, nil when not kept).
+        var recent: [(luma: [UInt8], metric: Int?, motion: Float)] = []
         var previousProfiles: RegionProfiles?
         var matrix: LegalRangeMatrix?
         var pending = 0
@@ -597,14 +696,35 @@ public actor FrameCheckScanner {
             frames.append(luma)
             if frames.count > 3 { frames.removeFirst() }
             let profiles = RegionProfiles(luma, width: w, height: h)
+            let motion = frames.count >= 2 ? blockMotion(frames[frames.count - 2], frames[frames.count - 1], width: w, height: h) : 0
+            recent.append((luma, kept ? measure.metrics.count : nil, motion))
+            if recent.count > 12 { recent.removeFirst() }
+            var stray: (metric: Int, frames: StrayFrames)?
+            // Only at a jump that follows a jump 1–4 frames back: costs nothing on ordinary frames.
+            if motion >= FrameCheckAnalyzer.cutMinimum {
+                for count in 1...4 where recent.count >= 2 * count + 3 {
+                    let first = recent.count - 1 - count, before = first - 1
+                    guard recent[first].motion >= FrameCheckAnalyzer.cutMinimum, let index = recent[first].metric else { continue }
+                    let frames = StrayFrames(count: count, continuity: correlation(recent[before].luma, luma),
+                                             expected: correlation(recent[before - count - 1].luma, recent[before].luma),
+                                             likeness: max(correlation(recent[before].luma, recent[first].luma),
+                                                           correlation(recent[recent.count - 2].luma, luma)),
+                                             lead: recent[before].motion / max(1, min(recent[first].motion, motion)))
+                    guard FrameCheckAnalyzer.isStray(frames) else { continue }
+                    stray = (index, frames)
+                    break
+                }
+            }
             if kept {
                 measure.looks.append(FrameLook.measure(luma: luma, chroma: chroma, width: w, height: h))
-                let motion = frames.count >= 2 ? blockMotion(frames[frames.count - 2], frames[frames.count - 1], width: w, height: h) : 0
                 let blend = frames.count == 3 ? blendRatio(frames[0], frames[1], frames[2]) : nil
                 let speed = previousProfiles.flatMap { profiles.shift(from: $0) }
                 measure.metrics.append(StutterFrameMetrics(motion: motion, speed: speed, blendRatio: blend))
                 pending += 1
                 if pending >= 30 { report(pending); pending = 0 }
+            }
+            if let stray, stray.metric < measure.metrics.count, measure.metrics[stray.metric].stray == nil {
+                measure.metrics[stray.metric].stray = stray.frames
             }
             previousProfiles = profiles
         }
@@ -663,6 +783,21 @@ public actor FrameCheckScanner {
         guard !values.isEmpty else { return 0 }
         values.sort()
         return values[min(values.count - 1, values.count * 9 / 10)]
+    }
+
+    /// Zero-mean normalised correlation of two luma images (−1…1; 0 when either is flat).
+    static func correlation(_ a: [UInt8], _ b: [UInt8]) -> Float {
+        guard a.count == b.count, !a.isEmpty else { return 0 }
+        var sumA = 0, sumB = 0, sumAB = 0, sumAA = 0, sumBB = 0
+        for i in a.indices {
+            let x = Int(a[i]), y = Int(b[i])
+            sumA += x; sumB += y; sumAB += x * y; sumAA += x * x; sumBB += y * y
+        }
+        let n = Double(a.count)
+        let cov = Double(sumAB) - Double(sumA) * Double(sumB) / n
+        let varA = Double(sumAA) - Double(sumA) * Double(sumA) / n, varB = Double(sumBB) - Double(sumB) * Double(sumB) / n
+        guard varA > 0, varB > 0 else { return 0 }
+        return Float(cov / (varA * varB).squareRoot())
     }
 
     /// |mid − avg(prev, next)| / |prev − next| over pixels that change between prev and next.
@@ -782,33 +917,50 @@ final class FrameCounter: @unchecked Sendable {
 /// candidate, one frame decode and one text read (~0.1 s) per candidate run.
 enum OfflineCardReader {
     /// Runs read per file: a clip of red title cards isn't read forever (later runs count only if they stand still).
-    static let maxReads = 8
+    static let maxReads = 10
 
-    static func confirm(_ runs: [FrameRun], metrics: [StutterFrameMetrics], url: URL, fps: Double,
-                        cancellation: CancellationState? = nil) async -> [FrameRun] {
-        guard !runs.isEmpty else { return [] }
+    /// `runs`: red candidates. `wordsOnly`: other candidates (stray frames, held pictures), which are an offline card
+    /// only when its words are read on them.
+    static func confirm(_ runs: [FrameRun], wordsOnly: [FrameRun] = [], looks: [FrameLook], metrics: [StutterFrameMetrics],
+                        url: URL, fps: Double, cancellation: CancellationState? = nil) async -> [FrameRun] {
+        guard !runs.isEmpty || !wordsOnly.isEmpty else { return [] }
         let generator = AVAssetImageGenerator(asset: AVURLAsset(url: url))
         generator.appliesPreferredTrackTransform = true
         generator.maximumSize = CGSize(width: 1280, height: 1280)
         generator.requestedTimeToleranceBefore = .zero
         generator.requestedTimeToleranceAfter = .zero
+        func words(_ run: FrameRun) async -> String? {
+            let time = CMTime(seconds: (Double(run.start + run.count / 2) + 0.5) / max(1, fps), preferredTimescale: 600_000)
+            guard let image = try? await generator.image(at: time).image else { return nil }
+            return read(image)
+        }
         var confirmed: [FrameRun] = []
-        for (index, run) in runs.enumerated() {
-            let still = FrameCheckAnalyzer.isStill(run, metrics: metrics)
-            var text: String? = nil
+        var reads = 0
+        for run in runs {
             if cancellation?.isCancelled == true { return [] }
-            if index < maxReads {
-                let time = CMTime(seconds: (Double(run.start + run.count / 2) + 0.5) / max(1, fps), preferredTimescale: 600_000)
-                if let image = try? await generator.image(at: time).image { text = read(image) }
+            var text: String? = nil
+            if reads < maxReads {
+                reads += 1
+                text = await words(run)
+            } else if !confirmed.contains(where: { $0.detail == FrameCheckAnalyzer.offlineReadDetail }) {
+                // Past the cap nothing is read: such a run counts only in a file where a card was already read as one
+                // (a clip of red title cards has none, and its later cards would pass as wordless ones).
+                continue
             }
-            // Past the cap nothing is read: such a run counts only in a file where a card was already read as one
-            // (a clip of red title cards has none, and its later cards would pass as wordless ones).
-            if index >= maxReads, !confirmed.contains(where: { $0.detail == FrameCheckAnalyzer.offlineReadDetail }) { continue }
-            if let detail = FrameCheckAnalyzer.offlineDetail(text: text, isStill: still) {
+            if let detail = FrameCheckAnalyzer.offlineDetail(text: text, isStill: FrameCheckAnalyzer.isStill(run, metrics: metrics),
+                                                             isFlat: FrameCheckAnalyzer.isFlat(run, looks: looks)) {
                 confirmed.append(FrameRun(start: run.start, count: run.count, timecode: run.timecode, detail: detail))
             }
         }
-        return confirmed
+        for run in wordsOnly where reads < maxReads {
+            if cancellation?.isCancelled == true { return [] }
+            reads += 1
+            let read = (await words(run) ?? "").lowercased()
+            if FrameCheckAnalyzer.offlineWords.contains(where: read.contains) {
+                confirmed.append(FrameRun(start: run.start, count: run.count, timecode: run.timecode, detail: FrameCheckAnalyzer.offlineReadDetail))
+            }
+        }
+        return confirmed.sorted { $0.start < $1.start }
     }
 
     static func read(_ image: CGImage) -> String? {

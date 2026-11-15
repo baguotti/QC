@@ -24,23 +24,42 @@ extension PlayerEngine {
     private func loadVideoIntoSlotA(url: URL, initialSeekFrame: Int? = nil, autoplay: Bool = false) {
         let stdURL = url.standardizedFileURL
         self.activeMarkers = markersMap[stdURL] ?? markersMap[url] ?? []
+        loadRequestA &+= 1
+        let request = loadRequestA
         
-        let modified = Self.modificationDate(of: stdURL)
-        if let currentA = slotA.url, currentA.standardizedFileURL.path == stdURL.path, slotA.loadedModificationDate == modified {
-            if let frame = initialSeekFrame {
-                seek(toFrame: frame)
-            } else if autoplay {
-                seek(toTime: .zero) { [weak self] in
-                    self?.play()
+        // The clip already in A: only a re-export at the same path is loaded again. The file's date is read off the main
+        // thread (on a stalled network share the stat froze the window on every clip switch).
+        if let currentA = slotA.url, currentA.standardizedFileURL.path == stdURL.path {
+            let loaded = slotA.loadedModificationDate
+            Task { [weak self] in
+                let modified = await Self.modificationDateOffMain(of: stdURL)
+                guard let self, request == self.loadRequestA, self.slotA.url?.path == stdURL.path else { return }
+                // nil: the date of the load is still being read, so it is this file.
+                guard loaded == nil || modified == loaded else {
+                    return self.startLoadingSlotA(url: url, modified: modified, initialSeekFrame: initialSeekFrame, autoplay: autoplay)
+                }
+                if let frame = initialSeekFrame {
+                    self.seek(toFrame: frame)
+                } else if autoplay {
+                    self.seek(toTime: .zero) { [weak self] in
+                        self?.play()
+                    }
                 }
             }
             return
         }
-        
+        startLoadingSlotA(url: url, modified: nil, initialSeekFrame: initialSeekFrame, autoplay: autoplay)
+    }
+
+    /// `modified` nil: read off the main thread and filled in once known.
+    private func startLoadingSlotA(url: URL, modified: Date?, initialSeekFrame: Int?, autoplay: Bool) {
+        let stdURL = url.standardizedFileURL
         // Resume where you left off: remember the clip being left, pick up the new one's last frame (not when
         // autoplaying from the start or jumping to a frame).
         let resume = UserPreferences.resumePosition
-        if resume, let previous = slotA.url, hasTimeline {
+        // Not a clip left before its metadata arrived (flicking through the queue): its playhead still reads 0, and
+        // saving that erased the position it was about to resume from.
+        if resume, let previous = slotA.url, hasTimeline, pendingInitialSeekFrame == nil {
             let frame = currentFrame
             UserPreferences.saveFrame(frame > 0 && frame < totalFrames - 1 ? frame : nil, for: previous)
         }
@@ -61,6 +80,7 @@ extension PlayerEngine {
         }
         slotA.url = stdURL
         slotA.loadedModificationDate = modified
+        if modified == nil { fillModificationDate(of: slotA, url: stdURL) }
         slotA.isRotated = false
         slotA.fileName = stdURL.lastPathComponent
         slotA.formattedFileSize = "--"
@@ -109,8 +129,21 @@ extension PlayerEngine {
     }
 
     /// Read from disk each time (URL resource values are cached per URL and would hide a re-export).
-    private static func modificationDate(of url: URL) -> Date? {
+    nonisolated static func modificationDate(of url: URL) -> Date? {
         (try? FileManager.default.attributesOfItem(atPath: url.path))?[.modificationDate] as? Date
+    }
+
+    nonisolated static func modificationDateOffMain(of url: URL) async -> Date? {
+        await Task.detached(priority: .userInitiated) { modificationDate(of: url) }.value
+    }
+
+    /// The date a slot's file had when it was loaded, read off the main thread.
+    private func fillModificationDate(of slot: PlayerSlot, url: URL) {
+        Task {
+            let modified = await Self.modificationDateOffMain(of: url)
+            guard slot.url?.path == url.path, slot.loadedModificationDate == nil else { return }
+            slot.loadedModificationDate = modified
+        }
     }
 
     /// Load-time observers: the presentation size, and preroll / autoplay (slot B also re-syncs to A) once ready.
@@ -207,17 +240,30 @@ extension PlayerEngine {
     
     private func loadVideoIntoSlotB(url: URL, autoplay: Bool = false) {
         let stdURL = url.standardizedFileURL
-        let wasInABMode = (slotB.url != nil)
-        let modified = Self.modificationDate(of: stdURL)
-        if let currentB = slotB.url, currentB.standardizedFileURL.path == stdURL.path, slotB.loadedModificationDate == modified {
-            if autoplay {
-                seek(toTime: .zero) { [weak self] in
-                    self?.play()
+        loadRequestB &+= 1
+        let request = loadRequestB
+        // As for slot A: the date is read off the main thread.
+        if let currentB = slotB.url, currentB.standardizedFileURL.path == stdURL.path {
+            let loaded = slotB.loadedModificationDate
+            Task { [weak self] in
+                let modified = await Self.modificationDateOffMain(of: stdURL)
+                guard let self, request == self.loadRequestB, self.slotB.url?.path == stdURL.path else { return }
+                guard loaded == nil || modified == loaded else {
+                    return self.startLoadingSlotB(url: stdURL, modified: modified, autoplay: autoplay)
+                }
+                if autoplay {
+                    self.seek(toTime: .zero) { [weak self] in
+                        self?.play()
+                    }
                 }
             }
             return
         }
-        
+        startLoadingSlotB(url: stdURL, modified: nil, autoplay: autoplay)
+    }
+
+    private func startLoadingSlotB(url stdURL: URL, modified: Date?, autoplay: Bool) {
+        let wasInABMode = (slotB.url != nil)
         self.pendingAutoplayB = autoplay
         self.pendingAutoplay = false
         self.slotBKeepsPosition = false
@@ -235,6 +281,7 @@ extension PlayerEngine {
         self.objectWillChange.send()
         slotB.url = stdURL
         slotB.loadedModificationDate = modified
+        if modified == nil { fillModificationDate(of: slotB, url: stdURL) }
         slotB.isRotated = false
         slotB.fileName = stdURL.lastPathComponent
         slotB.formattedFileSize = "--"
@@ -326,8 +373,7 @@ extension PlayerEngine {
                 let transform = try await vTrack.load(.preferredTransform)
                 if !transform.isIdentity, slot.url?.path == fileURL.standardizedFileURL.path {
                     slot.isRotated = true
-                    installExposureComposition(for: slot)
-                    refreshPausedFramesForExposure()
+                    installExposureComposition(for: slot)   // refreshes the paused frame once installed
                 }
                 let transformedSize = naturalSize.applying(transform)
                 // A damaged header can carry NaN or absurd sizes: Int() traps on those (Inspect guards the same way).

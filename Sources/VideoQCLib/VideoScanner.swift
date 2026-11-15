@@ -301,6 +301,7 @@ public actor VideoScanner {
             kCVPixelBufferMetalCompatibilityKey as String: true
         ])
         output.alwaysCopiesSampleData = false
+        guard reader.canAdd(output) else { return SegmentScan(error: "Couldn't decode the video") }
         reader.add(output)
         guard reader.startReading() else {
             return SegmentScan(error: reader.error?.localizedDescription ?? "Couldn't start decoding")

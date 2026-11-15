@@ -110,19 +110,20 @@ extension PlayerEngine {
             }
         }
         let durSecs = CMTimeGetSeconds(duration)
-        let currSecs = CMTimeGetSeconds(currentTime)
         
-        if forward && currSecs >= durSecs - 0.05 {
+        // By frame, not by time: a 0.05 s end zone is three frames at 60 fps, so the shuttle stopped (or wrapped) before
+        // the clip's first and last two frames.
+        if forward && currentFrame >= totalFrames - 1 {
             if isLooping {
-                seek(toTime: .zero)
+                seek(toFrame: 0)
             } else {
                 stopSlowStep()
                 pause()
             }
             return
-        } else if !forward && currSecs <= 0.05 {
+        } else if !forward && currentFrame <= 0 {
             if isLooping && durSecs > 0.5 {
-                seek(toProgress: 0.999)
+                seek(toFrame: max(0, totalFrames - 1))
             } else {
                 stopSlowStep()
                 pause()
@@ -160,6 +161,8 @@ extension PlayerEngine {
     }
     
     public func pause() {
+        // Read before the rate is cleared: only a pause out of running playback moves the playhead to the picture.
+        let playedRate = (slotA.player.rate != 0 && !isScrubbing) ? rate : 0
         stopSlowStep()
         cancelSlotBRelock()
         slotA.player.pause()
@@ -200,8 +203,27 @@ extension PlayerEngine {
                         }
                     }
                 }
+                alignPlayheadToShownFrame(playedRate: playedRate)
             }
         }
+    }
+
+    /// Playback draws each frame for the vsync it will appear on, so at a pause the picture can be ahead of the frame
+    /// the player stopped on (measured: 8 of 60 pauses, 25 fps at 60 Hz). The timecode, a note, a screenshot or the next
+    /// arrow-key step then counted from the frame before the one on screen. The playhead moves to the picture (one
+    /// exact seek, only when they differ). Only ahead in the direction of play and within the vsync lead: a frame
+    /// behind is a long frame of a variable-rate clip, not this.
+    private func alignPlayheadToShownFrame(playedRate: Float) {
+        guard playedRate != 0, slotA.mediaKind == .video, let shown = slotA.shownFrame,
+              CACurrentMediaTime() - shown.host < 0.25 else { return }
+        let fps = max(1.0, activeFps)
+        let secs = CMTimeGetSeconds(shown.time)
+        guard secs.isFinite else { return }
+        let frame = Int(floor(secs * fps + 1e-4))
+        let ahead = playedRate > 0 ? frame - currentFrame : currentFrame - frame
+        let reach = Int((Double(abs(playedRate)) * fps * 0.035).rounded(.up))
+        guard ahead > 0, ahead <= reach, frame >= 0, frame < totalFrames else { return }
+        seek(toFrame: frame)
     }
     
     /// How far ahead linked A/B playback is scheduled, so both players can start on the same host time.

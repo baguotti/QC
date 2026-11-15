@@ -86,7 +86,7 @@ public final class BurnedSubtitleReader: Sendable {
         }
         let fps = rate
         let duration = (try? await asset.load(.duration))?.seconds ?? 0
-        guard fps > 0, fps.isFinite, duration.isFinite, duration > 0 else { throw Failure.unreadable }
+        guard fps > 0, fps.isFinite, fps < 10_000, duration.isFinite, duration > 0, duration < 1e7 else { throw Failure.unreadable }
         let size = (try? await track.load(.naturalSize)) ?? .zero
         let transform = (try? await track.load(.preferredTransform)) ?? .identity
         let orientationRaw = Self.orientation(of: transform).rawValue   // the enum isn't Sendable
@@ -199,6 +199,7 @@ public final class BurnedSubtitleReader: Sendable {
         }
         let output = AVAssetReaderTrackOutput(track: track, outputSettings: settings)
         output.alwaysCopiesSampleData = false
+        guard reader.canAdd(output) else { throw Failure.unreadable }
         reader.add(output)
         // Half a frame early: the first frame's time can sit a hair before its nominal position.
         let start = CMTime(seconds: max(0, (Double(frames.lowerBound) - 0.5) / fps), preferredTimescale: 600_000)
@@ -215,7 +216,10 @@ public final class BurnedSubtitleReader: Sendable {
         while let sample = output.copyNextSampleBuffer() {
             if cancellation.isCancelled { throw Failure.cancelled }
             guard let buffer = CMSampleBufferGetImageBuffer(sample) else { continue }
-            let frame = Int((CMSampleBufferGetPresentationTimeStamp(sample).seconds * fps).rounded())
+            // A sample without a usable time (damaged file): Int() traps on NaN.
+            let position = CMSampleBufferGetPresentationTimeStamp(sample).seconds * fps
+            guard position.isFinite, abs(position) < 1e12 else { continue }
+            let frame = Int(position.rounded())
             guard frames.contains(frame) else { continue }
             guard frame % step == 0 else { window.append((frame, buffer)); continue }
             let reading = autoreleasepool { recognise(buffer, orientation: orientation, options: options) }

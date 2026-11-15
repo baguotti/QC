@@ -130,14 +130,15 @@ extension PlayerEngine {
         }
         
         // Reverse playback loop handling (between In and Out when set). `isSeeking`: the observer keeps firing near In
-        // until the wrap seek lands; one wrap only.
+        // until the wrap seek lands; one wrap only. The whole-clip wrap is only for a clip without In / Out: with Out
+        // alone (In = the first frame) it queued behind the wrap to Out and sent the playhead to the clip's end.
         if self.rate < 0, self.isLooping, !self.isSeeking, let range = loopRange,
            currSecs <= Double(range.start) / max(1, activeFps) + 0.05 {
             self.seek(toFrame: range.end) { [weak self] in
                 guard let self = self else { return }
                 self.setPlaybackRate(self.rate)
             }
-        } else if self.rate < 0 && currSecs <= 0.05 && self.isLooping && durSecs > 0.5 {
+        } else if loopRange == nil && self.rate < 0 && currSecs <= 0.05 && self.isLooping && durSecs > 0.5 {
             self.seek(toProgress: 0.999) { [weak self] in
                 guard let self = self else { return }
                 self.setPlaybackRate(self.rate)

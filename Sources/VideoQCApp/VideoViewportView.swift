@@ -967,6 +967,8 @@ public final class PlayerContainerNSView: NSView {
         guard let engine = engine else { return .unavailable }
         var displayTime = CMTime.invalid
         guard let buffer = output.copyPixelBuffer(forItemTime: itemTime, itemTimeForDisplay: &displayTime) else { return .unavailable }
+        // For `PlayerEngine.pause()`: the frame on screen can be ahead of the player's position.
+        if slot == .slotA, displayTime.isValid { engine.slotA.shownFrame = (displayTime, CACurrentMediaTime()) }
         var isExact = true
         if let requiredFrame = requireFrame, displayTime.isValid {
             let fps = (slot == .slotA) ? engine.slotA.fps : engine.slotB.fps
@@ -2525,6 +2527,9 @@ public final class PlayerContainerNSView: NSView {
             return
         }
         if event.clickCount == 2 {
+            // Ended here too: a split or pan left "dragging" moved with the next drag and swallowed the next click.
+            isDraggingSplit = false
+            dragStartLocation = nil
             if let onDoubleClick = onDoubleClick {
                 onDoubleClick()
             } else if let engine = engine {

@@ -264,16 +264,18 @@ public final class PlayerEngine: ObservableObject {
             if !waveformPeaks.isEmpty { waveformPeaks = [] }
             return
         }
-        let key = WaveformKey(url: url, modified: slotA.loadedModificationDate)
-        if let cached = waveformCache[key] {
-            waveformPeaks = cached
-            return
-        }
         if !waveformPeaks.isEmpty { waveformPeaks = [] }
-        let work = Task.detached(priority: .utility) { await AudioWaveform.peaks(url: url) }
         waveformTask = Task { [weak self] in
+            // The file's date is read here, off the main thread (it is the cache key: a re-export at the same path).
+            let key = WaveformKey(url: url, modified: await Self.modificationDateOffMain(of: url))
+            guard let self, !Task.isCancelled, self.slotA.url == url else { return }
+            if let cached = self.waveformCache[key] {
+                self.waveformPeaks = cached
+                return
+            }
+            let work = Task.detached(priority: .utility) { await AudioWaveform.peaks(url: url) }
             let peaks = await withTaskCancellationHandler { await work.value } onCancel: { work.cancel() }
-            guard let self, !Task.isCancelled, let peaks, self.slotA.url == url else { return }
+            guard !Task.isCancelled, let peaks, self.slotA.url == url else { return }
             if self.waveformCache.count >= 16 { self.waveformCache.removeAll() }
             self.waveformCache[key] = peaks
             self.waveformPeaks = peaks
@@ -542,18 +544,28 @@ public final class PlayerEngine: ObservableObject {
         }
     }
     
+    /// Built asynchronously: the synchronous initializer loads the asset's tracks on the main thread (a clip on a slow
+    /// share stalled the window when it loaded with EV ≠ 0 or a rotation). The paused frame is re-rendered once installed.
     func installExposureComposition(for slot: PlayerSlot) {
         guard abs(exposureEV) >= 0.001 || slot.isRotated, slot.mediaKind == .video, slot.sequence == nil,
               let item = slot.player.currentItem, item.videoComposition == nil else { return }
         let box = exposureBox
-        item.videoComposition = AVVideoComposition(asset: item.asset, applyingCIFiltersWithHandler: { @Sendable request in
-            let ev = box.value
-            guard abs(ev) >= 0.001 else {
-                request.finish(with: request.sourceImage, context: nil)
-                return
-            }
-            request.finish(with: request.sourceImage.applyingFilter("CIExposureAdjust", parameters: [kCIInputEVKey: ev]), context: nil)
-        })
+        let asset = item.asset
+        Task { [weak self] in
+            guard let composition = try? await AVVideoComposition.videoComposition(with: asset, applyingCIFiltersWithHandler: { @Sendable request in
+                let ev = box.value
+                guard abs(ev) >= 0.001 else {
+                    request.finish(with: request.sourceImage, context: nil)
+                    return
+                }
+                request.finish(with: request.sourceImage.applyingFilter("CIExposureAdjust", parameters: [kCIInputEVKey: ev]), context: nil)
+            }) else { return }
+            // Still wanted on the same item (EV back at 0, another clip, or another install got there first: nothing).
+            guard let self, slot.player.currentItem === item, item.videoComposition == nil,
+                  abs(self.exposureEV) >= 0.001 || slot.isRotated, slot.sequence == nil else { return }
+            item.videoComposition = composition
+            self.refreshPausedFramesForExposure()
+        }
     }
     
     /// A paused frame is only re-composited by a seek, and a seek to the exact current time is a no-op in
@@ -642,6 +654,11 @@ public final class PlayerEngine: ObservableObject {
     var itemPresentationSizeCancellableB: AnyCancellable? = nil
     
     public internal(set) var isSeeking: Bool = false
+    /// Bumped by every load request per slot: a same-clip request still reading the file's date is dropped by a newer one.
+    var loadRequestA = 0
+    var loadRequestB = 0
+    /// Counts issued slot A seeks: a completion that isn't the latest one's is stale (see `seek(toTime:)`).
+    var seekSerial: Int = 0
     /// Bumped by `pause()`: a seek's completion only runs if nothing paused since it was issued.
     var seekGeneration: Int = 0
     var pendingSeekTime: CMTime? = nil

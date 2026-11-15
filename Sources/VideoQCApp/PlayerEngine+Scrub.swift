@@ -236,6 +236,9 @@ extension PlayerEngine {
         isSeeking = true
         let curCompletion = completion
         let generation = seekGeneration
+        seekSerial &+= 1
+        let serial = seekSerial
+        let item = slotA.player.currentItem
         
         // Exact frame accuracy by default unless explicit tolerance is provided
         let tol: CMTime = tolerance ?? .zero
@@ -250,9 +253,12 @@ extension PlayerEngine {
         let checkParallelDone = { @MainActor in
             let (doneA, doneB) = lock.withLock { ($0.completedA, $0.completedB) }
             guard doneA && doneB else { return }
+            // Loading a clip resets the seek state: a seek of the old clip landing after the new clip's own seek started
+            // mustn't end that one, and its time is never the new clip's (the timecode showed the old clip's frame).
+            guard serial == self.seekSerial else { return }
             self.isSeeking = false
             
-            if self.pendingSeekTime == nil {
+            if self.pendingSeekTime == nil, self.slotA.player.currentItem === item {
                 self.updateCurrentTime(time: time)
             }
             
