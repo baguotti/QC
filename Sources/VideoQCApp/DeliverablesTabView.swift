@@ -757,6 +757,26 @@ extension ContentView {
                     .frame(height: 24)
                     .explain("Group, sort and size Inspect's rows.")
 
+                    // Folder headers on / off, as in the Player's queue (the same setting: it applies to both lists).
+                    if inspectGrouping == .folder && hasDeliverablesSubfolders {
+                        let foldersHidden = hideAllFolders || !hiddenFolderIDs.isEmpty
+                        Button(action: { toggleHideFolders() }) {
+                            HStack(spacing: 4) {
+                                Image(systemName: foldersHidden ? "folder" : "folder.badge.minus")
+                                    .font(.system(size: StudioTheme.scaleFont(8.5), weight: .bold))
+                                Text(foldersHidden ? "Show Folders" : "Hide Folders")
+                                    .font(.ui(size: 10, weight: .semibold))
+                            }
+                            .padding(.horizontal, 8)
+                            .frame(height: 24)
+                            .contentShape(Rectangle())
+                            .foregroundColor(foldersHidden ? accentBlue : textMain)
+                        }
+                        .buttonStyle(TransportIconButtonStyle())
+                        .fixedSize()
+                        .explain(foldersHidden ? "Show the folder headers again (Player queue too)." : "Hide the folder headers and list every file flat (Player queue too).")
+                    }
+
                     // Clean list: hide the plan's chips and badges (filters keep working)
                     if !planFiles.isEmpty {
                         let filtered = inspectPlanFilter != -1 || inspectPlanBatch != nil || inspectPlanUpload != nil
