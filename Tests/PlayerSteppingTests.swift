@@ -98,7 +98,8 @@ struct PlayerLoadingTests {
         #expect(engine.slotA.player.currentItem?.videoComposition != nil)
         #expect(engine.slotA.loadedModificationDate != nil)
         engine.exposureEV = 0
-        try await Task.sleep(for: .milliseconds(700))
+        // Removed 400 ms after EV settles at 0; polled, as a loaded machine (the release build's test run) takes longer.
+        for _ in 0..<150 where engine.slotA.player.currentItem?.videoComposition != nil { try await Task.sleep(for: .milliseconds(20)) }
         #expect(engine.slotA.player.currentItem?.videoComposition == nil)
     }
 
