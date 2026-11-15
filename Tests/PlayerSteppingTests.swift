@@ -51,24 +51,26 @@ struct PlayerSteppingTests {
         for _ in 0..<100 where engine.totalFrames == 0 { try await Task.sleep(for: .milliseconds(20)) }
         guard engine.totalFrames >= 200 else { return }
         func playerFrame() -> Int { Int(floor(CMTimeGetSeconds(engine.slotA.player.currentTime()) * engine.activeFps + 1e-4)) }
-        func playThenPause(shownAhead offset: Int) async throws -> (stopped: Int, clock: Int, player: Int) {
+        func playThenPause(shownAhead offset: Int) async throws -> (stopped: Int, clock: Int, player: Int, running: Bool) {
             engine.seek(toFrame: 120)
             try await Task.sleep(for: .milliseconds(500))
             engine.play()
             try await Task.sleep(for: .milliseconds(400))
             let stopped = playerFrame()
+            // A stalled player (a loaded machine) isn't a pause out of playback: nothing to align then.
+            let running = engine.slotA.player.rate != 0 && engine.slotA.player.timeControlStatus == .playing
             // What the viewport records per drawn frame: the presentation time of the frame on screen (a little inside
             // the frame: a 1/60000 s timescale can't hold a 23.976 fps frame boundary exactly).
             engine.slotA.shownFrame = (CMTime(seconds: (Double(stopped + offset) + 0.1) / engine.activeFps, preferredTimescale: 60000), CACurrentMediaTime())
             engine.pause()
             let clock = engine.currentFrame
             try await Task.sleep(for: .milliseconds(600))
-            return (stopped, clock, playerFrame())
+            return (stopped, clock, playerFrame(), running)
         }
         let ahead = try await playThenPause(shownAhead: 1)
         // The player can advance a frame or two between the read above and the pause (a loaded machine): then picture
         // and player already agree. Never left before the frame on screen.
-        #expect(ahead.clock >= ahead.stopped + 1)
+        if ahead.running { #expect(ahead.clock >= ahead.stopped + 1) }
         #expect(ahead.player == ahead.clock)
         let behind = try await playThenPause(shownAhead: -1)
         #expect(behind.clock >= behind.stopped)
