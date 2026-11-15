@@ -38,27 +38,51 @@ extension PlayerEngine {
     
     public func jumpToPreviousNote() {
         guard !activeNotes.isEmpty else { return }
+        pause()   // first: pausing re-reads the player's position, which would undo a seek still in flight
         let sorted = activeNotes.sorted { $0.frameIndex < $1.frameIndex }
-        let cur = currentFrame
-        if let prev = sorted.last(where: { $0.frameIndex < cur }) {
-            pause()   // first: pausing re-reads the player's position, which would undo a seek still in flight
-            seek(toFrame: prev.frameIndex)
-        } else if let last = sorted.last {
-            pause()   // first: pausing re-reads the player's position, which would undo a seek still in flight
-            seek(toFrame: last.frameIndex)
+        let cur = notesFrame(atMasterFrame: currentFrame)
+        if let target = sorted.last(where: { $0.frameIndex < cur }) ?? sorted.last {
+            seekToNoteFrame(target.frameIndex)
         }
     }
     
     public func jumpToNextNote() {
         guard !activeNotes.isEmpty else { return }
+        pause()   // first: pausing re-reads the player's position, which would undo a seek still in flight
         let sorted = activeNotes.sorted { $0.frameIndex < $1.frameIndex }
-        let cur = currentFrame
-        if let next = sorted.first(where: { $0.frameIndex > cur }) {
-            pause()   // first: pausing re-reads the player's position, which would undo a seek still in flight
-            seek(toFrame: next.frameIndex)
-        } else if let first = sorted.first {
-            pause()   // first: pausing re-reads the player's position, which would undo a seek still in flight
-            seek(toFrame: first.frameIndex)
+        let cur = notesFrame(atMasterFrame: currentFrame)
+        if let target = sorted.first(where: { $0.frameIndex > cur }) ?? sorted.first {
+            seekToNoteFrame(target.frameIndex)
+        }
+    }
+
+    /// The notes shown and edited are slot B's (B is the active target): they are stored in B's own frames.
+    var notesTargetIsSlotB: Bool { activeTarget == .slotB && slotB.url != nil }
+
+    /// A frame of slot A's clock in the frames of the clip whose notes are shown. Slot B's notes: through the slip and
+    /// B's frame rate when linked; unlinked, B's own position (it doesn't follow A, and its notes were logged and jumped
+    /// to at A's frame).
+    func notesFrame(atMasterFrame frame: Int) -> Int {
+        guard notesTargetIsSlotB else { return frame }
+        let fpsB = max(1.0, slotB.fps)
+        let secsB = isLinked
+            ? (Double(frame) + 0.5) / max(1.0, activeFps) + Double(slotB.slipOffsetFrames) / fpsB
+            : CMTimeGetSeconds(slotB.player.currentTime())
+        guard secsB.isFinite else { return 0 }
+        return max(0, Int(floor(secsB * fpsB + 1e-4)))
+    }
+
+    /// Shows a note's frame (in the frames of the clip whose notes are shown): slot B's notes move A through the slip
+    /// when linked, B alone when not.
+    func seekToNoteFrame(_ frame: Int) {
+        pause()   // first: pausing re-reads the player's position, which would undo the seek in flight
+        guard notesTargetIsSlotB else { return seek(toFrame: frame) }
+        let fpsB = max(1.0, slotB.fps)
+        if isLinked {
+            let secsA = (Double(frame) + 0.5) / fpsB - Double(slotB.slipOffsetFrames) / fpsB
+            seek(toFrame: max(0, Int(floor(secsA * max(1.0, activeFps) + 1e-4))))
+        } else {
+            seekSlotB(to: CMTime(seconds: (Double(frame) + 0.5) / fpsB, preferredTimescale: 60000))
         }
     }
     

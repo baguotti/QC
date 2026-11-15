@@ -1147,8 +1147,16 @@ struct ContentView: View {
                 
                 inspectFollowsQueue(.replaced)
                 self.loadFinderTagsForQueue()
-                if self.playerEngine.activeURL == nil, let first = uniqueVideos.first {
-                    self.playerEngine.loadVideo(url: first)
+                // A new batch: the Player kept showing the previous clip until a queue row was clicked. Slots whose clip
+                // isn't in the new queue are let go; A shows the queue's first item (in queue order), on its first frame.
+                let queued = Set(uniqueVideos.map { $0.standardizedFileURL.path })
+                let inQueue: (URL?) -> Bool = { $0.map { queued.contains($0.standardizedFileURL.path) } ?? false }
+                if self.playerEngine.slotB.url != nil, !inQueue(self.playerEngine.slotB.url) {
+                    self.playerEngine.clearSlotB()
+                }
+                if !inQueue(self.playerEngine.activeURL), let first = self.filteredPlayerFiles.first ?? uniqueVideos.first {
+                    self.queueScrollTarget = first
+                    self.playerEngine.loadVideo(url: first, into: .slotA, initialSeekFrame: 0)
                 }
                 if UserPreferences.autoLineCheck, !self.scannerState.isScanning { self.startScan() }
             }
@@ -2341,17 +2349,9 @@ struct ContentView: View {
         playerEngine.activeTarget == .slotB && playerEngine.slotB.url != nil
     }
     
-    /// Seeks to a note's frame; slot B notes are stored in B's own frames, so map back to slot A's playhead.
+    /// Seeks to a note's frame (slot B's notes are in B's own frames: see `PlayerEngine.seekToNoteFrame`).
     func seekToNoteFrame(_ frame: Int) {
-        var target = frame
-        if notesTargetIsSlotB {
-            let fpsA = max(1.0, playerEngine.activeFps)
-            let fpsB = max(1.0, playerEngine.slotB.fps)
-            let secsA = (Double(frame) + 0.5) / fpsB - Double(playerEngine.slotB.slipOffsetFrames) / fpsB
-            target = max(0, Int(floor(secsA * fpsA)))
-        }
-        playerEngine.pause()   // first: pausing re-reads the player's position, which would undo the seek in flight
-        playerEngine.seek(toFrame: target)
+        playerEngine.seekToNoteFrame(frame)
     }
     
     /// The notes on screen are this clip's. Right after switching clips they're still the previous clip's until its
@@ -2362,13 +2362,11 @@ struct ContentView: View {
         guard let url = notesTargetURL else { return }
         var note = note
         if notesTargetIsSlotB {
-            // Notes are captured on slot A's clock: map to slot B's own frame (slip offset, B's frame rate).
-            let fpsA = max(1.0, playerEngine.activeFps)
-            let fpsB = max(1.0, playerEngine.slotB.fps)
-            let secsB = (Double(note.frameIndex) + 0.5) / fpsA + Double(playerEngine.slotB.slipOffsetFrames) / fpsB
-            let frameB = max(0, Int(floor(secsB * fpsB)))
+            // Notes are captured on slot A's clock: map to slot B's own frame (slip and B's rate, or B's own position
+            // when unlinked).
+            let frameB = playerEngine.notesFrame(atMasterFrame: note.frameIndex)
             note.frameIndex = frameB
-            note.timecode = TimecodeFormatter.format(frameIndex: frameB, fps: fpsB)
+            note.timecode = TimecodeFormatter.format(frameIndex: frameB, fps: max(1.0, playerEngine.slotB.fps))
         }
         guard shownNotesAreTarget else {
             // Its notes haven't loaded yet: add to the file itself, then show them.

@@ -209,6 +209,9 @@ struct SubtitlesPanelView: View {
             tracker.bind(clock: engine.clock, cues: cues, fps: fps)
             spelling.recheck(cues, delay: .zero)
         }
+        // The clip's rate arrives with its metadata, often after its .srt: the current line was found at 25 fps till then
+        // (on a 24 fps clip, 25 s off by minute 10).
+        .onChange(of: engine.slotA.fps) { _, _ in tracker.bind(clock: engine.clock, cues: cues, fps: fps) }
         .onChange(of: cues) { _, newCues in
             tracker.bind(clock: engine.clock, cues: newCues, fps: fps)
             spelling.recheck(newCues)

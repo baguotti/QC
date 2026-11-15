@@ -75,6 +75,8 @@ struct FullscreenPlayerView: View {
         .onAppear {
             userDidInteract()
         }
+        // Space / K / L without moving the mouse: the HUD hid only after a mouse move, and pausing left it hidden.
+        .onChange(of: engine.isPlaying) { _, _ in userDidInteract() }
         .onDisappear {
             hideTask?.cancel()
         }
@@ -415,6 +417,8 @@ struct CleanVideoFullscreenView: View {
             engine.setZoomFit()
             resetCursorTimer()
         }
+        // Started from the keyboard: the cursor hid only after a mouse move.
+        .onChange(of: engine.isPlaying) { _, _ in resetCursorTimer() }
         .onDisappear {
             hideCursorTask?.cancel()
         }
