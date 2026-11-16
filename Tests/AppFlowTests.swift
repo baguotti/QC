@@ -49,8 +49,12 @@ struct AppFlowTests {
         await settle(specs) { specs.cachedDetails(for: clips[2]) != nil }
         #expect(specs.cachedDetails(for: clips[2]) != nil)         // read in the background
 
+        let cached = specs.cachedDetails(for: clips[2])?.id
         specs.queueChanged(.inspectOpened, queue: clips, inspectShown: true) { false }
-        #expect(specs.deliverableAssets.count == 3)                // listed at once, no second read
+        // Listed once its size and date are checked against the cached read (off the main thread), with no second read.
+        await settle(specs) { specs.deliverableAssets.count == 3 }
+        #expect(specs.deliverableAssets.count == 3)
+        #expect(specs.deliverableAssets.contains { $0.id == cached })
         #expect(!specs.isInspectingDeliverables)
     }
 

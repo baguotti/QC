@@ -694,7 +694,8 @@ public final class PlayerContainerNSView: NSView {
                 continue
             }
             if zebra.frame != still.bounds { zebra.frame = still.bounds }
-            let key = "\(url.path)|\(frameIndex(of: time, fps: state.fps))|\(spec.name)"
+            // The file's date too: a re-export loaded at the same path must not show the old export's mask.
+            let key = "\(url.path)|\(state.loadedModificationDate?.timeIntervalSince1970 ?? 0)|\(frameIndex(of: time, fps: state.fps))|\(spec.name)"
             if zebraShownKey[slot] == key {
                 zebra.isHidden = false
                 continue

@@ -1,4 +1,5 @@
 import SwiftUI
+import os
 import AppKit
 import Combine
 import UniformTypeIdentifiers
@@ -759,7 +760,27 @@ public final class SpecsState: ObservableObject {
     /// Opening Inspect takes them from here instead of reading the files again. Not published (nothing draws from it);
     /// cleared with the queue and on a refresh.
     private var mediaInfoCache: [URL: DeliverableAsset] = [:]
+    /// Each cached file's size and date when it was read: a clip re-exported at the same path since (the cache can be
+    /// minutes old when Inspect or Media Info first asks) is read again instead of showing the old export's details.
+    private var cacheStamps: [URL: FileStamp] = [:]
+    private var isValidatingCache = false
     private var prewarmTask: Task<Void, Never>?
+
+    struct FileStamp: Equatable, Sendable {
+        let size: Int64
+        let modified: Date?
+    }
+
+    nonisolated static func stamp(of url: URL) -> FileStamp? {
+        guard let attributes = try? FileManager.default.attributesOfItem(atPath: url.path) else { return nil }
+        return FileStamp(size: (attributes[.size] as? NSNumber)?.int64Value ?? 0, modified: attributes[.modificationDate] as? Date)
+    }
+
+    /// Reads a file's details with the stamp it had just before (a file changed during the read then reads as stale).
+    nonisolated private static func inspectWithStamp(_ url: URL) async -> (asset: DeliverableAsset?, stamp: FileStamp?) {
+        let stamp = stamp(of: url)
+        return (await DeliverablesInspector.inspectFile(url: url), stamp)
+    }
 
     /// Empties the list; inspections still running for the old queue are dropped when they finish.
     public func clearDeliverables() {
@@ -772,6 +793,8 @@ public final class SpecsState: ObservableObject {
         inspecting = []
         uninspectable = []
         mediaInfoCache = [:]
+        cacheStamps = [:]
+        isValidatingCache = false
         prewarmTask?.cancel()
         isInspectingDeliverables = false
         deliverableAssets = []
@@ -819,11 +842,20 @@ public final class SpecsState: ObservableObject {
     /// A clip's details for Media Info: from the list or the cache, else read now and kept for Inspect.
     public func details(for url: URL) async -> DeliverableAsset? {
         let key = url.standardizedFileURL
-        if let known = cachedDetails(for: url) { return known }
+        if let listed = listedAsset(for: url) { return listed }
         let generation = inspectGeneration
-        let asset = await DeliverablesInspector.inspectFile(url: url)
-        if let asset, generation == inspectGeneration { mediaInfoCache[key] = asset }
-        return asset
+        if let cached = mediaInfoCache[key] {
+            let known = cacheStamps[key]
+            let now = await Task.detached(priority: .userInitiated) { Self.stamp(of: key) }.value
+            if now == known || generation != inspectGeneration { return cached }
+            mediaInfoCache[key] = nil
+        }
+        let read = await Self.inspectWithStamp(key)
+        if let asset = read.asset, generation == inspectGeneration {
+            mediaInfoCache[key] = asset
+            cacheStamps[key] = read.stamp
+        }
+        return read.asset
     }
 
     /// Details already in memory (no disk read).
@@ -856,6 +888,32 @@ public final class SpecsState: ObservableObject {
             return
         }
         let have = inspecting.union(uninspectable).union(deliverableAssets.map { $0.fileURL.standardizedFileURL })
+        let cached = queue.map(\.standardizedFileURL).filter { !have.contains($0) && mediaInfoCache[$0] != nil }
+        guard !cached.isEmpty else { return listCachedAndInspectRest(queue) }
+        // Cached details are only listed for files unchanged since they were read (stats off the main thread, side by side).
+        guard !isValidatingCache else { return }
+        isValidatingCache = true
+        let stamps = cacheStamps
+        let generation = inspectGeneration
+        Task { @MainActor [weak self] in
+            let stale = await Task.detached(priority: .userInitiated) { () -> Set<URL> in
+                let found = OSAllocatedUnfairLock(initialState: Set<URL>())
+                DispatchQueue.concurrentPerform(iterations: cached.count) { index in
+                    let url = cached[index]
+                    if Self.stamp(of: url) != stamps[url] { found.withLock { _ = $0.insert(url) } }
+                }
+                return found.withLock { $0 }
+            }.value
+            guard let self else { return }
+            self.isValidatingCache = false
+            guard generation == self.inspectGeneration else { return }
+            for key in stale { self.mediaInfoCache[key] = nil }
+            self.listCachedAndInspectRest(queue)
+        }
+    }
+
+    private func listCachedAndInspectRest(_ queue: [URL]) {
+        let have = inspecting.union(uninspectable).union(deliverableAssets.map { $0.fileURL.standardizedFileURL })
         var missing = queue.filter { !have.contains($0.standardizedFileURL) }
         // Already read by Media Info or in the background: listed at once, no second read.
         let known = missing.compactMap { mediaInfoCache[$0.standardizedFileURL] }
@@ -886,10 +944,15 @@ public final class SpecsState: ObservableObject {
                 }
                 guard let self, !Task.isCancelled, generation == self.inspectGeneration else { return }
                 if self.mediaInfoCache[key] != nil || self.uninspectable.contains(key) { continue }
-                let asset = await DeliverablesInspector.inspectFile(url: url)
+                let read = await Self.inspectWithStamp(key)
                 guard !Task.isCancelled, generation == self.inspectGeneration else { return }
                 // A file with nothing to read isn't tried again by every later prewarm or visit.
-                if let asset { self.mediaInfoCache[key] = asset } else { self.uninspectable.insert(key) }
+                if let asset = read.asset {
+                    self.mediaInfoCache[key] = asset
+                    self.cacheStamps[key] = read.stamp
+                } else {
+                    self.uninspectable.insert(key)
+                }
             }
         }
     }
@@ -920,6 +983,8 @@ public final class SpecsState: ObservableObject {
             inspecting = []
             uninspectable = []
             mediaInfoCache = [:]   // a refresh re-reads changed files: Media Info must too
+            cacheStamps = [:]
+            isValidatingCache = false
         }
         let batch = urls.map(\.standardizedFileURL)
         inspecting.formUnion(batch)

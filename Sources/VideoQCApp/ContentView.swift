@@ -2093,6 +2093,11 @@ struct ContentView: View {
                     showPropertiesModal = true
                 }
             }
+            // Shown at once from memory; a clip re-exported at the same path since is read again and replaces it.
+            Task { @MainActor in
+                guard let fresh = await self.specsState.details(for: url), fresh != existing, self.propertiesURL == url else { return }
+                self.propertiesAsset = fresh
+            }
         } else {
             propertiesAsset = nil
             isInspectingProperties = true
