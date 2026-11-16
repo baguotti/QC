@@ -101,3 +101,54 @@ enum ResizeBench {
     }
 }
 #endif
+
+#if DEBUG
+/// Debug-only layout check: `QCPIE_UI_SHOTS=<folder>` (with `QCPIE_BENCH_FOLDER=<media folder>` for a queue) captures
+/// every tab, with its side panels open, at the narrowest window and a wide one, at Small and Large Button Size, then
+/// quits. For spotting labels that clip or truncate. Run the bare debug binary: its settings are its own (`QCpie` domain).
+@MainActor
+enum UIShots {
+    static var output: String? { ProcessInfo.processInfo.environment["QCPIE_UI_SHOTS"] }
+
+    struct Hooks {
+        let setTab: (AppTab) -> Void
+        let openPanels: () -> Void
+        /// Player drawer tabs to capture beside the default one.
+        let setPlayerDrawer: (PlayerDrawerTab) -> Void
+    }
+
+    static func run(_ hooks: Hooks) async {
+        guard let output else { return }
+        try? FileManager.default.createDirectory(atPath: output, withIntermediateDirectories: true)
+        try? await Task.sleep(for: .seconds(5))
+        guard let window = NSApp.windows.first(where: { $0.isVisible && $0.contentView != nil && $0.frame.width > 800 }) else { return }
+        hooks.openPanels()
+        let original = ThemeManager.shared.buttonZoom
+        for zoom in [UIButtonZoomLevel.small, .large] {
+            ThemeManager.shared.buttonZoom = zoom
+            for width in [1080.0, 1440.0] {
+                var frame = window.frame
+                frame.size = NSSize(width: width, height: 820)
+                window.setFrame(frame, display: true)
+                for tab in AppTab.visibleTabs {
+                    hooks.setTab(tab)
+                    let drawers: [PlayerDrawerTab?] = tab == .player ? [.mediaInfo, .notes, .subtitles] : [nil]
+                    for drawer in drawers {
+                        if let drawer { hooks.setPlayerDrawer(drawer) }
+                        try? await Task.sleep(for: .milliseconds(1500))
+                        capture(window, to: "\(output)/\(tab)\(drawer.map { "-\($0)" } ?? "")_\(Int(width))_\(zoom.title).png")
+                    }
+                }
+            }
+        }
+        ThemeManager.shared.buttonZoom = original
+        NSApp.terminate(nil)
+    }
+
+    private static func capture(_ window: NSWindow, to path: String) {
+        guard let view = window.contentView, let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds) else { return }
+        view.cacheDisplay(in: view.bounds, to: rep)
+        try? rep.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: path))
+    }
+}
+#endif

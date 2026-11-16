@@ -422,6 +422,21 @@ struct ContentView: View {
                     if let folder = ResizeBench.folder { loadAssets([folder], append: false) }
                     Task { await ResizeBench.run() }
                 }
+                if UIShots.output != nil {
+                    if let folder = ResizeBench.folder { loadAssets([folder], append: false) }
+                    Task {
+                        await UIShots.run(.init(
+                            setTab: { selectedTab = $0 },
+                            openPanels: {
+                                showPlayerQueue = true
+                                showNotesDrawer = true
+                                showSpecsControlPanel = true
+                                showInspectPlan = true
+                                UserDefaults.standard.set(true, forKey: "uploadLogOpen")
+                            },
+                            setPlayerDrawer: { playerDrawerTab = $0 }))
+                    }
+                }
                 #endif
                 updatePlayerTreeNodes()
                 setupKeyboardMonitor()

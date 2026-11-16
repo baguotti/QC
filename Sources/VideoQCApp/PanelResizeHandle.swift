@@ -127,3 +127,54 @@ struct ResizableSidePanel<Content: View>: View {
             .zIndex(1)   // above the neighbour the handle reaches into
     }
 }
+
+/// A middle column between optional side panels (each a `ResizableSidePanel`). The panels get their own widths while
+/// the middle keeps `middleMin`; in a narrower window they shrink toward their minimum, in proportion to what each can
+/// give, before the middle goes below it. An `HStack` offered the panels equal shares first: two panels took 360 pt
+/// each in a 1080 pt window, the middle overflowed and the whole row was centred and cut on both sides.
+struct SidePanelsLayout: Layout {
+    enum Role: LayoutValueKey {
+        static let defaultValue = Role.middle
+        case leading, middle, trailing
+    }
+
+    var middleMin: CGFloat
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        proposal.replacingUnspecifiedDimensions()
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        let height = ProposedViewSize(width: nil, height: bounds.height)
+        let panels = subviews.indices.filter { subviews[$0][Role.self] != .middle }
+        var widths: [Int: CGFloat] = [:]
+        var mins: [Int: CGFloat] = [:]
+        for index in panels {
+            widths[index] = subviews[index].sizeThatFits(height).width
+            mins[index] = min(widths[index]!, subviews[index].sizeThatFits(ProposedViewSize(width: 0, height: bounds.height)).width)
+        }
+        let excess = panels.reduce(0) { $0 + widths[$1]! } - max(0, bounds.width - middleMin)
+        let give = panels.reduce(0) { $0 + widths[$1]! - mins[$1]! }
+        if excess > 0, give > 0 {
+            let share = min(1, excess / give)
+            for index in panels { widths[index]! -= (widths[index]! - mins[index]!) * share }
+        }
+        let leading = panels.filter { subviews[$0][Role.self] == .leading }.reduce(0) { $0 + widths[$1]! }
+        let trailing = panels.filter { subviews[$0][Role.self] == .trailing }.reduce(0) { $0 + widths[$1]! }
+        let middle = max(0, bounds.width - leading - trailing)
+        var x = bounds.minX
+        for role in [Role.leading, .middle, .trailing] {
+            for index in subviews.indices where subviews[index][Role.self] == role {
+                let width = role == .middle ? middle : widths[index]!
+                subviews[index].place(at: CGPoint(x: x, y: bounds.minY), proposal: ProposedViewSize(width: width, height: bounds.height))
+                x += width
+            }
+        }
+    }
+}
+
+extension View {
+    func sidePanelRole(_ role: SidePanelsLayout.Role) -> some View {
+        layoutValue(key: SidePanelsLayout.Role.self, value: role)
+    }
+}

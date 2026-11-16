@@ -7,7 +7,7 @@ extension ContentView {
     // MARK: ==================== TAB 2: SPECS ====================
     
     var deliverablesTabView: some View {
-        HStack(spacing: 0) {
+        SidePanelsLayout(middleMin: 420) {
             // Left Control Panel
             if showSpecsControlPanel {
                 ResizableSidePanel(widthKey: "inspectPanelWidth", edge: .trailing, range: 300...640, defaultWidth: 380,
@@ -43,6 +43,7 @@ extension ContentView {
                 )
                 }
                 .transition(.move(edge: .leading).combined(with: .opacity))
+                .sidePanelRole(.leading)
             }
             
             // Right Panel: Specs Table / Stats
@@ -86,7 +87,7 @@ extension ContentView {
                     deliverablesResultsView
                 }
             }
-            .frame(minWidth: 540, maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            .frame(minWidth: 420, maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             .background(bgMain)
             .sheet(isPresented: $specsState.showSubtitleCrossCheck) {
                 if let report = specsState.subtitleCrossCheck {
@@ -107,6 +108,7 @@ extension ContentView {
             if showInspectPlan {
                 InspectPlanDrawer(isLightMode: isLightMode, onClose: { showInspectPlan = false })
                     .transition(.move(edge: .trailing).combined(with: .opacity))
+                    .sidePanelRole(.trailing)
             }
         }
         // Inspect shows plan status per file, so the plan is kept current while this tab is open (cheap: a change
@@ -710,127 +712,32 @@ extension ContentView {
             
             // Quick stats on their own row (never squeezed by the table controls), table controls under them.
             VStack(alignment: .leading, spacing: 14) {
-                HStack(spacing: 12) {
-                    statBox(title: displayAssets.count == specsState.deliverableAssets.count ? "Total Assets" : "Filtered Assets", val: String(format: "%02d", displayAssets.count))
-                    statBox(title: "Name Mismatches", val: String(format: "%02d", mismatchCount), isRed: mismatchCount > 0, isPositive: mismatchCount == 0 && !displayAssets.isEmpty)
-                    if !measured.isEmpty {
-                        statBox(title: "Loudness Fails (\(target.name))", val: String(format: "%02d", loudnessFails), isRed: loudnessFails > 0, isPositive: loudnessFails == 0)
+                let stats: [(title: String, value: String, isRed: Bool, isPositive: Bool)] = [
+                    (displayAssets.count == specsState.deliverableAssets.count ? "Total Assets" : "Filtered Assets", String(format: "%02d", displayAssets.count), false, false),
+                    ("Name Mismatches", String(format: "%02d", mismatchCount), mismatchCount > 0, mismatchCount == 0 && !displayAssets.isEmpty)
+                ] + (measured.isEmpty ? [] : [("Loudness Fails (\(target.name))", String(format: "%02d", loudnessFails), loudnessFails > 0, loudnessFails == 0)]) + [
+                    ("Total Runtime", TimecodeFormatter.format(frameIndex: Int(min(round(totalSeconds * 25.0), 1e12)), fps: 25.0), false, false),
+                    ("Total Batch Size", DeliverablesInspector.formatFileSize(bytes: totalBytes), false, false)
+                ]
+                // One row when it fits, two in a narrow column (side panels open in a small window): never cut.
+                ViewThatFits(in: .horizontal) {
+                    HStack(spacing: 12) {
+                        ForEach(stats.indices, id: \.self) { statBox(title: stats[$0].title, val: stats[$0].value, isRed: stats[$0].isRed, isPositive: stats[$0].isPositive) }
                     }
-                    statBox(title: "Total Runtime", val: TimecodeFormatter.format(frameIndex: Int(min(round(totalSeconds * 25.0), 1e12)), fps: 25.0))
-                    statBox(title: "Total Batch Size", val: DeliverablesInspector.formatFileSize(bytes: totalBytes))
+                    VStack(alignment: .leading, spacing: 10) {
+                        HStack(spacing: 12) {
+                            ForEach(0..<min(2, stats.count), id: \.self) { statBox(title: stats[$0].title, val: stats[$0].value, isRed: stats[$0].isRed, isPositive: stats[$0].isPositive) }
+                        }
+                        HStack(spacing: 12) {
+                            ForEach(min(2, stats.count)..<stats.count, id: \.self) { statBox(title: stats[$0].title, val: stats[$0].value, isRed: stats[$0].isRed, isPositive: stats[$0].isPositive) }
+                        }
+                    }
                 }
                 
-                // Table controls
-                HStack(spacing: 6) {
-                    // Button 1: Fit / Reset Name
-                    Button(action: { autoFitFileNameColumnWidth() }) {
-                        HStack(spacing: 4) {
-                            Image(systemName: isFileNameExpanded ? "arrow.right.and.line.vertical.and.arrow.left" : "arrow.left.and.line.vertical.and.arrow.right")
-                                .font(.system(size: StudioTheme.scaleFont(8.5), weight: .bold))
-                            Text(isFileNameExpanded ? "Reset Name" : "Fit Name")
-                                .font(.ui(size: 10, weight: .semibold))
-                        }
-                        .padding(.horizontal, 8)
-                        .frame(height: 24)
-                        .contentShape(Rectangle())
-                        .foregroundColor(isFileNameExpanded ? textMain : (specsState.deliverableAssets.isEmpty ? textMuted : textSubtle))
-                    }
-                    .buttonStyle(TransportIconButtonStyle())
-                    .disabled(specsState.deliverableAssets.isEmpty)
-                    .fixedSize()
-                    .explain(isFileNameExpanded ? "Reset File Name column width back to default (220px)." : "Auto-fit File Name column to fit longest filename without truncation.")
-                    
-                    // View: Group By, Sort By, Density in one menu (replaces the Folders and List/Thumbs buttons).
-                    Menu { inspectViewMenuItems } label: {
-                        HStack(spacing: 4) {
-                            Image(systemName: "square.stack")
-                                .font(.system(size: StudioTheme.scaleFont(8.5), weight: .bold))
-                            Text(inspectGrouping == .folder || inspectGrouping == .none ? "View" : "By \(inspectGrouping.title)")
-                                .font(.ui(size: 10, weight: .semibold))
-                        }
-                        .foregroundColor(inspectGrouping == .folder ? textMain : accentBlue)
-                    }
-                    .menuStyle(.borderlessButton)
-                    .menuIndicator(.hidden)
-                    .fixedSize()
-                    .padding(.horizontal, 8)
-                    .frame(height: 24)
-                    .explain("Group, sort and size Inspect's rows.")
-
-                    // Folder headers on / off, as in the Player's queue (the same setting: it applies to both lists).
-                    if inspectGrouping == .folder && hasDeliverablesSubfolders {
-                        let foldersHidden = hideAllFolders || !hiddenFolderIDs.isEmpty
-                        Button(action: { toggleHideFolders() }) {
-                            HStack(spacing: 4) {
-                                Image(systemName: foldersHidden ? "folder" : "folder.badge.minus")
-                                    .font(.system(size: StudioTheme.scaleFont(8.5), weight: .bold))
-                                Text(foldersHidden ? "Show Folders" : "Hide Folders")
-                                    .font(.ui(size: 10, weight: .semibold))
-                            }
-                            .padding(.horizontal, 8)
-                            .frame(height: 24)
-                            .contentShape(Rectangle())
-                            .foregroundColor(foldersHidden ? accentBlue : textMain)
-                        }
-                        .buttonStyle(TransportIconButtonStyle())
-                        .fixedSize()
-                        .explain(foldersHidden ? "Show the folder headers again (Player queue too)." : "Hide the folder headers and list every file flat (Player queue too).")
-                    }
-
-                    // Clean list: hide the plan's chips and badges (filters keep working)
-                    if !planFiles.isEmpty {
-                        let filtered = inspectPlanFilter != -1 || inspectPlanBatch != nil || inspectPlanUpload != nil
-                        Button(action: { withAnimation(Motion.fade) { hidePlanTags.toggle() } }) {
-                            HStack(spacing: 4) {
-                                Image(systemName: hidePlanTags ? "tag.slash" : "tag")
-                                    .font(.system(size: StudioTheme.scaleFont(8.5), weight: .bold))
-                                Text(hidePlanTags ? "Show Tags" : "Clean List")
-                                    .font(.ui(size: 10, weight: .semibold))
-                            }
-                            .padding(.horizontal, 8)
-                            .frame(height: 24)
-                            .contentShape(Rectangle())
-                            .foregroundColor(hidePlanTags && filtered ? accentBlue : textMain)
-                        }
-                        .buttonStyle(.plain)
-                        .fixedSize()
-                        .explain(hidePlanTags
-                            ? (filtered ? "Plan tags are hidden; the list is still filtered by plan status. Click to show the tags." : "Show the Delivery Plan chips and badges.")
-                            : "Hide the Delivery Plan chips and badges for a clean list (filters keep working).")
-                    }
-
-                    // Columns: show / hide
-                    Menu { columnsMenuItems } label: {
-                        HStack(spacing: 4) {
-                            Image(systemName: "rectangle.split.3x1")
-                                .font(.system(size: StudioTheme.scaleFont(8.5), weight: .bold))
-                            Text("Columns")
-                                .font(.ui(size: 10, weight: .semibold))
-                        }
-                        .foregroundColor(specsState.hiddenColumns.isEmpty ? textMain : accentBlue)
-                    }
-                    .menuStyle(.borderlessButton)
-                    .menuIndicator(.hidden)
-                    .fixedSize()
-                    .padding(.horizontal, 8)
-                    .frame(height: 24)
-                    .explain("Show or hide Inspect's columns.")
-
-                    // Thumbnail size (thumbnail density only).
-                    if specsDisplayMode == "thumbnail" {
-                        Button(action: { showSpecsViewOptionsPopover.toggle() }) {
-                            Image(systemName: "slider.horizontal.3")
-                                .font(.system(size: StudioTheme.scaleFont(9), weight: .bold))
-                                .frame(width: 24, height: 24)
-                                .contentShape(Rectangle())
-                                .foregroundColor(textMuted)
-                        }
-                        .buttonStyle(.plain)
-                        .explain("Thumbnail size.")
-                        .popover(isPresented: $showSpecsViewOptionsPopover, arrowEdge: .bottom) {
-                            specsViewOptionsPopoverContent
-                        }
-                    }
+                // Table controls: labelled, or icons only when the column is narrow (their tooltips still say what they do).
+                ViewThatFits(in: .horizontal) {
+                    inspectTableControls(compact: false)
+                    inspectTableControls(compact: true)
                 }
                 .padding(.bottom, 4)
             }
@@ -2328,5 +2235,136 @@ final class InspectGroupCache {
         cached = build()
         self.key = key
         return cached
+    }
+}
+
+extension ContentView {
+    /// Inspect's table controls; `compact` drops the text labels (icons only) for a narrow column.
+    func inspectTableControls(compact: Bool) -> some View {
+                HStack(spacing: 6) {
+            // Button 1: Fit / Reset Name
+            Button(action: { autoFitFileNameColumnWidth() }) {
+                HStack(spacing: 4) {
+                    Image(systemName: isFileNameExpanded ? "arrow.right.and.line.vertical.and.arrow.left" : "arrow.left.and.line.vertical.and.arrow.right")
+                        .font(.system(size: StudioTheme.scaleFont(8.5), weight: .bold))
+                    Text(isFileNameExpanded ? "Reset Name" : "Fit Name")
+                        .font(.ui(size: 10, weight: .semibold))
+                        .shownUnless(compact)
+                }
+                .padding(.horizontal, 8)
+                .frame(height: 24)
+                .contentShape(Rectangle())
+                .foregroundColor(isFileNameExpanded ? textMain : (specsState.deliverableAssets.isEmpty ? textMuted : textSubtle))
+            }
+            .buttonStyle(TransportIconButtonStyle())
+            .disabled(specsState.deliverableAssets.isEmpty)
+            .fixedSize()
+            .explain(isFileNameExpanded ? "Reset File Name column width back to default (220px)." : "Auto-fit File Name column to fit longest filename without truncation.")
+            
+            // View: Group By, Sort By, Density in one menu (replaces the Folders and List/Thumbs buttons).
+            Menu { inspectViewMenuItems } label: {
+                HStack(spacing: 4) {
+                    Image(systemName: "square.stack")
+                        .font(.system(size: StudioTheme.scaleFont(8.5), weight: .bold))
+                    Text(inspectGrouping == .folder || inspectGrouping == .none ? "View" : "By \(inspectGrouping.title)")
+                        .font(.ui(size: 10, weight: .semibold))
+                        .shownUnless(compact)
+                }
+                .foregroundColor(inspectGrouping == .folder ? textMain : accentBlue)
+            }
+            .menuStyle(.borderlessButton)
+            .menuIndicator(.hidden)
+            .fixedSize()
+            .padding(.horizontal, 8)
+            .frame(height: 24)
+            .explain("Group, sort and size Inspect's rows.")
+
+            // Folder headers on / off, as in the Player's queue (the same setting: it applies to both lists).
+            if inspectGrouping == .folder && hasDeliverablesSubfolders {
+                let foldersHidden = hideAllFolders || !hiddenFolderIDs.isEmpty
+                Button(action: { toggleHideFolders() }) {
+                    HStack(spacing: 4) {
+                        Image(systemName: foldersHidden ? "folder" : "folder.badge.minus")
+                            .font(.system(size: StudioTheme.scaleFont(8.5), weight: .bold))
+                        Text(foldersHidden ? "Show Folders" : "Hide Folders")
+                            .font(.ui(size: 10, weight: .semibold))
+                        .shownUnless(compact)
+                    }
+                    .padding(.horizontal, 8)
+                    .frame(height: 24)
+                    .contentShape(Rectangle())
+                    .foregroundColor(foldersHidden ? accentBlue : textMain)
+                }
+                .buttonStyle(TransportIconButtonStyle())
+                .fixedSize()
+                .explain(foldersHidden ? "Show the folder headers again (Player queue too)." : "Hide the folder headers and list every file flat (Player queue too).")
+            }
+
+            // Clean list: hide the plan's chips and badges (filters keep working)
+            if !planFiles.isEmpty {
+                let filtered = inspectPlanFilter != -1 || inspectPlanBatch != nil || inspectPlanUpload != nil
+                Button(action: { withAnimation(Motion.fade) { hidePlanTags.toggle() } }) {
+                    HStack(spacing: 4) {
+                        Image(systemName: hidePlanTags ? "tag.slash" : "tag")
+                            .font(.system(size: StudioTheme.scaleFont(8.5), weight: .bold))
+                        Text(hidePlanTags ? "Show Tags" : "Clean List")
+                            .font(.ui(size: 10, weight: .semibold))
+                        .shownUnless(compact)
+                    }
+                    .padding(.horizontal, 8)
+                    .frame(height: 24)
+                    .contentShape(Rectangle())
+                    .foregroundColor(hidePlanTags && filtered ? accentBlue : textMain)
+                }
+                .buttonStyle(.plain)
+                .fixedSize()
+                .explain(hidePlanTags
+                    ? (filtered ? "Plan tags are hidden; the list is still filtered by plan status. Click to show the tags." : "Show the Delivery Plan chips and badges.")
+                    : "Hide the Delivery Plan chips and badges for a clean list (filters keep working).")
+            }
+
+            // Columns: show / hide
+            Menu { columnsMenuItems } label: {
+                HStack(spacing: 4) {
+                    Image(systemName: "rectangle.split.3x1")
+                        .font(.system(size: StudioTheme.scaleFont(8.5), weight: .bold))
+                    Text("Columns")
+                        .font(.ui(size: 10, weight: .semibold))
+                        .shownUnless(compact)
+                }
+                .foregroundColor(specsState.hiddenColumns.isEmpty ? textMain : accentBlue)
+            }
+            .menuStyle(.borderlessButton)
+            .menuIndicator(.hidden)
+            .fixedSize()
+            .padding(.horizontal, 8)
+            .frame(height: 24)
+            .explain("Show or hide Inspect's columns.")
+
+            // Thumbnail size (thumbnail density only).
+            if specsDisplayMode == "thumbnail" {
+                Button(action: { showSpecsViewOptionsPopover.toggle() }) {
+                    Image(systemName: "slider.horizontal.3")
+                        .font(.system(size: StudioTheme.scaleFont(9), weight: .bold))
+                        .frame(width: 24, height: 24)
+                        .contentShape(Rectangle())
+                        .foregroundColor(textMuted)
+                }
+                .buttonStyle(.plain)
+                .explain("Thumbnail size.")
+                .popover(isPresented: $showSpecsViewOptionsPopover, arrowEdge: .bottom) {
+                    specsViewOptionsPopoverContent
+                }
+            }
+        }
+
+        .fixedSize()
+    }
+}
+
+extension View {
+    /// Leaves the view out when `hidden` (labels that a narrow bar drops).
+    @ViewBuilder func shownUnless(_ hidden: Bool) -> some View {
+        if !hidden { self }
     }
 }

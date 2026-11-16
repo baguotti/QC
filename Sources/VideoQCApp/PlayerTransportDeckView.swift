@@ -20,6 +20,11 @@ struct PlayerTransportDeckView: View, Equatable {
     var onJumpNextNote: (() -> Void)?
     var onExportScreenshot: ((ScreenshotPreset) -> Void)?
     var showNotesAndGlitches: Bool
+    /// A narrow column: no slow-motion buttons (⇧J / ⇧L still work) and tighter spacing, so the deck fits beside two
+    /// open side panels instead of running off both edges.
+    var compact: Bool = false
+    /// Narrower still: the display toggles fold into one menu (exposure stays on the bar).
+    var collapsesUtilities: Bool = false
     
     public static nonisolated func == (lhs: PlayerTransportDeckView, rhs: PlayerTransportDeckView) -> Bool {
         lhs.transportState == rhs.transportState &&
@@ -27,6 +32,8 @@ struct PlayerTransportDeckView: View, Equatable {
         lhs.hideGlitchNavWhenEmpty == rhs.hideGlitchNavWhenEmpty &&
         lhs.isNotesDrawerOpen == rhs.isNotesDrawerOpen &&
         lhs.showNotesAndGlitches == rhs.showNotesAndGlitches &&
+        lhs.compact == rhs.compact &&
+        lhs.collapsesUtilities == rhs.collapsesUtilities &&
         lhs.scanResults.count == rhs.scanResults.count
     }
     
@@ -44,7 +51,9 @@ struct PlayerTransportDeckView: View, Equatable {
         onJumpPrevNote: (() -> Void)? = nil,
         onJumpNextNote: (() -> Void)? = nil,
         onExportScreenshot: ((ScreenshotPreset) -> Void)? = nil,
-        showNotesAndGlitches: Bool = false
+        showNotesAndGlitches: Bool = false,
+        compact: Bool = false,
+        collapsesUtilities: Bool = false
     ) {
         self.engine = engine
         self.transportState = transportState ?? engine.transportState
@@ -60,6 +69,8 @@ struct PlayerTransportDeckView: View, Equatable {
         self.onJumpNextNote = onJumpNextNote
         self.onExportScreenshot = onExportScreenshot
         self.showNotesAndGlitches = showNotesAndGlitches
+        self.compact = compact
+        self.collapsesUtilities = collapsesUtilities
     }
     
     @ObservedObject private var themeManager = ThemeManager.shared
@@ -78,12 +89,14 @@ struct PlayerTransportDeckView: View, Equatable {
     }
     
     var body: some View {
-        HStack(spacing: themeManager.scale(8)) {
+        HStack(spacing: themeManager.scale(compact ? 4 : 8)) {
             // 1. Unified Transport Deck (Tight & Proportional)
-            HStack(spacing: themeManager.scale(5)) {
+            HStack(spacing: themeManager.scale(compact ? 2 : 5)) {
                 // Slow Rev (Shift + J)
-                transportBtn(icon: "backward", tooltip: "Slow Reverse (⇧J / Tap to accelerate)", size: 13, width: 26) {
-                    engine.pressSlowJ()
+                if !compact {
+                    transportBtn(icon: "backward", tooltip: "Slow Reverse (⇧J / Tap to accelerate)", size: 13, width: 26) {
+                        engine.pressSlowJ()
+                    }
                 }
                 
                 // Step Back 1 Frame (Left Arrow)
@@ -132,8 +145,10 @@ struct PlayerTransportDeckView: View, Equatable {
                 }
                 
                 // Slow Forward (Shift + L)
-                transportBtn(icon: "forward", tooltip: "Slow Forward (Shift + L / Tap to accelerate)", size: 13, width: 26) {
-                    engine.pressSlowL()
+                if !compact {
+                    transportBtn(icon: "forward", tooltip: "Slow Forward (Shift + L / Tap to accelerate)", size: 13, width: 26) {
+                        engine.pressSlowL()
+                    }
                 }
             }
             .disabled(!transportState.hasTimeline)
@@ -146,7 +161,15 @@ struct PlayerTransportDeckView: View, Equatable {
                 .padding(.horizontal, 2)
             
             // 2. Playback Utilities: Loop, Title Safe, Crosshair & Exposure
-            HStack(spacing: 4) {
+            if collapsesUtilities {
+                HStack(spacing: 1) {
+                    utilitiesMenu
+                    ExposureScrubberView(engine: engine, isLightMode: isLightMode)
+                        .disabled(!transportState.hasVideo)
+                        .opacity(transportState.hasVideo ? 1 : 0.35)
+                }
+            } else {
+            HStack(spacing: compact ? 1 : 4) {
                 transportBtn(
                     icon: "repeat",
                     tooltip: transportState.isLooping ? "Loop Playback: ON (⌘L)" : "Loop Playback: OFF (⌘L)",
@@ -350,7 +373,8 @@ struct PlayerTransportDeckView: View, Equatable {
                     }
                 }
             }
-            
+
+            }            
             // 3. Compact Review Notes Controls (Optional for decks that display notes inline, e.g. Fullscreen HUD)
             if showNotesAndGlitches && (onAddNote != nil || onToggleNotesDrawer != nil || onJumpPrevNote != nil || onJumpNextNote != nil) {
                 Rectangle()
@@ -485,6 +509,42 @@ struct PlayerTransportDeckView: View, Equatable {
         }
     }
     
+    /// The display toggles as one menu, for a bar too narrow to show them (same actions and shortcuts).
+    private var utilitiesMenu: some View {
+        Menu {
+            Toggle("Loop Playback (⌘L)", isOn: Binding(get: { transportState.isLooping }, set: { engine.isLooping = $0 }))
+            Button("Safe Area: \(transportState.safeAreaMode.rawValue) (Click to Cycle)") { engine.cycleSafeAreaMode() }
+            Toggle("Center Crosshair", isOn: Binding(get: { transportState.showCenterCrosshair }, set: { engine.showCenterCrosshair = $0 }))
+            Toggle("Legal Range Zebra (\(transportState.legalRangePreset))", isOn: Binding(get: { transportState.showLegalZebra }, set: { engine.showLegalZebra = $0 }))
+                .disabled(!transportState.hasVideo)
+            if transportState.hasLineMarks {
+                Toggle("Line Marks", isOn: Binding(get: { transportState.showLineMarks }, set: { engine.showLineMarks = $0 }))
+            }
+            Divider()
+            if transportState.hasSubtitles {
+                Toggle("Subtitles", isOn: Binding(get: { transportState.showSubtitles }, set: { engine.showSubtitles = $0 }))
+            } else {
+                Button("Import Subtitles (.srt)…") { engine.chooseAndLoadSubtitles() }
+                    .disabled(!transportState.hasActiveURL)
+            }
+            Button("Clip Info: \(transportState.clipInfoOverlayMode.rawValue) (⌥I to Cycle)") { engine.cycleClipInfoOverlayMode() }
+            if let onExport = onExportScreenshot {
+                Divider()
+                Button("Export Screenshot (\(transportState.lastScreenshotPreset.rawValue))") { onExport(transportState.lastScreenshotPreset) }
+                    .disabled(!transportState.hasActiveURL)
+            }
+        } label: {
+            Image(systemName: "slider.horizontal.3")
+                .font(.system(size: iconSize(11), weight: .semibold))
+                .frame(width: btnWidth(26), height: btnHeight)
+                .foregroundColor(textMain)
+        }
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .fixedSize()
+        .explain("Display options: loop, safe area, crosshair, zebra, subtitles, clip info, screenshot")
+    }
+
     private func transportBtn(
         icon: String,
         tooltip: String,

@@ -260,6 +260,7 @@ public struct PlayerQueueFileRowView: View, Equatable {
             
             if notesCount > 0 {
                 notesBadge
+                    .fixedSize()
             }
         }
     }
@@ -288,18 +289,27 @@ public struct PlayerQueueFileRowView: View, Equatable {
                     .frame(width: 12)
             }
             
+            // The name keeps the room first; the spec text is shown whole or not at all (both truncating left
+            // "… • 108…" in a narrow queue, the name gone).
             fileNameLabel(fontSize: 10.5, isSelected: isSelected)
+                .layoutPriority(1)
             
             if isSlotA && !slotAResolution.isEmpty {
-                Text("• \(slotAResolution) \(slotACodec)")
-                    .font(.ui(size: 10, weight: .semibold))
-                    .foregroundColor(accentPositive)
-                    .lineLimit(1)
+                ViewThatFits(in: .horizontal) {
+                    Text("• \(slotAResolution) \(slotACodec)")
+                        .font(.ui(size: 10, weight: .semibold))
+                        .foregroundColor(accentPositive)
+                        .fixedSize()
+                    Color.clear.frame(width: 0, height: 0)
+                }
             } else if isSlotB && !slotBResolution.isEmpty {
-                Text("• \(slotBResolution) \(slotBCodec)")
-                    .font(.ui(size: 10, weight: .semibold))
-                    .foregroundColor(accentSlotB)
-                    .lineLimit(1)
+                ViewThatFits(in: .horizontal) {
+                    Text("• \(slotBResolution) \(slotBCodec)")
+                        .font(.ui(size: 10, weight: .semibold))
+                        .foregroundColor(accentSlotB)
+                        .fixedSize()
+                    Color.clear.frame(width: 0, height: 0)
+                }
             }
             
             Spacer(minLength: 4)

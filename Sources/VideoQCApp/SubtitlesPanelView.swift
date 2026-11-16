@@ -262,6 +262,8 @@ struct SubtitlesPanelView: View {
                 .foregroundColor(palette.textMain)
                 .lineLimit(1)
                 .truncationMode(.middle)
+                // Room for a readable name: the buttons give up their labels before it shrinks below this.
+                .frame(minWidth: 90, alignment: .leading)
                 .help(engine.subtitleSourceURL?.path ?? "")
             if engine.hasUnsavedSubtitleEdits {
                 Circle().fill(palette.accentBlue).frame(width: 6, height: 6)
@@ -271,65 +273,12 @@ struct SubtitlesPanelView: View {
 
             spellLanguageMenu
 
-            if !flaggedLines.isEmpty {
-                Button(action: goToNextFlagged) {
-                    Text("\(flaggedLines.count) to check")
-                        .font(.ui(size: 10, weight: .semibold))
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 3.5)
-                        .foregroundColor(TagTone.amber.color(palette.isLight))
-                        .studioBox(background: TagTone.amber.color(palette.isLight).opacity(0.12),
-                                   border: TagTone.amber.color(palette.isLight).opacity(0.45))
-                }
-                .buttonStyle(.plain)
-                .help(comparison == nil
-                      ? "Lines read from the picture with low confidence or unusually long: check them against the frame. Click for the next one."
-                      : "Lines read with low confidence, or that differ from \(comparison?.srtName ?? "the .srt"). Click for the next one.")
+            // Full labels when they fit, else icons and counts: a narrow drawer truncated them to "2 to c…", "33…".
+            ViewThatFits(in: .horizontal) {
+                headerActions(compact: false)
+                headerActions(compact: true)
             }
-
-            Button(action: goToNextIssue) {
-                HStack(spacing: 3) {
-                    Image(systemName: spelling.issueCount == 0 ? "checkmark.seal" : "text.badge.xmark")
-                        .font(.system(size: StudioTheme.scaleFont(9), weight: .bold))
-                    Text(spelling.issueCount == 0 ? "Spelling OK" : "\(spelling.issueCount) typo\(spelling.issueCount == 1 ? "" : "s")")
-                        .font(.ui(size: 10, weight: .semibold))
-                }
-                .padding(.horizontal, 6)
-                .padding(.vertical, 3.5)
-                .foregroundColor(spelling.issueCount == 0 ? palette.accentPositive : palette.alertRed)
-                .studioBox(background: (spelling.issueCount == 0 ? palette.accentPositive : palette.alertRed).opacity(0.12),
-                           border: (spelling.issueCount == 0 ? palette.accentPositive : palette.alertRed).opacity(0.45))
-            }
-            .buttonStyle(.plain)
-            .disabled(spelling.issueCount == 0)
-            .help(spelling.issueCount == 0 ? "No spelling issues found" : "\(spelling.issueCount) possible spelling mistakes — click to go to the next one")
-
-            Button(action: save) {
-                Text("Save")
-                    .font(.ui(size: 10, weight: .semibold))
-                    .padding(.horizontal, 7)
-                    .padding(.vertical, 3.5)
-                    .foregroundColor(engine.hasUnsavedSubtitleEdits ? palette.accentBlue : palette.textSubtle)
-                    .studioBox(background: engine.hasUnsavedSubtitleEdits ? palette.accentBlue.opacity(0.15) : palette.bgSubtle,
-                               border: engine.hasUnsavedSubtitleEdits ? palette.accentBlue.opacity(0.6) : palette.borderLine)
-            }
-            .buttonStyle(.plain)
-            .disabled(!engine.hasUnsavedSubtitleEdits)
-            .help(engine.subtitleSourceURL == nil
-                  ? "Save the subtitles read from the picture as an .srt"
-                  : "Save changes to \(engine.subtitleFileName ?? "the .srt") (overwrites it)")
-
-            Button(action: saveAs) {
-                Text("Save As…")
-                    .font(.ui(size: 10, weight: .semibold))
-                    .padding(.horizontal, 7)
-                    .padding(.vertical, 3.5)
-                    .foregroundColor(palette.textMain)
-                    .studioBox(background: palette.bgSubtle, border: palette.borderLine)
-            }
-            .buttonStyle(.plain)
-            .disabled(engine.subtitleCues.isEmpty)
-            .help("Save the subtitles as a new .srt file")
+            .layoutPriority(1)
 
             Menu {
                 Button("Reveal in Finder") {
@@ -358,6 +307,89 @@ struct SubtitlesPanelView: View {
         .padding(.horizontal, 10)
         .frame(height: 34)
         .background(palette.bgPanel)
+    }
+
+    private func headerActions(compact: Bool) -> some View {
+        HStack(spacing: 6) {
+            if !flaggedLines.isEmpty {
+                Button(action: goToNextFlagged) {
+                    HStack(spacing: 3) {
+                        if compact {
+                            Image(systemName: "flag.fill")
+                                .font(.system(size: StudioTheme.scaleFont(8), weight: .bold))
+                        }
+                        Text(compact ? "\(flaggedLines.count)" : "\(flaggedLines.count) to check")
+                            .font(.ui(size: 10, weight: .semibold))
+                    }
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 3.5)
+                    .foregroundColor(TagTone.amber.color(palette.isLight))
+                    .studioBox(background: TagTone.amber.color(palette.isLight).opacity(0.12),
+                               border: TagTone.amber.color(palette.isLight).opacity(0.45))
+                }
+                .buttonStyle(.plain)
+                .help(comparison == nil
+                      ? "\(flaggedLines.count) lines read from the picture with low confidence or unusually long: check them against the frame. Click for the next one."
+                      : "\(flaggedLines.count) lines read with low confidence, or that differ from \(comparison?.srtName ?? "the .srt"). Click for the next one.")
+            }
+
+            Button(action: goToNextIssue) {
+                HStack(spacing: 3) {
+                    Image(systemName: spelling.issueCount == 0 ? "checkmark.seal" : "text.badge.xmark")
+                        .font(.system(size: StudioTheme.scaleFont(9), weight: .bold))
+                    if !(compact && spelling.issueCount == 0) {
+                        Text(spelling.issueCount == 0 ? "Spelling OK"
+                             : compact ? "\(spelling.issueCount)"
+                             : "\(spelling.issueCount) typo\(spelling.issueCount == 1 ? "" : "s")")
+                            .font(.ui(size: 10, weight: .semibold))
+                    }
+                }
+                .padding(.horizontal, 6)
+                .padding(.vertical, 3.5)
+                .foregroundColor(spelling.issueCount == 0 ? palette.accentPositive : palette.alertRed)
+                .studioBox(background: (spelling.issueCount == 0 ? palette.accentPositive : palette.alertRed).opacity(0.12),
+                           border: (spelling.issueCount == 0 ? palette.accentPositive : palette.alertRed).opacity(0.45))
+            }
+            .buttonStyle(.plain)
+            .disabled(spelling.issueCount == 0)
+            .help(spelling.issueCount == 0 ? "No spelling issues found" : "\(spelling.issueCount) possible spelling mistakes — click to go to the next one")
+
+            Button(action: save) {
+                Text("Save")
+                    .font(.ui(size: 10, weight: .semibold))
+                    .padding(.horizontal, 7)
+                    .padding(.vertical, 3.5)
+                    .foregroundColor(engine.hasUnsavedSubtitleEdits ? palette.accentBlue : palette.textSubtle)
+                    .studioBox(background: engine.hasUnsavedSubtitleEdits ? palette.accentBlue.opacity(0.15) : palette.bgSubtle,
+                               border: engine.hasUnsavedSubtitleEdits ? palette.accentBlue.opacity(0.6) : palette.borderLine)
+            }
+            .buttonStyle(.plain)
+            .disabled(!engine.hasUnsavedSubtitleEdits)
+            .help(engine.subtitleSourceURL == nil
+                  ? "Save the subtitles read from the picture as an .srt"
+                  : "Save changes to \(engine.subtitleFileName ?? "the .srt") (overwrites it)")
+
+            Button(action: saveAs) {
+                Group {
+                    if compact {
+                        Image(systemName: "square.and.arrow.down.on.square")
+                            .font(.system(size: StudioTheme.scaleFont(9), weight: .semibold))
+                    } else {
+                        Text("Save As…")
+                            .font(.ui(size: 10, weight: .semibold))
+                    }
+                }
+                .padding(.horizontal, 7)
+                .padding(.vertical, 3.5)
+                .foregroundColor(palette.textMain)
+                .studioBox(background: palette.bgSubtle, border: palette.borderLine)
+            }
+            .buttonStyle(.plain)
+            .disabled(engine.subtitleCues.isEmpty)
+            .help("Save As…: save the subtitles as a new .srt file")
+        }
+        .lineLimit(1)
+        .fixedSize()
     }
 
     // MARK: Find & Replace

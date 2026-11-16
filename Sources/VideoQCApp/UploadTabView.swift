@@ -131,9 +131,13 @@ struct UploadColumns: Layout {
     func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
         guard !subviews.isEmpty else { return }
         let total = bounds.width
-        let left = min(max(panelWidth, 300), max(300, min(900, total - 420)))
+        // The browser keeps at least 360 pt: the queue panel gives way first to the open drawer's minimum (it took its
+        // stored width, the drawer was held at 300 and the browser squeezed to ~180 pt, its rows cut off).
+        let browserMin = hasDrawer ? 360.0 : 420.0
+        let drawerMin = hasDrawer ? Self.drawerRange.lowerBound : 0
+        let left = min(max(panelWidth, 300), max(300, min(900, total - browserMin - drawerMin)))
         let shownLeft = hasPanel ? left : 0
-        let drawer = min(max(drawerWidth, 300), max(300, min(800, total - shownLeft - 360)))
+        let drawer = min(max(drawerWidth, 300), max(300, min(800, total - shownLeft - browserMin)))
         let shownDrawer = hasDrawer ? drawer : 0
         let middle = max(0, total - shownLeft - shownDrawer)
         for subview in subviews {

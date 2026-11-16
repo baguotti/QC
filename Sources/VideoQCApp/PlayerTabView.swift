@@ -13,13 +13,17 @@ extension ContentView {
         GeometryReader { mainGeo in
             let drawerWidth = NotesDrawerPanelView.width(tab: playerDrawerTab, hasSubtitles: !playerEngine.subtitleCues.isEmpty)
             let availableWidth = mainGeo.size.width - (showNotesDrawer ? drawerWidth : 0.0)
-            let maxQueueWidth = max(240.0, min(800.0, availableWidth - 400.0))
-            let effectiveQueueWidth = max(240.0, min(maxQueueWidth, playerQueueWidth > 0 ? playerQueueWidth : 360.0))
+            // The queue's narrowest grows with Button Size (its toolbar and rows were cut on both sides at 240 pt, Large);
+            // the monitor keeps 440 pt, where its transport and timecode bars' narrow forms fit.
+            let queueMin = (240.0 * Double(TypeScale.factor)).rounded()
+            let maxQueueWidth = max(queueMin, min(800.0, availableWidth - 440.0))
+            let effectiveQueueWidth = max(queueMin, min(maxQueueWidth, playerQueueWidth > 0 ? playerQueueWidth : 360.0))
             
             HStack(spacing: 0) {
                 if showPlayerQueue {
                     playerQueuePanel
-                        .frame(width: effectiveQueueWidth)
+                        .frame(width: effectiveQueueWidth, alignment: .leading)
+                        .clipped()
                         .overlay(
                             Rectangle()
                                 .fill(borderLine)
@@ -798,7 +802,33 @@ extension ContentView {
     
     // MARK: - Timecode Bar (above timeline)
     
+    /// Four equal columns when there's room; in a narrow monitor the groups sit side by side at their own widths
+    /// (equal columns cut the timecode to ":00:00"), and the narrowest keeps the timecode and duration.
     private var playerTimecodeBar: some View {
+        ViewThatFits(in: .horizontal) {
+            playerTimecodeBarColumns
+                .frame(minWidth: StudioTheme.scale(620))
+            HStack(spacing: 6) {
+                playerTimecodeMenu.fixedSize()
+                Spacer(minLength: 4)
+                playerNotesGroup(compact: true).fixedSize()
+                Spacer(minLength: 4)
+                playerReviewTools(compact: true).fixedSize()
+                Spacer(minLength: 4)
+                if playerEngine.inFrame != nil || playerEngine.outFrame != nil { inOutChip.fixedSize() }
+                playerDurationLabel.fixedSize()
+            }
+            .frame(height: StudioTheme.scale(24))
+            HStack(spacing: 6) {
+                playerTimecodeMenu.fixedSize()
+                Spacer(minLength: 4)
+                playerDurationLabel.fixedSize()
+            }
+            .frame(height: StudioTheme.scale(24))
+        }
+    }
+
+    private var playerTimecodeBarColumns: some View {
         ZStack(alignment: .center) {
             // Absolute Center: Shuttle Speed Indicator (hidden on 1x play and pause)
             playerCenterShuttleBadge
@@ -806,12 +836,17 @@ extension ContentView {
             // Four equal columns: the review controls mirror each other around the exact centre (shuttle badge),
             // timecode + zoom sit left, duration right, at any window width.
             HStack(spacing: 0) {
-                HStack(spacing: 12) {
-                    playerTimecodeMenu
-                    Rectangle()
-                        .fill(borderLine.opacity(0.45))
-                        .frame(width: 1, height: 14)
-                    playerZoomMenu
+                // The zoom menu gives way first in a narrow column (zoom stays on ⌘+ / ⌘− and the viewport's pinch).
+                ViewThatFits(in: .horizontal) {
+                    HStack(spacing: 12) {
+                        playerTimecodeMenu
+                        Rectangle()
+                            .fill(borderLine.opacity(0.45))
+                            .frame(width: 1, height: 14)
+                        playerZoomMenu
+                    }
+                    .fixedSize()
+                    playerTimecodeMenu.fixedSize()
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 
@@ -844,7 +879,19 @@ extension ContentView {
     
     // MARK: - Transport Bar
     
+    /// Full width, then the compact deck, then the mute button without its slider: the bar never runs off its edges
+    /// (two open side panels in a small window, Large Button Size).
     private var playerTransportBar: some View {
+        ViewThatFits(in: .horizontal) {
+            playerTransportBarContent(level: 0)
+            playerTransportBarContent(level: 1)
+            playerTransportBarContent(level: 2)
+            playerTransportBarContent(level: 3)
+        }
+        .frame(height: StudioTheme.scale(28))
+    }
+
+    private func playerTransportBarContent(level: Int) -> some View {
         HStack(spacing: 0) {
             // Left: Audio Volume & Mute (Flexible proportional width - matches right to keep center dead-centered)
             HStack(spacing: 8) {
@@ -875,6 +922,7 @@ extension ContentView {
                 }
                 .explain(playerEngine.isMuted ? "Unmute audio" : "Mute audio")
                 
+                if level < 2 {
                 StudioVolumeSlider(
                     volume: $playerEngine.volume,
                     isMuted: $playerEngine.isMuted,
@@ -883,7 +931,9 @@ extension ContentView {
                     isLightMode: isLightMode
                 )
                 .explain(playerEngine.isMuted ? "Volume: Muted (\(Int((playerEngine.volume * 100).rounded()))%)" : "Volume: \(Int((playerEngine.volume * 100).rounded()))%")
+                }
             }
+            .fixedSize()
             .frame(maxWidth: .infinity, alignment: .leading)
             
             // Center: Playback, Shuttle & Frame Controls (Camera screengrab moved next to Exposure)
@@ -893,16 +943,18 @@ extension ContentView {
                 scanResults: scannerState.scanResults,
                 isLightMode: isLightMode,
                 onExportScreenshot: { preset in exportCurrentFrameScreenshot(preset: preset) },
-                showNotesAndGlitches: false
+                showNotesAndGlitches: false,
+                compact: level > 0,
+                collapsesUtilities: level > 2
             )
             .equatable()
+            .fixedSize()
             .layoutPriority(1)
             
             // Right: Balanced spacer matching left width to keep center transport deck dead-centered
             Color.clear
                 .frame(maxWidth: .infinity, alignment: .trailing)
         }
-        .frame(height: StudioTheme.scale(28))
     }
     
     var filteredPlayerFiles: [URL] {

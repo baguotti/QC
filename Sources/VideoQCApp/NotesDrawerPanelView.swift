@@ -213,6 +213,47 @@ struct NotesDrawerPanelView: View {
     
     // MARK: - Tab 1: Notes Content View
     
+    private func notesHeaderButtons(compact: Bool) -> some View {
+        HStack(spacing: 6) {
+                if !notes.isEmpty {
+                Button(action: { showClearConfirmation = true }) {
+                    HStack(spacing: 3) {
+                        Image(systemName: "trash")
+                            .font(.system(size: StudioTheme.scaleFont(7.5), weight: .bold))
+                        Text(filteredNoteIDs == nil ? "Clear All" : "Clear Filtered")
+                            .font(.ui(size: 10, weight: .semibold))
+                            .lineLimit(1)
+                            .shownUnless(compact)
+                    }
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 3.5)
+                    .foregroundColor(palette.alertRed.opacity(0.85))
+                    .studioBox(background: palette.alertRed.opacity(0.12), border: palette.alertRed.opacity(0.45))
+                }
+                .buttonStyle(.plain)
+                .help(filteredNoteIDs == nil ? "Clear All: clear all markers and review notes for this clip" : "Delete the notes shown by the filter (the others stay)")
+            }
+            
+            Button(action: onAddNote) {
+                HStack(spacing: 3) {
+                    Image(systemName: "plus")
+                        .font(.system(size: StudioTheme.scaleFont(7.5), weight: .bold))
+                    Text("Add (N)")
+                        .font(.ui(size: 10, weight: .semibold))
+                        .lineLimit(1)
+                        .shownUnless(compact)
+                }
+                .padding(.horizontal, 6)
+                .padding(.vertical, 3.5)
+                .foregroundColor(palette.accentBlue)
+                .studioBox(background: palette.accentBlue.opacity(0.14), border: palette.accentBlue.opacity(0.6))
+            }
+            .buttonStyle(.plain)
+            .help("Add a note at the playhead (N)")
+        }
+        .fixedSize()
+    }
+
     private var notesContentView: some View {
         VStack(spacing: 0) {
             // Notes Subheader (Clear All + Add Note)
@@ -235,38 +276,11 @@ struct NotesDrawerPanelView: View {
                 
                 Spacer(minLength: 4)
                 
-                if !notes.isEmpty {
-                    Button(action: { showClearConfirmation = true }) {
-                        HStack(spacing: 3) {
-                            Image(systemName: "trash")
-                                .font(.system(size: StudioTheme.scaleFont(7.5), weight: .bold))
-                            Text(filteredNoteIDs == nil ? "Clear All" : "Clear Filtered")
-                                .font(.ui(size: 10, weight: .semibold))
-                                .lineLimit(1)
-                        }
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 3.5)
-                        .foregroundColor(palette.alertRed.opacity(0.85))
-                        .studioBox(background: palette.alertRed.opacity(0.12), border: palette.alertRed.opacity(0.45))
-                    }
-                    .buttonStyle(.plain)
-                    .help(filteredNoteIDs == nil ? "Clear all markers and review notes for this clip" : "Delete the notes shown by the filter (the others stay)")
+                // Labelled, or icons only in a narrow drawer (Large Button Size ran "Add (N)" off the edge).
+                ViewThatFits(in: .horizontal) {
+                    notesHeaderButtons(compact: false)
+                    notesHeaderButtons(compact: true)
                 }
-                
-                Button(action: onAddNote) {
-                    HStack(spacing: 3) {
-                        Image(systemName: "plus")
-                            .font(.system(size: StudioTheme.scaleFont(7.5), weight: .bold))
-                        Text("Add (N)")
-                            .font(.ui(size: 10, weight: .semibold))
-                            .lineLimit(1)
-                    }
-                    .padding(.horizontal, 6)
-                    .padding(.vertical, 3.5)
-                    .foregroundColor(palette.accentBlue)
-                    .studioBox(background: palette.accentBlue.opacity(0.14), border: palette.accentBlue.opacity(0.6))
-                }
-                .buttonStyle(.plain)
             }
             .padding(.horizontal, 10)
             .frame(height: 34)
@@ -1086,6 +1100,17 @@ private struct FrameIOCommentsBar: View {
         }
     }
 
+    private func linkFromClipboardButton(_ title: String) -> some View {
+        Button(title) {
+            if !sync.linkActiveFromClipboard({ linkMessage = $0 }) {
+                linkMessage = "Copy the file's Frame.io link first"
+            }
+        }
+        .font(.ui(size: 10, weight: .semibold))
+        .buttonStyle(.borderless)
+        .fixedSize()
+    }
+
     /// Not linked yet: copy the file's Frame.io link and link it here (or press ⌘V in the Player).
     private var unlinked: some View {
         VStack(spacing: 0) {
@@ -1102,13 +1127,10 @@ private struct FrameIOCommentsBar: View {
                     .lineLimit(1)
                     .truncationMode(.tail)
                 Spacer(minLength: 4)
-                Button("Link from Clipboard") {
-                    if !sync.linkActiveFromClipboard({ linkMessage = $0 }) {
-                        linkMessage = "Copy the file's Frame.io link first"
-                    }
+                ViewThatFits(in: .horizontal) {
+                    linkFromClipboardButton("Link from Clipboard")
+                    linkFromClipboardButton("Link")
                 }
-                .font(.ui(size: 10, weight: .semibold))
-                .buttonStyle(.borderless)
                 .help("In Frame.io, right-click the file → Copy Asset URL, then click here or press ⌘V in the Player to import its comments (share links don't work for this)")
             }
             .padding(.horizontal, 10)

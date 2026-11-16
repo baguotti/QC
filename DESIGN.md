@@ -37,6 +37,7 @@ If two existing styles conflict and neither is clearly the standard, ask the use
 - Drawer tab bar: a pill (`bgSubtle` on `Radius.container`, padding 3, segments 25pt tall on `Radius.segment`, 11pt text) then `DrawerCloseButton`, in a `.headerBand(palette, horizontalPadding: 12)`.
 - The same goes for any edge shared by neighbouring columns (toolbars under the header, footers): give both sides the same token height, or put the row in one band spanning both.
 - Check the result at all three Button Sizes (Settings): bars that run out of room degrade (icons only via `ViewThatFits`, wrap), never clip.
+- To see every tab at once: `QCPIE_UI_SHOTS=<folder> QCPIE_BENCH_FOLDER=<media folder> .build/debug/QCpie` captures each tab (Player drawers too) with its side panels open at 1080 and 1440 pt, Small and Large Button Size, then quits (debug builds; its settings are separate from the app's). Side columns go in `SidePanelsLayout` (or a `Layout` like `UploadColumns`), never a plain `HStack`: an `HStack` gave two side panels 360 pt each and pushed the middle off both edges.
 
 ## Components (reuse; extend instead of copying)
 

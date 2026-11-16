@@ -24,24 +24,35 @@ struct AssetSourcePanel: View {
                 .font(.ui(size: 12, weight: .semibold))
                 .foregroundColor(palette.textMuted)
 
-            HStack(alignment: .center, spacing: 10) {
-                if !files.isEmpty {
-                    Image(systemName: folderURL == nil ? "doc.on.doc" : "folder")
-                        .font(.system(size: StudioTheme.scaleFont(17), weight: .regular))
-                        .foregroundColor(palette.accentBlue)
-                    summary
-                } else {
-                    Text("No assets loaded")
-                        .font(.ui(size: 12))
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.85)
-                        .foregroundColor(palette.textMuted)
-                        .frame(maxWidth: .infinity, alignment: .leading)
+            // Side by side when the name and count fit, else the buttons under them ("7 vi…" in a narrow panel).
+            ViewThatFits(in: .horizontal) {
+                HStack(alignment: .center, spacing: 10) {
+                    source
+                    controls
                 }
-                controls
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack(alignment: .center, spacing: 10) { source }
+                    controls
+                }
             }
         }
         .onChange(of: files, initial: true) { _, new in breakdownText = Self.breakdown(new) }
+    }
+
+    @ViewBuilder private var source: some View {
+        if !files.isEmpty {
+            Image(systemName: folderURL == nil ? "doc.on.doc" : "folder")
+                .font(.system(size: StudioTheme.scaleFont(17), weight: .regular))
+                .foregroundColor(palette.accentBlue)
+            summary
+        } else {
+            Text("No assets loaded")
+                .font(.ui(size: 12))
+                .lineLimit(1)
+                .minimumScaleFactor(0.85)
+                .foregroundColor(palette.textMuted)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
     }
 
     private var controls: some View {
