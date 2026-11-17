@@ -1,5 +1,7 @@
 import Foundation
+import CryptoKit
 import Network
+import VideoQCLib
 import UniformTypeIdentifiers
 
 // MARK: - Frame.io calls
@@ -11,6 +13,12 @@ protocol UploadAPI: Sendable {
     func uploadStatus(account: String, id: String) async throws -> FrameIO.UploadStatus
     func createFolder(account: String, parent: String, name: String) async throws -> FrameIO.Item
     func children(account: String, folder: String, thumbnails: Bool) async throws -> [FrameIO.Item]
+    /// The uploaded original's download link, for reading its stored fingerprint (nil: not available).
+    func originalDownloadURL(account: String, file: String) async throws -> URL?
+}
+
+extension UploadAPI {
+    func originalDownloadURL(account: String, file: String) async throws -> URL? { nil }
 }
 
 extension FrameIO: UploadAPI {}
@@ -67,6 +75,9 @@ final class UploadEngine: Sendable {
         /// Least time between two "create upload" calls: Frame.io allows 5 a second per user. Hundreds of small
         /// files otherwise start faster than that and spend the batch in 429 retries.
         var createInterval: Duration = .milliseconds(210)
+        /// After a multi-part upload, before reading its stored fingerprint: the waits between asking whether Frame.io
+        /// has put the file together, ~15 s in all (measured: ~2.5 s for 400 MiB); growing, to spare the API.
+        var assemblyWaits: [Duration] = [.seconds(1), .seconds(2), .seconds(3), .seconds(3), .seconds(3), .seconds(3)]
     }
 
     let api: UploadAPI
@@ -78,6 +89,8 @@ final class UploadEngine: Sendable {
     let limits: Limits
     /// A single-file clip finished uploading: its local file, account and Frame.io file id (links it for comments).
     let onUploaded: (@Sendable (URL, String, String) async -> Void)?
+    /// How each uploaded file was verified, per queue row (taken by the queue for the log).
+    let verifications = VerificationTally()
 
     init(api: UploadAPI, session: URLSession, store: UploadResumeStore, progress: UploadProgress, network: NetworkStatus,
          limits: Limits = Limits(), onUploaded: (@Sendable (URL, String, String) async -> Void)? = nil) {
@@ -176,8 +189,20 @@ final class UploadEngine: Sendable {
                     // Its drive gone for a moment is waited for (like the parts); a changed file drops the upload.
                     let now = try await withRetries(classify: Self.classify) { try Self.checkedModificationDate(of: file, size: size) }
                     guard now == modified else { throw UploadError.changed }
-                    try await verify(record)
+                    let complete = try await verify(record)
+                    // A sequence's frames skip the check as stored: each would hold its slot for Frame.io's assembly and add
+                    // API calls, thousands of times over. Their parts are confirmed like any file's.
+                    let verification = await verification(of: await store.file(file.path) ?? record, complete: complete,
+                                                          checkStored: work.files.count == 1)
                     await store.removeFile(file.path)
+                    verifications.add(work.jobID, verification)
+                    if verification.level == .failed {
+                        // A damaged copy left on Frame.io would also make the next upload skip the file as already there.
+                        Log.upload.error("\(file.path): \(verification.method) (Frame.io has \(verification.etag ?? "?")); deleting it")
+                        await store.addDeletes([.init(account: record.account, id: record.placeholderID)])
+                        drainDeletes()
+                        return .failed(verification.method + ". It was removed from Frame.io: upload it again.")
+                    }
                     progress.complete(work.jobID, key: fileKey, bytes: size)
                     if work.files.count == 1 { await onUploaded?(file, record.account, record.placeholderID) }
                     return .uploaded
@@ -256,10 +281,67 @@ final class UploadEngine: Sendable {
     }
 
     /// Asks Frame.io once whether the upload failed. Assembling the file can take longer than this, so only a reported
-    /// failure counts; an unanswered check doesn't hold the upload up.
-    private func verify(_ record: UploadResumeStore.SavedFile) async throws {
-        guard let status = try? await api.uploadStatus(account: record.account, id: record.placeholderID) else { return }
+    /// failure counts; an unanswered check doesn't hold the upload up. True when Frame.io already reports it complete.
+    private func verify(_ record: UploadResumeStore.SavedFile) async throws -> Bool {
+        guard let status = try? await api.uploadStatus(account: record.account, id: record.placeholderID) else { return false }
         if status.uploadFailed == true { throw UploadError.rejected }
+        return status.uploadComplete == true
+    }
+
+    /// How the upload of `record` was verified. Each part was compared with the MD5 Frame.io's storage answered with as
+    /// it arrived; a file sent in several parts is also compared, as stored, with the fingerprint those parts make
+    /// (S3's multipart ETag), which checks Frame.io put the parts together right.
+    private func verification(of record: UploadResumeStore.SavedFile, complete: Bool, checkStored: Bool) async -> TransferVerification {
+        let parts = record.parts.indices.compactMap { record.partMD5?[$0].flatMap(Self.data(hex:)) }
+        guard parts.count == record.parts.count else {
+            return TransferVerification(level: .sizeOnly, method: "Frame.io's storage didn't confirm every part; Frame.io accepted the whole size")
+        }
+        let expected = TransferChecksum.compositeETag(partMD5s: parts)
+        guard parts.count > 1 else {
+            return TransferVerification(level: .verified, method: "Confirmed by Frame.io's storage (MD5)", md5: expected, etag: expected)
+        }
+        guard checkStored else {
+            return TransferVerification(level: .verified, method: "Every part confirmed by Frame.io's storage (MD5)", etag: expected)
+        }
+        // Frame.io puts the parts together after the last one arrives (seconds): wait for that, briefly.
+        let assembled = Date()
+        if !complete {
+            for wait in limits.assemblyWaits where !Task.isCancelled {
+                try? await Task.sleep(for: wait)
+                if (try? await api.uploadStatus(account: record.account, id: record.placeholderID))?.uploadComplete == true { break }
+            }
+        }
+        Log.upload.info("\(record.placeholderID) assembled after \(String(format: "%.1f", Date().timeIntervalSince(assembled))) s")
+        guard let stored = await storedETag(account: record.account, file: record.placeholderID) else {
+            return TransferVerification(level: .verified, method: "Every part confirmed by Frame.io's storage (MD5)", etag: expected)
+        }
+        guard stored == expected else {
+            return TransferVerification(level: .failed, method: "Frame.io's stored file doesn't match the parts that were sent", etag: stored)
+        }
+        return TransferVerification(level: .verified, method: "Every part confirmed, and Frame.io's stored file matches (MD5)", etag: stored)
+    }
+
+    /// The uploaded original's S3 ETag, read from a one-byte request for it. Nil when Frame.io gives no link yet.
+    private func storedETag(account: String, file: String) async -> String? {
+        guard let link = try? await withRetries(classify: Self.classifyAPI, { try await self.api.originalDownloadURL(account: account, file: file) })
+        else { return nil }
+        var request = URLRequest(url: link)
+        request.setValue("bytes=0-0", forHTTPHeaderField: "Range")
+        guard let (_, response) = try? await session.data(for: request) else { return nil }
+        return TransferChecksum.normalizedETag((response as? HTTPURLResponse)?.value(forHTTPHeaderField: "ETag"))
+    }
+
+    nonisolated static func data(hex: String) -> Data? {
+        guard hex.count % 2 == 0 else { return nil }
+        var data = Data(capacity: hex.count / 2)
+        var index = hex.startIndex
+        while index < hex.endIndex {
+            let next = hex.index(index, offsetBy: 2)
+            guard let byte = UInt8(hex[index..<next], radix: 16) else { return nil }
+            data.append(byte)
+            index = next
+        }
+        return data
     }
 
     // MARK: Parts
@@ -290,12 +372,12 @@ final class UploadEngine: Sendable {
                 group.addTask {
                     let partKey = "\(fileKey)-\(part.index)"
                     do {
-                        try await self.sendPart(part.range, of: file, size: record.size, modified: modified, to: part.url,
-                                                contentType: contentType, gate: gate) { sent in
+                        let md5 = try await self.sendPart(part.range, of: file, size: record.size, modified: modified, to: part.url,
+                                                          contentType: contentType, gate: gate) { sent in
                             self.progress.set(jobID, key: partKey, bytes: sent)
                         }
                         await gate.release(cost: cost)
-                        await self.store.markDone(record.path, part: part.index)
+                        await self.store.markDone(record.path, part: part.index, md5: md5)
                     } catch {
                         await gate.release(cost: cost)
                         failure.set(error)
@@ -311,17 +393,28 @@ final class UploadEngine: Sendable {
     /// part's partial progress is reset before it's resent. So do read failures and a source drive that's gone for a
     /// moment (a server or network drive reconnecting): each attempt first checks the file is still the one being
     /// uploaded, and only a file that really changed fails (and drops its placeholder).
+    /// Returns the part's MD5 when Frame.io's storage confirmed it (nil when it gave no MD5 to compare). A part whose
+    /// confirmation differs is sent again, twice at most, then fails its file.
     private func sendPart(_ range: Range<Int64>, of file: URL, size: Int64, modified: Date, to url: URL, contentType: String,
-                          gate: TransferGate, report: @escaping @Sendable (Int64) -> Void) async throws {
-        do {
-            try await withRetries(classify: Self.classify, onTransient: { await gate.noteTransientError() }) {
-                report(0)
-                guard try Self.checkedModificationDate(of: file, size: size) == modified else { throw UploadError.changed }
-                try await self.put(range, of: file, to: url, contentType: contentType, report: report)
-                report(Int64(range.count))
+                          gate: TransferGate, report: @escaping @Sendable (Int64) -> Void) async throws -> String? {
+        var mismatches = 0
+        while true {
+            do {
+                return try await withRetries(classify: Self.classify, onTransient: { await gate.noteTransientError() }) {
+                    report(0)
+                    guard try Self.checkedModificationDate(of: file, size: size) == modified else { throw UploadError.changed }
+                    let md5 = try await self.put(range, of: file, to: url, contentType: contentType, report: report)
+                    report(Int64(range.count))
+                    return md5
+                }
+            } catch RetryExpired.expired {
+                throw UploadError.linksExpired
+            } catch UploadError.partChecksumMismatch where mismatches < 2 {
+                mismatches += 1
+                Log.upload.error("\(file.lastPathComponent): part at \(range.lowerBound) arrived different from what was sent, sending it again")
+            } catch UploadError.partChecksumMismatch {
+                throw UploadError.verificationFailed
             }
-        } catch RetryExpired.expired {
-            throw UploadError.linksExpired
         }
     }
 
@@ -336,7 +429,7 @@ final class UploadEngine: Sendable {
     /// one small buffer per part whatever Frame.io's part size. `Content-Length` is set so the body isn't sent chunked
     /// (pre-signed S3 PUTs need the length).
     private func put(_ range: Range<Int64>, of file: URL, to url: URL, contentType: String,
-                     report: @escaping @Sendable (Int64) -> Void) async throws {
+                     report: @escaping @Sendable (Int64) -> Void) async throws -> String? {
         var request = URLRequest(url: url)
         request.httpMethod = "PUT"
         request.setValue("private", forHTTPHeaderField: "x-amz-acl")
@@ -359,6 +452,11 @@ final class UploadEngine: Sendable {
             throw PartFailure(status: status, body: String(data: data.prefix(600), encoding: .utf8) ?? "",
                               retryAfter: http?.value(forHTTPHeaderField: "Retry-After").flatMap(Double.init))
         }
+        // S3 answers a part with its MD5 as the ETag: a different one means the bytes stored aren't the bytes read.
+        guard let sent = body.digest, let etag = TransferChecksum.normalizedETag(http?.value(forHTTPHeaderField: "ETag")),
+              !etag.contains("-") else { return nil }
+        guard etag == sent else { throw UploadError.partChecksumMismatch }
+        return sent
     }
 
     /// The file's modification date, after checking it's still there at the expected size. Read from disk each time
@@ -574,6 +672,8 @@ struct PartFailure: LocalizedError {
 
 enum UploadError: LocalizedError {
     case changed, missing, partsMismatch, linksExpired, rejected
+    /// A part's confirmation from Frame.io's storage differed from what was read (resent), and again after resending.
+    case partChecksumMismatch, verificationFailed
     /// Reading the source failed (a server or network drive dropping for a moment): retried.
     case unreadable
 
@@ -585,6 +685,8 @@ enum UploadError: LocalizedError {
         case .linksExpired: return "Frame.io's upload links expired."
         case .rejected: return "Frame.io reported the upload as failed."
         case .unreadable: return "The file couldn't be read (is its drive still connected?)."
+        case .partChecksumMismatch, .verificationFailed:
+            return "Frame.io's storage kept receiving different data from what was read (checked three times)."
         }
     }
 
@@ -772,8 +874,11 @@ final class PartBodyStream: NSObject, URLSessionTaskDelegate, @unchecked Sendabl
     private let lock = NSLock()
     private var stopped = false
     private var error: Error?
+    private var md5: String?
 
     var readError: Error? { lock.withLock { error } }
+    /// The MD5 of the part, once every byte of it was read and written to the body (compared with S3's `ETag`).
+    var digest: String? { lock.withLock { md5 } }
 
     init(file: URL, range: Range<Int64>, report: @escaping @Sendable (Int64) -> Void) throws {
         guard FileManager.default.fileExists(atPath: file.path) else { throw UploadError.missing }
@@ -801,10 +906,17 @@ final class PartBodyStream: NSObject, URLSessionTaskDelegate, @unchecked Sendabl
         do {
             do { try handle.seek(toOffset: UInt64(range.lowerBound)) } catch { throw UploadError.unreadable }
             var sent: Int64 = 0
+            var hasher = Insecure.MD5()
             while sent < Int64(range.count) && !isStopped {
                 let count = Int(min(Int64(Self.chunk), Int64(range.count) - sent))
                 // A short or failed read is retried; a file that really changed fails the next attempt's check.
                 guard let data = try? handle.read(upToCount: count), data.count == count else { throw UploadError.unreadable }
+                hasher.update(data: data)
+                // Recorded before the last bytes go out: the reply can arrive before this thread runs again.
+                if sent + Int64(count) == Int64(range.count) {
+                    let digest = TransferChecksum.hex(hasher.finalize())
+                    lock.withLock { md5 = digest }
+                }
                 var offset = 0
                 var wait: UInt32 = 200
                 while offset < data.count {

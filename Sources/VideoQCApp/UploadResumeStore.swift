@@ -21,6 +21,9 @@ actor UploadResumeStore {
         let mediaType: String?
         let parts: [Part]
         var done: Set<Int>
+        /// Finished parts' MD5s, as Frame.io's storage confirmed them (absent for parts it didn't confirm, and in files
+        /// saved by older versions).
+        var partMD5: [Int: String]?
         /// The earliest expiry of the part links (`X-Amz-Date` + `X-Amz-Expires`), nil when they don't say.
         var expires: Date?
 
@@ -163,8 +166,12 @@ actor UploadResumeStore {
         changed(run: false)
     }
 
-    func markDone(_ path: String, part: Int) {
+    func markDone(_ path: String, part: Int, md5: String? = nil) {
         state.files[path]?.done.insert(part)
+        if let md5, var file = state.files[path] {
+            file.partMD5 = (file.partMD5 ?? [:]).merging([part: md5]) { $1 }
+            state.files[path] = file
+        }
         changed(run: false)
     }
 

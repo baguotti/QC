@@ -49,6 +49,8 @@ final class DownloadEngine: Sendable {
     let network: NetworkStatus
     let limits: Limits
     let resume: DownloadResumeState
+    /// How each downloaded file was verified (taken by the queue for the log).
+    let verifications = VerificationTally()
 
     init(api: DownloadAPI, session: URLSession, progress: UploadProgress, network: NetworkStatus, limits: Limits = Limits(),
          resume: DownloadResumeState = DownloadResumeState()) {
@@ -84,7 +86,83 @@ final class DownloadEngine: Sendable {
         }
     }
 
+    /// Downloads `item`, then checks the file on disk against Frame.io's fingerprint of it. A file that doesn't match is
+    /// downloaded again once; when the second copy is byte-identical to the first and still doesn't match, the
+    /// fingerprint's layout is one QCpie can't reproduce (an upload split differently), not damage: it's kept as
+    /// "size checked". Two different copies that both mismatch fail.
     private func download(_ item: DownloadItem, account: String, destination: URL, gate: TransferGate) async -> DownloadOutcome {
+        var firstMD5: String?
+        while true {
+            let attempt = await fetchFile(item, account: account, destination: destination, gate: gate)
+            guard case .fetched(let partial, let folder, let etag) = attempt else { return attempt.outcome }
+            do {
+                // The size on disk: a file listed without one (size 0) still splits by its real length.
+                let size = ((try? FileManager.default.attributesOfItem(atPath: partial.path)[.size]) as? NSNumber)?.int64Value ?? item.size
+                let check = try await Self.readBack(partial, size: size, etag: etag)
+                let verification: TransferVerification
+                if let etag, check.etag == etag {
+                    verification = TransferVerification(level: .verified, method: "Matches Frame.io's stored file (MD5), read back from disk",
+                                                        md5: check.md5, etag: etag)
+                } else if let etag {
+                    if let firstMD5, firstMD5 != check.md5 {
+                        try? FileManager.default.removeItem(at: partial)
+                        verifications.add(item.jobID, TransferVerification(level: .failed, method: "Two downloads differed and neither matches Frame.io's stored file", md5: check.md5, etag: etag))
+                        return .failed("The file kept arriving damaged (it didn't match Frame.io's copy twice).")
+                    }
+                    if firstMD5 == nil {
+                        firstMD5 = check.md5
+                        try? FileManager.default.removeItem(at: partial)
+                        Log.download.error("\(item.name): doesn't match Frame.io's fingerprint \(etag) (got \(check.etag)), downloading again")
+                        continue
+                    }
+                    verification = TransferVerification(level: .sizeOnly, method: "Downloaded twice, identical; Frame.io's fingerprint couldn't be reproduced",
+                                                        md5: check.md5, etag: etag)
+                } else {
+                    verification = TransferVerification(level: .sizeOnly, method: "Frame.io gave no fingerprint to compare; size checked, read back from disk",
+                                                        md5: check.md5)
+                }
+                let final = try Self.moveIntoPlace(partial, name: Self.safeName(item.name), in: folder)
+                verifications.add(item.jobID, verification)
+                return .downloaded(final)
+            } catch {
+                let cancelled = UploadEngine.isCancellation(error) || Task.isCancelled
+                if cancelled && resume.isPausing {
+                    // Paused while checking: keep the whole file; Resume fetches nothing and checks it again.
+                    let chunks = item.size == 0 ? 1 : Int((item.size + limits.chunkSize - 1) / limits.chunkSize)
+                    resume.begin(item.jobID, partial: partial, done: Set(0..<chunks))
+                    return .paused
+                }
+                try? FileManager.default.removeItem(at: partial)
+                return cancelled ? .cancelled : .failed(UploadEngine.describe(error))
+            }
+        }
+    }
+
+    private enum Fetched {
+        case fetched(partial: URL, folder: URL, etag: String?)
+        case done(DownloadOutcome)
+        var outcome: DownloadOutcome { if case .done(let outcome) = self { return outcome }; return .cancelled }
+    }
+
+    /// Reads the downloaded file back from disk on its own queue (not the shared task threads): its MD5 and the
+    /// fingerprint Frame.io's storage would give it, split like `etag` says.
+    private static let verifyQueue = DispatchQueue(label: "QCpie.DownloadVerify", qos: .utility)
+
+    nonisolated static func readBack(_ file: URL, size: Int64, etag: String?) async throws -> TransferChecksum.ReadBack {
+        let partSize = TransferChecksum.partSize(size: size, parts: etag.map(TransferChecksum.partCount(of:)) ?? 1)
+        let stop = StopFlag()
+        return try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
+                verifyQueue.async {
+                    continuation.resume(with: Result { try TransferChecksum.readBack(file, partSize: max(1, partSize), shouldStop: stop.isSet) })
+                }
+            }
+        } onCancel: {
+            stop.set()
+        }
+    }
+
+    private func fetchFile(_ item: DownloadItem, account: String, destination: URL, gate: TransferGate) async -> Fetched {
         var temp: URL?
         do {
             let folder = item.folders.reduce(destination) { $0.appendingPathComponent(Self.safeName($1), isDirectory: true) }
@@ -103,8 +181,9 @@ final class DownloadEngine: Sendable {
             }
             let link = LinkBox()
             guard try await refreshLink(link, item: item, account: account) else {
-                return .failed("Frame.io doesn't offer this file for download (no download rights, or it isn't processed yet).")
+                return .done(.failed("Frame.io doesn't offer this file for download (no download rights, or it isn't processed yet)."))
             }
+            let fingerprint = ETagBox()
             // Named by the job, not the file: a long name plus a prefix and suffix could pass the 255-byte limit.
             let partial = saved?.partial ?? folder.appendingPathComponent(".\(item.jobID.uuidString).qcpie-download")
             temp = partial
@@ -140,7 +219,8 @@ final class DownloadEngine: Sendable {
                     guard await gate.acquire(cost: cost) else { throw CancellationError() }
                     group.addTask {
                         do {
-                            try await self.fetch(range, item: item, account: account, link: link, into: partial, gate: gate) { received in
+                            try await self.fetch(range, item: item, account: account, link: link, fingerprint: fingerprint,
+                                                 into: partial, gate: gate) { received in
                                 self.progress.set(item.jobID, key: "c\(index)", bytes: received)
                             }
                             self.resume.markDone(item.jobID, chunk: index)
@@ -156,16 +236,23 @@ final class DownloadEngine: Sendable {
             }
             let written = (try? FileManager.default.attributesOfItem(atPath: partial.path)[.size] as? NSNumber)?.int64Value
             guard item.size == 0 || written == item.size else { throw DownloadError.incomplete }
-            let final = try Self.moveIntoPlace(partial, name: Self.safeName(item.name), in: folder)
             resume.forget(item.jobID)
             temp = nil
-            return .downloaded(final)
+            // A resumed file whose chunks all came before the pause saw no ETag here: ask for one byte to read it.
+            if !fingerprint.sawResponse, item.size > 0, let url = link.value {
+                var request = URLRequest(url: url)
+                request.setValue("bytes=0-0", forHTTPHeaderField: "Range")
+                if let (_, response) = try? await session.data(for: request) {
+                    try? fingerprint.see((response as? HTTPURLResponse)?.value(forHTTPHeaderField: "ETag"))
+                }
+            }
+            return .fetched(partial: partial, folder: folder, etag: fingerprint.etag)
         } catch {
             let cancelled = UploadEngine.isCancellation(error) || Task.isCancelled
-            if cancelled && resume.isPausing { return .paused }
+            if cancelled && resume.isPausing { return .done(.paused) }
             if let temp { try? FileManager.default.removeItem(at: temp) }
             resume.forget(item.jobID)
-            return cancelled ? .cancelled : .failed(UploadEngine.describe(error))
+            return .done(cancelled ? .cancelled : .failed(UploadEngine.describe(error)))
         }
     }
 
@@ -182,8 +269,8 @@ final class DownloadEngine: Sendable {
 
     /// GETs one byte range (the whole file when `range` is nil) and writes it at its offset; retries network errors and
     /// fetches a new link when the current one has expired (403 / 404) — once for all the file's chunks.
-    private func fetch(_ range: Range<Int64>?, item: DownloadItem, account: String, link: LinkBox, into file: URL, gate: TransferGate,
-                       report: @escaping @Sendable (Int64) -> Void) async throws {
+    private func fetch(_ range: Range<Int64>?, item: DownloadItem, account: String, link: LinkBox, fingerprint: ETagBox,
+                       into file: URL, gate: TransferGate, report: @escaping @Sendable (Int64) -> Void) async throws {
         var refreshed = 0
         while true {
             let used = link.value
@@ -201,7 +288,18 @@ final class DownloadEngine: Sendable {
                         throw PartFailure(status: status, body: String(data: data.prefix(600), encoding: .utf8) ?? "",
                                           retryAfter: http?.value(forHTTPHeaderField: "Retry-After").flatMap(Double.init))
                     }
+                    if status == 206, let range, let answered = http?.value(forHTTPHeaderField: "Content-Range") {
+                        // A stored file of another size than Frame.io listed: retrying can't help (and a short last
+                        // range would otherwise retry as a dropped connection for the whole give-up time).
+                        if item.size > 0, let total = Self.contentRangeTotal(answered), total != item.size {
+                            throw DownloadError.sizeMismatch(listed: item.size, stored: total)
+                        }
+                        // Other bytes than asked for: a confused cache or proxy (retried).
+                        guard Self.contentRange(answered, matches: range) else { throw URLError(.badServerResponse) }
+                    }
                     if let range { guard Int64(data.count) == Int64(range.count) else { throw URLError(.networkConnectionLost) } }
+                    // Every chunk must come from the same stored file (one re-uploaded mid-download would mix two).
+                    try fingerprint.see(http?.value(forHTTPHeaderField: "ETag"))
                     try await Self.write(data, at: range?.lowerBound ?? 0, to: file)
                     report(Int64(data.count))
                 }
@@ -216,6 +314,19 @@ final class DownloadEngine: Sendable {
                 throw DownloadError.linkExpired
             }
         }
+    }
+
+    /// "bytes a-b/total" for exactly `range`.
+    nonisolated static func contentRange(_ header: String, matches range: Range<Int64>) -> Bool {
+        let parts = header.replacingOccurrences(of: "bytes", with: "").trimmingCharacters(in: .whitespaces).split(separator: "/")
+        guard parts.count == 2 else { return false }
+        let bounds = parts[0].split(separator: "-").compactMap { Int64($0.trimmingCharacters(in: .whitespaces)) }
+        return bounds.count == 2 && bounds[0] == range.lowerBound && bounds[1] == range.upperBound - 1
+    }
+
+    /// The total size in "bytes a-b/total" (nil for "*" or anything unreadable).
+    nonisolated static func contentRangeTotal(_ header: String) -> Int64? {
+        header.split(separator: "/").last.flatMap { Int64($0.trimmingCharacters(in: .whitespaces)) }
     }
 
     /// A GET whose bytes are reported as they arrive (`URLSession.data(for:delegate:)` never calls the delegate's
@@ -331,8 +442,39 @@ final class DownloadEngine: Sendable {
     }
 }
 
+/// The ETag of a file's chunks: the first one seen, and an error when a later chunk comes from a different stored file.
+final class ETagBox: @unchecked Sendable {
+    private let lock = NSLock()
+    private var raw: String?
+    private var answered = false
+
+    var etag: String? { lock.withLock { TransferChecksum.normalizedETag(raw) } }
+    /// Whether any chunk was fetched (with or without an ETag).
+    var sawResponse: Bool { lock.withLock { answered } }
+
+    func see(_ tag: String?) throws {
+        try lock.withLock {
+            answered = true
+            guard let tag else { return }
+            if let raw, raw != tag { throw DownloadError.changedOnFrameIO }
+            raw = tag
+        }
+    }
+}
+
+/// Set from a task's cancellation handler, read by work running outside the task (a dispatch queue).
+final class StopFlag: @unchecked Sendable {
+    private let lock = NSLock()
+    private var stopped = false
+    func set() { lock.withLock { stopped = true } }
+    func isSet() -> Bool { lock.withLock { stopped } }
+}
+
 enum DownloadError: LocalizedError {
     case noLink, linkExpired, incomplete, noSpace
+    /// The file on Frame.io was replaced while it downloaded (its chunks came from two different files).
+    case changedOnFrameIO
+    case sizeMismatch(listed: Int64, stored: Int64)
 
     var errorDescription: String? {
         switch self {
@@ -340,6 +482,9 @@ enum DownloadError: LocalizedError {
         case .linkExpired: return "Frame.io's download link kept expiring."
         case .incomplete: return "The download didn't complete."
         case .noSpace: return "Not enough space on the destination drive."
+        case .changedOnFrameIO: return "The file changed on Frame.io while it downloaded. Download it again."
+        case .sizeMismatch(let listed, let stored):
+            return "Frame.io lists this file as \(listed) bytes but stores \(stored). Refresh the folder and download it again."
         }
     }
 }
@@ -668,7 +813,7 @@ final class DownloadQueue: ObservableObject {
         let place = ([(job.destination.path as NSString).abbreviatingWithTildeInPath] + job.folders).joined(separator: " › ")
         TransferLog.shared.record(UploadLogEntry(id: UUID(), name: job.name, destination: place, bytes: job.size, started: started,
                                                  finished: Date(), outcome: entryOutcome, message: message,
-                                                 localPath: job.localURL?.path), in: logRunID)
+                                                 localPath: job.localURL?.path, verification: engine.verifications.take(id)), in: logRunID)
     }
 
     private func finishRun(cancelled: Bool) {

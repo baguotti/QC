@@ -1357,6 +1357,20 @@ private struct UploadLogRunView: View, Equatable {
                 }
                 .buttonStyle(.borderless)
                 .tip(isDownload ? "Copy this download as text" : "Copy this upload as text")
+                Menu {
+                    Button("Report (CSV)…") { TransferReport.exportCSV(run) }
+                    if isDownload {
+                        Button("Media Hash List (MHL)…") { TransferReport.exportMHL(run) }
+                    }
+                } label: {
+                    Image(systemName: "square.and.arrow.up").font(.system(size: StudioTheme.scaleFont(10)))
+                }
+                .menuStyle(.button)
+                .buttonStyle(.plain)
+                .menuIndicator(.hidden)
+                .fixedSize()
+                .disabled(run.finished == nil)
+                .tip(isDownload ? "Save this download's report, or a hash list of the files" : "Save this upload's report")
             }
 
             HStack(alignment: .top, spacing: 6) {
@@ -1375,6 +1389,7 @@ private struct UploadLogRunView: View, Equatable {
                 stat("Size", UploadLogFormat.bytes(run.transferredBytes))
                 stat("Time", run.finished.map { UploadLogFormat.duration($0.timeIntervalSince(run.started)) } ?? "—")
                 stat("Avg Speed", UploadLogFormat.averageSpeed(run) ?? "—")
+                if let verified = UploadLogFormat.verified(run) { stat("Verified", verified) }
             }
 
             Rectangle().fill(palette.borderLine).frame(height: 1)
@@ -1441,6 +1456,7 @@ private struct UploadLogRunView: View, Equatable {
                     .foregroundColor(palette.textMain)
                     .lineLimit(1)
                     .truncationMode(.middle)
+                if let check = entry.verification { verificationBadge(check) }
                 Spacer(minLength: 6)
                 Text(UploadLogFormat.bytes(entry.bytes))
                     .font(.ui(size: 11))
@@ -1452,6 +1468,25 @@ private struct UploadLogRunView: View, Equatable {
                 .padding(.leading, 18)
                 .fixedSize(horizontal: false, vertical: true)
         }
+    }
+
+    private func verificationBadge(_ check: TransferVerification) -> some View {
+        let symbol = switch check.level {
+        case .verified: "checkmark.seal.fill"
+        case .sizeOnly: "seal"
+        case .failed: "xmark.seal.fill"
+        }
+        let tint = switch check.level {
+        case .verified: palette.positive
+        case .sizeOnly: palette.textMuted
+        case .failed: palette.negative
+        }
+        let details = [check.method + ".", check.md5.map { "MD5 \($0)" }, check.etag.map { "Frame.io fingerprint \($0)" }]
+            .compactMap { $0 }.joined(separator: " ")
+        return Image(systemName: symbol)
+            .font(.system(size: StudioTheme.scaleFont(10), weight: .semibold))
+            .foregroundColor(tint)
+            .tip("\(check.label): \(details)")
     }
 
     private var statusColor: Color {
@@ -1522,6 +1557,13 @@ enum UploadLogFormat {
         return skipped > 0 ? "\(uploaded) + \(skipped) there" : "\(uploaded)"
     }
 
+    /// "verified/transferred", when any file in the run was checked (short: a fifth stat in a 300 pt drawer).
+    static func verified(_ run: UploadLogRun) -> String? {
+        let transferred = run.entries.filter { $0.outcome == .uploaded }
+        guard transferred.contains(where: { $0.verification != nil }) else { return nil }
+        return "\(transferred.filter { $0.verification?.level == .verified }.count)/\(transferred.count)"
+    }
+
     static func averageSpeed(_ run: UploadLogRun) -> String? {
         guard let finished = run.finished, run.transferredBytes > 0 else { return nil }
         let seconds = finished.timeIntervalSince(run.started)
@@ -1540,6 +1582,10 @@ enum UploadLogFormat {
         switch entry.outcome {
         case .uploaded:
             parts += [duration(entry.duration), speed(entry.bytesPerSecond), "done \(time(entry.finished))"]
+            if let check = entry.verification {
+                parts.append(check.totalFiles.map { "\(check.label.lowercased()) (\(check.verifiedFiles ?? 0) of \($0) frames)" }
+                             ?? check.label.lowercased())
+            }
         case .skipped:
             parts += ["already on Frame.io"]
         case .cancelled:
@@ -1556,9 +1602,14 @@ enum UploadLogFormat {
         var totals = ["Files: \(files(run))", "Size: \(bytes(run.transferredBytes))"]
         if let finished = run.finished { totals.append("Time: \(duration(finished.timeIntervalSince(run.started)))") }
         if let average = averageSpeed(run) { totals.append("Avg speed: \(average)") }
+        if let verified = verified(run) { totals.append("Verified: \(verified)") }
         header.append(totals.joined(separator: " · "))
         let mark: [UploadLogEntry.Outcome: String] = [.uploaded: "✓", .skipped: "=", .failed: "✗", .cancelled: "–"]
-        let lines = run.entries.map { "\(mark[$0.outcome] ?? "") \($0.name) (\(bytes($0.bytes))): \(entryLine($0, in: run))" }
+        let lines = run.entries.map { entry in
+            var line = "\(mark[entry.outcome] ?? "") \(entry.name) (\(bytes(entry.bytes))): \(entryLine(entry, in: run))"
+            if let md5 = entry.verification?.md5 { line += " · MD5 \(md5)" }
+            return line
+        }
         return (header + [""] + lines).joined(separator: "\n")
     }
 }

@@ -1,4 +1,5 @@
 import Foundation
+import CryptoKit
 import Testing
 @testable import QCpie
 
@@ -15,13 +16,19 @@ final class StubStorage: URLProtocol, @unchecked Sendable {
     nonisolated(unsafe) private static var attempts: [String: Int] = [:]
     nonisolated(unsafe) static var delay: TimeInterval = 0
     nonisolated(unsafe) static var onRequest: (@Sendable (String) -> Void)?
+    /// Parts answered with a wrong MD5 ETag this many times (as if the bytes stored differed from those sent).
+    nonisolated(unsafe) private static var wrongETags: [String: Int] = [:]
+    /// No ETag at all (storage that doesn't confirm parts).
+    nonisolated(unsafe) static var sendsETags = true
+    static func answerWrongETag(_ path: String, times: Int) { lock.withLock { wrongETags[path] = times } }
     /// Requests being answered now, and the most at once since the last reset (stress tests).
     nonisolated(unsafe) private static var active = 0
     nonisolated(unsafe) private static var activePeak = 0
     static var peakInFlight: Int { lock.withLock { activePeak } }
 
     static func reset() {
-        lock.withLock { bodies = [:]; failures = [:]; attempts = [:]; delay = 0; onRequest = nil; active = 0; activePeak = 0 }
+        lock.withLock { bodies = [:]; failures = [:]; attempts = [:]; delay = 0; onRequest = nil; active = 0; activePeak = 0
+                        wrongETags = [:]; sendsETags = true; storedETags = [:] }
     }
 
     static func fail(_ path: String, with list: [Failure]) { lock.withLock { failures[path] = list } }
@@ -32,8 +39,17 @@ final class StubStorage: URLProtocol, @unchecked Sendable {
     override class func canInit(with request: URLRequest) -> Bool { request.url?.host == "s3.test" }
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
 
+    /// ETags answered to GETs (a stored original's fingerprint, read after a multipart upload).
+    nonisolated(unsafe) private static var storedETags: [String: String] = [:]
+    static func store(_ path: String, etag: String) { lock.withLock { storedETags[path] = etag } }
+
     override func startLoading() {
         let path = request.url?.path ?? ""
+        if request.httpMethod == "GET" {
+            let tag = Self.lock.withLock { Self.storedETags[path] }
+            respond(tag == nil ? 404 : 206, "x", headers: tag.map { ["ETag": "\"\($0)\"", "Content-Range": "bytes 0-0/1"] } ?? [:])
+            return
+        }
         let body = Self.read(request)
         let delay = Self.lock.withLock { () -> TimeInterval in
             Self.active += 1
@@ -56,16 +72,25 @@ final class StubStorage: URLProtocol, @unchecked Sendable {
             case .status(let status, let text)?:
                 respond(status, text)
             case nil:
-                Self.lock.withLock { Self.bodies[path] = body }
-                respond(200, "")
+                // Like S3: the part's MD5 as its ETag.
+                let tag: String? = Self.lock.withLock {
+                    guard Self.sendsETags else { return nil }
+                    if let wrong = Self.wrongETags[path], wrong > 0 {
+                        Self.wrongETags[path] = wrong - 1
+                        return "\"00000000000000000000000000000000\""
+                    }
+                    Self.bodies[path] = body
+                    return "\"" + Insecure.MD5.hash(data: body).map { String(format: "%02x", $0) }.joined() + "\""
+                }
+                respond(200, "", headers: tag.map { ["ETag": $0] } ?? [:])
             }
         }
     }
 
     override func stopLoading() {}
 
-    private func respond(_ status: Int, _ text: String) {
-        let response = HTTPURLResponse(url: request.url!, statusCode: status, httpVersion: "HTTP/1.1", headerFields: nil)!
+    private func respond(_ status: Int, _ text: String, headers: [String: String] = [:]) {
+        let response = HTTPURLResponse(url: request.url!, statusCode: status, httpVersion: "HTTP/1.1", headerFields: headers)!
         client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
         client?.urlProtocol(self, didLoad: Data(text.utf8))
         client?.urlProtocolDidFinishLoading(self)

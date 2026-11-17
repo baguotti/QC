@@ -15,8 +15,11 @@ final class StubCDN: URLProtocol, @unchecked Sendable {
     nonisolated(unsafe) private static var failures: [String: [Failure]] = [:]
     nonisolated(unsafe) private static var requests = 0
     nonisolated(unsafe) static var delay: TimeInterval = 0
+    /// ETags answered for a path, one per request (the last one repeats).
+    nonisolated(unsafe) private static var etags: [String: [String]] = [:]
 
-    static func reset() { lock.withLock { files = [:]; minimumVersion = [:]; failures = [:]; requests = 0; delay = 0 } }
+    static func reset() { lock.withLock { files = [:]; minimumVersion = [:]; failures = [:]; requests = 0; delay = 0; etags = [:] } }
+    static func tag(_ path: String, _ list: [String]) { lock.withLock { etags[path] = list } }
     static func serve(_ path: String, _ data: Data) { lock.withLock { files[path] = data } }
     static func expireBefore(_ path: String, version: Int) { lock.withLock { minimumVersion[path] = version } }
     /// Failures for the range starting at `offset` of `path`.
@@ -36,6 +39,11 @@ final class StubCDN: URLProtocol, @unchecked Sendable {
         // among the resume's.
         let delay = Self.lock.withLock { Self.requests += 1; return Self.delay }
         DispatchQueue.global().asyncAfter(deadline: .now() + delay) { [self] in
+            let etag: String? = Self.lock.withLock {
+                guard var list = Self.etags[path], let first = list.first else { return nil }
+                if list.count > 1 { list.removeFirst(); Self.etags[path] = list }
+                return first
+            }
             let (data, minimum, failure): (Data?, Int, Failure?) = Self.lock.withLock {
                 let key = "\(path)@\(bounds.first ?? 0)"
                 var failure: Failure?
@@ -49,18 +57,19 @@ final class StubCDN: URLProtocol, @unchecked Sendable {
             if case .status(let status)? = failure { respond(status, Data(), range: nil); return }
             guard let data else { respond(404, Data(), range: nil); return }
             guard version >= minimum else { respond(403, Data("<Message>Request has expired</Message>".utf8), range: nil); return }
-            guard bounds.count == 2 else { respond(200, data, range: nil); return }
+            guard bounds.count == 2 else { respond(200, data, range: nil, etag: etag); return }
             // A request left over from an earlier test can ask past a newer, smaller file: answer like a CDN would.
             guard bounds[0] < Int64(data.count) else { respond(416, Data(), range: nil); return }
             let slice = data.subdata(in: Int(bounds[0])..<Int(min(bounds[1] + 1, Int64(data.count))))
-            respond(206, slice, range: "bytes \(bounds[0])-\(bounds[1])/\(data.count)")
+            respond(206, slice, range: "bytes \(bounds[0])-\(bounds[1])/\(data.count)", etag: etag)
         }
     }
 
     override func stopLoading() {}
 
-    private func respond(_ status: Int, _ body: Data, range: String?) {
-        let headers = range.map { ["Content-Range": $0, "Accept-Ranges": "bytes"] } ?? [:]
+    private func respond(_ status: Int, _ body: Data, range: String?, etag: String? = nil) {
+        var headers = range.map { ["Content-Range": $0, "Accept-Ranges": "bytes"] } ?? [:]
+        if let etag { headers["ETag"] = "\"\(etag)\"" }
         let response = HTTPURLResponse(url: request.url!, statusCode: status, httpVersion: "HTTP/1.1", headerFields: headers)!
         client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
         client?.urlProtocol(self, didLoad: body)

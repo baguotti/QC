@@ -481,7 +481,8 @@ final class UploadQueue: ObservableObject {
         guard let currentRunID else { return }
         TransferLog.shared.record(UploadLogEntry(id: UUID(), name: job.files.count > 1 ? "\(job.url.lastPathComponent) (\(job.files.count) frames)" : job.url.lastPathComponent,
                               destination: ([destination] + (keep ? folders(job) : [])).joined(separator: " › "), bytes: job.size,
-                              started: started, finished: Date(), outcome: entryOutcome, message: message),
+                              started: started, finished: Date(), outcome: entryOutcome, message: message,
+                              verification: engine.verifications.take(id)),
                                   in: currentRunID)
     }
 
@@ -703,6 +704,9 @@ struct UploadLogEntry: Codable, Identifiable, Equatable, Sendable {
     let message: String?
     /// Downloads: where the file landed (its name may have gained a number).
     var localPath: String? = nil
+    /// How the file was checked: transferred files, and uploads failed by the check itself (absent in runs logged before
+    /// verification, and for skipped, cancelled or otherwise failed files).
+    var verification: TransferVerification? = nil
 
     var duration: TimeInterval { finished.timeIntervalSince(started) }
     var bytesPerSecond: Double { duration > 0 ? Double(bytes) / duration : 0 }
