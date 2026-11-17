@@ -945,8 +945,25 @@ public final class PlayerContainerNSView: NSView {
     }
     
     private func setStillContents(_ image: CGImage, slot: SlotTarget, time: CMTime, buffer: CVPixelBuffer?) {
+        // A new clip's first frame can arrive before its shape: the canvas still has the previous clip's, and the frame
+        // was drawn stretched into it until the size came in (a split second on an M1 when cycling the queue through
+        // clips of different aspect ratios). Nothing is shown until the item knows its size (the layer is empty after
+        // a switch), then frame and shape change in one transaction.
+        var reshape = false
+        if let state = slot == .slotA ? engine?.slotA : engine?.slotB, state.mediaKind == .video,
+           let item = state.player.currentItem {
+            guard item.presentationSize.width > 0, item.presentationSize.height > 0 else { return }
+            let laidOut = slot == .slotA ? lastAspectA : lastAspectB
+            let aspect = slot == .slotA ? getVideoAspectRatioA() : getVideoAspectRatioB()
+            // A zero-size view never records the aspect (updateCompareLayers bails), which would re-lay out every frame.
+            reshape = abs(aspect - laidOut) >= 0.001 && bounds.width > 0 && bounds.height > 0
+        }
         CATransaction.begin()
         CATransaction.setDisableActions(true)
+        if reshape {
+            layoutPlayerLayer()
+            updateCompareLayers()
+        }
         stillLayer(for: slot).contents = image
         CATransaction.commit()
         if slot == .slotA {
