@@ -434,7 +434,11 @@ struct ContentView: View {
                                 showInspectPlan = true
                                 UserDefaults.standard.set(true, forKey: "uploadLogOpen")
                             },
-                            setPlayerDrawer: { playerDrawerTab = $0 }))
+                            setPlayerDrawer: { playerDrawerTab = $0 },
+                            runCropMatch: {
+                                scannerState.startCropMatch(videoFiles: videoFiles)
+                                while scannerState.isCropMatching { try? await Task.sleep(for: .milliseconds(200)) }
+                            }))
                     }
                 }
                 #endif

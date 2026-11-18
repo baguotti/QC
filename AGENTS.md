@@ -23,7 +23,7 @@ Read the file for the area you're changing before you change it. Each holds the 
 |---|---|
 | Player, viewport layers, exposure, scrubbing, A/B compare, audio routing, keyboard routing, In/Out, subtitles, image/audio slots (§1–8a) | [docs/architecture/player.md](docs/architecture/player.md) |
 | Notes sync, settings, type scale, accents, launch time, notifications (§8b, 8c, 8g, 8h, 8k) | [docs/architecture/app.md](docs/architecture/app.md) |
-| Line Check, Frame Check, loudness, legal range, Pro Video Formats, Missed Line report (§8d–8f) | [docs/architecture/scan.md](docs/architecture/scan.md) |
+| Line Check, Frame Check, Crop Match, loudness, legal range, Pro Video Formats, Missed Line report (§8d–8f) | [docs/architecture/scan.md](docs/architecture/scan.md) |
 | Frame.io upload, download, browser, comments, preview, metadata, pre-upload checks (§8i–8j3, 8i2) | [docs/architecture/frameio.md](docs/architecture/frameio.md) |
 | Delivery Plan: Google Sheets sync, matching, statuses, Inspect integration (§8e5) | [docs/architecture/delivery-plan.md](docs/architecture/delivery-plan.md) |
 | Scripts and benchmarks | [scripts/README.md](scripts/README.md) |

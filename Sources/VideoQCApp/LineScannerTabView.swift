@@ -14,6 +14,7 @@ extension ContentView {
                     lineCheckSection
                     frameCheckSection
                     fullCheckSection
+                    cropMatchSection
                 }
                 .padding(22)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -34,7 +35,9 @@ extension ContentView {
                     frameCheckProgressView
                 } else if scannerState.isScanning {
                     activeScanProgressView
-                } else if hasLineResults || hasFrameCheckResults {
+                } else if scannerState.isCropMatching {
+                    cropMatchProgressView
+                } else if hasLineResults || hasFrameCheckResults || hasCropMatchResults {
                     checkResultsView
                 } else {
                     emptyStateView
@@ -236,7 +239,8 @@ extension ContentView {
                 stopButton(scannerState.isCancelling ? "Stopping..." : "Stop Line Check", help: "Stops the line check in progress.", action: cancelScan)
             } else {
                 runButton("Run Line Check", icon: "viewfinder",
-                          isReady: !videoFiles.isEmpty && RGBColor(hex: scannerState.hexCode) != nil && !scannerState.isFrameChecking,
+                          isReady: !videoFiles.isEmpty && RGBColor(hex: scannerState.hexCode) != nil && !scannerState.isFrameChecking
+                              && !scannerState.isCropMatching,
                           help: "Checks every frame of every video in the batch for edge lines and split-screen seams.", action: { startScan() })
             }
         }
@@ -301,8 +305,9 @@ extension ContentView {
     
     private var hasLineResults: Bool { !scannerState.scanResults.isEmpty }
     private var hasFrameCheckResults: Bool { !scannerState.frameCheckResults.isEmpty || scannerState.wasFrameCheckCancelled }
+    var hasCropMatchResults: Bool { scannerState.cropMatchRun != nil || scannerState.wasCropMatchCancelled }
     
-    /// One page: Line Check results, then Frame Check results (whichever were run).
+    /// One page: Line Check, Frame Check and Crop Match results (whichever were run).
     var checkResultsView: some View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 16) {
@@ -318,12 +323,21 @@ extension ContentView {
                 if hasFrameCheckResults {
                     frameResultsSection
                 }
+                if hasCropMatchResults && (hasLineResults || hasFrameCheckResults) {
+                    Rectangle()
+                        .fill(borderStrong)
+                        .frame(height: 2)
+                        .padding(.vertical, 24)
+                }
+                if hasCropMatchResults {
+                    cropMatchResultsSection
+                }
             }
             .padding(28)
         }
     }
     
-    private func resultsSectionTitle<Trailing: View>(_ title: String, status: String, @ViewBuilder trailing: () -> Trailing) -> some View {
+    func resultsSectionTitle<Trailing: View>(_ title: String, status: String, @ViewBuilder trailing: () -> Trailing) -> some View {
         HStack(alignment: .center) {
             VStack(alignment: .leading, spacing: 2) {
                 Text(title)
@@ -339,7 +353,7 @@ extension ContentView {
         .padding(.bottom, 4)
     }
     
-    private func resultsStatus(count: Int, cancelled: Bool) -> String {
+    func resultsStatus(count: Int, cancelled: Bool) -> String {
         "\(cancelled ? "Stopped" : "Complete") · \(count) video\(count == 1 ? "" : "s") analyzed\(cancelled ? " (partial)" : "")"
     }
     
@@ -586,7 +600,7 @@ extension ContentView {
     }
     
     /// A file that couldn't be opened or stopped decoding early (shown instead of, or above, its findings).
-    private func unreadableNotice(_ reason: String, framesChecked: Int) -> some View {
+    func unreadableNotice(_ reason: String, framesChecked: Int) -> some View {
         Text("Unreadable: \(reason). \(framesChecked) frames checked.")
             .font(.ui(size: 11, weight: .semibold))
             .foregroundColor(alertRed)
@@ -648,7 +662,7 @@ extension ContentView {
                 .font(.system(size: StudioTheme.scaleFont(26), weight: .semibold))
                 .foregroundColor(textMain)
             
-            Text("Choose a delivery folder or video files on the left, then run a check.\nLine Check finds edge lines and split-screen seams. Frame Check finds frame-rate mismatch, flash frames, Media Offline and out-of-legal-range levels.")
+            Text("Choose a delivery folder or video files on the left, then run a check.\nLine Check finds edge lines and split-screen seams. Frame Check finds frame-rate mismatch, flash frames, Media Offline and out-of-legal-range levels. Crop Match compares cutdowns with their master, shot by shot, for framing.")
                 .font(.ui(size: 13))
                 .foregroundColor(textMuted)
                 .lineSpacing(4)
@@ -688,7 +702,7 @@ extension ContentView {
                 }
             } else {
                 runButton("Run Frame Check", icon: "waveform.path.ecg",
-                          isReady: frameCheckVideoCount > 0 && !scannerState.isScanning,
+                          isReady: frameCheckVideoCount > 0 && !scannerState.isScanning && !scannerState.isCropMatching,
                           help: "Checks every video in the batch (fast, low resolution) for frame-rate mismatch, flash frames, Media Offline and legal range.") {
                     scannerState.startFrameCheck(videoFiles: videoFiles)
                 }
@@ -730,7 +744,7 @@ extension ContentView {
             } else {
                 runButton("Run Full Check", icon: "checklist",
                           isReady: frameCheckVideoCount > 0 && RGBColor(hex: scannerState.hexCode) != nil
-                              && !scannerState.isScanning && !scannerState.isFrameChecking,
+                              && !scannerState.isScanning && !scannerState.isFrameChecking && !scannerState.isCropMatching,
                           help: "Runs the Line Check, then the Frame Check, on every video with the settings above.",
                           action: startFullCheck)
             }

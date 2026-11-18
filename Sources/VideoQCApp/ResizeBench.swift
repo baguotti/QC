@@ -115,7 +115,11 @@ enum UIShots {
         let openPanels: () -> Void
         /// Player drawer tabs to capture beside the default one.
         let setPlayerDrawer: (PlayerDrawerTab) -> Void
+        /// `QCPIE_BENCH_CROP=1`: runs Crop Match on the queue first (and waits for it), for the Scan tab's results.
+        var runCropMatch: (() async -> Void)? = nil
     }
+
+    static var cropMatch: Bool { ProcessInfo.processInfo.environment["QCPIE_BENCH_CROP"] != nil }
 
     static func run(_ hooks: Hooks) async {
         guard let output else { return }
@@ -123,6 +127,7 @@ enum UIShots {
         try? await Task.sleep(for: .seconds(5))
         guard let window = NSApp.windows.first(where: { $0.isVisible && $0.contentView != nil && $0.frame.width > 800 }) else { return }
         hooks.openPanels()
+        if cropMatch { await hooks.runCropMatch?() }
         let original = ThemeManager.shared.buttonZoom
         for zoom in [UIButtonZoomLevel.small, .large] {
             ThemeManager.shared.buttonZoom = zoom

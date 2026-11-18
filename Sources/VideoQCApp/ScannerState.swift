@@ -8,6 +8,7 @@ import VideoQCLib
 public final class ScanProgress: ObservableObject {
     @Published public var line: VideoScanner.ScanProgress? = nil
     @Published public var frame: FrameCheckScanner.ScanProgress? = nil
+    @Published public var crop: CropMatcher.Progress? = nil
 }
 
 @MainActor
@@ -76,8 +77,16 @@ public final class ScannerState: ObservableObject {
     /// after the clear, for files no longer in the queue, and still tagged them in Finder).
     private var runGeneration = 0
     
-    /// A Line Check or Frame Check is running: the asset list must not change under it.
-    public var isCheckRunning: Bool { isScanning || isFrameChecking }
+    // Crop Match
+    @Published public var isCropMatching: Bool = false
+    @Published public var cropMatchRun: CropMatchRun? = nil
+    @Published public var wasCropMatchCancelled: Bool = false
+    /// The master chosen in the Crop Match section (nil: the longest video).
+    @Published public var cropMatchMaster: URL? = nil
+    private var cropMatcher: CropMatcher? = nil
+
+    /// A check is running: the asset list must not change under it.
+    public var isCheckRunning: Bool { isScanning || isFrameChecking || isCropMatching }
     
     public init() {
         self.tagInFinder = UserDefaults.standard.bool(forKey: "tagInFinder")
@@ -87,7 +96,7 @@ public final class ScannerState: ObservableObject {
     /// The main window's scans, for the quit check (their results live only in memory).
     static weak var main: ScannerState?
     /// "Line Check" / "Frame Check" while one runs.
-    var runningCheckName: String? { isScanning ? "Line Check" : isFrameChecking ? "Frame Check" : nil }
+    var runningCheckName: String? { isScanning ? "Line Check" : isFrameChecking ? "Frame Check" : isCropMatching ? "Crop Match" : nil }
     
     public var isTargetBlack: Bool {
         guard let rgb = RGBColor(hex: hexCode) else { return false }
@@ -145,7 +154,8 @@ public final class ScannerState: ObservableObject {
         videoFiles: [URL],
         onComplete: @escaping @MainActor ([VideoQCResult], QCConfig) -> Void
     ) {
-        guard !videoFiles.isEmpty else {
+        // One check at a time (Crop Match included: its progress would be hidden, and they'd share the processor).
+        guard !videoFiles.isEmpty, !isCropMatching else {
             isFullCheck = false
             return
         }
@@ -249,7 +259,7 @@ public final class ScannerState: ObservableObject {
     /// One pass per video: frame-rate mismatch (stutter), flash frames, Media Offline frames and legal range.
     public func startFrameCheck(videoFiles: [URL]) {
         let videos = videoFiles.filter { QCUtilities.mediaKind(of: $0) == .video }
-        guard !videos.isEmpty, !isFrameChecking, !isScanning else {
+        guard !videos.isEmpty, !isFrameChecking, !isScanning, !isCropMatching else {
             // A Full Check with no video: its Line Check held back the notification for this step.
             if isFullCheck && videos.isEmpty && !scanResults.isEmpty {
                 Notifier.shared.post(.scans, NotificationText.scan(check: "Full Check", flagged: scanResults.filter(\.isFlagged).count,
@@ -300,6 +310,46 @@ public final class ScannerState: ObservableObject {
         }
     }
     
+    /// Compares every other video with the master (chosen, or the longest) shot by shot: same framing, reframed, or not
+    /// in the master.
+    public func startCropMatch(videoFiles: [URL]) {
+        let videos = videoFiles.filter { QCUtilities.mediaKind(of: $0) == .video }
+        guard videos.count >= 2, !isCheckRunning else { return }
+        let master = cropMatchMaster.flatMap { videos.contains($0) ? $0 : nil }
+        isCropMatching = true
+        wasCropMatchCancelled = false
+        cropMatchRun = nil
+        progress.crop = nil
+        Log.scan.notice("Crop Match started: \(videos.count) files, master \(master?.lastPathComponent ?? "the longest")")
+        let matcher = CropMatcher()
+        cropMatcher = matcher
+        let generation = runGeneration
+        Task(priority: .utility) {
+            let run = await matcher.run(master: master, files: videos) { progress in
+                DispatchQueue.main.async { self.progress.crop = progress }
+            }
+            await MainActor.run {
+                self.isCropMatching = false
+                self.cropMatcher = nil
+                guard generation == self.runGeneration else { return }
+                let flagged = run?.results.filter(\.isFlagged).count ?? 0
+                Self.logFinished("Crop Match", flagged: flagged, total: run?.results.count ?? 0,
+                                 unreadable: run?.results.compactMap { r in r.readError.map { "\(r.fileURL.path): \($0)" } } ?? [],
+                                 cancelled: self.wasCropMatchCancelled)
+                if !self.wasCropMatchCancelled, let run {
+                    Notifier.shared.post(.scans, NotificationText.scan(check: "Crop Match", flagged: flagged, total: run.results.count))
+                }
+                self.cropMatchRun = run
+            }
+        }
+    }
+
+    public func cancelCropMatch() {
+        guard isCropMatching else { return }
+        wasCropMatchCancelled = true
+        cropMatcher?.cancel()
+    }
+
     public func cancelFrameCheck() {
         guard isFrameChecking else { return }
         wasFrameCheckCancelled = true
@@ -312,6 +362,8 @@ public final class ScannerState: ObservableObject {
         rawResults = []
         if isScanning { wasScanCancelled = true; isCancelling = true; scannerActor?.cancel() }
         if isFrameChecking { wasFrameCheckCancelled = true; frameCheckScanner?.cancel() }
+        if isCropMatching { wasCropMatchCancelled = true; cropMatcher?.cancel() }
+        cropMatchRun = nil
     }
 
     public func cancelScan() {
