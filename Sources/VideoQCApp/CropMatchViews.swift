@@ -12,13 +12,16 @@ extension ContentView {
 
             checkCard {
                 checkRow("What It Finds", divider: false) {
-                    Text("Compares every cutdown with its master shot by shot: shots framed differently (moved or zoomed by a pixel or more) and shots that aren't in the master. Shots may be trimmed or retimed; videos of another shape are left out.")
+                    Text("Checks every cutdown against its master shot by shot: shots framed differently (moved or zoomed by a pixel or more) and shots that aren't in the master. Shots may be trimmed or retimed.")
                         .font(.ui(size: 11))
                         .foregroundColor(textSubtle)
                         .fixedSize(horizontal: false, vertical: true)
                 }
-                checkRow("Master") {
-                    cropMasterMenu
+                checkRow("Masters and Cutdowns") {
+                    Text("Found from the names: versions of an edit share a name except their length, version and shape (\u{201C}EDIT_01_9x16_30s_E2.0\u{201D}, \u{201C}EDIT_01_9x16_06s_E1.0\u{201D}). Each set is one shape; its longest video is the master.")
+                        .font(.ui(size: 11))
+                        .foregroundColor(textSubtle)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
             }
 
@@ -30,40 +33,11 @@ extension ContentView {
             } else {
                 runButton("Run Crop Match", icon: "crop",
                           isReady: cropMatchVideos.count >= 2 && !scannerState.isCheckRunning,
-                          help: "Compares each video with the master, shot by shot, for framing. Needs a master and at least one cutdown in the batch.") {
+                          help: "Finds each master and its cutdowns in the batch and compares them shot by shot for framing.") {
                     scannerState.startCropMatch(videoFiles: videoFiles)
                 }
             }
         }
-    }
-
-    private var cropMasterMenu: some View {
-        let chosen = scannerState.cropMatchMaster.flatMap { cropMatchVideos.contains($0) ? $0 : nil }
-        return Menu {
-            Picker("Master", selection: $scannerState.cropMatchMaster) {
-                Text("Longest Video").tag(URL?.none)
-                Divider()
-                ForEach(cropMatchVideos, id: \.self) { url in
-                    Text(url.lastPathComponent).tag(URL?.some(url))
-                }
-            }
-            .pickerStyle(.inline)
-        } label: {
-            HStack(spacing: 5) {
-                Text(chosen?.lastPathComponent ?? "Longest Video")
-                    .font(.ui(size: 11, weight: .semibold))
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-                Image(systemName: "chevron.down")
-                    .font(.system(size: StudioTheme.scaleFont(8), weight: .bold))
-            }
-            .foregroundColor(textMain)
-        }
-        .menuStyle(.borderlessButton)
-        .menuIndicator(.hidden)
-        .fixedSize(horizontal: false, vertical: true)
-        .disabled(scannerState.isCheckRunning)
-        .explain("The version the others were cut from. Longest Video picks the longest one in the batch; every other video of the same shape is compared with it.")
     }
 
     var cropMatchProgressView: some View {
@@ -103,61 +77,57 @@ extension ContentView {
 
     @ViewBuilder
     var cropMatchResultsSection: some View {
-        let run = scannerState.cropMatchRun
-        let results = run?.results ?? []
-        let compared = results.filter { $0.skipped == nil }
+        let batch = scannerState.cropMatchBatch
+        let runs = batch?.runs ?? []
+        let compared = runs.flatMap(\.results)
 
-        resultsSectionTitle("Crop Match", status: resultsStatus(count: compared.count, cancelled: scannerState.wasCropMatchCancelled)) {
+        resultsSectionTitle("Crop Match", status: resultsStatus(count: compared.count + runs.count, cancelled: scannerState.wasCropMatchCancelled)) {
             EmptyView()
         }
-        if let run {
-            Text("Master: \(run.masterName)")
-                .font(.ui(size: 12, weight: .semibold))
-                .foregroundColor(textSubtle)
-                .explain(run.master.path)
-        }
-        // Versions compared and clean; shots reframed, not in the master and to check, across all of them.
+        // Across every set: shots reframed, not in the master and to check; masters and their cutdowns.
         HStack(spacing: 12) {
             let shots = compared.flatMap(\.shots)
             let reframed = shots.filter { $0.verdict == .reframed }.count
             let missing = shots.filter { $0.verdict == .notInMaster }.count
             let toCheck = shots.filter { if case .uncertain = $0.verdict { return true }; return false }.count
                 + compared.filter { $0.readError != nil }.count
-            statBox(title: "Versions", val: String(format: "%02d", compared.count))
+            statBox(title: "Masters", val: String(format: "%02d", runs.count))
+            statBox(title: "Cutdowns", val: String(format: "%02d", compared.count))
             statBox(title: "Shots Reframed", val: String(format: "%02d", reframed), isRed: reframed > 0)
             statBox(title: "Not in Master", val: String(format: "%02d", missing), isRed: missing > 0)
             statBox(title: "To Check", val: String(format: "%02d", toCheck), isRed: toCheck > 0)
-            statBox(title: "Clean Versions", val: String(format: "%02d", compared.filter { !$0.isFlagged }.count),
-                    isPositive: compared.contains { !$0.isFlagged })
         }
-        if results.isEmpty {
+        if let batch, !runs.isEmpty {
+            let masters = Set(runs.map { $0.master.standardizedFileURL })
+            CropMatchBatchView(batch: batch, isLightMode: isLightMode) { shot, result, master in
+                openCropShot(shot, in: result, master: master, masters: masters)
+            }
+            .equatable()
+        } else {
             VStack(spacing: 8) {
-                Text("Nothing Compared")
+                Text("No Masters Found")
                     .font(.ui(size: 15, weight: .semibold))
                     .foregroundColor(textMain)
-                Text("Add the master and its cutdowns to the batch, then run Crop Match.")
+                Text(batch.map { $0.singles.isEmpty } ?? true
+                     ? "Add masters and their cutdowns to the batch, then run Crop Match."
+                     : "No two videos share a name apart from their length and version. Masters and cutdowns are matched by name.")
                     .font(.ui(size: 11, weight: .medium))
                     .foregroundColor(textMuted)
             }
             .frame(maxWidth: .infinity)
             .padding(40)
             .studioBox(background: bgPanel, border: borderLine)
-        } else if let run {
-            CropMatchReport(run: run, isLightMode: isLightMode) { shot, result in
-                openCropShot(shot, in: result, master: run.master)
-            }
-            .equatable()
         }
     }
 
     /// The cutdown shot in slot A and the master in slot B, linked at the measured frame pair, in Difference mode
     /// (framed alike, the picture reads black). Without a pair, just the cutdown shot.
-    private func openCropShot(_ shot: CropMatchShot, in result: CropMatchResult, master: URL) {
+    private func openCropShot(_ shot: CropMatchShot, in result: CropMatchResult, master: URL, masters: Set<URL>) {
         guard let c = shot.measuredCutdownFrame ?? (shot.masterStart != nil ? shot.start : nil),
               let m = shot.measuredMasterFrame ?? shot.masterStart else {
             // Nothing to compare with: a master left in slot B by an earlier Inspect would show a meaningless difference.
-            // Only this run's master is taken out; anything the user put in slot B stays.
-            if playerEngine.slotB.url?.standardizedFileURL == master.standardizedFileURL { playerEngine.clearSlotB() }
+            // Only one of this run's masters is taken out; anything else the user put in slot B stays.
+            if let inB = playerEngine.slotB.url?.standardizedFileURL, masters.contains(inB) { playerEngine.clearSlotB() }
             jumpToGlitchInPlayer(fileURL: result.fileURL, frameIndex: shot.start)
             return
         }

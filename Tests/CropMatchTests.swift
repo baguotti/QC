@@ -168,13 +168,14 @@ struct CropMatchTests {
             return range.map { scene.frame(size: size, center: (400 + Double($0) * 2 + shiftX, 400), zoom: zoom, t: Double($0)) }
         }
         let master = try await CropClips.write(frames(1, 0..<20) + frames(2, 0..<20) + frames(3, 0..<20), size: size,
-                                               name: "master.mov", in: folder)
+                                               name: "Spot_30s.mov", in: folder)
         // Shot 3 as the master; shot 1 moved 8 px right and 2 % tighter; then a shot that isn't in the master.
         // …and shot 2 punched in 2× (beyond what the frame-wide fingerprints pair: the zoomed search finds it).
         let cutdown = try await CropClips.write(frames(3, 4..<16) + frames(1, 3..<15, shiftX: 8, zoom: 1.02) + frames(5, 0..<10)
-                                                + frames(2, 4..<16, zoom: 2), size: size, name: "cutdown.mov", in: folder)
+                                                + frames(2, 4..<16, zoom: 2), size: size, name: "Spot_15s.mov", in: folder)
         // The master is found by itself (the longest video).
-        let run = try #require(await CropMatcher().run(master: nil, files: [cutdown, master]) { _ in })
+        let batch = await CropMatcher().run(files: [cutdown, master]) { _ in }
+        let run = try #require(batch.runs.first)
         #expect(run.master == master)
         let result = try #require(run.results.first)
         #expect(result.readError == nil)

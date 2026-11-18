@@ -305,7 +305,7 @@ extension ContentView {
     
     private var hasLineResults: Bool { !scannerState.scanResults.isEmpty }
     private var hasFrameCheckResults: Bool { !scannerState.frameCheckResults.isEmpty || scannerState.wasFrameCheckCancelled }
-    var hasCropMatchResults: Bool { scannerState.cropMatchRun != nil || scannerState.wasCropMatchCancelled }
+    var hasCropMatchResults: Bool { scannerState.cropMatchBatch != nil || scannerState.wasCropMatchCancelled }
     
     /// One page: Line Check, Frame Check and Crop Match results (whichever were run).
     var checkResultsView: some View {

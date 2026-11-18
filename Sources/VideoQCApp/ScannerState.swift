@@ -79,10 +79,8 @@ public final class ScannerState: ObservableObject {
     
     // Crop Match
     @Published public var isCropMatching: Bool = false
-    @Published public var cropMatchRun: CropMatchRun? = nil
+    @Published public var cropMatchBatch: CropMatchBatch? = nil
     @Published public var wasCropMatchCancelled: Bool = false
-    /// The master chosen in the Crop Match section (nil: the longest video).
-    @Published public var cropMatchMaster: URL? = nil
     private var cropMatcher: CropMatcher? = nil
 
     /// A check is running: the asset list must not change under it.
@@ -310,36 +308,37 @@ public final class ScannerState: ObservableObject {
         }
     }
     
-    /// Compares every other video with the master (chosen, or the longest) shot by shot: same framing, reframed, or not
-    /// in the master.
+    /// Finds the sets in the batch (an edit's versions: same name but length and version, same shape; the longest
+    /// the master) and compares each cutdown with its master shot by shot: same framing, reframed, or not in the master.
     public func startCropMatch(videoFiles: [URL]) {
         let videos = videoFiles.filter { QCUtilities.mediaKind(of: $0) == .video }
         guard videos.count >= 2, !isCheckRunning else { return }
-        let master = cropMatchMaster.flatMap { videos.contains($0) ? $0 : nil }
         isCropMatching = true
         wasCropMatchCancelled = false
-        cropMatchRun = nil
+        cropMatchBatch = nil
         progress.crop = nil
-        Log.scan.notice("Crop Match started: \(videos.count) files, master \(master?.lastPathComponent ?? "the longest")")
+        Log.scan.notice("Crop Match started: \(videos.count) files")
         let matcher = CropMatcher()
         cropMatcher = matcher
         let generation = runGeneration
         Task(priority: .utility) {
-            let run = await matcher.run(master: master, files: videos) { progress in
+            let batch = await matcher.run(files: videos) { progress in
                 DispatchQueue.main.async { self.progress.crop = progress }
             }
             await MainActor.run {
                 self.isCropMatching = false
                 self.cropMatcher = nil
                 guard generation == self.runGeneration else { return }
-                let flagged = run?.results.filter(\.isFlagged).count ?? 0
-                Self.logFinished("Crop Match", flagged: flagged, total: run?.results.count ?? 0,
-                                 unreadable: run?.results.compactMap { r in r.readError.map { "\(r.fileURL.path): \($0)" } } ?? [],
+                let results = batch.runs.flatMap(\.results)
+                let flagged = results.filter(\.isFlagged).count
+                Log.scan.notice("Crop Match found \(batch.runs.count) sets, \(batch.singles.count) videos with no other version")
+                Self.logFinished("Crop Match", flagged: flagged, total: results.count,
+                                 unreadable: results.compactMap { r in r.readError.map { "\(r.fileURL.path): \($0)" } },
                                  cancelled: self.wasCropMatchCancelled)
-                if !self.wasCropMatchCancelled, let run {
-                    Notifier.shared.post(.scans, NotificationText.scan(check: "Crop Match", flagged: flagged, total: run.results.count))
+                if !self.wasCropMatchCancelled {
+                    Notifier.shared.post(.scans, NotificationText.scan(check: "Crop Match", flagged: flagged, total: results.count))
                 }
-                self.cropMatchRun = run
+                self.cropMatchBatch = batch
             }
         }
     }
@@ -363,7 +362,7 @@ public final class ScannerState: ObservableObject {
         if isScanning { wasScanCancelled = true; isCancelling = true; scannerActor?.cancel() }
         if isFrameChecking { wasFrameCheckCancelled = true; frameCheckScanner?.cancel() }
         if isCropMatching { wasCropMatchCancelled = true; cropMatcher?.cancel() }
-        cropMatchRun = nil
+        cropMatchBatch = nil
     }
 
     public func cancelScan() {

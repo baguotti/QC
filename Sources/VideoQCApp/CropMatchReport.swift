@@ -7,6 +7,121 @@ struct CropShotKey: Hashable {
     let shot: Int
 }
 
+/// A Crop Match batch: with more than one set, a list of them (each with its verdict) to pick from, the first one with
+/// a problem shown; then the picked set's header and report. Equal while the batch is the same; picking a set redraws
+/// only this view.
+struct CropMatchBatchView: View, Equatable {
+    var themeRevision = ThemeManager.shared.revision
+    let batch: CropMatchBatch
+    let isLightMode: Bool
+    let onInspect: (CropMatchShot, CropMatchResult, URL) -> Void
+
+    nonisolated static func == (a: Self, b: Self) -> Bool {
+        a.batch.id == b.batch.id && a.isLightMode == b.isLightMode && a.themeRevision == b.themeRevision
+    }
+
+    @State private var selected: UUID?
+
+    private var palette: StudioPalette { StudioPalette(isLightMode) }
+
+    var body: some View {
+        let runs = batch.runs
+        let current = runs.first { $0.id == selected } ?? runs.first(where: \.isFlagged) ?? runs[0]
+        VStack(alignment: .leading, spacing: 16) {
+            if runs.count > 1 { setList(runs, current: current.id) }
+            VStack(alignment: .leading, spacing: 3) {
+                Text(current.title.isEmpty ? current.masterName : current.title)
+                    .font(.ui(size: 13, weight: .semibold))
+                    .foregroundColor(palette.textMain)
+                Text("Master: \(current.masterName)")
+                    .font(.ui(size: 11))
+                    .foregroundColor(palette.textMuted)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+            }
+            .explain(current.master.path)
+            CropMatchReport(run: current, isLightMode: isLightMode) { shot, result in onInspect(shot, result, current.master) }
+                .equatable()
+                .id(current.id)
+            if !batch.singles.isEmpty { singles }
+        }
+        .onChange(of: batch.id) { selected = nil }
+    }
+
+    /// One row per set, Finder-sidebar style: the picked one on a soft fill with the accent bar.
+    private func setList(_ runs: [CropMatchRun], current: UUID) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            ForEach(Array(runs.enumerated()), id: \.element.id) { index, run in
+                if index > 0 { Rectangle().fill(palette.borderLine.opacity(0.6)).frame(height: 1) }
+                setRow(run, isCurrent: run.id == current)
+            }
+        }
+        .studioBox(background: palette.bgPanel, border: palette.borderLine)
+    }
+
+    private func setRow(_ run: CropMatchRun, isCurrent: Bool) -> some View {
+        let cutdowns = run.results.count
+        let master = run.labels[run.master] ?? ""
+        let shape = run.masterSize.height > 0 ? CropMatcher.ratio(Double(run.masterSize.width / run.masterSize.height)) : ""
+        return HStack(spacing: 10) {
+            Rectangle().fill(isCurrent ? palette.accentBlue : Color.clear).frame(width: 3)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(run.title.isEmpty ? run.masterName : run.title)
+                    .font(.ui(size: 12, weight: isCurrent ? .semibold : .medium))
+                    .foregroundColor(palette.textMain)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                Text(["Master \(master)", "\(cutdowns) cutdown\(cutdowns == 1 ? "" : "s")", shape].filter { !$0.isEmpty }.joined(separator: " · "))
+                    .font(.ui(size: 11))
+                    .foregroundColor(palette.textMuted)
+                    .lineLimit(1)
+            }
+            Spacer(minLength: 12)
+            Text(verdict(run))
+                .font(.ui(size: 11, weight: .semibold))
+                .foregroundColor(run.isFlagged ? palette.negative : palette.positive)
+                .lineLimit(1)
+                .padding(.trailing, 14)
+        }
+        .padding(.vertical, 8)
+        .background(isCurrent ? palette.bgSubtle : Color.clear)
+        .contentShape(Rectangle())
+        .onTapGesture { withAnimation(Motion.list) { selected = run.id } }
+        .explain("Show this master and its cutdowns.")
+    }
+
+    private func verdict(_ run: CropMatchRun) -> String {
+        let shots = run.results.flatMap(\.shots)
+        let reframed = shots.filter { $0.verdict == .reframed }.count
+        let missing = shots.filter { $0.verdict == .notInMaster }.count
+        let check = shots.filter { if case .uncertain = $0.verdict { return true }; return false }.count
+            + run.results.filter { $0.readError != nil }.count
+        let parts = [reframed > 0 ? "\(reframed) reframed" : nil, missing > 0 ? "\(missing) not in master" : nil,
+                     check > 0 ? "\(check) to check" : nil].compactMap { $0 }
+        return parts.isEmpty ? "All framed as the master" : parts.joined(separator: " · ")
+    }
+
+    /// Videos with no other version in the batch: nothing to compare them with.
+    private var singles: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text("No Other Version (\(batch.singles.count))")
+                .font(.ui(size: 11, weight: .semibold))
+                .foregroundColor(palette.textMuted)
+            ForEach(batch.singles, id: \.self) { url in
+                Text(url.lastPathComponent)
+                    .font(.ui(size: 11))
+                    .foregroundColor(palette.textSubtle)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                    .explain(url.path)
+            }
+        }
+        .padding(14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .studioBox(background: palette.bgPanel, border: palette.borderLine)
+    }
+}
+
 /// Crop Match results under the stats: a version map of the whole set, then one card per cutdown whose flagged shots
 /// expand into the master frame with every version's crop drawn on it. Its own view so expanding a row (or hovering
 /// the map) redraws only the report, never the window; equal while the run is the same.
@@ -24,10 +139,10 @@ struct CropMatchReport: View, Equatable {
     @State private var expanded: Set<CropShotKey> = []
 
     private var palette: StudioPalette { StudioPalette(isLightMode) }
-    private var compared: [CropMatchResult] { run.results.filter { $0.skipped == nil && $0.readError == nil } }
+    private var compared: [CropMatchResult] { run.results.filter { $0.readError == nil } }
 
     var body: some View {
-        let labels = Self.shortLabels([run.masterName] + run.results.map(\.fileName))
+        let labels = run.labels
         ScrollViewReader { proxy in
             VStack(alignment: .leading, spacing: 16) {
                 if !compared.isEmpty {
@@ -57,7 +172,7 @@ struct CropMatchReport: View, Equatable {
 
     // MARK: Cards
 
-    private func card(_ result: CropMatchResult, labels: [String: String]) -> some View {
+    private func card(_ result: CropMatchResult, labels: [URL: String]) -> some View {
         let flagged = result.shots.filter { $0.verdict != .same }
         let matching = result.shots.count - flagged.count
         return VStack(alignment: .leading, spacing: 0) {
@@ -66,7 +181,7 @@ struct CropMatchReport: View, Equatable {
                     Text(result.fileName)
                         .font(.ui(size: 13, weight: .semibold))
                         .foregroundColor(palette.textMain)
-                    if result.skipped == nil && result.readError == nil {
+                    if result.readError == nil {
                         Text("\(FrameCheckAnalyzer.rateLabel(result.fps)) · \(result.shots.count) shot\(result.shots.count == 1 ? "" : "s")")
                             .font(.ui(size: 11, weight: .semibold))
                             .foregroundColor(palette.textMuted)
@@ -75,7 +190,7 @@ struct CropMatchReport: View, Equatable {
                 Spacer()
                 Text(Self.verdict(result))
                     .font(.ui(size: 11, weight: .semibold))
-                    .foregroundColor(result.skipped != nil ? palette.textMuted : result.isFlagged ? palette.negative : palette.positive)
+                    .foregroundColor(result.isFlagged ? palette.negative : palette.positive)
                     .multilineTextAlignment(.trailing)
                     .frame(maxWidth: 360, alignment: .trailing)
             }
@@ -108,7 +223,7 @@ struct CropMatchReport: View, Equatable {
         .overlay(RoundedRectangle(cornerRadius: StudioTheme.cornerRadius).stroke(result.isFlagged ? palette.negative : palette.borderLine, lineWidth: 1))
     }
 
-    private func row(_ shot: CropMatchShot, in result: CropMatchResult, labels: [String: String]) -> some View {
+    private func row(_ shot: CropMatchShot, in result: CropMatchResult, labels: [URL: String]) -> some View {
         let key = CropShotKey(file: result.fileURL, shot: shot.id)
         let isOpen = expanded.contains(key)
         let canOpen = shot.masterStart != nil
@@ -161,13 +276,13 @@ struct CropMatchReport: View, Equatable {
     }
 
     /// The master frame with the crop of every version using this stretch of the master, and each one's values.
-    private func expandedDetail(_ shot: CropMatchShot, in result: CropMatchResult, labels: [String: String]) -> some View {
+    private func expandedDetail(_ shot: CropMatchShot, in result: CropMatchResult, labels: [URL: String]) -> some View {
         let masterFrame = shot.measuredMasterFrame ?? shot.masterStart ?? 0
         let versions = versionsOverlapping(shot)
         let aspect = run.masterSize.height > 0 ? run.masterSize.width / run.masterSize.height : 16 / 9
         let preview = CropBoxPreview(master: run.master, frame: masterFrame, fps: run.masterFps, aspect: aspect, isLightMode: isLightMode,
                                      boxes: versions.map { version in
-                                         CropBoxPreview.Box(label: labels[version.result.fileName] ?? version.result.fileName,
+                                         CropBoxPreview.Box(label: labels[version.result.fileURL] ?? version.result.fileName,
                                                             rect: version.shot.cropRect(masterSize: run.masterSize),
                                                             color: Self.color(version.shot.verdict, palette))
                                      })
@@ -195,9 +310,9 @@ struct CropMatchReport: View, Equatable {
     }
 
     /// Each version's verdict and editor values, one line each (never wrapped).
-    private func versionValues(_ versions: [Version], masterFrame: Int, labels: [String: String]) -> some View {
+    private func versionValues(_ versions: [Version], masterFrame: Int, labels: [URL: String]) -> some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("Master \(TimecodeFormatter.format(frameIndex: masterFrame, fps: run.masterFps)) · \(labels[run.masterName] ?? run.masterName) at 100%")
+            Text("Master \(TimecodeFormatter.format(frameIndex: masterFrame, fps: run.masterFps)) · \(labels[run.master] ?? run.masterName) at 100%")
                 .font(.ui(size: 11, weight: .semibold))
                 .monospacedDigit()
                 .foregroundColor(palette.textMuted)
@@ -205,7 +320,7 @@ struct CropMatchReport: View, Equatable {
                 let values = version.shot.editValues(masterSize: run.masterSize)
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
                     Circle().fill(Self.color(version.shot.verdict, palette)).frame(width: 8, height: 8)
-                    Text(labels[version.result.fileName] ?? version.result.fileName)
+                    Text(labels[version.result.fileURL] ?? version.result.fileName)
                         .font(.ui(size: 11, weight: .semibold))
                         .foregroundColor(palette.textMain)
                         .frame(minWidth: 56, alignment: .leading)
@@ -263,7 +378,6 @@ struct CropMatchReport: View, Equatable {
     }
 
     static func verdict(_ result: CropMatchResult) -> String {
-        if let skipped = result.skipped { return skipped }
         if result.readError != nil { return "Couldn't be read" }
         guard result.isFlagged else {
             return result.shots.isEmpty ? "No shots found" : "All \(result.shots.count) shots framed as the master"
@@ -288,7 +402,9 @@ struct CropMatchReport: View, Equatable {
         case .notInMaster:
             return "Not found in the master (another take, a new shot or a graphic) · \(length)"
         case .uncertain(let reason):
-            return [reason, masterTimecode, length].compactMap { $0 }.joined(separator: " · ")
+            // Measured framing too, when there is one ("about 108.2%, 23 px right"), so the eye knows what to look for.
+            let measured = framing(shot)
+            return [reason, measured.isEmpty ? nil : "about \(measured)", masterTimecode, length].compactMap { $0 }.joined(separator: " · ")
         }
     }
 
@@ -299,26 +415,6 @@ struct CropMatchReport: View, Equatable {
         if abs(shot.shift.x) >= 0.5 { parts.append("\(Int(abs(shot.shift.x).rounded())) px \(shot.shift.x > 0 ? "right" : "left")") }
         if abs(shot.shift.y) >= 0.5 { parts.append("\(Int(abs(shot.shift.y).rounded())) px \(shot.shift.y > 0 ? "down" : "up")") }
         return parts.joined(separator: ", ")
-    }
-
-    /// Each name without what all of them share ("Spot_16x9_10sec.mp4" → "10sec"), cut back to a word boundary.
-    static func shortLabels(_ names: [String]) -> [String: String] {
-        let stems = names.map { ($0 as NSString).deletingPathExtension }
-        guard stems.count > 1, let first = stems.first else { return Dictionary(names.map { ($0, $0) }, uniquingKeysWith: { a, _ in a }) }
-        let separators = CharacterSet(charactersIn: " _-.")
-        var prefix = stems.dropFirst().reduce(first) { String($0.commonPrefix(with: $1)) }
-        while let last = prefix.unicodeScalars.last, !separators.contains(last) { prefix.removeLast() }
-        let reversed = stems.map { String($0.reversed()) }
-        var suffix = String(reversed.dropFirst().reduce(reversed[0]) { String($0.commonPrefix(with: $1)) }.reversed())
-        while let first = suffix.unicodeScalars.first, !separators.contains(first) { suffix.removeFirst() }
-        var out: [String: String] = [:]
-        for (name, stem) in zip(names, stems) {
-            var label = stem
-            if !prefix.isEmpty, label.hasPrefix(prefix) { label.removeFirst(prefix.count) }
-            if !suffix.isEmpty, label.hasSuffix(suffix) { label.removeLast(suffix.count) }
-            out[name] = label.isEmpty ? stem : label
-        }
-        return out
     }
 }
 
@@ -332,7 +428,7 @@ struct CropMatchReport: View, Equatable {
 private struct CropVersionMap: View {
     let run: CropMatchRun
     let compared: [CropMatchResult]
-    let labels: [String: String]
+    let labels: [URL: String]
     let expanded: Set<CropShotKey>
     let isLightMode: Bool
     let onSelect: (CropShotKey) -> Void
@@ -350,18 +446,18 @@ private struct CropVersionMap: View {
             compared.map { Double($0.totalFrames) / max(1, $0.fps) }.max() ?? 0, 0.001)
     }
 
-    private var rows: [String] { [run.masterName] + compared.map(\.fileName) }
+    private var rows: [URL] { [run.master] + compared.map(\.fileURL) }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(alignment: .top, spacing: 12) {
                 VStack(alignment: .trailing, spacing: rowGap) {
-                    ForEach(Array(rows.enumerated()), id: \.offset) { index, name in
+                    ForEach(Array(rows.enumerated()), id: \.offset) { index, url in
                         HStack(spacing: 4) {
                             if index == 0 {
                                 Text("Master").font(.ui(size: 10)).foregroundColor(palette.textMuted)
                             }
-                            Text(labels[name] ?? name)
+                            Text(labels[url] ?? url.lastPathComponent)
                                 .font(.ui(size: 11, weight: index == 0 ? .semibold : .medium))
                                 .foregroundColor(index == 0 ? palette.textMain : palette.textSubtle)
                         }
@@ -437,7 +533,7 @@ private struct CropVersionMap: View {
               let shot = result.shots.first(where: { $0.id == key.shot }) else {
             return "Hover a shot to see where it comes from in the master; click a coloured one to see its crop."
         }
-        var parts = ["\(labels[result.fileName] ?? result.fileName) \(TimecodeFormatter.format(frameIndex: shot.start, fps: result.fps))",
+        var parts = ["\(labels[result.fileURL] ?? result.fileName) \(TimecodeFormatter.format(frameIndex: shot.start, fps: result.fps))",
                      CropMatchReport.kind(shot)]
         if shot.verdict == .reframed { parts.append(CropMatchReport.framing(shot)) }
         if let m = shot.masterStart { parts.append("Master \(TimecodeFormatter.format(frameIndex: m, fps: run.masterFps))") }

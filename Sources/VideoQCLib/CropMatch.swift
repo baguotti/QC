@@ -37,6 +37,9 @@ public struct CropMatchShot: Identifiable, Sendable, Equatable {
     public var measuredMasterFrame: Int?
     /// The master frames advance this much per cutdown frame on average (1: same speed).
     public var speed: Double = 1
+    /// How well the measured frame fits the master once framed (correlation, 1 = identical), and with no change.
+    public var fit: Float = 0
+    public var fitAsIs: Float = 0
     /// For a punch-in found by the zoomed search: where to start measuring (scale, and the window centre's offset from
     /// the master's centre as a fraction of its width and height).
     var hintScale: Double?
@@ -70,25 +73,172 @@ public struct CropMatchResult: Identifiable, Sendable {
     public let masterFps: Double
     public let shots: [CropMatchShot]
     public let readError: String?
-    /// Not compared, and why (another shape than the master's).
-    public var skipped: String?
 
     public var reframedCount: Int { shots.filter { $0.verdict == .reframed }.count }
     public var missingCount: Int { shots.filter { $0.verdict == .notInMaster }.count }
     public var uncertainCount: Int { shots.filter { if case .uncertain = $0.verdict { return true }; return false }.count }
-    public var isFlagged: Bool { skipped == nil && (readError != nil || reframedCount + missingCount + uncertainCount > 0) }
+    public var isFlagged: Bool { readError != nil || reframedCount + missingCount + uncertainCount > 0 }
 }
 
-/// A Crop Match run: the master the cutdowns were compared with, and each cutdown's result.
+/// One set's run: the master the cutdowns were compared with, and each cutdown's result.
 public struct CropMatchRun: Sendable {
     /// Tells runs apart cheaply (views compare it instead of the results).
     public let id = UUID()
+    /// The set's name (its files' shared name, without length, version and shape).
+    public var title: String = ""
+    /// Short names for the set's files ("30s", "GIF E1.1"), master included.
+    public var labels: [URL: String] = [:]
     public let master: URL
     public let masterName: String
     public var masterSize: CGSize = .zero
     public var masterFps: Double = 25
     public var masterFrames: Int = 0
     public let results: [CropMatchResult]
+
+    public var shotsReframed: Int { results.reduce(0) { $0 + $1.reframedCount } }
+    public var isFlagged: Bool { results.contains(where: \.isFlagged) }
+}
+
+/// Every set found in a batch, and the videos that had no other version to compare with.
+public struct CropMatchBatch: Sendable {
+    public let id = UUID()
+    public let runs: [CropMatchRun]
+    public let singles: [URL]
+}
+
+// MARK: - Sets
+
+/// Which videos are versions of the same edit, and which one is the master. A video's set name is its file name without
+/// its length ("30s", "06sec", ":30", "GIF"), version ("E2.0", "v3", "1.1") and shape ("9x16") tokens, compared
+/// ignoring case, spaces, underscores and dashes (numbers like "01" stay: EDIT_01 and EDIT_02 are different edits). A
+/// set is the videos with the same set name and the same shape (from the file: 9x16 and 1x1 versions of an edit are two
+/// sets); its longest video is the master, the others its cutdowns.
+public enum CropMatchSets {
+    public struct Video: Sendable {
+        public let url: URL
+        public let duration: Double
+        public let aspect: Double
+        public init(url: URL, duration: Double, aspect: Double) {
+            self.url = url
+            self.duration = duration
+            self.aspect = aspect
+        }
+    }
+
+    public struct Set: Sendable {
+        public let title: String
+        public let master: URL
+        /// Longest first.
+        public let cutdowns: [URL]
+        public let labels: [URL: String]
+    }
+
+    enum Kind { case length, version, shape }
+
+    /// What a name token is, if it's one of the parts that differ between versions: a length ("30s", "06sec", "2.5s",
+    /// ":30", "GIF"), a version ("E2.0", "v3", "1.1") or a shape ("9x16", "1.91x1"). Plain character checks (no
+    /// regular expressions: this runs for every token of every name).
+    static func kind(of token: String) -> Kind? {
+        let t = Substring(token.lowercased())
+        if t == "gif" { return .length }
+        if t.first == ":", t.count == 3, t.dropFirst().allSatisfy(\.isASCIIDigit) { return .length }
+        // digits, optional [.,]digits: the number a length, version or shape starts with.
+        func number(_ s: Substring) -> (digits: Int, rest: Substring)? {
+            let whole = s.prefix { $0.isASCIIDigit }
+            guard !whole.isEmpty else { return nil }
+            var rest = s.dropFirst(whole.count)
+            if let mark = rest.first, mark == "." || mark == ",", rest.dropFirst().first?.isASCIIDigit == true {
+                rest = rest.dropFirst().drop { $0.isASCIIDigit }
+            }
+            return (whole.count, rest)
+        }
+        if let (digits, rest) = number(t) {
+            if digits <= 3, ["s", "sec", "secs", "second", "seconds", "\""].contains(String(rest)) { return .length }
+            if let x = rest.first, x == "x" || x == "×", let (_, after) = number(rest.dropFirst()), after.isEmpty { return .shape }
+            // "1.1", "2.0.1": a dotted number is a version (a plain one names the edit).
+            if t.contains("."), t.allSatisfy({ $0.isASCIIDigit || $0 == "." }), !t.hasSuffix("."), !t.contains("..") { return .version }
+            return nil
+        }
+        if let lead = t.first, lead == "e" || lead == "v", t.count > 1,
+           t.dropFirst().allSatisfy({ $0.isASCIIDigit || $0 == "." }), t.dropFirst().first?.isASCIIDigit == true { return .version }
+        return nil
+    }
+
+    /// A name's tokens (split at spaces, underscores and dashes), extension dropped.
+    static func tokens(_ url: URL) -> [String] {
+        url.deletingPathExtension().lastPathComponent
+            .split(whereSeparator: { $0 == " " || $0 == "_" || $0 == "-" }).map(String.init)
+    }
+
+    /// The name with its length, version and shape left out, as one lowercased string.
+    static func key(_ url: URL) -> String {
+        let all = tokens(url)
+        let kept = all.filter { kind(of: $0) == nil }
+        return (kept.isEmpty ? all : kept).joined(separator: " ").lowercased()
+    }
+
+    /// A version token's numbers ("E2.0" → [2, 0]), for picking the newest.
+    static func versionNumbers(_ url: URL) -> [Int] {
+        guard let token = tokens(url).first(where: { kind(of: $0) == .version }) else { return [] }
+        return token.split(whereSeparator: { !$0.isASCIIDigit }).compactMap { Int($0) }
+    }
+
+    public static func sets(_ videos: [Video]) -> (sets: [Set], singles: [URL]) {
+        // Each name's key once; then same key and same shape (within 1 %; an unreadable shape joins any).
+        var groups: [[Video]] = []
+        for members in Dictionary(grouping: videos, by: { key($0.url) }).values {
+            var byShape: [[Video]] = []
+            for video in members {
+                if let i = byShape.firstIndex(where: { group in
+                    group[0].aspect == 0 || video.aspect == 0 || abs(video.aspect / group[0].aspect - 1) <= 0.01
+                }) {
+                    byShape[i].append(video)
+                } else {
+                    byShape.append([video])
+                }
+            }
+            groups += byShape
+        }
+        var sets: [Set] = []
+        var singles: [URL] = []
+        for group in groups {
+            guard group.count > 1 else { singles.append(group[0].url); continue }
+            let ordered = group.sorted(by: isBefore)
+            let kept = tokens(ordered[0].url).filter { kind(of: $0) == nil }
+            sets.append(Set(title: kept.joined(separator: " "), master: ordered[0].url, cutdowns: ordered.dropFirst().map(\.url),
+                            labels: labels(ordered.map(\.url))))
+        }
+        sets.sort { $0.title.localizedStandardCompare($1.title) == .orderedAscending }
+        return (sets, singles.sorted { $0.lastPathComponent.localizedStandardCompare($1.lastPathComponent) == .orderedAscending })
+    }
+
+    /// Master first: the longest (to a tenth of a second, so the order is consistent); on equal lengths one in a
+    /// "master" folder or named so, then the newest version, then by path (a run is repeatable).
+    static func isBefore(_ a: Video, _ b: Video) -> Bool {
+        let ta = Int((a.duration * 10).rounded()), tb = Int((b.duration * 10).rounded())
+        if ta != tb { return ta > tb }
+        let ma = a.url.path.lowercased().contains("master"), mb = b.url.path.lowercased().contains("master")
+        if ma != mb { return ma }
+        let va = versionNumbers(a.url), vb = versionNumbers(b.url)
+        if va != vb { return vb.lexicographicallyPrecedes(va) }   // the newer version first
+        return a.url.path < b.url.path
+    }
+
+    /// "30s", "GIF": each file's length token, with its version when the set's versions differ ("10s E1.0"), and its
+    /// folder when that still leaves two the same ("15s E2.0 (Cutdowns)").
+    static func labels(_ urls: [URL]) -> [URL: String] {
+        func pick(_ url: URL, _ kind: Kind) -> String? { tokens(url).first { Self.kind(of: $0) == kind } }
+        let versions = Swift.Set(urls.map { pick($0, .version) ?? "" })
+        var labels = Dictionary(uniqueKeysWithValues: urls.map { url -> (URL, String) in
+            var parts = [pick(url, .length)?.uppercased() == "GIF" ? "GIF" : pick(url, .length) ?? url.deletingPathExtension().lastPathComponent]
+            if versions.count > 1, let version = pick(url, .version) { parts.append(version) }
+            return (url, parts.joined(separator: " "))
+        })
+        for (_, same) in Dictionary(grouping: urls, by: { labels[$0] ?? "" }) where same.count > 1 {
+            for url in same { labels[url] = "\(labels[url] ?? "") (\(url.deletingLastPathComponent().lastPathComponent))" }
+        }
+        return labels
+    }
 }
 
 // MARK: - Matcher
@@ -118,11 +268,12 @@ public actor CropMatcher {
 
     public nonisolated func cancel() { cancellation.cancel() }
 
-    /// Matches every other video against `master` (nil: the longest of `files`). Videos of another shape than the
-    /// master's (aspect ratio off by more than 1 %) are listed as not compared. Results come back longest first.
-    public func run(master chosen: URL?, files all: [URL], progress: @escaping @Sendable (Progress) -> Void) async -> CropMatchRun? {
-        var shapes: [URL: (duration: Double, aspect: Double)] = [:]
+    /// Finds the sets in `files` (`CropMatchSets`) and matches each set's cutdowns against its master. Sets in name
+    /// order; within a set, results longest first.
+    public func run(files all: [URL], progress: @escaping @Sendable (Progress) -> Void) async -> CropMatchBatch {
+        var videos: [CropMatchSets.Video] = []
         for url in all {
+            if cancellation.isCancelled { break }
             let asset = AVURLAsset(url: url)
             let duration = CMTimeGetSeconds((try? await asset.load(.duration)) ?? .zero)
             var aspect = 0.0
@@ -131,46 +282,55 @@ public actor CropMatcher {
                 let oriented = size.applying(transform)
                 if oriented.height != 0 { aspect = abs(Double(oriented.width / oriented.height)) }
             }
-            shapes[url] = (duration.isFinite ? duration : 0, aspect)
+            videos.append(.init(url: url, duration: duration.isFinite ? duration : 0, aspect: aspect))
         }
-        guard let master = chosen ?? all.max(by: { (shapes[$0]?.duration ?? 0) < (shapes[$1]?.duration ?? 0) }) else { return nil }
-        let masterAspect = shapes[master]?.aspect ?? 0
-        let others = all.filter { $0 != master }
-        let cutdowns = others.filter { url in
-            let aspect = shapes[url]?.aspect ?? 0
-            return masterAspect == 0 || aspect == 0 || abs(aspect / masterAspect - 1) <= 0.01
+        let (sets, singles) = CropMatchSets.sets(videos)
+        // Two sets at a time: a small set (a master and a GIF) leaves the decoder and the cores idle on its own.
+        let tally = ProgressTally(total: sets.reduce(0) { $0 + 1 + $1.cutdowns.count })
+        let runs = await withTaskGroup(of: (Int, CropMatchRun?).self) { group in
+            var next = 0
+            func add() {
+                guard next < sets.count else { return }
+                let index = next, set = sets[index]
+                next += 1
+                group.addTask {
+                    guard !self.cancellation.isCancelled else { return (index, nil) }
+                    let (results, masterPrints) = await self.compare(master: set.master, cutdowns: set.cutdowns) { step in
+                        progress(tally.update(set: index, files: Double(step.fileIndex - 1) + step.fraction, name: step.fileName, phase: step.phase))
+                    }
+                    tally.finish(set: index, files: Double(1 + set.cutdowns.count))
+                    if self.cancellation.isCancelled && results.count < set.cutdowns.count { return (index, nil) }
+                    var run = CropMatchRun(master: set.master, masterName: set.master.lastPathComponent, results: results)
+                    run.title = set.title
+                    run.labels = set.labels
+                    if let masterPrints {
+                        run.masterSize = masterPrints.naturalSize
+                        run.masterFps = masterPrints.fps
+                        run.masterFrames = masterPrints.count
+                    }
+                    return (index, run)
+                }
+            }
+            add(); add()
+            var done = [Int: CropMatchRun]()
+            for await (index, run) in group {
+                if let run { done[index] = run }
+                add()
+            }
+            return sets.indices.compactMap { done[$0] }
         }
-        let skipped = others.filter { !cutdowns.contains($0) }.map { url in
-            var result = CropMatchResult(fileURL: url, fileName: url.lastPathComponent, fps: 0, totalFrames: 0, masterFps: 0, shots: [], readError: nil)
-            result.skipped = "Another shape (\(Self.ratio(shapes[url]?.aspect ?? 0)) against the master's \(Self.ratio(masterAspect))): not compared"
-            return result
-        }
-        let (compared, masterPrints) = await compare(master: master, cutdowns: cutdowns, progress: progress)
-        let byURL = Dictionary((compared + skipped).map { ($0.fileURL, $0) }, uniquingKeysWith: { a, _ in a })
-        // Longest first (a 30 s, then its 15, 10, 06 s), files not compared last.
-        let ordered = others.sorted { a, b in
-            let compareA = byURL[a]?.skipped == nil, compareB = byURL[b]?.skipped == nil
-            if compareA != compareB { return compareA }
-            return (shapes[a]?.duration ?? 0) > (shapes[b]?.duration ?? 0)
-        }
-        var run = CropMatchRun(master: master, masterName: master.lastPathComponent, results: ordered.compactMap { byURL[$0] })
-        if let masterPrints {
-            run.masterSize = masterPrints.naturalSize
-            run.masterFps = masterPrints.fps
-            run.masterFrames = masterPrints.count
-        }
-        return run
+        return CropMatchBatch(runs: runs, singles: singles)
     }
 
     /// "1:1", "16:9", "9:16", "4:5", or the ratio as a decimal.
-    static func ratio(_ aspect: Double) -> String {
+    public static func ratio(_ aspect: Double) -> String {
         for (w, h) in [(1, 1), (16, 9), (9, 16), (4, 5), (5, 4), (4, 3), (3, 4), (2, 1), (1, 2)] where abs(aspect - Double(w) / Double(h)) < 0.01 {
             return "\(w):\(h)"
         }
         return String(format: "%.2f:1", aspect)
     }
 
-    private func compare(master: URL, cutdowns: [URL], progress: @escaping @Sendable (Progress) -> Void) async -> ([CropMatchResult], Fingerprints?) {
+    private nonisolated func compare(master: URL, cutdowns: [URL], progress: @escaping @Sendable (Progress) -> Void) async -> ([CropMatchResult], Fingerprints?) {
         guard !cutdowns.isEmpty else { return ([], nil) }
         let files = [master] + cutdowns
         let total = files.count
@@ -234,7 +394,7 @@ public actor CropMatcher {
 
     /// Measures every shot's framing in up to 4 lanes at once (each its own readers; the search is CPU-bound and the
     /// decodes are short), keeping their order.
-    private func measure(_ shots: [CropMatchShot], path: [Int?], cutdown: URL, cutFps: Double, master: URL, masterPrints: Fingerprints,
+    private nonisolated func measure(_ shots: [CropMatchShot], path: [Int?], cutdown: URL, cutFps: Double, master: URL, masterPrints: Fingerprints,
                          progress: @escaping @Sendable (Double) -> Void) async -> [CropMatchShot] {
         let lanes = min(4, shots.count)
         guard lanes > 0 else { return shots }
@@ -393,6 +553,8 @@ public actor CropMatcher {
                 joined.scale = last.scale
                 joined.measuredCutdownFrame = last.measuredCutdownFrame
                 joined.measuredMasterFrame = last.measuredMasterFrame
+                joined.fit = min(last.fit, shot.fit)
+                joined.fitAsIs = min(last.fitAsIs, shot.fitAsIs)
                 joined.speed = Double((shot.masterEnd ?? 0) - (last.masterStart ?? 0)) / Double(max(1, shot.end - last.start))
                 out[out.count - 1] = joined
             } else {
@@ -402,6 +564,8 @@ public actor CropMatcher {
                 next.scale = shot.scale
                 next.measuredCutdownFrame = shot.measuredCutdownFrame
                 next.measuredMasterFrame = shot.measuredMasterFrame
+                next.fit = shot.fit
+                next.fitAsIs = shot.fitAsIs
                 next.speed = shot.speed
                 out.append(next)
             }
@@ -538,6 +702,26 @@ final class PunchInIndex: @unchecked Sendable {
         }
         return best
     }
+}
+
+/// Overall progress of sets running side by side: files done in each, reported as one file index and fraction.
+final class ProgressTally: @unchecked Sendable {
+    private let lock = NSLock()
+    private let total: Int
+    private var perSet: [Int: Double] = [:]
+
+    init(total: Int) { self.total = max(1, total) }
+
+    func update(set: Int, files: Double, name: String, phase: String) -> CropMatcher.Progress {
+        lock.withLock {
+            perSet[set] = max(perSet[set] ?? 0, files)
+            let done = min(Double(total), perSet.values.reduce(0, +))
+            let whole = min(total, Int(done) + 1)
+            return CropMatcher.Progress(fileIndex: whole, totalFiles: total, fileName: name, phase: phase, fraction: done - Double(whole - 1))
+        }
+    }
+
+    func finish(set: Int, files: Double) { lock.withLock { perSet[set] = files } }
 }
 
 /// A count shared by tasks.
@@ -710,6 +894,11 @@ final class FramingMeasurer: @unchecked Sendable {
     /// A punch-in found by the zoomed search must fit at least this well, on frames agreeing on its scale within 3 %;
     /// otherwise it was a chance likeness and the shot stays "not in the master".
     static let punchInFit: Float = 0.9
+    /// A reframe is reported only when the crop measured makes the pictures match this well. Measured: confirmed
+    /// reframes 0.981–0.9998 (a burned-in viewfinder overlay that doesn't scale with the picture keeps one at 0.983);
+    /// shots whose moment, focus or graphics differ from the master's 0.82–0.95.
+    static let reframeFit: Float = 0.97
+    static let looseFit = "Framing looks different, but the pictures don't match closely (timing, focus or graphics differ): compare by eye"
 
     func measure(_ shot: CropMatchShot, path: [Int?], masterCount: Int) async -> CropMatchShot {
         guard shot.verdict == .same else { return shot }
@@ -781,7 +970,17 @@ final class FramingMeasurer: @unchecked Sendable {
         let toMaster = Double(masterSize.width) / Double(w)
         shot.measuredCutdownFrame = worst.cut
         shot.measuredMasterFrame = worst.master
+        shot.fit = worst.framing.score
+        shot.fitAsIs = worst.framing.identityScore
         if worst.framing.isReframed(width: w, sourceScale: toMaster) {
+            // A crop that still leaves the pictures different isn't a measured reframe: another moment, a focus pull,
+            // different graphics. Shown to check by eye with what was measured.
+            if worst.framing.score < Self.reframeFit {
+                shot.verdict = .uncertain(Self.looseFit)
+                shot.shift = CGPoint(x: worst.framing.dx * toMaster, y: worst.framing.dy * toMaster)
+                shot.scale = worst.framing.scale
+                return shot
+            }
             shot.verdict = .reframed
             shot.shift = CGPoint(x: worst.framing.dx * toMaster, y: worst.framing.dy * toMaster)
             shot.scale = worst.framing.scale
@@ -1043,4 +1242,9 @@ public enum CropAligner {
         for k in out.indices { out[k] /= max(1, counts[k]) }
         return out
     }
+}
+
+private extension Character {
+    /// 0–9 only (`isNumber` also takes other scripts' digits and fractions).
+    var isASCIIDigit: Bool { ("0"..."9").contains(self) }
 }
