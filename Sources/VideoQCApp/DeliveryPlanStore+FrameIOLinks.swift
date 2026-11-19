@@ -40,10 +40,6 @@ extension DeliveryPlanStore {
         return rowsByCode?.map[code.lowercased()] ?? []
     }
 
-    nonisolated static func byteText(_ bytes: Int64) -> String {
-        ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file)
-    }
-
     /// "2026-11-05 10:42 UTC": the Uploaded column.
     nonisolated static func uploadStamp(_ date: Date) -> String {
         PlanUpload.stampFormatter.string(from: date) + " UTC"

@@ -1,6 +1,7 @@
 import Cocoa
 import CoreImage
 import Metal
+import VideoQCLib
 
 /// @MainActor Metal-accelerated exposure adjuster matching After Effects EV exposure math (I * 2^EV).
 @MainActor
@@ -17,18 +18,13 @@ public final class ExposureAdjuster {
         }
     }
     
-    /// Applies an exposure adjustment (in Exposure Value stops) to a CGImage.
-    /// Fast execution (~3ms on 1080p). Returns the original image pointer if EV is ~0.
-    public func applyExposure(to cgImage: CGImage, ev: Double) -> CGImage {
-        guard abs(ev) >= 0.001 else { return cgImage }
-        let ciImage = CIImage(cgImage: cgImage)
-        guard let filter = CIFilter(name: "CIExposureAdjust") else { return cgImage }
-        filter.setValue(ciImage, forKey: kCIInputImageKey)
-        filter.setValue(ev, forKey: kCIInputEVKey)
-        guard let outputCI = filter.outputImage,
-              let outCG = ciContext.createCGImage(outputCI, from: outputCI.extent) else {
-            return cgImage
-        }
-        return outCG
+    /// Applies the LUT, then the exposure (in EV stops), as the video composition does during playback.
+    /// Fast execution (~3ms on 1080p). Returns the original image if there is nothing to apply.
+    func applyLook(to cgImage: CGImage, ev: Double, lut: CubeLUT?) -> CGImage {
+        guard abs(ev) >= 0.001 || lut != nil else { return cgImage }
+        var image = CIImage(cgImage: cgImage)
+        if let lut { image = image.applyingLUT(lut) }
+        if abs(ev) >= 0.001 { image = image.applyingFilter("CIExposureAdjust", parameters: [kCIInputEVKey: ev]) }
+        return ciContext.createCGImage(image, from: image.extent) ?? cgImage
     }
 }

@@ -15,7 +15,8 @@ struct AddNotePopoverView: View {
     @AppStorage("reviewerName") private var storedReviewerName: String = ""
     @State private var author: String = ""
     @State private var noteText: String = ""
-    @State private var selectedColor: String = "cyan"
+    /// Shared with the Notes drawer: the colour picked last, for typed and drawn notes alike.
+    @AppStorage("noteColor") private var selectedColor: String = "cyan"
     @FocusState private var isNoteFocused: Bool
     
     private var palette: StudioPalette { StudioPalette(isLightMode) }

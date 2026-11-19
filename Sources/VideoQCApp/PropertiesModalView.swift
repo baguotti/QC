@@ -126,44 +126,11 @@ public struct ExtendedMediaInfo: Sendable {
                 let subType = CMFormatDescriptionGetMediaSubType(desc)
                 let fourCC = QCUtilities.fourCCToString(subType).lowercased()
                 
-                switch subType {
-                case kCMVideoCodecType_H264:
-                    info.videoFormat = "h264"
-                    info.videoCodecLong = "H.264 / AVC / MPEG-4 AVC / MPEG-4 part 10"
-                    info.pixelFormat = "nv12 (HW) / 8-bit 4:2:0"
-                case kCMVideoCodecType_HEVC:
-                    info.videoFormat = "hevc"
-                    info.videoCodecLong = "H.265 / HEVC (High Efficiency Video Coding)"
-                    info.pixelFormat = "nv12 / p010 (HW)"
-                case kCMVideoCodecType_HEVCWithAlpha:
-                    info.videoFormat = "hevc"
-                    info.videoCodecLong = "H.265 / HEVC + Alpha Channel"
-                    info.pixelFormat = "yuva420p (HW + Alpha)"
-                case kCMVideoCodecType_AppleProRes422HQ:
-                    info.videoFormat = "prores"
-                    info.videoCodecLong = "Apple ProRes 422 HQ (apch)"
-                    info.pixelFormat = "yuv422p10le (10-bit)"
-                case kCMVideoCodecType_AppleProRes422:
-                    info.videoFormat = "prores"
-                    info.videoCodecLong = "Apple ProRes 422 (apcn)"
-                    info.pixelFormat = "yuv422p10le (10-bit)"
-                case kCMVideoCodecType_AppleProRes422LT:
-                    info.videoFormat = "prores"
-                    info.videoCodecLong = "Apple ProRes 422 LT (apcs)"
-                    info.pixelFormat = "yuv422p10le (10-bit)"
-                case kCMVideoCodecType_AppleProRes422Proxy:
-                    info.videoFormat = "prores"
-                    info.videoCodecLong = "Apple ProRes 422 Proxy (apco)"
-                    info.pixelFormat = "yuv422p10le (10-bit)"
-                case kCMVideoCodecType_AppleProRes4444:
-                    info.videoFormat = "prores"
-                    info.videoCodecLong = "Apple ProRes 4444 (ap4h)"
-                    info.pixelFormat = "yuv444p10le / 12-bit"
-                case kCMVideoCodecType_AppleProRes4444XQ:
-                    info.videoFormat = "prores"
-                    info.videoCodecLong = "Apple ProRes 4444 XQ (ap4x)"
-                    info.pixelFormat = "yuv444p12le (12-bit)"
-                default:
+                if let names = CodecNames.video(subType) {
+                    info.videoFormat = names.format
+                    info.videoCodecLong = names.long
+                    info.pixelFormat = names.pixelFormat
+                } else {
                     info.videoFormat = fourCC.isEmpty ? "video" : fourCC
                     info.videoCodecLong = baseAsset?.videoCodec ?? fourCC.uppercased()
                     info.pixelFormat = "yuv420p (HW)"
@@ -215,9 +182,6 @@ public struct ExtendedMediaInfo: Sendable {
                let asbd = CMAudioFormatDescriptionGetStreamBasicDescription(desc)?.pointee {
                 
                 switch asbd.mFormatID {
-                case kAudioFormatMPEG4AAC, kAudioFormatMPEG4AAC_HE, kAudioFormatMPEG4AAC_HE_V2, kAudioFormatMPEG4AAC_Spatial:
-                    info.audioFormat = "aac"
-                    info.audioCodecLong = "AAC (Advanced Audio Coding)"
                 case kAudioFormatLinearPCM:
                     let bits = asbd.mBitsPerChannel
                     // From the flags: .mov PCM is often big-endian ("in24", "twos"), and 32-bit can be float.
@@ -226,28 +190,15 @@ public struct ExtendedMediaInfo: Sendable {
                     let sign = isFloat ? "f" : bits == 8 ? "u" : "s"
                     info.audioFormat = bits > 0 ? "pcm_\(sign)\(bits)\(bits == 8 ? "" : endian)" : "pcm"
                     info.audioCodecLong = bits > 0 ? "Linear PCM (\(bits)-bit \(isFloat ? "float" : "integer"), uncompressed)" : "Linear PCM (uncompressed)"
-                case kAudioFormatAppleLossless:
-                    info.audioFormat = "alac"
-                    info.audioCodecLong = "Apple Lossless (ALAC)"
-                case kAudioFormatAC3:
-                    info.audioFormat = "ac3"
-                    info.audioCodecLong = "AC-3 (Dolby Digital)"
-                case kAudioFormatEnhancedAC3:
-                    info.audioFormat = "eac3"
-                    info.audioCodecLong = "E-AC-3 (Dolby Digital Plus)"
-                case kAudioFormatMPEGLayer3:
-                    info.audioFormat = "mp3"
-                    info.audioCodecLong = "MPEG Layer 3 (MP3)"
-                case kAudioFormatFLAC:
-                    info.audioFormat = "flac"
-                    info.audioCodecLong = "FLAC (Free Lossless Audio Codec)"
-                case kAudioFormatOpus:
-                    info.audioFormat = "opus"
-                    info.audioCodecLong = "Opus Interactive Audio Codec"
                 default:
-                    let fourCC = QCUtilities.fourCCToString(asbd.mFormatID).lowercased()
-                    info.audioFormat = fourCC.isEmpty ? "audio" : fourCC
-                    info.audioCodecLong = baseAsset?.audioCodec ?? fourCC.uppercased()
+                    if let names = CodecNames.audio(asbd.mFormatID) {
+                        info.audioFormat = names.format
+                        info.audioCodecLong = names.long
+                    } else {
+                        let fourCC = QCUtilities.fourCCToString(asbd.mFormatID).lowercased()
+                        info.audioFormat = fourCC.isEmpty ? "audio" : fourCC
+                        info.audioCodecLong = baseAsset?.audioCodec ?? fourCC.uppercased()
+                    }
                 }
                 
                 let ch = asbd.mChannelsPerFrame
@@ -414,19 +365,13 @@ public struct ExtendedMediaInfo: Sendable {
         }
     }
     
-    public static func formattedByteString(_ bytes: Int64) -> String {
-        let formatter = NumberFormatter()
-        formatter.numberStyle = .decimal
-        let numStr = formatter.string(from: NSNumber(value: bytes)) ?? "\(bytes)"
-        return "\(numStr) bytes"
-    }
     
     public static func buildSpecsText(asset: DeliverableAsset, info: ExtendedMediaInfo?) -> String {
         var lines: [String] = []
         lines.append("MEDIA INFO // \(asset.fileName)")
         lines.append("File Path: \(asset.fileURL.path)")
         lines.append("Container: \(containerType(for: asset.fileURL))")
-        lines.append("File Size: \(asset.formattedFileSize) (\(formattedByteString(asset.fileSizeBytes)))")
+        lines.append("File Size: \(asset.formattedFileSize) (\(QCUtilities.exactBytes(asset.fileSizeBytes)))")
         if let info, info.isImage {
             lines += info.imageDetails.map { "\($0.label) \($0.value)" }
             lines.append("Created: \(asset.formattedCreationDate)")
@@ -761,7 +706,7 @@ public struct PropertiesModalView: View {
                     infoRow(label: "File Name:", value: asset.fileName)
                     infoRow(label: "File Path:", value: asset.fileURL.path, copyable: true)
                     infoRow(label: "Container Type:", value: containerType)
-                    infoRow(label: "File Size:", value: "\(asset.formattedFileSize) (\(formattedByteString(asset.fileSizeBytes)))")
+                    infoRow(label: "File Size:", value: "\(asset.formattedFileSize) (\(QCUtilities.exactBytes(asset.fileSizeBytes)))")
                     infoRow(label: "Created:", value: asset.formattedCreationDate)
                     infoRow(label: "Modified:", value: info.fileModifiedDate)
                 }
@@ -909,13 +854,6 @@ public struct PropertiesModalView: View {
     }
     
     // MARK: - Specs Text Export
-    
-    private func formattedByteString(_ bytes: Int64) -> String {
-        let formatter = NumberFormatter()
-        formatter.numberStyle = .decimal
-        let numStr = formatter.string(from: NSNumber(value: bytes)) ?? "\(bytes)"
-        return "\(numStr) bytes"
-    }
     
     private func copyToClipboard(_ text: String) {
         NSPasteboard.general.clearContents()

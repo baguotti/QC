@@ -15,84 +15,46 @@ public struct ReportWriter: Sendable {
         return (tagged, failed)
     }
     
-    // MARK: - Google Sheets / CSV Report Generator
-    
-    /// Generates a simple, Google Sheets compatible CSV document listing every file, lines found, timecodes, and locations
-    public static func generateCSVReport(
-        results: [VideoQCResult]
-    ) -> String {
-        var csv = "File Name,Lines Found,Timecode,Location,Duration,Detected Color\n"
-        
-        for result in results {
-            let fileName = result.fileName
-            if let readError = result.readError {
-                csv += "\(QCUtilities.escapeCSV(fileName)),Unreadable,--,\(QCUtilities.escapeCSV(readError)),\(result.totalFrames) frames checked,--\n"
-            }
-            if result.glitchSegments.isEmpty && result.readError == nil {
-                // Clean file
-                csv += "\(QCUtilities.escapeCSV(fileName)),No,--,--,--,--\n"
-            } else {
-                let segments = result.glitchSegments
-                for (idx, seg) in segments.enumerated() {
-                    let displayName = segments.count > 1 ? "\(fileName) (Segment \(idx + 1))" : fileName
-                    let linesFound = "Yes (\(segments.count) total)"
-                    let timecode = seg.startTimecode == seg.endTimecode ? seg.startTimecode : "\(seg.startTimecode) -> \(seg.endTimecode)"
-                    let location: String
-                    switch seg.edge {
-                    case .top, .bottom, .left, .right:
-                        location = "\(seg.edge.rawValue.capitalized) Edge (\(seg.avgThickness)px)\(seg.locationDetail.map { ", \($0)" } ?? "")\(seg.isOffColor ? " - off-colour" : "")"
-                    case .splitHorizontal, .splitVertical:
-                        location = "\(seg.edge.rawValue) (\(seg.avgThickness)px)\(seg.locationDetail.map { ", \($0)" } ?? "")"
-                    }
-                    let duration = "\(seg.frameCount) frame\(seg.frameCount == 1 ? "" : "s") (\(String(format: "%.2f", seg.durationSeconds))s)"
-                    let color = seg.detectedColor.hexString.uppercased()
-                    
-                    csv += "\(QCUtilities.escapeCSV(displayName)),\(QCUtilities.escapeCSV(linesFound)),\(QCUtilities.escapeCSV(timecode)),\(QCUtilities.escapeCSV(location)),\(QCUtilities.escapeCSV(duration)),\(QCUtilities.escapeCSV(color))\n"
-                }
-            }
-        }
-        
-        return csv
+    // MARK: - Google Sheets / CSV and TSV Reports
+
+    /// Every file, lines found, timecodes and locations, for Google Sheets (CSV file).
+    public static func generateCSVReport(results: [VideoQCResult]) -> String {
+        QCUtilities.delimited(reportRows(results), format: .csv)
     }
-    
-    // MARK: - Google Sheets / TSV Report Generator (Clipboard)
-    
-    /// Generates a tab-separated values (TSV) report listing every file, lines found, timecodes, and locations, optimized for direct clipboard paste into Google Sheets
-    public static func generateTSVReport(
-        results: [VideoQCResult]
-    ) -> String {
-        var tsv = "File Name\tLines Found\tTimecode\tLocation\tDuration\tDetected Color\n"
-        
+
+    /// The same rows tab-separated, for pasting straight into Google Sheets.
+    public static func generateTSVReport(results: [VideoQCResult]) -> String {
+        QCUtilities.delimited(reportRows(results), format: .tsv)
+    }
+
+    static func reportRows(_ results: [VideoQCResult]) -> [[String]] {
+        var rows = [["File Name", "Lines Found", "Timecode", "Location", "Duration", "Detected Color"]]
         for result in results {
             let fileName = result.fileName
             if let readError = result.readError {
-                tsv += "\(QCUtilities.escapeTSV(fileName))\tUnreadable\t--\t\(QCUtilities.escapeTSV(readError))\t\(result.totalFrames) frames checked\t--\n"
+                rows.append([fileName, "Unreadable", "--", readError, "\(result.totalFrames) frames checked", "--"])
             }
             if result.glitchSegments.isEmpty && result.readError == nil {
-                // Clean file
-                tsv += "\(QCUtilities.escapeTSV(fileName))\tNo\t--\t--\t--\t--\n"
-            } else {
-                let segments = result.glitchSegments
-                for (idx, seg) in segments.enumerated() {
-                    let displayName = segments.count > 1 ? "\(fileName) (Segment \(idx + 1))" : fileName
-                    let linesFound = "Yes (\(segments.count) total)"
-                    let timecode = seg.startTimecode == seg.endTimecode ? seg.startTimecode : "\(seg.startTimecode) -> \(seg.endTimecode)"
-                    let location: String
-                    switch seg.edge {
-                    case .top, .bottom, .left, .right:
-                        location = "\(seg.edge.rawValue.capitalized) Edge (\(seg.avgThickness)px)\(seg.locationDetail.map { ", \($0)" } ?? "")\(seg.isOffColor ? " - off-colour" : "")"
-                    case .splitHorizontal, .splitVertical:
-                        location = "\(seg.edge.rawValue) (\(seg.avgThickness)px)\(seg.locationDetail.map { ", \($0)" } ?? "")"
-                    }
-                    let duration = "\(seg.frameCount) frame\(seg.frameCount == 1 ? "" : "s") (\(String(format: "%.2f", seg.durationSeconds))s)"
-                    let color = seg.detectedColor.hexString.uppercased()
-                    
-                    tsv += "\(QCUtilities.escapeTSV(displayName))\t\(QCUtilities.escapeTSV(linesFound))\t\(QCUtilities.escapeTSV(timecode))\t\(QCUtilities.escapeTSV(location))\t\(QCUtilities.escapeTSV(duration))\t\(QCUtilities.escapeTSV(color))\n"
+                rows.append([fileName, "No", "--", "--", "--", "--"])
+                continue
+            }
+            let segments = result.glitchSegments
+            for (idx, seg) in segments.enumerated() {
+                let displayName = segments.count > 1 ? "\(fileName) (Segment \(idx + 1))" : fileName
+                let timecode = seg.startTimecode == seg.endTimecode ? seg.startTimecode : "\(seg.startTimecode) -> \(seg.endTimecode)"
+                let location: String
+                switch seg.edge {
+                case .top, .bottom, .left, .right:
+                    location = "\(seg.edge.rawValue.capitalized) Edge (\(seg.avgThickness)px)\(seg.locationDetail.map { ", \($0)" } ?? "")\(seg.isOffColor ? " - off-colour" : "")"
+                case .splitHorizontal, .splitVertical:
+                    location = "\(seg.edge.rawValue) (\(seg.avgThickness)px)\(seg.locationDetail.map { ", \($0)" } ?? "")"
                 }
+                let duration = "\(seg.frameCount) frame\(seg.frameCount == 1 ? "" : "s") (\(String(format: "%.2f", seg.durationSeconds))s)"
+                rows.append([displayName, "Yes (\(segments.count) total)", timecode, location, duration,
+                             seg.detectedColor.hexString.uppercased()])
             }
         }
-        
-        return tsv
+        return rows
     }
     
     // MARK: - HTML Report

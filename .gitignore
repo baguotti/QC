@@ -15,3 +15,10 @@ server/notes-sync/.wrangler/
 
 # Adobe SDK (downloaded, licence-restricted)
 premiere/Premiere Pro*C++ SDK/
+
+# Local-only material (presentations, test projects, scratch assets)
+__PRESENTATION/
+_TEST FOOTAGE/
+premiere/_TESTING GROUNDS/
+_assets/Hamster/
+_assets/Hamster_Alpha/

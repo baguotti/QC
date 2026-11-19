@@ -59,6 +59,7 @@ public struct PlayerQueuePanelView: View, Equatable {
     public var onOpenNotes: (_ url: URL) -> Void
     public var onSetReadAsSequence: (_ url: URL, _ asSequence: Bool) -> Void = { _, _ in }
     public var onSetSequenceFPS: (_ url: URL, _ fps: Double) -> Void = { _, _ in }
+    public var onLUTAssigned: (_ urls: [URL]) -> Void = { _ in }
     public var onToggleTag: (_ tag: FinderTagColor, _ url: URL) -> Void
     public var onClearTag: (_ url: URL) -> Void
     public var onDrop: (_ providers: [NSItemProvider]) -> Bool
@@ -111,6 +112,12 @@ public struct PlayerQueuePanelView: View, Equatable {
     private var accentBlue: Color { StudioTheme.accentBlue(isLightMode) }
     @AppStorage("queueDisplayMode") private var queueDisplayMode: String = "inline"
     @AppStorage("playerThumbnailSize") private var playerThumbnailSize: Double = 52.0
+    /// ⌘-click / ⇧-click selection, for actions on several files (LUT). Kept here so a click redraws the queue only.
+    @State private var selection: Set<URL> = []
+    @State private var selectionAnchor: URL? = nil
+    /// The selection as menus read it when an item is chosen: rows are equatable, so a closure they captured
+    /// would be stale once the selection changed without changing that row.
+    @State private var selectionBox = QueueSelectionBox()
     
     private var hasSubfolders: Bool {
         FileSystemTreeBuilder.hasSubfolders(in: playerTreeNodes)
@@ -246,7 +253,8 @@ public struct PlayerQueuePanelView: View, Equatable {
                                         let isSelA = isSameURL(slotAURL, node.url)
                                         let isSelB = isSameURL(slotBURL, node.url)
                                         let count = fileNotesCount(url: node.url)
-                                        makeFileRow(url: node.url, depth: node.depth, isSlotA: isSelA, isSlotB: isSelB, notesCount: count)
+                                        makeFileRow(url: node.url, depth: node.depth, isSlotA: isSelA, isSlotB: isSelB, notesCount: count,
+                                                    isPicked: selection.contains(node.url))
                                     }
                                 }
                             }
@@ -254,6 +262,12 @@ public struct PlayerQueuePanelView: View, Equatable {
                         .clipped()
                         .onDrop(of: [UTType.fileURL.identifier], isTargeted: nil) { providers in
                             onDrop(providers)
+                        }
+                        // A new or changed queue drops the selection (it could hold files no longer listed).
+                        .onChange(of: queueVersion) { _, _ in
+                            selection = []
+                            selectionAnchor = nil
+                            selectionBox.urls = []
                         }
                         .onChange(of: queueScrollTarget) { _, targetURL in
                             if let targetURL = targetURL {
@@ -476,12 +490,46 @@ public struct PlayerQueuePanelView: View, Equatable {
         return QCNotesManager.cachedNotesCount(for: url) ?? 0
     }
     
-    private func makeFileRow(url: URL, depth: Int = 0, isSlotA: Bool, isSlotB: Bool, notesCount: Int) -> some View {
-        PlayerQueueFileRowView(
+    /// Finder-style: ⌘-click adds or removes a file, ⇧-click selects the range from the last click (or slot A's file).
+    /// A plain click loads the file as before and clears the selection. Returns true when the click only selected.
+    private func handleSelectClick(_ url: URL, _ modifiers: NSEvent.ModifierFlags) -> Bool {
+        var picked = selection
+        defer {
+            if picked != selection { selection = picked }
+            selectionBox.urls = picked
+        }
+        // Slot A's file reads as selected: the first ⌘/⇧-click starts from it.
+        let seed = slotAURL.flatMap { a in videoFiles.first { isSameURL($0, a) } }
+        if modifiers.contains(.command) {
+            if picked.isEmpty, let seed { picked.insert(seed) }
+            if picked.contains(url) { picked.remove(url) } else { picked.insert(url) }
+            selectionAnchor = url
+            return true
+        }
+        if modifiers.contains(.shift) {
+            let order = queueRows.filter { !$0.isDirectory }.map(\.url)
+            let anchor = selectionAnchor ?? seed ?? url
+            if let a = order.firstIndex(of: anchor), let b = order.firstIndex(of: url) {
+                picked = Set(order[min(a, b)...max(a, b)])
+            } else {
+                picked.insert(url)
+            }
+            return true
+        }
+        picked = []
+        selectionAnchor = url
+        return false
+    }
+    
+    private func makeFileRow(url: URL, depth: Int = 0, isSlotA: Bool, isSlotB: Bool, notesCount: Int, isPicked: Bool = false) -> some View {
+        let box = selectionBox
+        return PlayerQueueFileRowView(
             url: url,
             depth: depth,
             isSlotA: isSlotA,
             isSlotB: isSlotB,
+            isPicked: isPicked,
+            menuTargetsSelection: isPicked && selection.count > 1,
             hasSlotB: slotBURL != nil,
             notesCount: notesCount,
             currentTag: fileTagsMap[url],
@@ -506,7 +554,10 @@ public struct PlayerQueuePanelView: View, Equatable {
             onToggleTag: onToggleTag,
             onClearTag: onClearTag,
             onSetReadAsSequence: onSetReadAsSequence,
-            onSetSequenceFPS: onSetSequenceFPS
+            onSetSequenceFPS: onSetSequenceFPS,
+            onLUTAssigned: onLUTAssigned,
+            selectedFiles: { box.urls.sorted { $0.path < $1.path } },
+            onSelectClick: handleSelectClick
         )
         .equatable()
     }
@@ -635,4 +686,10 @@ struct QueueViewOptionsButton: View {
         .background(bgPanel)
     }
     
+}
+
+/// The queue's selection, read by row menus when an item is chosen (see `PlayerQueuePanelView.selectionBox`).
+@MainActor
+final class QueueSelectionBox {
+    var urls: Set<URL> = []
 }

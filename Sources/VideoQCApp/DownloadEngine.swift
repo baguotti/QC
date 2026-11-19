@@ -150,15 +150,15 @@ final class DownloadEngine: Sendable {
 
     nonisolated static func readBack(_ file: URL, size: Int64, etag: String?) async throws -> TransferChecksum.ReadBack {
         let partSize = TransferChecksum.partSize(size: size, parts: etag.map(TransferChecksum.partCount(of:)) ?? 1)
-        let stop = StopFlag()
+        let stop = CancellationState()
         return try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { continuation in
                 verifyQueue.async {
-                    continuation.resume(with: Result { try TransferChecksum.readBack(file, partSize: max(1, partSize), shouldStop: stop.isSet) })
+                    continuation.resume(with: Result { try TransferChecksum.readBack(file, partSize: max(1, partSize), shouldStop: { stop.isCancelled }) })
                 }
             }
         } onCancel: {
-            stop.set()
+            stop.cancel()
         }
     }
 
@@ -460,14 +460,6 @@ final class ETagBox: @unchecked Sendable {
             raw = tag
         }
     }
-}
-
-/// Set from a task's cancellation handler, read by work running outside the task (a dispatch queue).
-final class StopFlag: @unchecked Sendable {
-    private let lock = NSLock()
-    private var stopped = false
-    func set() { lock.withLock { stopped = true } }
-    func isSet() -> Bool { lock.withLock { stopped } }
 }
 
 enum DownloadError: LocalizedError {

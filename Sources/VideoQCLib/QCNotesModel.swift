@@ -14,6 +14,11 @@ public struct QCFileNote: Identifiable, Codable, Sendable, Equatable, Hashable {
     public var editedAt: Date?
     /// Reply thread (absent in older files).
     public var replies: [QCNoteReply]
+    /// Strokes drawn on the frame (absent in older files and in notes without one): each stroke is x0, y0, x1, y1…
+    /// in 0–1 of the picture as shown, origin top-left.
+    public var drawing: [[Double]]?
+    /// The text of a note made by drawing, until the reviewer writes one.
+    public static let drawingPlaceholder = "Drawing"
     
     public init(
         id: UUID = UUID(),
@@ -25,7 +30,8 @@ public struct QCFileNote: Identifiable, Codable, Sendable, Equatable, Hashable {
         createdAt: Date = Date(),
         isResolved: Bool = false,
         editedAt: Date? = nil,
-        replies: [QCNoteReply] = []
+        replies: [QCNoteReply] = [],
+        drawing: [[Double]]? = nil
     ) {
         self.id = id
         self.frameIndex = frameIndex
@@ -37,10 +43,11 @@ public struct QCFileNote: Identifiable, Codable, Sendable, Equatable, Hashable {
         self.isResolved = isResolved
         self.editedAt = editedAt
         self.replies = replies
+        self.drawing = drawing
     }
     
     private enum CodingKeys: String, CodingKey {
-        case id, frameIndex, timecode, author, text, colorTag, createdAt, isResolved, editedAt, replies
+        case id, frameIndex, timecode, author, text, colorTag, createdAt, isResolved, editedAt, replies, drawing
     }
     
     public init(from decoder: Decoder) throws {
@@ -55,6 +62,7 @@ public struct QCFileNote: Identifiable, Codable, Sendable, Equatable, Hashable {
         isResolved = try c.decodeIfPresent(Bool.self, forKey: .isResolved) ?? false
         editedAt = try c.decodeIfPresent(Date.self, forKey: .editedAt)
         replies = try c.decodeIfPresent([QCNoteReply].self, forKey: .replies) ?? []
+        drawing = try c.decodeIfPresent([[Double]].self, forKey: .drawing)
     }
 }
 

@@ -20,6 +20,10 @@ struct ContentView: View {
     @State var showUserSettingsModal: Bool = false
     @State var showPropertiesModal: Bool = false
     @State var showAddNoteModal: Bool = false
+    /// A note just drawn on: the Notes drawer opens it for its text when draw mode ends.
+    @State var drawnNoteToEdit: UUID? = nil
+    /// Strokes are saved together once drawing pauses (`ContentView+NoteDrawing`).
+    @State var drawingSaveTask: Task<Void, Never>? = nil
     @State var showNotesDrawer: Bool = false
     @State var playerDrawerTab: PlayerDrawerTab = .mediaInfo
     /// Notes another Mac added to the shown clip that haven't been seen in the Notes tab yet.
@@ -52,6 +56,8 @@ struct ContentView: View {
     @AppStorage("playerThumbnailSize") var playerThumbnailSize: Double = 52.0
     @AppStorage("playerQueueWidth") var playerQueueWidth: Double = 360.0
     @AppStorage("scanPanelWidth") var scanPanelWidth: Double = 400.0
+    /// The Scan tab's checks panel (assets and the checks' settings), hidden and shown like every tab's left panel.
+    @AppStorage("scanPanelOpen") var showScanPanel: Bool = true
     @AppStorage(LoudnessTarget.presetKey) var loudnessTargetID: String = "r128"
     @AppStorage(LoudnessTarget.customIntegratedKey) var loudnessCustomLUFS: Double = -23
     @AppStorage(LoudnessTarget.customToleranceKey) var loudnessCustomTolerance: Double = 1
@@ -68,8 +74,6 @@ struct ContentView: View {
     @ObservedObject private var updateManager = UpdateManager.shared
     @ObservedObject var themeManager = ThemeManager.shared
     @ObservedObject private var fileOpenManager = FileOpenManager.shared
-    @State private var hoveredTab: AppTab? = nil
-    @State var hoveredResizeColumn: SpecsSortColumn? = nil
     
     // Shared Folder & Video Files
     @State var folderURL: URL? = nil
@@ -224,6 +228,7 @@ struct ContentView: View {
             .animation(Motion.sleeve, value: showNotesDrawer)
             .animation(Motion.sleeve, value: showPlayerQueue)
             .animation(Motion.sleeve, value: showSpecsControlPanel)
+            .animation(Motion.sleeve, value: showScanPanel)
             .animation(Motion.sleeve, value: showInspectPlan)
             .animation(Motion.fade, value: fullscreenMode)
             .animation(Motion.toast, value: toastMessage)
@@ -416,12 +421,16 @@ struct ContentView: View {
                 fileOpenManager.pendingURLs = []
             }
             .onAppear {
+                // Draw mode: each finished stroke goes into a note (ContentView owns adding and saving notes).
+                playerEngine.onStrokeFinished = { stroke in commitStroke(stroke) }
+                playerEngine.onDrawingEnded = { id in offerDrawnNoteText(id) }
                 #if DEBUG
                 if ResizeBench.output != nil {
                     selectedTab = ResizeBench.tab
                     if let folder = ResizeBench.folder { loadAssets([folder], append: false) }
                     Task { await ResizeBench.run() }
                 }
+                if LUTCheck.output != nil { Task { await LUTCheck.run(engine: playerEngine) } }
                 if UIShots.output != nil {
                     if let folder = ResizeBench.folder { loadAssets([folder], append: false) }
                     Task {
@@ -431,6 +440,7 @@ struct ContentView: View {
                                 showPlayerQueue = true
                                 showNotesDrawer = true
                                 showSpecsControlPanel = true
+                                showScanPanel = true
                                 showInspectPlan = true
                                 UserDefaults.standard.set(true, forKey: "uploadLogOpen")
                             },
@@ -688,88 +698,22 @@ struct ContentView: View {
             .explain("Settings: Software Update, LineFinder for Premiere Pro, User Settings, Theme, Synced Projects, Info & Guide, and Feedback.")
             .popover(isPresented: $showSettingsPopover, arrowEdge: .bottom) {
                 VStack(alignment: .leading, spacing: 4) {
-                    Button(action: {
-                        showSettingsPopover = false
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) {
-                            updateManager.checkForUpdates(userInitiated: true)
-                        }
-                    }) {
-                        HStack(spacing: 8) {
-                            Image(systemName: updateManager.hasUpdate ? "arrow.down.circle.fill" : "arrow.triangle.2.circlepath")
-                                .font(.system(size: StudioTheme.scaleFont(11), weight: .bold))
-                                .foregroundColor(updateManager.hasUpdate ? accentPositive : textMain)
-                                .frame(width: 16)
-                            Text(updateManager.hasUpdate ? "Software Update (v\(updateManager.latestVersion) available)" : "Software Update (v\(AppVersionInfo.version))")
-                                .font(.ui(size: 11, weight: .semibold))
-                                .foregroundColor(updateManager.hasUpdate ? accentPositive : textMain)
-                        }
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 7)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .contentShape(Rectangle())
+                    settingsMenuButton(fadeIn: false, { updateManager.checkForUpdates(userInitiated: true) }) {
+                        settingsMenuLabel(updateManager.hasUpdate ? "arrow.down.circle.fill" : "arrow.triangle.2.circlepath",
+                                          updateManager.hasUpdate ? "Software Update (v\(updateManager.latestVersion) available)" : "Software Update (v\(AppVersionInfo.version))",
+                                          tint: updateManager.hasUpdate ? accentPositive : textMain)
                     }
-                    .buttonStyle(.plain)
-
-                    Button(action: {
-                        showSettingsPopover = false
-                        NSWorkspace.shared.open(AppConfig.latestReleaseWebURL)
-                    }) {
-                        HStack(spacing: 8) {
-                            Image(systemName: "puzzlepiece.extension")
-                                .font(.system(size: StudioTheme.scaleFont(11), weight: .bold))
-                                .foregroundColor(textMain)
-                                .frame(width: 16)
-                            Text("LineFinder for Premiere Pro")
-                                .font(.ui(size: 11, weight: .semibold))
-                                .foregroundColor(textMain)
-                        }
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 7)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .contentShape(Rectangle())
+                    settingsMenuButton(delayed: false, { NSWorkspace.shared.open(AppConfig.latestReleaseWebURL) }) {
+                        settingsMenuLabel("puzzlepiece.extension", "LineFinder for Premiere Pro")
                     }
-                    .buttonStyle(.plain)
-                    
-                    Rectangle().fill(borderLine).frame(height: 1)
-                    
-                    Button(action: {
-                        showSettingsPopover = false
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) {
-                            withAnimation(Motion.fade) {
-                                showUserSettingsModal = true
-                            }
-                        }
-                    }) {
-                        HStack(spacing: 8) {
-                            Image(systemName: "person.crop.circle")
-                                .font(.system(size: StudioTheme.scaleFont(11), weight: .bold))
-                                .foregroundColor(textMain)
-                                .frame(width: 16)
-                            Text("User Settings")
-                                .font(.ui(size: 11, weight: .semibold))
-                                .foregroundColor(textMain)
-                            Spacer(minLength: 8)
-                            Text("⌘,")
-                                .font(.ui(size: 11))
-                                .foregroundColor(textMuted)
-                        }
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 7)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .contentShape(Rectangle())
+                    settingsMenuDivider
+                    settingsMenuButton({ showUserSettingsModal = true }) {
+                        settingsMenuLabel("person.crop.circle", "User Settings", shortcut: "⌘,")
                     }
-                    .buttonStyle(.plain)
-                    
-                    Rectangle().fill(borderLine).frame(height: 1)
-                    
-                    Button(action: {
-                        showSettingsPopover = false
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) {
-                            withAnimation(Motion.fade) {
-                                UserDefaults.standard.set("Appearance", forKey: UserSettingsModalView.paneKey)
-                                showUserSettingsModal = true
-                            }
-                        }
+                    settingsMenuDivider
+                    settingsMenuButton({
+                        UserDefaults.standard.set("Appearance", forKey: UserSettingsModalView.paneKey)
+                        showUserSettingsModal = true
                     }) {
                         HStack(spacing: 8) {
                             Image(systemName: "paintpalette.fill")
@@ -793,90 +737,13 @@ struct ContentView: View {
                                 Circle().fill(themeManager.currentTheme.warnColor).frame(width: 5, height: 5)
                             }
                         }
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 7)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .contentShape(Rectangle())
                     }
-                    .buttonStyle(.plain)
-                    
-                    Rectangle().fill(borderLine).frame(height: 1)
-                    
-                    Button(action: {
-                        showSettingsPopover = false
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) {
-                            withAnimation(Motion.fade) {
-                                showSyncModal = true
-                            }
-                        }
-                    }) {
-                        HStack(spacing: 8) {
-                            Image(systemName: "icloud")
-                                .font(.system(size: StudioTheme.scaleFont(11), weight: .bold))
-                                .foregroundColor(textMain)
-                                .frame(width: 16)
-                            Text("Synced Projects")
-                                .font(.ui(size: 11, weight: .semibold))
-                                .foregroundColor(textMain)
-                        }
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 7)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                    
-                    Rectangle().fill(borderLine).frame(height: 1)
-                    
-                    Button(action: {
-                        showSettingsPopover = false
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) {
-                            withAnimation(Motion.fade) {
-                                showUserGuide = true
-                            }
-                        }
-                    }) {
-                        HStack(spacing: 8) {
-                            Image(systemName: "info.circle")
-                                .font(.system(size: StudioTheme.scaleFont(11), weight: .bold))
-                                .foregroundColor(textMain)
-                                .frame(width: 16)
-                            Text("Info / Guide")
-                                .font(.ui(size: 11, weight: .semibold))
-                                .foregroundColor(textMain)
-                        }
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 7)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                    
-                    Rectangle().fill(borderLine).frame(height: 1)
-                    
-                    Button(action: {
-                        showSettingsPopover = false
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) {
-                            withAnimation(Motion.fade) {
-                                showFeedbackModal = true
-                            }
-                        }
-                    }) {
-                        HStack(spacing: 8) {
-                            Image(systemName: "envelope")
-                                .font(.system(size: StudioTheme.scaleFont(11), weight: .bold))
-                                .foregroundColor(textMain)
-                                .frame(width: 16)
-                            Text("Feedback & Support")
-                                .font(.ui(size: 11, weight: .semibold))
-                                .foregroundColor(textMain)
-                        }
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 7)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
+                    settingsMenuDivider
+                    settingsMenuButton({ showSyncModal = true }) { settingsMenuLabel("icloud", "Synced Projects") }
+                    settingsMenuDivider
+                    settingsMenuButton({ showUserGuide = true }) { settingsMenuLabel("info.circle", "Info / Guide") }
+                    settingsMenuDivider
+                    settingsMenuButton({ showFeedbackModal = true }) { settingsMenuLabel("envelope", "Feedback & Support") }
                 }
                 .padding(6)
                 .frame(width: 250)
@@ -887,6 +754,45 @@ struct ContentView: View {
 
     
     
+    /// A settings menu row: closes the popover, then runs `action` once it has gone (0.08 s; modals fade in).
+    private func settingsMenuButton<Label: View>(delayed: Bool = true, fadeIn: Bool = true, _ action: @escaping () -> Void,
+                                                 @ViewBuilder label: () -> Label) -> some View {
+        Button(action: {
+            showSettingsPopover = false
+            guard delayed else { return action() }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) {
+                if fadeIn { withAnimation(Motion.fade) { action() } } else { action() }
+            }
+        }) {
+            label()
+                .padding(.horizontal, 10)
+                .padding(.vertical, 7)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func settingsMenuLabel(_ icon: String, _ title: String, tint: Color? = nil, shortcut: String? = nil) -> some View {
+        HStack(spacing: 8) {
+            Image(systemName: icon)
+                .font(.system(size: StudioTheme.scaleFont(11), weight: .bold))
+                .foregroundColor(tint ?? textMain)
+                .frame(width: 16)
+            Text(title)
+                .font(.ui(size: 11, weight: .semibold))
+                .foregroundColor(tint ?? textMain)
+            if let shortcut {
+                Spacer(minLength: 8)
+                Text(shortcut)
+                    .font(.ui(size: 11))
+                    .foregroundColor(textMuted)
+            }
+        }
+    }
+
+    private var settingsMenuDivider: some View { Rectangle().fill(borderLine).frame(height: 1) }
+
     /// Window controls and the app's sections as plain labels (active: accent icon, bright bold text), like Premiere Pro.
     private var tabBarStrip: some View {
         HStack(spacing: StudioTheme.scale(30)) {
@@ -909,8 +815,11 @@ struct ContentView: View {
     }
     
     private func tabButton(_ tab: AppTab) -> some View {
+        HoverReader(animation: Motion.hover) { isHovered in tabButton(tab, isHovered: isHovered) }
+    }
+
+    private func tabButton(_ tab: AppTab, isHovered: Bool) -> some View {
         let isActive = selectedTab == tab
-        let isHovered = hoveredTab == tab
         let idle = isHovered ? textMain : textMuted.opacity(0.72)
         return Button(action: {
             selectedTab = tab
@@ -942,15 +851,6 @@ struct ContentView: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .onHover { hovering in
-            withAnimation(Motion.hover) {
-                if hovering {
-                    hoveredTab = tab
-                } else if hoveredTab == tab {
-                    hoveredTab = nil
-                }
-            }
-        }
         .explain({
             switch tab {
             case .player: return "Play: high-performance delivery playback with J-K-L shuttle, timeline scrubbing, and zoom."
@@ -1116,18 +1016,7 @@ struct ContentView: View {
             }
             
             if append {
-                var mergedVideos = self.videoFiles
-                var seen = Set(self.videoFiles.map { $0.standardizedFileURL.path })
-                var newlyAdded: [URL] = []
-                
-                for v in collectedVideos {
-                    let stdPath = v.standardizedFileURL.path
-                    if !seen.contains(stdPath) {
-                        seen.insert(stdPath)
-                        mergedVideos.append(v)
-                        newlyAdded.append(v)
-                    }
-                }
+                let (mergedVideos, newlyAdded) = queueMerging(collectedVideos)
                 
                 guard !newlyAdded.isEmpty else { onLoaded?(false); return }
                 
@@ -1257,6 +1146,18 @@ struct ContentView: View {
         self.addAssets(urls: urls, forceLoad: true, forceAutoplay: true)
     }
     
+    /// The queue with `videos` appended (paths already queued, or repeated, skipped) and the ones actually added.
+    private func queueMerging(_ videos: [URL]) -> (merged: [URL], added: [URL]) {
+        var merged = videoFiles
+        var seen = Set(videoFiles.map { $0.standardizedFileURL.path })
+        var added: [URL] = []
+        for video in videos where seen.insert(video.standardizedFileURL.path).inserted {
+            merged.append(video)
+            added.append(video)
+        }
+        return (merged, added)
+    }
+
     func addAssets(urls: [URL], targetSlot: SlotTarget? = nil, forceLoad: Bool = false, forceAutoplay: Bool = false) {
         guard !urls.isEmpty else { return }
         assetLoadQueue.enqueue({ ContentView.scanAssetInputs(urls) }) { inputs in
@@ -1272,18 +1173,7 @@ struct ContentView: View {
             
             guard !collectedVideos.isEmpty else { return }
             
-            var mergedVideos = self.videoFiles
-            var seen = Set(self.videoFiles.map { $0.standardizedFileURL.path })
-            var newlyAdded: [URL] = []
-            
-            for v in collectedVideos {
-                let stdPath = v.standardizedFileURL.path
-                if !seen.contains(stdPath) {
-                    seen.insert(stdPath)
-                    mergedVideos.append(v)
-                    newlyAdded.append(v)
-                }
-            }
+            let (mergedVideos, newlyAdded) = queueMerging(collectedVideos)
             
             if !newlyAdded.isEmpty {
                 self.videoFiles = mergedVideos
@@ -1616,6 +1506,11 @@ struct ContentView: View {
             withAnimation(Motion.fade) { showAddNoteModal = false }
             return true
         }
+        // Before the Notes drawer (open while drawing), after any popup (its Esc closes it first).
+        if playerEngine.isDrawingNote && !isAnyModalActive && !FrameIOPreview.shared.isOpen {
+            playerEngine.endDrawing()
+            return true
+        }
         if showNotesDrawer {
             withAnimation(Motion.fade) { showNotesDrawer = false }
             return true
@@ -1807,6 +1702,13 @@ struct ContentView: View {
                 return true
             },
             onCycleClipInfo: { if self.fullscreenMode != .videoOnly { self.playerEngine.cycleClipInfoOverlayMode() } },
+            onToggleLUTs: {
+                guard self.playerEngine.slotA.lutName != nil || self.playerEngine.slotB.lutName != nil else { return false }
+                self.playerEngine.showLUTs.toggle()
+                return true
+            },
+            onToggleDrawNote: { if self.fullscreenMode != .videoOnly { self.toggleDrawing() } },
+            onUndoStroke: { self.undoStroke() },
             onToggleProperties: { self.togglePropertiesModalForActiveOrSelected() },
             onToggleLeftSleeve: {
                 if self.selectedTab == .player {
@@ -1820,6 +1722,8 @@ struct ContentView: View {
                 } else if self.selectedTab == .upload {
                     // The Upload tab's Assets & Queue panel (it animates on the stored value).
                     UserDefaults.standard.set(!UserDefaults.standard.bool(forKey: "uploadQueueOpen"), forKey: "uploadQueueOpen")
+                } else if self.selectedTab == .lineFinder {
+                    self.showScanPanel.toggle()
                 }
             },
             onToggleRightSleeve: {
@@ -1957,85 +1861,31 @@ struct ContentView: View {
         selectedTab = .player
     }
     
-    // MARK: - Next Line Finding Cycler (Tab 3 Findings)
-    
-    func jumpToNextGlitchFinding() {
-        var allGlitches: [(url: URL, frameIndex: Int, timecode: String, label: String)] = []
-        for result in scannerState.scanResults where result.isFlagged {
-            for seg in result.glitchSegments {
-                allGlitches.append((
-                    url: result.fileURL,
-                    frameIndex: seg.startFrame,
-                    timecode: seg.startTimecode,
-                    label: "\(seg.edge.rawValue.capitalized) (\(seg.avgThickness)PX) @ \(seg.startTimecode)"
-                ))
-            }
-        }
-        
-        guard !allGlitches.isEmpty else { return }
-        
-        let currentURL = playerEngine.activeURL
-        let currentFrame = playerEngine.currentFrame
-        
-        var nextTarget: (url: URL, frameIndex: Int, timecode: String, label: String)? = nil
-        
-        if let currentURL = currentURL {
-            let inCurrentFile = allGlitches.filter { $0.url == currentURL }
-            if let ahead = inCurrentFile.first(where: { $0.frameIndex > currentFrame + 1 }) {
-                nextTarget = ahead
+    // MARK: - Line Check Finding Cycler
+
+    func jumpToNextGlitchFinding() { jumpToGlitchFinding(forward: true) }
+    func jumpToPreviousGlitchFinding() { jumpToGlitchFinding(forward: false) }
+
+    /// The next (previous) line segment after (before) the playhead in this file, else the first (last) segment of the
+    /// next (previous) flagged file, wrapping around.
+    private func jumpToGlitchFinding(forward: Bool) {
+        let files = scannerState.scanResults.filter { $0.isFlagged && !$0.glitchSegments.isEmpty }
+        guard !files.isEmpty else { return }
+        let frames = { (result: VideoQCResult) in result.glitchSegments.map(\.startFrame) }
+        var target: (url: URL, frame: Int)? = nil
+        if let currentURL = playerEngine.activeURL, let index = files.firstIndex(where: { $0.fileURL == currentURL }) {
+            let current = playerEngine.currentFrame
+            let here = frames(files[index])
+            if let frame = forward ? here.first(where: { $0 > current + 1 }) : here.last(where: { $0 < current - 1 }) {
+                target = (currentURL, frame)
             } else {
-                let distinctFlaggedFiles = scannerState.scanResults.filter { $0.isFlagged && !$0.glitchSegments.isEmpty }.map { $0.fileURL }
-                if let currentFileIdx = distinctFlaggedFiles.firstIndex(of: currentURL) {
-                    let nextFileIdx = (currentFileIdx + 1) % distinctFlaggedFiles.count
-                    let targetURL = distinctFlaggedFiles[nextFileIdx]
-                    nextTarget = allGlitches.first(where: { $0.url == targetURL })
-                }
+                let other = files[(index + (forward ? 1 : files.count - 1)) % files.count]
+                if let frame = forward ? frames(other).first : frames(other).last { target = (other.fileURL, frame) }
             }
         }
-        
-        let target = nextTarget ?? allGlitches[0]
-        jumpToGlitchInPlayer(fileURL: target.url, frameIndex: target.frameIndex)
-    }
-    
-    // MARK: - Previous Line Finding Cycler (Tab 3 Findings)
-    
-    func jumpToPreviousGlitchFinding() {
-        var allGlitches: [(url: URL, frameIndex: Int, timecode: String, label: String)] = []
-        for result in scannerState.scanResults where result.isFlagged {
-            for seg in result.glitchSegments {
-                allGlitches.append((
-                    url: result.fileURL,
-                    frameIndex: seg.startFrame,
-                    timecode: seg.startTimecode,
-                    label: "\(seg.edge.rawValue.capitalized) (\(seg.avgThickness)PX) @ \(seg.startTimecode)"
-                ))
-            }
-        }
-        
-        guard !allGlitches.isEmpty else { return }
-        
-        let currentURL = playerEngine.activeURL
-        let currentFrame = playerEngine.currentFrame
-        
-        var prevTarget: (url: URL, frameIndex: Int, timecode: String, label: String)? = nil
-        
-        if let currentURL = currentURL {
-            let inCurrentFile = allGlitches.filter { $0.url == currentURL }
-            // Look for the glitch before the current frame in current file (from closest backwards)
-            if let behind = inCurrentFile.last(where: { $0.frameIndex < currentFrame - 1 }) {
-                prevTarget = behind
-            } else {
-                let distinctFlaggedFiles = scannerState.scanResults.filter { $0.isFlagged && !$0.glitchSegments.isEmpty }.map { $0.fileURL }
-                if let currentFileIdx = distinctFlaggedFiles.firstIndex(of: currentURL) {
-                    let prevFileIdx = (currentFileIdx - 1 + distinctFlaggedFiles.count) % distinctFlaggedFiles.count
-                    let targetURL = distinctFlaggedFiles[prevFileIdx]
-                    prevTarget = allGlitches.filter { $0.url == targetURL }.last
-                }
-            }
-        }
-        
-        let target = prevTarget ?? allGlitches.last ?? allGlitches[0]
-        jumpToGlitchInPlayer(fileURL: target.url, frameIndex: target.frameIndex)
+        let fallback = forward ? files[0] : files[files.count - 1]
+        guard let resolved = target ?? (forward ? frames(fallback).first : frames(fallback).last).map({ (fallback.fileURL, $0) }) else { return }
+        jumpToGlitchInPlayer(fileURL: resolved.url, frameIndex: resolved.frame)
     }
     
     // MARK: - Native Finder Tagging
@@ -2380,7 +2230,7 @@ struct ContentView: View {
     
     /// The notes on screen are this clip's. Right after switching clips they're still the previous clip's until its
     /// notes load (a moment, longer on a network drive): saving them then wrote the old clip's notes over the new one's.
-    private var shownNotesAreTarget: Bool { isSameURL(playerEngine.activeNotesURL, notesTargetURL) }
+    var shownNotesAreTarget: Bool { isSameURL(playerEngine.activeNotesURL, notesTargetURL) }
 
     func addNote(_ note: QCFileNote) {
         guard let url = notesTargetURL else { return }

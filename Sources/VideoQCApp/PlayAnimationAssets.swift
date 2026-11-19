@@ -29,26 +29,7 @@ public final class PlayAnimationAssets {
     
     private func loadFromDisk(index: Int) -> NSImage? {
         let name = String(format: "anim_%02d", index)
-        // 1. Bundle resource check
-        if let url = Bundle.main.url(forResource: name, withExtension: "png", subdirectory: "PlayAnimation"),
-           let img = NSImage(contentsOf: url) {
-            return img
-        }
-        if let resURL = Bundle.main.resourceURL?.appendingPathComponent(String(format: "PlayAnimation/%@.png", name)),
-           let img = NSImage(contentsOf: resURL) {
-            return img
-        }
-        // 2. Relative file check for dev
-        let devPaths = [
-            String(format: "Resources/PlayAnimation/%@.png", name),
-            URL(fileURLWithPath: FileManager.default.currentDirectoryPath).appendingPathComponent(String(format: "Resources/PlayAnimation/%@.png", name)).path
-        ]
-        for path in devPaths {
-            if let img = NSImage(contentsOfFile: path) {
-                return img
-            }
-        }
-        return nil
+        return AppResource.url(name, "png", subdirectory: "PlayAnimation").flatMap(NSImage.init(contentsOf:))
     }
 }
 

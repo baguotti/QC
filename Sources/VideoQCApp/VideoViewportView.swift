@@ -81,6 +81,10 @@ public final class PlayerContainerNSView: NSView {
     // Slot A (Master / Top layer)
     private let playerLayerA = AVPlayerLayer()
     private let stillFrameLayerA = CALayer()
+    #if DEBUG
+    /// What slot A's still layer shows (a CGImage, or the video output's buffer while playing): `LUTCheck`.
+    var debugStillContentsA: Any? { stillFrameLayerA.contents }
+    #endif
     private let maskLayerA = CAShapeLayer()
     private let stillMaskLayerA = CAShapeLayer()
     
@@ -104,6 +108,17 @@ public final class PlayerContainerNSView: NSView {
     private var lineColourKey: [SlotTarget: String] = [:]
     private var lineColourTasks: [SlotTarget: Task<Void, Never>] = [:]
     private var lineMarkColours: [SlotTarget: [CGColor]] = [:]
+    // Note drawings: the strokes of the notes on the paused frame (and the one being drawn), sublayers of the still
+    // layers like the line marks. Paused only; rebuilt only when the notes, frame, size or zoom changed.
+    private let noteDrawLayerA = CALayer()
+    private let noteDrawLayerB = CALayer()
+    private var noteDrawKey: [SlotTarget: String] = [:]
+    /// The stroke under the mouse, redrawn alone per mouse event; on mouse-up it goes into its note, which then draws it.
+    private let liveStrokeLayer = CAShapeLayer()
+    private var liveStroke: [Double] = []
+    private var drawingSlot: SlotTarget? = nil
+    private var wasDrawingNote = false
+    private var lastDrawPoint: CGPoint? = nil
     
     // Split Divider & Handle
     private let splitDividerLayer = CALayer()
@@ -196,9 +211,11 @@ public final class PlayerContainerNSView: NSView {
     
     // Still frame inspection caching to eliminate AVPlayerLayer motion-downsampling
     private var lastCapturedTimeA: CMTime? = nil
-    /// EV a paused sequence still was rendered with (its frames come from the cache, not the composited output).
+    /// EV and LUT a paused sequence still was rendered with (its frames come from the cache, not the composited output).
     private var stillEVA: Double = 0
     private var stillEVB: Double = 0
+    private var stillLUTA: String? = nil
+    private var stillLUTB: String? = nil
     private var lastCapturedTimeB: CMTime? = nil
     // Video output buffer currently on each still layer (identity-compared to skip redundant presents)
     private var presentedBufferA: CVPixelBuffer? = nil
@@ -214,30 +231,9 @@ public final class PlayerContainerNSView: NSView {
     private var pendingCaptureTimeB: CMTime? = nil
     
     private static var tikTokImage: CGImage? = {
-        let name = "TikTokSafeAreaTemplateBlack"
-        if let url = Bundle.main.url(forResource: name, withExtension: "png"),
-           let source = CGImageSourceCreateWithURL(url as CFURL, nil),
-           let img = CGImageSourceCreateImageAtIndex(source, 0, nil) {
-            return img
-        }
-        let appBundleResourceURL = Bundle.main.bundleURL.appendingPathComponent("Contents/Resources/\(name).png")
-        if FileManager.default.fileExists(atPath: appBundleResourceURL.path),
-           let source = CGImageSourceCreateWithURL(appBundleResourceURL as CFURL, nil),
-           let img = CGImageSourceCreateImageAtIndex(source, 0, nil) {
-            return img
-        }
-        let devPaths = [
-            URL(fileURLWithPath: FileManager.default.currentDirectoryPath).appendingPathComponent("Resources/\(name).png"),
-            URL(fileURLWithPath: FileManager.default.currentDirectoryPath).appendingPathComponent("_icon/\(name).png")
-        ]
-        for url in devPaths {
-            if FileManager.default.fileExists(atPath: url.path),
-               let source = CGImageSourceCreateWithURL(url as CFURL, nil),
-               let img = CGImageSourceCreateImageAtIndex(source, 0, nil) {
-                return img
-            }
-        }
-        return nil
+        guard let url = AppResource.url("TikTokSafeAreaTemplateBlack", "png"),
+              let source = CGImageSourceCreateWithURL(url as CFURL, nil) else { return nil }
+        return CGImageSourceCreateImageAtIndex(source, 0, nil)
     }()
     
     private var lastScale: CGFloat = -1
@@ -324,6 +320,13 @@ public final class PlayerContainerNSView: NSView {
         }
         stillFrameLayerA.addSublayer(lineMarkLayerA)
         stillFrameLayerB.addSublayer(lineMarkLayerB)
+        for drawings in [noteDrawLayerA, noteDrawLayerB] {
+            drawings.isHidden = true
+            drawings.actions = ["hidden": NSNull(), "sublayers": NSNull(), "position": NSNull(), "bounds": NSNull(), "frame": NSNull()]
+        }
+        stillFrameLayerA.addSublayer(noteDrawLayerA)
+        stillFrameLayerB.addSublayer(noteDrawLayerB)
+        liveStrokeLayer.actions = ["path": NSNull(), "position": NSNull(), "bounds": NSNull(), "frame": NSNull(), "lineWidth": NSNull()]
         
         // Mask Layer for Layer A (disables implicit animation for instantaneous 120fps wipe tracking)
         maskLayerA.actions = ["position": NSNull(), "bounds": NSNull(), "path": NSNull(), "frame": NSNull()]
@@ -469,6 +472,7 @@ public final class PlayerContainerNSView: NSView {
     public func update(engine: PlayerEngine, isLightMode: Bool) {
         let previousEngine = self.engine
         self.engine = engine
+        syncDrawCursor()
         if previousEngine !== engine {
             previousEngine?.detachViewport(self)
             attachPresentationHooks(to: engine)
@@ -672,6 +676,7 @@ public final class PlayerContainerNSView: NSView {
     /// Shows the zebra mask for each visible paused video frame, decoding it when the frame or standard changed.
     private func updateZebra() {
         updateLineMarks()
+        updateNoteDrawings()
         guard let engine = engine else { return }
         let isActive = engine.showLegalZebra && !engine.isPlaying && !engine.isScrubbing
             && engine.compareMode != .difference && engine.compareMode != .overlay
@@ -780,6 +785,151 @@ public final class PlayerContainerNSView: NSView {
             pickLineMarkColours(slot: slot, key: "\(url.path)|\(frame)|\(lines)", detections: detections, still: still, container: container)
             if container.isHidden { container.isHidden = false }
         }
+    }
+
+    /// The slot showing the notes' clip (drawings go on its picture), when its still layer is on screen.
+    private func notesSlot() -> SlotTarget? {
+        guard let engine, let notesURL = engine.activeNotesURL?.standardizedFileURL,
+              engine.compareMode != .difference, engine.compareMode != .overlay else { return nil }
+        for slot in [SlotTarget.slotA, .slotB] {
+            let state = slot == .slotA ? engine.slotA : engine.slotB
+            if state.url?.standardizedFileURL == notesURL, state.mediaKind == .video, !stillLayer(for: slot).isHidden { return slot }
+        }
+        return nil
+    }
+
+    private func updateNoteDrawings() {
+        guard let engine = engine else { return }
+        let paused = !engine.isPlaying && !engine.isScrubbing
+        let target = paused ? notesSlot() : nil
+        // The frame on the notes' own clock, as their markers use. Only worked out when paused (this runs per tick
+        // while playing).
+        let frame = target == nil ? 0 : engine.notesFrame(atMasterFrame: engine.currentFrame)
+        let zoom = max(0.01, canvasLayer.affineTransform().a)
+        for slot in [SlotTarget.slotA, .slotB] {
+            let container = slot == .slotA ? noteDrawLayerA : noteDrawLayerB
+            let notes = slot == target ? engine.activeNotes.filter { $0.frameIndex == frame && !($0.drawing?.isEmpty ?? true) } : []
+            let drawing = slot == target && engine.isDrawingNote
+            // Runs per tick while playing: nothing is touched once hidden.
+            guard !notes.isEmpty || drawing else {
+                if !container.isHidden { container.isHidden = true; noteDrawKey[slot] = nil }
+                continue
+            }
+            let bounds = stillLayer(for: slot).bounds
+            var hasher = Hasher()
+            hasher.combine(notes)   // ids, colours and strokes: a new stroke, an undo or a synced change redraws
+            // The screen's scale too: a window moved to another display re-renders its strokes sharp.
+            // The stroke under the mouse takes this frame's drawn note's colour, else the colour picked for new notes.
+            let liveTag = drawing ? (engine.drawingNotes[frame].flatMap { id in notes.first { $0.id == id }?.colorTag }
+                                      ?? ContentView.noteColorTag) : ""
+            let key = "\(frame)|\(bounds.size)|\(zoom)|\(currentBackingScale())|\(hasher.finalize())|\(drawing)|\(liveTag)"
+            if noteDrawKey[slot] != key {
+                noteDrawKey[slot] = key
+                CATransaction.begin()
+                CATransaction.setDisableActions(true)
+                container.frame = bounds
+                var layers: [CALayer] = notes.map { note in
+                    strokeLayer(note.drawing ?? [], colour: NSColor(QCNoteTheme.color(for: note.colorTag)).cgColor, in: bounds, zoom: zoom)
+                }
+                if drawing {
+                    styleStroke(liveStrokeLayer, colour: NSColor(QCNoteTheme.color(for: liveTag)).cgColor, in: bounds, zoom: zoom, shadow: false)
+                    // The note now draws the stroke just finished; one still under the mouse stays.
+                    liveStrokeLayer.path = drawingSlot == slot ? Self.strokePath([liveStroke], in: bounds) : nil
+                    layers.append(liveStrokeLayer)
+                }
+                container.sublayers = layers
+                CATransaction.commit()
+            }
+            if container.isHidden { container.isHidden = false }
+        }
+    }
+
+    private func styleStroke(_ layer: CAShapeLayer, colour: CGColor, in bounds: CGRect, zoom: CGFloat, shadow: Bool = true) {
+        layer.frame = bounds
+        layer.strokeColor = colour
+        layer.fillColor = nil
+        layer.lineWidth = 3 / zoom   // 3 pt on screen at any zoom
+        // Sharp on Retina and when zoomed in (a shape layer renders at 1× otherwise). Capped so its bitmap stays within
+        // 4096 px on the long side: each stroke layer spans the whole picture, and screen scale × a 10× zoom would
+        // ask for a bitmap of hundreds of megabytes per note.
+        let longSide = max(1, bounds.width, bounds.height)
+        layer.contentsScale = min(currentBackingScale() * zoom, 4096 / longSide)
+        layer.lineCap = .round
+        layer.lineJoin = .round
+        // A soft dark edge so a stroke reads on bright pictures. Not on the live stroke: its path changes per mouse
+        // event and a shadow is an offscreen pass each time.
+        layer.shadowColor = NSColor.black.cgColor
+        layer.shadowOpacity = shadow ? 0.5 : 0
+        layer.shadowRadius = 1.5 / zoom
+        layer.shadowOffset = .zero
+    }
+
+    private func strokeLayer(_ strokes: [[Double]], colour: CGColor, in bounds: CGRect, zoom: CGFloat) -> CAShapeLayer {
+        let layer = CAShapeLayer()
+        styleStroke(layer, colour: colour, in: bounds, zoom: zoom)
+        let path = Self.strokePath(strokes, in: bounds)
+        layer.path = path
+        // A given shadow outline: without it Core Animation works the shadow out from the pixels on every redraw
+        // (pan or zoom on a paused frame with drawings).
+        layer.shadowPath = path.copy(strokingWithWidth: layer.lineWidth, lineCap: .round, lineJoin: .round, miterLimit: 10)
+        return layer
+    }
+
+    /// Stored points are top-left; layer space is bottom-left. Smoothed as it is built: a curve through the midpoints
+    /// between samples, each sample its control point (one pass, no extra points), so mouse samples don't show as
+    /// corners. Stored points are untouched.
+    nonisolated static func strokePath(_ strokes: [[Double]], in bounds: CGRect) -> CGPath {
+        let path = CGMutablePath()
+        // A damaged notes file (synced or imported) can't put NaN or infinity into Core Graphics.
+        for stroke in strokes where stroke.count >= 2 && stroke.allSatisfy(\.isFinite) {
+            let count = stroke.count / 2
+            func point(_ i: Int) -> CGPoint {
+                CGPoint(x: stroke[2 * i] * bounds.width, y: (1 - stroke[2 * i + 1]) * bounds.height)
+            }
+            path.move(to: point(0))
+            guard count > 1 else { path.addLine(to: point(0)); continue }   // a dot
+            for i in 1..<(count - 1) {
+                let p = point(i), next = point(i + 1)
+                path.addQuadCurve(to: CGPoint(x: (p.x + next.x) / 2, y: (p.y + next.y) / 2), control: p)
+            }
+            path.addLine(to: point(count - 1))
+        }
+        return path
+    }
+
+    /// The point under the mouse in 0–1 of the notes slot's picture (top-left). `inside`: nil off the picture,
+    /// else clamped to its edge (a stroke dragged past it).
+    private func drawingPoint(_ event: NSEvent, slot: SlotTarget, inside: Bool = false) -> CGPoint? {
+        let still = stillLayer(for: slot)
+        guard let root = layer, still.bounds.width > 0, still.bounds.height > 0 else { return nil }
+        let p = root.convert(convert(event.locationInWindow, from: nil), to: still)
+        if inside, !still.bounds.contains(p) { return nil }
+        return CGPoint(x: min(1, max(0, p.x / still.bounds.width)), y: min(1, max(0, 1 - p.y / still.bounds.height)))
+    }
+
+    /// Adds the mouse position to the stroke being drawn, skipping moves under a pixel on screen.
+    private func extendStroke(_ event: NSEvent) {
+        guard let slot = drawingSlot, let p = drawingPoint(event, slot: slot), !liveStroke.isEmpty else { return }
+        let viewPoint = convert(event.locationInWindow, from: nil)
+        if let last = lastDrawPoint, hypot(viewPoint.x - last.x, viewPoint.y - last.y) < 1.5 { return }
+        lastDrawPoint = viewPoint
+        liveStroke += [Double(p.x), Double(p.y)]
+        drawLiveStroke(slot)
+    }
+
+    private func drawLiveStroke(_ slot: SlotTarget) {
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        liveStrokeLayer.path = Self.strokePath([liveStroke], in: stillLayer(for: slot).bounds)
+        CATransaction.commit()
+    }
+
+    /// The cursor follows draw mode at once when the mouse is over the picture (not only on its next move).
+    private func syncDrawCursor() {
+        guard let engine, engine.isDrawingNote != wasDrawingNote else { return }
+        wasDrawingNote = engine.isDrawingNote
+        guard let window, bounds.contains(convert(window.mouseLocationOutsideOfEventStream, from: nil)) else { return }
+        updateCursor()
     }
 
     private static func lineMarkColour(_ c: SIMD3<Double>) -> CGColor {
@@ -2133,7 +2283,8 @@ public final class PlayerContainerNSView: NSView {
         // 1. Check if the still layer already displays the current frame
         let lastCaptured = (slot == .slotA) ? lastCapturedTimeA : lastCapturedTimeB
         let tolerance = min(0.03, (1.0 / max(1.0, slotState.fps)) * 0.5)
-        let evMatches = slotState.sequence == nil || ((slot == .slotA) ? stillEVA : stillEVB) == engine.exposureEV
+        let evMatches = slotState.sequence == nil || (((slot == .slotA) ? stillEVA : stillEVB) == engine.exposureEV
+            && ((slot == .slotA) ? stillLUTA : stillLUTB) == slotState.lut.value?.name)
         if let last = lastCaptured, abs(CMTimeGetSeconds(last) - CMTimeGetSeconds(time)) <= tolerance, stillLayer(for: slot).contents != nil, evMatches {
             return
         }
@@ -2177,9 +2328,10 @@ public final class PlayerContainerNSView: NSView {
             guard let self = self, let engine = self.engine else { return }
             // captureCurrentFrame returns the frame display-ready (exposure applied once).
             let ev = engine.exposureEV
+            let lut = (slot == .slotA ? engine.slotA : engine.slotB).lut.value?.name
             let url = (slot == .slotA ? engine.slotA : engine.slotB).url
             let image = await engine.captureCurrentFrame(for: slot, at: time)
-            if slot == .slotA { self.stillEVA = ev } else { self.stillEVB = ev }
+            if slot == .slotA { self.stillEVA = ev; self.stillLUTA = lut } else { self.stillEVB = ev; self.stillLUTB = lut }
             if slot == .slotA {
                 self.isCapturingStillA = false
             } else {
@@ -2442,6 +2594,18 @@ public final class PlayerContainerNSView: NSView {
             return
         }
         
+        if engine.isDrawingNote {
+            // Only on a paused picture (drawings show on paused frames), starting on the picture itself.
+            if !engine.isPlaying, !engine.isScrubbing, let slot = notesSlot(), let p = drawingPoint(event, slot: slot, inside: true) {
+                drawingSlot = slot
+                lastDrawPoint = convert(event.locationInWindow, from: nil)
+                liveStroke = [Double(p.x), Double(p.y)]
+                updateNoteDrawings()
+                drawLiveStroke(slot)
+            }
+            return
+        }
+        
         if isOverSubtitle(windowPoint: event.locationInWindow) {
             if event.clickCount == 2 {
                 engine.resetSubtitlePosition()
@@ -2474,6 +2638,11 @@ public final class PlayerContainerNSView: NSView {
     public override func mouseDragged(with event: NSEvent) {
         guard let engine = engine else {
             super.mouseDragged(with: event)
+            return
+        }
+        
+        if drawingSlot != nil {
+            extendStroke(event)
             return
         }
         
@@ -2526,6 +2695,19 @@ public final class PlayerContainerNSView: NSView {
     }
     
     public override func mouseUp(with event: NSEvent) {
+        if drawingSlot != nil {
+            extendStroke(event)
+            let stroke = liveStroke
+            drawingSlot = nil
+            lastDrawPoint = nil
+            engine?.onStrokeFinished?(stroke)   // into its note (the shown notes change at once)
+            // Redrawn now from the notes: the stroke appears as part of its note, or goes if it couldn't be saved.
+            liveStroke = []
+            noteDrawKey = [:]
+            updateNoteDrawings()
+            return
+        }
+        if engine?.isDrawingNote == true { return }   // a click outside the picture: no play / zoom toggle
         if subtitleDragStart != nil {
             subtitleDragStart = nil
             if let position = liveSubtitlePosition, let engine = engine {
@@ -2643,6 +2825,11 @@ public final class PlayerContainerNSView: NSView {
     
     private func updateCursor(at windowPoint: NSPoint? = nil) {
         guard let engine = engine else { return }
+        
+        if engine.isDrawingNote {
+            NSCursor.crosshair.set()
+            return
+        }
         
         if let pt = windowPoint, isOverSubtitle(windowPoint: pt) {
             NSCursor.openHand.set()

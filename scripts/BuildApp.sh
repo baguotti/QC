@@ -16,7 +16,7 @@ MACOS="${CONTENTS}/MacOS"
 RESOURCES="${CONTENTS}/Resources"
 
 # Version & Metadata
-APP_VERSION="0.19.0"
+APP_VERSION="0.19.1"
 GIT_COMMIT_COUNT=$(git rev-list --count HEAD 2>/dev/null || echo "1")
 
 echo "📌 Version: v${APP_VERSION} (Build: ${GIT_COMMIT_COUNT})"
@@ -74,6 +74,12 @@ fi
 if [ -f "Resources/Chime.caf" ]; then
     echo "🔔 Bundling Chime.caf..."
     cp "Resources/Chime.caf" "${RESOURCES}/Chime.caf"
+fi
+
+if [ -d "Resources/LUTs" ]; then
+    # LUTs installed with the app: copied once to ~/Library/Application Support/QCpie/LUTs (LUTLibrary).
+    mkdir -p "${RESOURCES}/LUTs"
+    cp Resources/LUTs/*.cube "${RESOURCES}/LUTs/"
 fi
 
 # 5. Create Info.plist

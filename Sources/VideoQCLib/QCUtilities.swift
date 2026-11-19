@@ -88,6 +88,32 @@ public enum QCUtilities: Sendable {
         return String(decoding: bytes, as: UTF8.self).trimmingCharacters(in: .whitespaces)
     }
     
+    /// "1.2 GB": Finder's decimal file-size style.
+    public static func byteCount(_ bytes: Int64) -> String {
+        ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file)
+    }
+
+    /// "1,234,567 bytes": the exact size, grouped.
+    public static func exactBytes(_ bytes: Int64) -> String {
+        "\(groupedNumber.string(from: NSNumber(value: bytes)) ?? "\(bytes)") bytes"
+    }
+
+    private static let groupedNumber: NumberFormatter = {
+        let formatter = NumberFormatter()
+        formatter.numberStyle = .decimal
+        return formatter
+    }()
+
+    public enum Delimited: Sendable { case csv, tsv }
+
+    /// Rows joined as CSV (RFC 4180 quoting) or TSV (tabs and line breaks flattened), one line per row.
+    public static func delimited(_ rows: [[String]], format: Delimited) -> String {
+        let separator = format == .csv ? "," : "\t"
+        return rows.map { row in
+            row.map { format == .csv ? escapeCSV($0) : escapeTSV($0) }.joined(separator: separator) + "\n"
+        }.joined()
+    }
+
     /// Escapes a string for CSV formatting according to RFC 4180
     public static func escapeCSV(_ str: String) -> String {
         // Scalars, not Characters: "\r\n" is one Character in Swift, so contains("\n") missed Windows line breaks and the

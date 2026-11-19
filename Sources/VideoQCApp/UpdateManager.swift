@@ -15,7 +15,7 @@ public final class UpdateManager: NSObject, ObservableObject {
         case checking
         case upToDate
         case updateAvailable(version: String, dmgURL: URL?, webURL: URL)
-        case downloading(progress: Double, bytesWritten: Int64, totalBytes: Int64)
+        case downloading
         case installing(status: String)
         case readyToInstall(fileURL: URL)
         case failed(String)
@@ -30,6 +30,9 @@ public final class UpdateManager: NSObject, ObservableObject {
     @Published public private(set) var remoteDMGURL: URL? = nil
     @Published public private(set) var hasUpdate: Bool = false
     @Published public private(set) var lastCheckDate: Date? = nil
+    /// Download progress lives apart from `state`: `ContentView` observes this manager, so per-chunk updates here would
+    /// redraw the whole window. Only the update card reads it (through `ObservingView`).
+    public let download = UpdateDownloadProgress()
     
     // MARK: - Internal Download Handling
     
@@ -171,7 +174,8 @@ public final class UpdateManager: NSObject, ObservableObject {
             return
         }
         
-        state = .downloading(progress: 0.0, bytesWritten: 0, totalBytes: 0)
+        download.reset()
+        state = .downloading
         downloadTask?.cancel()
         downloadTask = urlSession.downloadTask(with: dmgURL)
         downloadTask?.resume()
@@ -480,11 +484,7 @@ extension UpdateManager: URLSessionDownloadDelegate {
         Task { @MainActor in
             // A progress report delivered after the download finished must not undo "installing" / "ready".
             guard case .downloading = self.state else { return }
-            self.state = .downloading(
-                progress: progress,
-                bytesWritten: totalBytesWritten,
-                totalBytes: totalBytesExpectedToWrite
-            )
+            self.download.update(fraction: progress, written: totalBytesWritten, total: totalBytesExpectedToWrite)
         }
     }
     
@@ -570,5 +570,25 @@ private struct GitHubAsset: Codable {
         case name
         case browserDownloadUrl = "browser_download_url"
         case size
+    }
+}
+
+/// Bytes and fraction of the update download, published at most every 1 % or 0.2 s.
+@MainActor
+public final class UpdateDownloadProgress: ObservableObject {
+    @Published public private(set) var fraction: Double = 0
+    @Published public private(set) var written: Int64 = 0
+    @Published public private(set) var total: Int64 = 0
+    private var lastPublished: CFAbsoluteTime = 0
+
+    func reset() {
+        fraction = 0; written = 0; total = 0; lastPublished = 0
+    }
+
+    func update(fraction newFraction: Double, written newWritten: Int64, total newTotal: Int64) {
+        let now = CFAbsoluteTimeGetCurrent()
+        guard newFraction >= 1 || newFraction - fraction >= 0.01 || now - lastPublished >= 0.2 else { return }
+        lastPublished = now
+        fraction = newFraction; written = newWritten; total = newTotal
     }
 }

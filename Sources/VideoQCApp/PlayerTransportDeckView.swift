@@ -256,6 +256,19 @@ struct PlayerTransportDeckView: View, Equatable {
                     }
                 }
                 
+                if let lut = transportState.lutName {
+                    transportBtn(
+                        icon: "camera.filters",
+                        tooltip: "LUT: \(transportState.showLUTs ? "ON" : "OFF") (\(lut)) (⇧E). Right-click a clip in the queue to change its LUT.",
+                        isActive: transportState.showLUTs,
+                        size: 12,
+                        weight: .semibold,
+                        width: 26
+                    ) {
+                        engine.showLUTs.toggle()
+                    }
+                }
+                
                 if transportState.hasLineMarks {
                     transportBtn(
                         icon: "rectangle.dashed",
@@ -398,7 +411,8 @@ struct PlayerTransportDeckView: View, Equatable {
                         }
                         .buttonStyle(TransportIconButtonStyle())
                         .disabled(!transportState.hasActiveURL)
-                        .explain("Add review note at playhead (M).")
+                        .explain("Add review note at playhead (N).")
+
                     }
                     
                     // Compact Note Navigator: < 💬 count >
@@ -519,6 +533,9 @@ struct PlayerTransportDeckView: View, Equatable {
                 .disabled(!transportState.hasVideo)
             if transportState.hasLineMarks {
                 Toggle("Line Marks", isOn: Binding(get: { transportState.showLineMarks }, set: { engine.showLineMarks = $0 }))
+            }
+            if let lut = transportState.lutName {
+                Toggle("LUT (\(lut)) (⇧E)", isOn: Binding(get: { transportState.showLUTs }, set: { engine.showLUTs = $0 }))
             }
             Divider()
             if transportState.hasSubtitles {

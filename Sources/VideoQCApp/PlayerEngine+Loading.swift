@@ -195,7 +195,7 @@ extension PlayerEngine {
     private func installSequenceItem(_ seq: ImageSequence, for target: SlotTarget, startAt: CMTime? = nil) async {
         let slot = (target == .slotA) ? slotA : slotB
         let box = exposureBox
-        guard let item = await ImageSequencePlayback.makeItem(for: seq, fps: ImageSequenceStore.shared.fps(for: seq), exposure: { box.value }),
+        guard let item = await ImageSequencePlayback.makeItem(for: seq, fps: ImageSequenceStore.shared.fps(for: seq), exposure: { box.value }, lut: slot.lut),
               slot.sequence == seq else { return }
         slot.sequenceSource = (item.videoComposition?.instructions.first as? SequenceInstruction)?.source
         slot.attachVideoOutput(to: item)
@@ -219,12 +219,14 @@ extension PlayerEngine {
         slot.sequenceSource = nil
         if let seq = slot.sequence {
             slot.player.replaceCurrentItem(with: nil)
+            refreshLUT(for: slot)   // the sequence's compositor reads it
             let target: SlotTarget = (slot === slotA) ? .slotA : .slotB
             Task { await installSequenceItem(seq, for: target, startAt: startAt) }
             return nil
         }
         guard slot.mediaKind != .image else {
             slot.player.replaceCurrentItem(with: nil)
+            refreshLUT(for: slot)   // clears the previous file's
             return nil
         }
         let item = AVPlayerItem(asset: AVURLAsset(url: url))
@@ -234,7 +236,7 @@ extension PlayerEngine {
         }
         slot.player.replaceCurrentItem(with: item)
         slot.player.automaticallyWaitsToMinimizeStalling = false
-        installExposureComposition(for: slot)
+        refreshLUT(for: slot)   // installs the composition when EV, a rotation or a LUT needs it
         return item
     }
     

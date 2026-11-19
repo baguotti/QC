@@ -206,6 +206,7 @@ extension PlayerEngine {
         itemPresentationSizeCancellableB?.cancel()
         itemPresentationSizeCancellableB = nil
         slotB.url = nil
+        refreshLUT(for: slotB)
         autoLoadSubtitlesB(for: nil)
         slotB.fileName = ""
         slotB.resolution = ""
@@ -244,6 +245,7 @@ extension PlayerEngine {
         itemPresentationSizeCancellable = nil
         pendingAutoplay = false
         slotA.url = nil
+        refreshLUT(for: slotA)
         slotA.fileName = ""
         slotA.resolution = ""
         slotA.codec = ""

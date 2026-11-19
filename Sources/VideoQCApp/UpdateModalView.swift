@@ -1,5 +1,6 @@
 import SwiftUI
 import AppKit
+import VideoQCLib
 
 /// Checking, downloading and installing QCpie updates (GitHub releases): one rounded card in the style of the Upload tab
 /// and macOS's own update prompts — the app icon, a title and one line of detail, then the actions at the bottom right.
@@ -64,18 +65,20 @@ struct UpdateModalView: View {
                     primaryButton("View on GitHub") { if let url = updateManager.remoteWebURL { NSWorkspace.shared.open(url) } }
                 }
             }
-        case .downloading(let progress, let written, let total):
-            header(title: "Downloading QCpie \(updateManager.latestVersion)",
-                   detail: total > 0 ? "\(formatBytes(written)) of \(formatBytes(total))" : formatBytes(written))
-            progressBar(progress)
-                .padding(.top, 16)
-            actions(leading: {
-                Text("\(Int(progress * 100))%")
-                    .font(.ui(size: 11, weight: .semibold))
-                    .foregroundColor(palette.textMuted)
-                    .monospacedDigit()
-            }) {
-                secondaryButton("Cancel") { updateManager.cancelDownload() }
+        case .downloading:
+            ObservingView(model: updateManager.download) { download in
+                header(title: "Downloading QCpie \(updateManager.latestVersion)",
+                       detail: download.total > 0 ? "\(formatBytes(download.written)) of \(formatBytes(download.total))" : formatBytes(download.written))
+                progressBar(download.fraction)
+                    .padding(.top, 16)
+                actions(leading: {
+                    Text("\(Int(download.fraction * 100))%")
+                        .font(.ui(size: 11, weight: .semibold))
+                        .foregroundColor(palette.textMuted)
+                        .monospacedDigit()
+                }) {
+                    secondaryButton("Cancel") { updateManager.cancelDownload() }
+                }
             }
         case .installing(let status):
             header(title: "Installing QCpie \(updateManager.latestVersion)",
@@ -263,9 +266,7 @@ struct UpdateModalView: View {
         }
     }
 
-    private func formatBytes(_ bytes: Int64) -> String {
-        ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file)
-    }
+    private func formatBytes(_ bytes: Int64) -> String { QCUtilities.byteCount(bytes) }
 }
 
 /// Hover and press feedback for the update card's buttons: a soft fill (or underline for links), a slight press dim.

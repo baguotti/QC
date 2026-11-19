@@ -3,27 +3,16 @@ import Foundation
 import CoreMedia
 import CoreVideo
 
-final class CancellationState: @unchecked Sendable {
+/// A stop flag shared between a task and work running outside it (dispatch queues, cancellation handlers).
+public final class CancellationState: @unchecked Sendable {
     private let lock = NSLock()
     private var flag = false
-    
-    var isCancelled: Bool {
-        lock.lock()
-        defer { lock.unlock() }
-        return flag
-    }
-    
-    func cancel() {
-        lock.lock()
-        flag = true
-        lock.unlock()
-    }
-    
-    func reset() {
-        lock.lock()
-        flag = false
-        lock.unlock()
-    }
+
+    public init() {}
+
+    public var isCancelled: Bool { lock.withLock { flag } }
+    public func cancel() { lock.withLock { flag = true } }
+    public func reset() { lock.withLock { flag = false } }
 }
 
 public actor VideoScanner {

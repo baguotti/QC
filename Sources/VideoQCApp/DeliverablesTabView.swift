@@ -1009,13 +1009,15 @@ extension ContentView {
             
             if isResizable {
                 // Drag Resize Handle Divider (14px hit target zone)
-                ZStack {
-                    ResizeCursorArea()
-                        .frame(width: 14, height: 24)
-                    Rectangle()
-                        .fill(isDraggingThis ? accentBlue : (hoveredResizeColumn == column ? PanelResizeHandle.hoverLine(isLightMode) : borderLine.opacity(0.85)))
-                        .frame(width: isDraggingThis ? 2 : 1, height: hoveredResizeColumn == column || isDraggingThis ? 16 : 12)
-                        .allowsHitTesting(false)
+                HoverReader { isHovered in
+                    ZStack {
+                        ResizeCursorArea()
+                            .frame(width: 14, height: 24)
+                        Rectangle()
+                            .fill(isDraggingThis ? accentBlue : (isHovered ? PanelResizeHandle.hoverLine(isLightMode) : borderLine.opacity(0.85)))
+                            .frame(width: isDraggingThis ? 2 : 1, height: isHovered || isDraggingThis ? 16 : 12)
+                            .allowsHitTesting(false)
+                    }
                 }
                 .frame(width: 14)
                 .contentShape(Rectangle())
@@ -1025,9 +1027,6 @@ extension ContentView {
                     } else {
                         specsState.resetColumnWidth(for: column)
                     }
-                }
-                .onHover { isHovered in
-                    if isHovered { hoveredResizeColumn = column } else if hoveredResizeColumn == column { hoveredResizeColumn = nil }
                 }
                 .gesture(
                     DragGesture(minimumDistance: 1, coordinateSpace: .global)
@@ -1683,6 +1682,18 @@ extension ContentView {
                         .filter { wanted.contains($0.url) && seen.insert($0.url).inserted }
                     queue.enqueue(stamps, kinds: queue.kinds)
                 }
+            }
+            if QCUtilities.mediaKind(of: asset.fileURL) == .video {
+                let url = asset.fileURL
+                let isMulti = specsState.isSelected(url) && specsState.selectedDeliverableURLs.count > 1
+                LUTMenu(title: isMulti ? "LUT (Selection)" : "LUT",
+                        files: { [specsState] in
+                            // Only the selection's videos: stills and audio play without a LUT.
+                            specsState.isSelected(url)
+                                ? specsState.selectedDeliverableURLs.filter { QCUtilities.mediaKind(of: $0) == .video }.sorted { $0.path < $1.path }
+                                : [url]
+                        },
+                        onAssigned: { [playerEngine] urls in playerEngine.lutAssignmentsChanged(urls) })
             }
             Divider()
             Button(action: {

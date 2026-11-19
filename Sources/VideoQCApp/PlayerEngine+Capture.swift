@@ -118,13 +118,15 @@ extension PlayerEngine {
     
     // MARK: - Pixel-Perfect Still Frame Capture (For export)
     
-    /// Returns the frame as displayed, i.e. with the current exposure applied exactly once.
-    /// `applyingExposure: false` returns the decoded pixels as they are (missed-line reports), or nil when only
-    /// exposure-adjusted pixels are available; the cached `lastDecodedFrame` is only updated for display-ready frames.
+    /// Returns the frame as displayed, i.e. with the slot's LUT and the current exposure applied exactly once.
+    /// `applyingExposure: false` returns the decoded pixels as they are (missed-line reports: no LUT, no exposure), or
+    /// nil when only adjusted pixels are available; the cached `lastDecodedFrame` is only updated for display-ready frames.
     public func captureCurrentFrame(for slot: SlotTarget = .slotA, at time: CMTime? = nil, applyingExposure: Bool = true) async -> CGImage? {
         let currentSlot = (slot == .slotA) ? slotA : slotB
-        // The video output and the viewport's cached frame already carry the exposure: only usable as originals at EV 0.
-        let exposureFreeFallbacks = applyingExposure || exposureEV == 0
+        // The video output and the viewport's cached frame already carry the LUT and exposure: only usable as originals
+        // at EV 0 without a LUT.
+        let lut = currentSlot.lut.value
+        let exposureFreeFallbacks = applyingExposure || (exposureEV == 0 && lut == nil)
         func cachedFrame() -> CGImage? { exposureFreeFallbacks ? currentSlot.lastDecodedFrame : nil }
         guard let url = currentSlot.url else { return cachedFrame() }
         guard currentSlot.mediaKind == .video else { return currentSlot.stillImage }
@@ -168,17 +170,17 @@ extension PlayerEngine {
             // Another file was loaded while decoding: never hand back (or cache) the old file's frame.
             guard currentSlot.url == url else { return nil }
             guard applyingExposure else { return decoded }
-            let image = ExposureAdjuster.shared.applyExposure(to: decoded, ev: exposureEV)
+            let image = ExposureAdjuster.shared.applyLook(to: decoded, ev: exposureEV, lut: lut)
             currentSlot.lastDecodedFrame = image
             return image
         }
         
-        // 1. Try frame extractor (decodes without the exposure composition, so apply it here)
+        // 1. Try frame extractor (decodes without the composition, so apply the LUT and exposure here)
         let extracted = await currentSlot.frameExtractor.capture(at: centerTime, fallbackURL: url)
         guard currentSlot.url == url else { return nil }
         if let extracted {
             guard applyingExposure else { return extracted }
-            let image = ExposureAdjuster.shared.applyExposure(to: extracted, ev: exposureEV)
+            let image = ExposureAdjuster.shared.applyLook(to: extracted, ev: exposureEV, lut: lut)
             currentSlot.lastDecodedFrame = image
             return image
         }

@@ -8,6 +8,10 @@ public struct PlayerQueueFileRowView: View, Equatable {
     public let depth: Int
     public let isSlotA: Bool
     public let isSlotB: Bool
+    /// In the queue's ⌘/⇧-click selection.
+    public var isPicked: Bool = false
+    /// Picked with other files: the LUT menu applies to the whole selection.
+    public var menuTargetsSelection: Bool = false
     public let hasSlotB: Bool
     public let notesCount: Int
     public var hasNotes: Bool { notesCount > 0 }
@@ -38,6 +42,11 @@ public struct PlayerQueueFileRowView: View, Equatable {
     public let onClearTag: (_ url: URL) -> Void
     public var onSetReadAsSequence: (_ url: URL, _ asSequence: Bool) -> Void = { _, _ in }
     public var onSetSequenceFPS: (_ url: URL, _ fps: Double) -> Void = { _, _ in }
+    public var onLUTAssigned: (_ urls: [URL]) -> Void = { _ in }
+    /// The selection, read when a menu item is chosen.
+    public var selectedFiles: () -> [URL] = { [] }
+    /// ⌘/⇧-clicks select instead of loading (returns true when handled).
+    public var onSelectClick: (_ url: URL, _ modifiers: NSEvent.ModifierFlags) -> Bool = { _, _ in false }
     
     public nonisolated static func == (lhs: PlayerQueueFileRowView, rhs: PlayerQueueFileRowView) -> Bool {
         MainActor.assumeIsolated {
@@ -47,6 +56,8 @@ public struct PlayerQueueFileRowView: View, Equatable {
             lhs.depth == rhs.depth &&
             lhs.isSlotA == rhs.isSlotA &&
             lhs.isSlotB == rhs.isSlotB &&
+            lhs.isPicked == rhs.isPicked &&
+            lhs.menuTargetsSelection == rhs.menuTargetsSelection &&
             lhs.hasSlotB == rhs.hasSlotB &&
             lhs.notesCount == rhs.notesCount &&
             lhs.currentTag == rhs.currentTag &&
@@ -82,7 +93,9 @@ public struct PlayerQueueFileRowView: View, Equatable {
     public var body: some View {
         let isSelected = isSlotA || isSlotB
         let rowBg: Color = {
-            if isSlotA {
+            if isPicked && !isSlotA && !isSlotB {
+                return playheadColor.opacity(0.14)
+            } else if isSlotA {
                 return accentPositive.opacity(0.18)
             } else if isSlotB {
                 return accentSlotB.opacity(0.18)
@@ -91,7 +104,9 @@ public struct PlayerQueueFileRowView: View, Equatable {
             }
         }()
         let rowBorder: Color = {
-            if isSlotA {
+            if isPicked {
+                return playheadColor.opacity(0.80)
+            } else if isSlotA {
                 return accentPositive.opacity(0.80)
             } else if isSlotB {
                 return accentSlotB.opacity(0.80)
@@ -105,6 +120,7 @@ public struct PlayerQueueFileRowView: View, Equatable {
         
         HStack(spacing: 6) {
             Button(action: {
+                if onSelectClick(url, NSEvent.modifierFlags) { return }
                 if NSEvent.modifierFlags.contains(.option) {
                     onLoadVideo(url, .slotB)
                 } else {
@@ -163,6 +179,14 @@ public struct PlayerQueueFileRowView: View, Equatable {
                 } else {
                     Button("Read as Image Sequence (\(info.frameCount) frames)") { onSetReadAsSequence(url, true) }
                 }
+            }
+            if menuTargetsSelection {
+                LUTMenu(title: "LUT (Selection)", files: { [selectedFiles] in
+                    // Videos and sequences only: stills and audio play without a LUT.
+                    selectedFiles().filter { QueueSequenceInfo.lookup($0)?.isReadAsSequence == true || QCUtilities.mediaKind(of: $0) == .video }
+                }, onAssigned: onLUTAssigned)
+            } else if sequenceInfo?.isReadAsSequence == true || QCUtilities.mediaKind(of: url) == .video {
+                LUTMenu(title: "LUT", files: { [url] }, onAssigned: onLUTAssigned)
             }
             Divider()
             Button("Set as Slot A (Master)") {

@@ -592,12 +592,6 @@ public enum PictureTextScanner {
         return out.sorted { $0.start < $1.start }
     }
 
-    private final class Counter: @unchecked Sendable {
-        private let lock = NSLock()
-        private var value = 0
-        func increment() -> Int { lock.withLock { value += 1; return value } }
-    }
-
     /// The files still to read, handed out one at a time to whichever lane is free.
     private final class URLQueue: @unchecked Sendable {
         private let lock = NSLock()

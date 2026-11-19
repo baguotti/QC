@@ -236,11 +236,11 @@ struct SpecsAndScannerTests {
         #expect(res3 == nil)
         #expect(leftSleeveCalled == true)
         
-        // 4. Cmd + Shift + Left Arrow in Line Finder tab -> not active
+        // 4. Cmd + Shift + Left Arrow in the Scan tab -> its checks panel, like every tab's left panel
         leftSleeveCalled = false
         let res4 = router.handle(cmdShiftLeftEvent, currentTab: .lineFinder, isModalActive: false, onEscape: { false })
-        #expect(res4 != nil)
-        #expect(leftSleeveCalled == false)
+        #expect(res4 == nil)
+        #expect(leftSleeveCalled == true)
         
         // 5. Cmd + Shift + Right Arrow (keyCode 124) in Player tab -> right sleeve
         let cmdShiftRightEvent = NSEvent.keyEvent(

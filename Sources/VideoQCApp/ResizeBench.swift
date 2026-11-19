@@ -1,4 +1,7 @@
 import AppKit
+import AVFoundation
+import VideoToolbox
+import VideoQCLib
 import SwiftUI
 
 /// `QCPIE_BENCH_HIDE=drawer,browser,queue,favbar,crumbs,toolbar,list,header`: parts the resize benchmark leaves out to
@@ -133,7 +136,8 @@ enum UIShots {
             ThemeManager.shared.buttonZoom = zoom
             for width in [1080.0, 1440.0] {
                 var frame = window.frame
-                frame.size = NSSize(width: width, height: 820)
+                // QCPIE_SHOTS_HEIGHT: a taller window, to see further down a page.
+                frame.size = NSSize(width: width, height: ProcessInfo.processInfo.environment["QCPIE_SHOTS_HEIGHT"].flatMap(Double.init) ?? 820)
                 window.setFrame(frame, display: true)
                 for tab in AppTab.visibleTabs {
                     hooks.setTab(tab)
@@ -154,6 +158,174 @@ enum UIShots {
         guard let view = window.contentView, let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds) else { return }
         view.cacheDisplay(in: view.bounds, to: rep)
         try? rep.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: path))
+    }
+}
+
+/// Debug-only LUT check: `QCPIE_LUT_CHECK=<folder> QCPIE_LUT_CLIP=<video> QCPIE_LUT_NAME=<LUT>` loads the clip into
+/// slot A with the LUT and saves, at each step (LUT on, off, on again, with EV, playing), what the viewport's still
+/// layer shows and the video output's frame (`_output`: what the display link presents; a hidden window never ticks
+/// it, so the still layer only follows when the window is on screen), plus the exported screenshot. Then quits.
+@MainActor
+enum LUTCheck {
+    static var output: String? { ProcessInfo.processInfo.environment["QCPIE_LUT_CHECK"] }
+
+    static func run(engine: PlayerEngine) async {
+        guard let output, let clip = ProcessInfo.processInfo.environment["QCPIE_LUT_CLIP"],
+              let name = ProcessInfo.processInfo.environment["QCPIE_LUT_NAME"] else { return }
+        try? FileManager.default.createDirectory(atPath: output, withIntermediateDirectories: true)
+        let url = URL(fileURLWithPath: clip)
+        // As from the queue menu: the clip is loaded first, then given the LUT.
+        LUTLibrary.shared.assign(nil, to: [url])
+        try? await Task.sleep(for: .seconds(3))
+        NSApp.activate(ignoringOtherApps: true)
+        NSApp.windows.first { $0.frame.width > 800 }?.orderFrontRegardless()
+        // QCPIE_LUT_AUTOPLAY: the clip plays as it loads (queue Auto) and gets its LUT while playing.
+        let autoplay = ProcessInfo.processInfo.environment["QCPIE_LUT_AUTOPLAY"] != nil
+        engine.loadVideo(url: url, into: .slotA, initialSeekFrame: 12, autoplay: autoplay, forceAutoplay: autoplay)
+        try? await Task.sleep(for: .seconds(autoplay ? 1.5 : 4))
+        LUTLibrary.shared.assign(name, to: [url])
+        engine.lutAssignmentsChanged([url])
+        try? await Task.sleep(for: .seconds(2))
+        if autoplay { engine.pause(); try? await Task.sleep(for: .seconds(1)) }
+        func save(_ label: String) {
+            guard let view = NSApp.windows.compactMap({ $0.contentView.flatMap(find) }).first else { return }
+            var image: CGImage? = nil
+            if let contents = view.debugStillContentsA {
+                if CFGetTypeID(contents as CFTypeRef) == CGImage.typeID { image = (contents as! CGImage) }
+                else if CFGetTypeID(contents as CFTypeRef) == CVPixelBufferGetTypeID() {
+                    VTCreateCGImageFromCVPixelBuffer(contents as! CVPixelBuffer, options: nil, imageOut: &image)
+                }
+            }
+            write(image, to: "\(output)/\(label).png")
+            // What the display link would present (it doesn't tick while the window is hidden).
+            if let out = engine.slotA.videoOutput {
+                var shown = CMTime.invalid
+                if let pb = out.copyPixelBuffer(forItemTime: engine.slotA.player.currentTime(), itemTimeForDisplay: &shown) {
+                    var cg: CGImage?
+                    VTCreateCGImageFromCVPixelBuffer(pb, options: nil, imageOut: &cg)
+                    write(cg, to: "\(output)/\(label)_output.png")
+                }
+            }
+            let state = "\(label): box=\(engine.slotA.lut.value?.name ?? "nil") comp=\(engine.slotA.player.currentItem?.videoComposition != nil) playing=\(engine.isPlaying) visible=\(NSApp.windows.contains { $0.occlusionState.contains(.visible) && $0.frame.width > 800 }) t=\(CMTimeGetSeconds(engine.slotA.player.currentTime()))\n"
+            if let h = FileHandle(forWritingAtPath: "\(output)/log.txt") { h.seekToEndOfFile(); h.write(Data(state.utf8)); try? h.close() }
+            else { try? state.write(toFile: "\(output)/log.txt", atomically: true, encoding: .utf8) }
+        }
+        if ProcessInfo.processInfo.environment["QCPIE_DRAW_CHECK"] != nil {
+            // Note drawings: strokes go into a note on this frame (saved: it writes the clip's notes file).
+            func grab(_ label: String) {
+                guard let window = NSApp.windows.first(where: { $0.frame.width > 800 }) else { return }
+                let task = Process()
+                task.executableURL = URL(fileURLWithPath: "/usr/sbin/screencapture")
+                task.arguments = ["-x", "-o", "-l", "\(window.windowNumber)", "\(output)/\(label).png"]
+                try? task.run()
+                task.waitUntilExit()
+            }
+            engine.activeNotesURL = url
+            engine.activeNotes = []
+            engine.toggleDrawMode()
+            let circle = (0...40).flatMap { i -> [Double] in
+                let a = Double(i) / 40 * 2 * .pi
+                return [0.5 + 0.15 * cos(a), 0.45 + 0.2 * sin(a)]
+            }
+            // As the viewport does on mouse-up: each stroke goes into this frame's note (the first one creates it).
+            engine.onStrokeFinished?(circle)
+            engine.onStrokeFinished?([0.1, 0.1, 0.3, 0.3])
+            try? await Task.sleep(for: .seconds(1))
+            grab("d1_drawing")
+            let log = "notes=\(engine.activeNotes.count) strokes=\(engine.activeNotes.first?.drawing?.count ?? 0) frame=\(engine.activeNotes.first?.frameIndex ?? -1) current=\(engine.currentFrame)\n"
+            try? log.write(toFile: "\(output)/draw.txt", atomically: true, encoding: .utf8)
+            engine.stepFrames(count: 5, forward: true)
+            try? await Task.sleep(for: .seconds(1))
+            grab("d1b_other_frame")
+            engine.stepFrames(count: 5, forward: false)
+            try? await Task.sleep(for: .seconds(1))
+            grab("d1c_back")
+            // Drawn on frame 17 meanwhile and back on 12: 12's strokes go into its note, not a new one.
+            engine.stepFrames(count: 5, forward: true)
+            try? await Task.sleep(for: .milliseconds(500))
+            engine.onStrokeFinished?([0.7, 0.7, 0.8, 0.8])
+            engine.stepFrames(count: 5, forward: false)
+            try? await Task.sleep(for: .milliseconds(500))
+            engine.onStrokeFinished?([0.6, 0.2, 0.7, 0.3])
+            let notes12 = engine.activeNotes.filter { $0.frameIndex == engine.currentFrame }
+            let log2 = "after revisit: notes=\(engine.activeNotes.count) on12=\(notes12.count) strokes12=\(notes12.first?.drawing?.count ?? 0)\n"
+            if let h = FileHandle(forWritingAtPath: "\(output)/draw.txt") { h.seekToEndOfFile(); h.write(Data(log2.utf8)); try? h.close() }
+            engine.play()
+            try? await Task.sleep(for: .milliseconds(300))
+            let log3 = "after play: drawing=\(engine.isDrawingNote)\n"
+            if let h = FileHandle(forWritingAtPath: "\(output)/draw.txt") { h.seekToEndOfFile(); h.write(Data(log3.utf8)); try? h.close() }
+            engine.pause()
+            engine.toggleDrawMode()
+            engine.endDrawing()
+            try? await Task.sleep(for: .seconds(1))
+            grab("d2_saved_note")
+            engine.play()
+            try? await Task.sleep(for: .milliseconds(400))
+            grab("d3_playing")
+            NSApp.terminate(nil)
+            return
+        }
+        save("1_paused_lut")
+        engine.showLUTs = false
+        try? await Task.sleep(for: .seconds(2))
+        save("2_paused_off")
+        engine.showLUTs = true
+        try? await Task.sleep(for: .seconds(2))
+        save("3_paused_on_again")
+        engine.exposureEV = 1
+        try? await Task.sleep(for: .seconds(2))
+        save("4_paused_lut_ev1")
+        engine.exposureEV = 0
+        // Scrub: the AVPlayerLayer is on screen, so capture the window itself.
+        func grabWindow(_ label: String) {
+            guard let window = NSApp.windows.first(where: { $0.frame.width > 800 }) else { return }
+            let task = Process()
+            task.executableURL = URL(fileURLWithPath: "/usr/sbin/screencapture")
+            task.arguments = ["-x", "-o", "-l", "\(window.windowNumber)", "\(output)/\(label)_window.png"]
+            try? task.run()
+            task.waitUntilExit()
+        }
+        grabWindow("4b_paused_window")
+        // The first frames of a drag: the scrub layer is revealed as the drag starts.
+        engine.startScrubbing()
+        engine.scrubTo(progress: 0.3)
+        grabWindow("4c_scrub_start")
+        try? await Task.sleep(for: .milliseconds(150))
+        grabWindow("4d_scrub_150ms")
+        for step in 0..<90 {
+            engine.scrubTo(progress: 0.5 + 0.45 * sin(Double(step) / 6))
+            try? await Task.sleep(for: .milliseconds(8))
+        }
+        engine.scrubTo(progress: 0.3)
+        try? await Task.sleep(for: .milliseconds(600))
+        grabWindow("4e_scrub_held")
+        engine.showLUTs = false
+        try? await Task.sleep(for: .milliseconds(600))
+        engine.scrubTo(progress: 0.3001)
+        try? await Task.sleep(for: .milliseconds(600))
+        grabWindow("4f_scrub_held_off")
+        engine.showLUTs = true
+        engine.endScrubbing(at: 0.75)
+        try? await Task.sleep(for: .seconds(1))
+        engine.seek(toTime: CMTime(value: 0, timescale: 25))
+        engine.play()
+        try? await Task.sleep(for: .milliseconds(500))
+        save("5_playing_lut")
+        engine.pause()
+        try? await Task.sleep(for: .seconds(1))
+        write(await engine.captureCompositedScreenshotImage(), to: "\(output)/6_screenshot.png")
+        NSApp.terminate(nil)
+    }
+
+    private static func find(_ view: NSView) -> PlayerContainerNSView? {
+        if let v = view as? PlayerContainerNSView { return v }
+        for sub in view.subviews { if let v = find(sub) { return v } }
+        return nil
+    }
+
+    private static func write(_ image: CGImage?, to path: String) {
+        guard let image else { try? "none".write(toFile: path + ".txt", atomically: true, encoding: .utf8); return }
+        try? NSBitmapImageRep(cgImage: image).representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: path))
     }
 }
 #endif

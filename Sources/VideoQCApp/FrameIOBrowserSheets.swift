@@ -733,7 +733,7 @@ struct FrameIOShareSheet: View {
     }
 
     private func queueExpiry() {
-        queue("expiration", expiry.map { ISO8601DateFormatter().string(from: $0) } ?? NSNull())
+        queue("expiration", expiry.map { $0.ISO8601Format() } ?? NSNull())
     }
 
     /// Collects changes and sends them together 0.8 s after the last one.

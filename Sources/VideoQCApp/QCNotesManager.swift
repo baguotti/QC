@@ -332,10 +332,16 @@ public actor QCNotesManager {
                 continue
             }
             let before = current
-            if (note.editedAt ?? note.createdAt) > (current.editedAt ?? current.createdAt) {
+            let newer = (note.editedAt ?? note.createdAt) > (current.editedAt ?? current.createdAt)
+            if newer {
                 current.text = note.text
                 current.colorTag = note.colorTag
                 current.editedAt = note.editedAt
+            }
+            // The drawing: the newer side's, or theirs when this side has none. Never cleared from a side without one
+            // (QCpie before drawings, Frame.io) — a deleted drawing reaches other Macs when only one side changed.
+            if let drawing = note.drawing, newer || current.drawing == nil {
+                current.drawing = drawing
             }
             current.isResolved = current.isResolved || note.isResolved
             let knownReplies = Set(current.replies.map(\.id))

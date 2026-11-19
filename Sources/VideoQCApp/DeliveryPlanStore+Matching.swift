@@ -230,7 +230,7 @@ extension DeliveryPlanStore {
                           let remote = Self.frameIOID(link).flatMap({ listed[$0] }), let bytes = filesByURL[local]?.bytes {
                     // Same kind of file, another size: Frame.io holds another version (or another file).
                     state.upload = .stale
-                    found.append((.differs, "Frame.io's file is \(Self.byteText(remote.size)), this one \(Self.byteText(bytes)): Frame.io has another version."))
+                    found.append((.differs, "Frame.io's file is \(QCUtilities.byteCount(remote.size)), this one \(QCUtilities.byteCount(bytes)): Frame.io has another version."))
                 }
             } else if tracksFrameIO, state.state.isDone {
                 found.append((.notUploaded, "\(state.state.title), but not on Frame.io."))

@@ -38,6 +38,13 @@ struct NotesDrawerPanelView: View {
     var onSeekToFrame: (Int) -> Void
     var onAddNote: () -> Void
     var onSaveNote: (QCFileNote) -> Void
+    /// Draw mode (pencil, D): the next note takes the strokes.
+    var isDrawing: Bool = false
+    var onToggleDraw: () -> Void = {}
+    /// A colour picked while drawing recolours this frame's drawn note.
+    var onColorChange: (String) -> Void = { _ in }
+    /// A note just drawn on: opened for editing (its automatic "Drawing" text cleared for typing), then reset.
+    @Binding var editNoteRequest: UUID?
     var onToggleResolved: (UUID) -> Void
     var onDeleteNote: (UUID) -> Void
     var onClearAllNotes: () -> Void
@@ -54,7 +61,8 @@ struct NotesDrawerPanelView: View {
     // Notes tab state
     @AppStorage("reviewerName") private var storedReviewerName: String = ""
     @State private var inlineNoteText: String = ""
-    @State private var inlineSelectedColor: String = "cyan"
+    /// The colour for new notes, drawn ones too (remembered: a drawing started from D or the pencil takes it).
+    @AppStorage("noteColor") private var inlineSelectedColor: String = "cyan"
     @State private var showClearConfirmation: Bool = false
     @State private var editingNoteID: UUID? = nil
     @State private var editColorTag: String = "cyan"
@@ -124,6 +132,14 @@ struct NotesDrawerPanelView: View {
         }
         .task(id: effectiveURL) {
             await mediaInfo.load(effectiveURL, asset: mediaAsset)
+        }
+        .onChange(of: editNoteRequest) { _, id in
+            guard let id else { return }
+            editNoteRequest = nil   // always: a request left set would block the next one for the same note
+            guard let note = notes.first(where: { $0.id == id }) else { return }
+            editText = note.text == QCFileNote.drawingPlaceholder ? "" : note.text
+            editColorTag = note.colorTag
+            editingNoteID = id
         }
     }
     
@@ -452,7 +468,10 @@ struct NotesDrawerPanelView: View {
                 // Colour dots: the user colours (red is Line Check's, purple Frame.io's)
                 HStack(spacing: 5) {
                     ForEach(QCNoteTheme.availableColors, id: \.id) { item in
-                        Button(action: { inlineSelectedColor = item.id }) {
+                        Button(action: {
+                            inlineSelectedColor = item.id
+                            onColorChange(item.id)
+                        }) {
                             Circle()
                                 .fill(item.color)
                                 .frame(width: 9, height: 9)
@@ -468,8 +487,18 @@ struct NotesDrawerPanelView: View {
                 }
             }
             
-            // Text Input Field & Send Button
+            // Pencil, Text Input Field & Send Button
             HStack(spacing: 6) {
+                Button(action: onToggleDraw) {
+                    Image(systemName: "pencil.and.scribble")
+                        .font(.system(size: StudioTheme.scaleFont(11), weight: .semibold))
+                        .foregroundColor(isDrawing ? colorForTag(inlineSelectedColor) : palette.textMuted)
+                        .frame(width: 18, height: 18)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .help(isDrawing ? "Stop drawing (D or Esc)" : "Draw on the frame for this note (D)")
+                
                 TextField("Add note at playhead... (drop files to link them)", text: $inlineNoteText)
                     .onDrop(of: [.fileURL], isTargeted: nil) { providers in
                         handlePathDrop(providers) { token in
@@ -589,6 +618,27 @@ struct NotesDrawerPanelView: View {
                     .font(.ui(size: 10, weight: .semibold))
                     .foregroundColor(palette.textMain)
                     .lineLimit(1)
+                
+                if !(note.drawing?.isEmpty ?? true) {
+                    // The note's drawing (shown on its paused frame): its menu deletes it, keeping the note.
+                    Menu {
+                        Button("Show on Frame") { onSeekToFrame(note.frameIndex) }
+                        Button("Delete Drawing", role: .destructive) {
+                            var updated = note
+                            updated.drawing = nil
+                            updated.editedAt = Date()   // the newer version wins when notes are merged
+                            onUpdateNote(updated)
+                        }
+                    } label: {
+                        Image(systemName: "scribble")
+                            .font(.system(size: StudioTheme.scaleFont(10), weight: .semibold))
+                            .foregroundColor(palette.textMuted)
+                    }
+                    .menuStyle(.borderlessButton)
+                    .menuIndicator(.hidden)
+                    .fixedSize()
+                    .help("Drawing: shown on the paused frame. Click to show it or delete it.")
+                }
                 
                 Spacer()
                 

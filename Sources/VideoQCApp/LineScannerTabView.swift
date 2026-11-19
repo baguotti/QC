@@ -7,7 +7,8 @@ extension ContentView {
     
     var lineScannerTabView: some View {
         HStack(spacing: 0) {
-            // Left Panel: Configuration
+            // Left Panel: Configuration (hidden and shown like every tab's, ⌘⇧←)
+            if showScanPanel {
             ScrollView {
                 VStack(alignment: .leading, spacing: 22) {
                     deliveryAssetsSection(forTab: .lineFinder)
@@ -28,9 +29,23 @@ extension ContentView {
                                   help: "Drag to resize the settings panel. Double-click to reset.")
             }
             .zIndex(1)
+            .transition(.move(edge: .leading).combined(with: .opacity))
+            }
             
             // Right Panel: Results / Live Progress / Empty State
             VStack(alignment: .leading, spacing: 0) {
+                HStack(spacing: 12) {
+                    SleeveToggle(side: .leading, isOpen: showScanPanel, isLightMode: isLightMode,
+                                 help: showScanPanel ? "Hide the checks panel (⌘⇧←)." : "Reveal the checks panel (⌘⇧←).") {
+                        showScanPanel.toggle()
+                    }
+                    Text("Scan Results")
+                        .font(.ui(size: 11, weight: .semibold))
+                        .foregroundColor(textMuted)
+                    Spacer()
+                }
+                .headerBand(palette)
+
                 if scannerState.isFrameChecking {
                     frameCheckProgressView
                 } else if scannerState.isScanning {

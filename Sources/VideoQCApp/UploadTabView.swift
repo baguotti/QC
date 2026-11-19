@@ -394,9 +394,7 @@ struct UploadQueuePanel: View {
         }
     }
 
-    static func bytes(_ count: Int64) -> String {
-        ByteCountFormatter.string(fromByteCount: count, countStyle: .file)
-    }
+    static func bytes(_ count: Int64) -> String { QCUtilities.byteCount(count) }
 }
 
 /// Destination, Keep subfolders, progress and the Upload button. Its own view: it observes the Frame.io browser (for the
@@ -1531,9 +1529,7 @@ enum UploadLogFormat {
         return "\(total / 3600)h \(total % 3600 / 60)m"
     }
 
-    static func bytes(_ count: Int64) -> String {
-        ByteCountFormatter.string(fromByteCount: count, countStyle: .file)
-    }
+    static func bytes(_ count: Int64) -> String { QCUtilities.byteCount(count) }
 
     static func speed(_ bytesPerSecond: Double) -> String {
         "\(bytes(Int64(bytesPerSecond)))/s"

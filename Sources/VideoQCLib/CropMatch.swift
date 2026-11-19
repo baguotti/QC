@@ -95,7 +95,6 @@ public struct CropMatchRun: Sendable {
     public var masterFrames: Int = 0
     public let results: [CropMatchResult]
 
-    public var shotsReframed: Int { results.reduce(0) { $0 + $1.reframedCount } }
     public var isFlagged: Bool { results.contains(where: \.isFlagged) }
 }
 
@@ -898,7 +897,9 @@ final class FramingMeasurer: @unchecked Sendable {
     /// reframes 0.981–0.9998 (a burned-in viewfinder overlay that doesn't scale with the picture keeps one at 0.983);
     /// shots whose moment, focus or graphics differ from the master's 0.82–0.95.
     static let reframeFit: Float = 0.97
-    static let looseFit = "Framing looks different, but the pictures don't match closely (timing, focus or graphics differ): compare by eye"
+    /// Short, so the measured framing after it in the row shows ("… · about 108.2%, 23 px right"): the moment, focus
+    /// or graphics differ from the master's.
+    static let looseFit = "Pictures don't match closely: compare by eye"
 
     func measure(_ shot: CropMatchShot, path: [Int?], masterCount: Int) async -> CropMatchShot {
         guard shot.verdict == .same else { return shot }
@@ -906,10 +907,11 @@ final class FramingMeasurer: @unchecked Sendable {
         // A few frames inside the shot, away from its ends (dissolves, motion blur at a cut).
         let picks = Set([0.3, 0.5, 0.7].map { shot.start + Int(Double(shot.frameCount - 1) * $0) })
             .sorted().compactMap { i in path[i].map { (i, $0) } }
-        var masterImages: [Int: [Float]] = [:]
+        // Each master frame's pyramid once for the whole shot (the picks' windows overlap).
+        var masterLevels: [Int: CropAligner.Levels] = [:]
         var measures: [(cut: Int, master: Int, framing: CropAligner.Framing, ambiguous: Bool)] = []
         for (c, m) in picks {
-            guard let a = await cutReader.gray(c) else { continue }
+            guard let a = await cutReader.grays(c...c)[c], let cutLevels = CropAligner.levels(a, width: w, height: h) else { continue }
             // The exact master frame: the one in the window that fits best once framed.
             var options: [(m: Int, pyramid: CropAligner.Pyramid, coarse: CropAligner.Candidate)] = []
             // A punch-in: start from the crop the zoomed search found (in coarse-level pixels).
@@ -919,10 +921,15 @@ final class FramingMeasurer: @unchecked Sendable {
             }
             // The path's own frame first, searched in full; its neighbours near the framing it found.
             let window = max(0, m - Self.pairingWindow)...min(masterCount - 1, m + Self.pairingWindow)
+            let missing = window.filter { masterLevels[$0] == nil }
+            if let first = missing.first, let last = missing.last {
+                for (frame, image) in await masterReader.grays(first...last) where masterLevels[frame] == nil {
+                    masterLevels[frame] = CropAligner.levels(image, width: w, height: h)
+                }
+            }
             for candidate in [m] + window.filter({ $0 != m }) where candidate >= 0 && candidate < masterCount {
-                if masterImages[candidate] == nil { masterImages[candidate] = await masterReader.gray(candidate) }
-                guard let b = masterImages[candidate],
-                      let pyramid = CropAligner.pyramid(cutdown: a, master: b, width: w, height: h) else { continue }
+                guard let masterLevel = masterLevels[candidate] else { continue }
+                let pyramid = CropAligner.pyramid(cut: cutLevels, master: masterLevel)
                 let coarse = CropAligner.coarse(pyramid, near: anchor)
                 if anchor == nil { anchor = coarse }
                 options.append((candidate, pyramid, coarse))
@@ -958,7 +965,11 @@ final class FramingMeasurer: @unchecked Sendable {
             }
         }
         let readable = measures.filter { !$0.framing.tooPlain && !$0.ambiguous }
-        guard let worst = readable.max(by: { $0.framing.magnitude(width: w) < $1.framing.magnitude(width: w) }) else {
+        // Frames that fit the master closely decide when there are any: a poorly fitting one (a moment where a title
+        // animates) measures noise, and taking the biggest difference let it overrule good measurements.
+        let confident = readable.filter { $0.framing.score >= Self.reframeFit }
+        guard let worst = (confident.isEmpty ? readable : confident)
+            .max(by: { $0.framing.magnitude(width: w) < $1.framing.magnitude(width: w) }) else {
             let poorFit = measures.contains { !$0.framing.tooPlain && $0.framing.score < Self.minimumFit }
             shot.verdict = .uncertain(poorFit ? "Doesn't match the master closely (another take, or graphics over it?)"
                                       : measures.contains { $0.ambiguous } ? "Camera move: timing and framing can't be told apart"
@@ -992,13 +1003,15 @@ final class FramingMeasurer: @unchecked Sendable {
 
 /// Exact frames of one file as grey levels 0…1 at a fixed size, from one image generator.
 final class FrameReader: @unchecked Sendable {
+    private let asset: AVURLAsset
     private let generator: AVAssetImageGenerator
     private let fps: Double
     private let width: Int
     private let height: Int
 
     init(url: URL, fps: Double, width: Int, height: Int) {
-        generator = AVAssetImageGenerator(asset: AVURLAsset(url: url))
+        asset = AVURLAsset(url: url)
+        generator = AVAssetImageGenerator(asset: asset)
         generator.appliesPreferredTrackTransform = true
         generator.requestedTimeToleranceBefore = .zero
         generator.requestedTimeToleranceAfter = .zero
@@ -1006,6 +1019,53 @@ final class FrameReader: @unchecked Sendable {
         self.fps = fps
         self.width = width
         self.height = height
+    }
+
+    /// Frames `frames` as grey 0…1, read in one pass: one decoder run from the keyframe before them, hardware-scaled,
+    /// the luma plane only (a seek per frame decoded from the keyframe again each time: measured as most of a run's
+    /// time). A video whose track is rotated (a preferred transform) goes frame by frame through the image generator,
+    /// which applies it. Frames that can't be read are missing from the result.
+    func grays(_ frames: ClosedRange<Int>) async -> [Int: [Float]] {
+        if let read = await readWindow(frames) { return read }
+        var out: [Int: [Float]] = [:]
+        for frame in frames { out[frame] = await gray(frame) }
+        return out
+    }
+
+    private func readWindow(_ frames: ClosedRange<Int>) async -> [Int: [Float]]? {
+        guard let track = try? await asset.loadTracks(withMediaType: .video).first,
+              (try? await track.load(.preferredTransform)) ?? .identity == .identity,
+              let reader = try? AVAssetReader(asset: asset) else { return nil }
+        let rate = max(1, fps)
+        reader.timeRange = CMTimeRange(start: CMTime(seconds: Double(frames.lowerBound) / rate, preferredTimescale: 600_000),
+                                       end: CMTime(seconds: Double(frames.upperBound + 1) / rate, preferredTimescale: 600_000))
+        // Decoded at twice the size and averaged down here: the hardware scaler going straight to the measuring size is
+        // softer and aliases (measured: a 202 % punch-in read 203.0 % that way, 202.5 % from twice the size).
+        let (bigW, bigH) = (width * 2, height * 2)
+        let output = AVAssetReaderTrackOutput(track: track, outputSettings: [
+            kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange,
+            kCVPixelBufferWidthKey as String: bigW,
+            kCVPixelBufferHeightKey as String: bigH
+        ])
+        output.alwaysCopiesSampleData = false
+        guard reader.canAdd(output) else { return nil }
+        reader.add(output)
+        guard reader.startReading() else { return nil }
+        var out: [Int: [Float]] = [:]
+        while let sample = output.copyNextSampleBuffer() {
+            guard let buffer = CMSampleBufferGetImageBuffer(sample) else { continue }
+            let pts = CMTimeGetSeconds(CMSampleBufferGetPresentationTimeStamp(sample))
+            let frame = Int((pts * rate).rounded())
+            guard frames.contains(frame) else { continue }
+            let (luma, _) = FrameCheckScanner.planes(buffer, width: bigW, height: bigH)
+            var values = [Float](repeating: 0, count: luma.count)
+            vDSP_vfltu8(luma, 1, &values, 1, vDSP_Length(luma.count))
+            var scale: Float = 1 / 255
+            vDSP_vsmul(values, 1, &scale, &values, 1, vDSP_Length(values.count))
+            out[frame] = CropAligner.resize(values, bigW, bigH, to: width, height)
+            if frame >= frames.upperBound { reader.cancelReading(); break }
+        }
+        return out.isEmpty ? nil : out
     }
 
     /// Frame `frame` (its middle, the app's frame-to-time rule), nil when it can't be decoded.
@@ -1068,6 +1128,12 @@ public enum CropAligner {
         var top: (cut: [Float], master: [Float], w: Int, h: Int) { levels[levels.count - 1] }
     }
 
+    struct ScoreKey: Hashable {
+        let scale: UInt64
+        let dx: Double
+        let dy: Double
+    }
+
     struct Candidate {
         var value: Float
         var scale: Double
@@ -1092,17 +1158,33 @@ public enum CropAligner {
     /// Area-averaged levels: the image's own size, halved down to about 24 px (the exhaustive search runs there: a
     /// pixel is 4 % of the frame, and each finer level only looks a pixel around).
     static func pyramid(cutdown: [Float], master: [Float], width: Int, height: Int) -> Pyramid? {
-        guard cutdown.count == width * height, master.count == width * height, width >= 48, height >= 48 else { return nil }
-        var sizes = [max(width, height)]
-        while sizes[0] / 2 >= 20 { sizes.insert(sizes[0] / 2, at: 0) }
-        var levels: [(cut: [Float], master: [Float], w: Int, h: Int)] = []
-        for size in sizes {
+        guard let cut = levels(cutdown, width: width, height: height), let master = levels(master, width: width, height: height) else { return nil }
+        return pyramid(cut: cut, master: master)
+    }
+
+    /// One image's pyramid levels, built once and paired with others' (a cutdown frame is tried against up to nine
+    /// master frames, and a master frame serves several picks: building pairs from scratch rebuilt each image many times).
+    struct Levels: Sendable {
+        let images: [[Float]]
+        let sizes: [(w: Int, h: Int)]
+        let width: Int
+        let height: Int
+    }
+
+    static func levels(_ image: [Float], width: Int, height: Int) -> Levels? {
+        guard image.count == width * height, width >= 48, height >= 48 else { return nil }
+        var longSides = [max(width, height)]
+        while longSides[0] / 2 >= 20 { longSides.insert(longSides[0] / 2, at: 0) }
+        let sizes = longSides.map { size -> (w: Int, h: Int) in
             let factor = Double(max(width, height)) / Double(size)
-            let w = max(8, Int((Double(width) / factor).rounded()))
-            let h = max(8, Int((Double(height) / factor).rounded()))
-            levels.append((resize(cutdown, width, height, to: w, h), resize(master, width, height, to: w, h), w, h))
+            return (max(8, Int((Double(width) / factor).rounded())), max(8, Int((Double(height) / factor).rounded())))
         }
-        return Pyramid(levels: levels, width: width, height: height)
+        return Levels(images: sizes.map { resize(image, width, height, to: $0.w, $0.h) }, sizes: sizes, width: width, height: height)
+    }
+
+    static func pyramid(cut: Levels, master: Levels) -> Pyramid {
+        Pyramid(levels: cut.sizes.indices.map { (cut.images[$0], master.images[$0], cut.sizes[$0].w, cut.sizes[$0].h) },
+                width: cut.width, height: cut.height)
     }
 
     /// Search at the coarsest level: scales 0.75…1.5 and shifts ±25 % of the frame, or only around `near` (±4 px,
@@ -1145,14 +1227,18 @@ public enum CropAligner {
         // could stop short: a 5 % reframe once read 4 %), then the same with half the scale step.
         func climb(_ level: (cut: [Float], master: [Float], w: Int, h: Int), step: Double) {
             best.value = score(level.cut, level.master, w: level.w, h: level.h, scale: best.scale, dx: best.dx, dy: best.dy).value
+            // A step re-tries most of the positions the last one did: each is scored once per level.
+            var scored: [ScoreKey: Float] = [:]
             for _ in 0..<12 {
                 let center = best
                 for ds in -1...1 {
                     let s = center.scale * (1 + Double(ds) * step)
                     for oy in -1...1 {
                         for ox in -1...1 where ds != 0 || oy != 0 || ox != 0 {
-                            let v = score(level.cut, level.master, w: level.w, h: level.h, scale: s,
-                                          dx: center.dx + Double(ox), dy: center.dy + Double(oy)).value
+                            let key = ScoreKey(scale: s.bitPattern, dx: center.dx + Double(ox), dy: center.dy + Double(oy))
+                            let v = scored[key] ?? score(level.cut, level.master, w: level.w, h: level.h, scale: s,
+                                                         dx: key.dx, dy: key.dy).value
+                            scored[key] = v
                             if v > best.value { best = Candidate(value: v, scale: s, dx: center.dx + Double(ox), dy: center.dy + Double(oy)) }
                         }
                     }
@@ -1199,22 +1285,35 @@ public enum CropAligner {
         let topEdge = cy + (Double(y0) - cy) * inv + dy, bottom = cy + (Double(y1 - 1) - cy) * inv + dy
         guard left >= 0, right <= Double(w - 1), topEdge >= 0, bottom <= Double(h - 1) else { return (-1, false) }
         var sa: Double = 0, sb: Double = 0, saa: Double = 0, sbb: Double = 0, sab: Double = 0
-        var n: Double = 0
-        cut.withUnsafeBufferPointer { a in
-            master.withUnsafeBufferPointer { b in
-                for y in y0..<y1 {
-                    let my = cy + (Double(y) - cy) * inv + dy
-                    let iy = min(h - 2, Int(my)), fy = Float(my - Double(iy))
-                    for x in x0..<x1 {
-                        let mx = cx + (Double(x) - cx) * inv + dx
-                        let ix = min(w - 2, Int(mx)), fx = Float(mx - Double(ix))
-                        let p = iy * w + ix
-                        let top = b[p] + (b[p + 1] - b[p]) * fx
-                        let bottom = b[p + w] + (b[p + w + 1] - b[p + w]) * fx
-                        let mv = Double(top + (bottom - top) * fy)
-                        let cv = Double(a[y * w + x])
-                        sa += cv; sb += mv; saa += cv * cv; sbb += mv * mv; sab += cv * mv
-                        n += 1
+        let columns = x1 - x0
+        let n = Double(columns * (y1 - y0))
+        // Where each column samples the master, worked out once (it's the same for every row); each row's sums in
+        // Float, the totals in Double.
+        withUnsafeTemporaryAllocation(of: Int.self, capacity: columns) { ixs in
+            withUnsafeTemporaryAllocation(of: Float.self, capacity: columns) { fxs in
+                for k in 0..<columns {
+                    let mx = cx + (Double(x0 + k) - cx) * inv + dx
+                    let ix = min(w - 2, Int(mx))
+                    ixs[k] = ix
+                    fxs[k] = Float(mx - Double(ix))
+                }
+                cut.withUnsafeBufferPointer { a in
+                    master.withUnsafeBufferPointer { b in
+                        for y in y0..<y1 {
+                            let my = cy + (Double(y) - cy) * inv + dy
+                            let iy = min(h - 2, Int(my)), fy = Float(my - Double(iy))
+                            let upper = iy * w, lower = upper + w, row = y * w + x0
+                            var ra: Float = 0, rb: Float = 0, raa: Float = 0, rbb: Float = 0, rab: Float = 0
+                            for k in 0..<columns {
+                                let ix = ixs[k], fx = fxs[k]
+                                let top = b[upper + ix] + (b[upper + ix + 1] - b[upper + ix]) * fx
+                                let bottom = b[lower + ix] + (b[lower + ix + 1] - b[lower + ix]) * fx
+                                let mv = top + (bottom - top) * fy
+                                let cv = a[row + k]
+                                ra += cv; rb += mv; raa += cv * cv; rbb += mv * mv; rab += cv * mv
+                            }
+                            sa += Double(ra); sb += Double(rb); saa += Double(raa); sbb += Double(rbb); sab += Double(rab)
+                        }
                     }
                 }
             }
@@ -1229,17 +1328,24 @@ public enum CropAligner {
     /// Area-average resize (downscaling only; the same size is a copy).
     static func resize(_ image: [Float], _ w: Int, _ h: Int, to nw: Int, _ nh: Int) -> [Float] {
         guard nw != w || nh != h else { return image }
+        // Which output column and row each input one adds to, worked out once (not a division per pixel).
+        let columns = (0..<w).map { min(nw - 1, $0 * nw / w) }
         var out = [Float](repeating: 0, count: nw * nh)
         var counts = [Float](repeating: 0, count: nw * nh)
-        for y in 0..<h {
-            let oy = min(nh - 1, y * nh / h)
-            for x in 0..<w {
-                let ox = min(nw - 1, x * nw / w)
-                out[oy * nw + ox] += image[y * w + x]
-                counts[oy * nw + ox] += 1
+        image.withUnsafeBufferPointer { source in
+            out.withUnsafeMutableBufferPointer { out in
+                counts.withUnsafeMutableBufferPointer { counts in
+                    for y in 0..<h {
+                        let row = min(nh - 1, y * nh / h) * nw, from = y * w
+                        for x in 0..<w {
+                            out[row + columns[x]] += source[from + x]
+                            counts[row + columns[x]] += 1
+                        }
+                    }
+                }
             }
         }
-        for k in out.indices { out[k] /= max(1, counts[k]) }
+        vDSP_vdiv(counts.map { max(1, $0) }, 1, out, 1, &out, 1, vDSP_Length(out.count))
         return out
     }
 }

@@ -195,13 +195,9 @@ public struct DeliverablesInspector: Sendable {
         let fileSizeBytes = QCUtilities.fileSize(of: url) ?? 0
         var creationDate: Date? = nil
         var formattedCreationDate = "--"
-        if let attributes = try? FileManager.default.attributesOfItem(atPath: url.path),   // fresh: a re-export is a new file
-           let date = (attributes[.creationDate] ?? attributes[.modificationDate]) as? Date {
+        if let date = fileCreationDate(url) {
             creationDate = date
-            let formatter = DateFormatter()
-            formatter.locale = Locale(identifier: "en_US_POSIX")   // Gregorian, 24 h on every Mac
-            formatter.dateFormat = "yyyy-MM-dd HH:mm"
-            formattedCreationDate = formatter.string(from: date)
+            formattedCreationDate = creationDateFormatter.string(from: date)
         }
         
         let ratioOnly = validateFilename(fileName: url.lastPathComponent, durationSeconds: 0, aspectRatio: aspectRatioString,
@@ -500,20 +496,9 @@ public struct DeliverablesInspector: Sendable {
         }
         
         let subType = CMFormatDescriptionGetMediaSubType(desc)
-        switch subType {
-        case kCMVideoCodecType_AppleProRes422HQ: return "ProRes 422 HQ"
-        case kCMVideoCodecType_AppleProRes422: return "ProRes 422"
-        case kCMVideoCodecType_AppleProRes422LT: return "ProRes 422 LT"
-        case kCMVideoCodecType_AppleProRes422Proxy: return "ProRes 422 Proxy"
-        case kCMVideoCodecType_AppleProRes4444: return "ProRes 4444"
-        case kCMVideoCodecType_AppleProRes4444XQ: return "ProRes 4444 XQ"
-        case kCMVideoCodecType_H264: return "H.264 (AVC)"
-        case kCMVideoCodecType_HEVC: return "H.265 (HEVC)"
-        case kCMVideoCodecType_HEVCWithAlpha: return "HEVC + Alpha"
-        default:
-            let fourCC = QCUtilities.fourCCToString(subType)
-            return fourCC.isEmpty ? "Video" : fourCC
-        }
+        if let names = CodecNames.video(subType) { return names.short }
+        let fourCC = QCUtilities.fourCCToString(subType)
+        return fourCC.isEmpty ? "Video" : fourCC
     }
     
     /// Extracts audio codec, bitrate, sample rate, and channels. If no audio is present, returns "NONE".
@@ -533,28 +518,11 @@ public struct DeliverablesInspector: Sendable {
         let bitsPerChannel = Int(asbd.mBitsPerChannel)
         var codecName = ""
         
-        switch formatID {
-        case kAudioFormatLinearPCM:
-            if bitsPerChannel > 0 {
-                codecName = "PCM (\(bitsPerChannel)-bit)"
-            } else {
-                codecName = "Linear PCM"
-            }
-        case kAudioFormatMPEG4AAC, kAudioFormatMPEG4AAC_HE, kAudioFormatMPEG4AAC_HE_V2, kAudioFormatMPEG4AAC_Spatial:
-            codecName = "AAC"
-        case kAudioFormatAppleLossless:
-            codecName = "ALAC"
-        case kAudioFormatAC3:
-            codecName = "AC-3 (Dolby Digital)"
-        case kAudioFormatEnhancedAC3:
-            codecName = "E-AC-3"
-        case kAudioFormatMPEGLayer3:
-            codecName = "MP3"
-        case kAudioFormatOpus:
-            codecName = "Opus"
-        case kAudioFormatFLAC:
-            codecName = "FLAC"
-        default:
+        if formatID == kAudioFormatLinearPCM {
+            codecName = bitsPerChannel > 0 ? "PCM (\(bitsPerChannel)-bit)" : "Linear PCM"
+        } else if let names = CodecNames.audio(formatID) {
+            codecName = names.short
+        } else {
             let fourCC = QCUtilities.fourCCToString(formatID)
             codecName = fourCC.isEmpty ? "Audio" : fourCC
         }
@@ -1003,9 +971,7 @@ public struct DeliverablesInspector: Sendable {
         var date: Date? = nil
         
         // 1. File system creation date
-        if let attributes = try? FileManager.default.attributesOfItem(atPath: url.path) {   // fresh: a re-export is a new file
-            date = (attributes[.creationDate] ?? attributes[.modificationDate]) as? Date
-        }
+        date = fileCreationDate(url)
         
         // 2. Check QuickTime container metadata
         if let metadata = try? await asset.load(.metadata) {
@@ -1014,8 +980,7 @@ public struct DeliverablesInspector: Sendable {
                 if let metaDate = try? await first.load(.dateValue) {
                     date = metaDate
                 } else if let metaString = try? await first.load(.stringValue) {
-                    let isoFormatter = ISO8601DateFormatter()
-                    if let parsed = isoFormatter.date(from: metaString) {
+                    if let parsed = ISO8601DateFormatter().date(from: metaString) {
                         date = parsed
                     }
                 }
@@ -1026,11 +991,22 @@ public struct DeliverablesInspector: Sendable {
             return (nil, "--")
         }
         
+        return (validDate, creationDateFormatter.string(from: validDate))
+    }
+
+    /// Creation (else modification) date, read fresh: a re-export is a new file.
+    private static func fileCreationDate(_ url: URL) -> Date? {
+        guard let attributes = try? FileManager.default.attributesOfItem(atPath: url.path) else { return nil }
+        return (attributes[.creationDate] ?? attributes[.modificationDate]) as? Date
+    }
+
+    /// DateFormatter is thread-safe for formatting (macOS 10.9+); building one per file cost more than the format.
+    private static let creationDateFormatter: DateFormatter = {
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "en_US_POSIX")   // Gregorian, 24 h on every Mac
         formatter.dateFormat = "yyyy-MM-dd HH:mm"
-        return (validDate, formatter.string(from: validDate))
-    }
+        return formatter
+    }()
     
     
     // MARK: - CSV Generator
@@ -1045,34 +1021,25 @@ public struct DeliverablesInspector: Sendable {
     }
 
     public static func generateManifestCSV(assets: [DeliverableAsset], rootFolderURL: URL? = nil, target: LoudnessTarget = .current) -> String {
-        var csv = "Folder,File Name,Status,Validation Notes,Timecode,Duration,Total Frames,Resolution,Aspect Ratio,FPS,File Size,Created Date,Subtitles / CC,Video Codec,Audio Codec,Audio Bitrate,Audio Details,Loudness (LUFS),True Peak (dBTP),LRA (LU),Max Short-Term (LUFS),Loudness Verdict,Loudness Notes,End Frame,Burned-in Subs,Text on Screen,Container,File Path\n"
-        
-        for a in assets {
-            var folderRel = ""
-            if let root = rootFolderURL {
-                let rootPath = root.standardizedFileURL.path
-                let filePath = a.fileURL.standardizedFileURL.path
-                if QCUtilities.isPath(filePath, inside: rootPath) {
-                    let rel = String(filePath.dropFirst(rootPath.count)).trimmingCharacters(in: CharacterSet(charactersIn: "/"))
-                    folderRel = (rel as NSString).deletingLastPathComponent
-                }
-            }
-            if folderRel.isEmpty {
-                folderRel = a.fileURL.deletingLastPathComponent().lastPathComponent
-            }
-            let status = a.hasAnyNameMismatch ? "MISMATCH FLAGGED" : "MATCHED"
-            let notes = a.notesWithPictureText
-            csv += "\(QCUtilities.escapeCSV(folderRel)),\(QCUtilities.escapeCSV(a.fileName)),\(QCUtilities.escapeCSV(status)),\(QCUtilities.escapeCSV(notes)),\(QCUtilities.escapeCSV(a.timecode)),\(QCUtilities.escapeCSV(a.formattedDuration)),\(a.totalFrames),\(QCUtilities.escapeCSV(a.resolutionString)),\(QCUtilities.escapeCSV(a.aspectRatioString)),\(String(format: "%.2f", a.fps)),\(QCUtilities.escapeCSV(a.formattedFileSize)),\(QCUtilities.escapeCSV(a.formattedCreationDate)),\(QCUtilities.escapeCSV(a.subtitlesInfo)),\(QCUtilities.escapeCSV(a.videoCodec)),\(QCUtilities.escapeCSV(a.audioCodec)),\(QCUtilities.escapeCSV(a.audioBitrate)),\(QCUtilities.escapeCSV(a.audioConfig)),\(loudnessColumns(a, target: target).map(QCUtilities.escapeCSV).joined(separator: ",")),\(QCUtilities.escapeCSV(a.endFrame?.verdict.rawValue ?? "")),\(QCUtilities.escapeCSV(a.pictureText?.subsLabel ?? "")),\(QCUtilities.escapeCSV(a.pictureText?.graphicsLabel(for: a.fileName) ?? "")),\(QCUtilities.escapeCSV(a.container)),\(QCUtilities.escapeCSV(a.fileURL.path))\n"
-        }
-        
-        return csv
+        QCUtilities.delimited(manifestRows(assets: assets, rootFolderURL: rootFolderURL, target: target), format: .csv)
     }
-    
+
     // MARK: - TSV Generator (Google Sheets / Clipboard)
-    
+
     public static func generateManifestTSV(assets: [DeliverableAsset], rootFolderURL: URL? = nil, target: LoudnessTarget = .current) -> String {
-        var tsv = "Folder\tFile Name\tStatus\tValidation Notes\tTimecode\tDuration\tTotal Frames\tResolution\tAspect Ratio\tFPS\tFile Size\tCreated Date\tSubtitles / CC\tVideo Codec\tAudio Codec\tAudio Bitrate\tAudio Details\tLoudness (LUFS)\tTrue Peak (dBTP)\tLRA (LU)\tMax Short-Term (LUFS)\tLoudness Verdict\tLoudness Notes\tEnd Frame\tBurned-in Subs\tText on Screen\tContainer\tFile Path\n"
-        
+        QCUtilities.delimited(manifestRows(assets: assets, rootFolderURL: rootFolderURL, target: target), format: .tsv)
+    }
+
+    private static let manifestHeader = [
+        "Folder", "File Name", "Status", "Validation Notes", "Timecode", "Duration", "Total Frames", "Resolution",
+        "Aspect Ratio", "FPS", "File Size", "Created Date", "Subtitles / CC", "Video Codec", "Audio Codec", "Audio Bitrate",
+        "Audio Details", "Loudness (LUFS)", "True Peak (dBTP)", "LRA (LU)", "Max Short-Term (LUFS)", "Loudness Verdict",
+        "Loudness Notes", "End Frame", "Burned-in Subs", "Text on Screen", "Container", "File Path"
+    ]
+
+    /// Header, then one row per asset: the CSV and TSV manifests hold the same cells.
+    static func manifestRows(assets: [DeliverableAsset], rootFolderURL: URL?, target: LoudnessTarget) -> [[String]] {
+        var rows = [manifestHeader]
         for a in assets {
             var folderRel = ""
             if let root = rootFolderURL {
@@ -1087,11 +1054,16 @@ public struct DeliverablesInspector: Sendable {
                 folderRel = a.fileURL.deletingLastPathComponent().lastPathComponent
             }
             let status = a.hasAnyNameMismatch ? "MISMATCH FLAGGED" : "MATCHED"
-            let notes = a.notesWithPictureText
-            tsv += "\(QCUtilities.escapeTSV(folderRel))\t\(QCUtilities.escapeTSV(a.fileName))\t\(QCUtilities.escapeTSV(status))\t\(QCUtilities.escapeTSV(notes))\t\(QCUtilities.escapeTSV(a.timecode))\t\(QCUtilities.escapeTSV(a.formattedDuration))\t\(a.totalFrames)\t\(QCUtilities.escapeTSV(a.resolutionString))\t\(QCUtilities.escapeTSV(a.aspectRatioString))\t\(String(format: "%.2f", a.fps))\t\(QCUtilities.escapeTSV(a.formattedFileSize))\t\(QCUtilities.escapeTSV(a.formattedCreationDate))\t\(QCUtilities.escapeTSV(a.subtitlesInfo))\t\(QCUtilities.escapeTSV(a.videoCodec))\t\(QCUtilities.escapeTSV(a.audioCodec))\t\(QCUtilities.escapeTSV(a.audioBitrate))\t\(QCUtilities.escapeTSV(a.audioConfig))\t\(loudnessColumns(a, target: target).map(QCUtilities.escapeTSV).joined(separator: "\t"))\t\(QCUtilities.escapeTSV(a.endFrame?.verdict.rawValue ?? ""))\t\(QCUtilities.escapeTSV(a.pictureText?.subsLabel ?? ""))\t\(QCUtilities.escapeTSV(a.pictureText?.graphicsLabel(for: a.fileName) ?? ""))\t\(QCUtilities.escapeTSV(a.container))\t\(QCUtilities.escapeTSV(a.fileURL.path))\n"
+            rows.append([
+                folderRel, a.fileName, status, a.notesWithPictureText, a.timecode, a.formattedDuration, "\(a.totalFrames)",
+                a.resolutionString, a.aspectRatioString, String(format: "%.2f", a.fps), a.formattedFileSize,
+                a.formattedCreationDate, a.subtitlesInfo, a.videoCodec, a.audioCodec, a.audioBitrate, a.audioConfig
+            ] + loudnessColumns(a, target: target) + [
+                a.endFrame?.verdict.rawValue ?? "", a.pictureText?.subsLabel ?? "",
+                a.pictureText?.graphicsLabel(for: a.fileName) ?? "", a.container, a.fileURL.path
+            ])
         }
-        
-        return tsv
+        return rows
     }
     
     // MARK: - HTML Specs Generator

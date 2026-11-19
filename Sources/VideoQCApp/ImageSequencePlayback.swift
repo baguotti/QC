@@ -11,7 +11,7 @@ enum ImageSequencePlayback {
     /// Builds the item for `seq` at `fps`. `exposure` is read per rendered frame (the compositor applies EV itself,
     /// so the slot never gets the CIFilter exposure composition). The first call on a Mac writes the placeholder (~50 ms, off the main thread).
     @MainActor
-    static func makeItem(for seq: ImageSequence, fps: Double, exposure: @escaping @Sendable () -> Double) async -> AVPlayerItem? {
+    static func makeItem(for seq: ImageSequence, fps: Double, exposure: @escaping @Sendable () -> Double, lut: LUTBox) async -> AVPlayerItem? {
         let firstURL = seq.firstURL
         let prepared = await Task.detached(priority: .userInitiated) { () -> (URL, CGSize)? in
             guard let url = PlaceholderClip.url(), let size = imageSize(firstURL) else { return nil }
@@ -22,7 +22,7 @@ enum ImageSequencePlayback {
         let duration = CMTimeMultiply(frameDuration, multiplier: Int32(seq.length))
         guard let composition = await stretchedPlaceholder(placeholderURL, to: duration) else { return nil }
         
-        let source = SequenceFrameSource(sequence: seq, fps: fps, renderSize: renderSize, exposure: exposure)
+        let source = SequenceFrameSource(sequence: seq, fps: fps, renderSize: renderSize, exposure: exposure, lut: lut)
         let videoComposition = AVMutableVideoComposition()
         videoComposition.customVideoCompositorClass = SequenceCompositor.self
         videoComposition.frameDuration = frameDuration
@@ -133,6 +133,7 @@ final class SequenceFrameSource: @unchecked Sendable {
     let fps: Double
     let renderSize: CGSize
     private let exposure: @Sendable () -> Double
+    private let lut: LUTBox
 
     private let lock = NSLock()
     private var cache: [Int: CGImage] = [:]
@@ -148,11 +149,12 @@ final class SequenceFrameSource: @unchecked Sendable {
     private let ciContext = CIContext(options: [.useSoftwareRenderer: false])
     private static let readAhead = 8
 
-    init(sequence: ImageSequence, fps: Double, renderSize: CGSize, exposure: @escaping @Sendable () -> Double) {
+    init(sequence: ImageSequence, fps: Double, renderSize: CGSize, exposure: @escaping @Sendable () -> Double, lut: LUTBox) {
         self.sequence = sequence
         self.fps = fps
         self.renderSize = renderSize
         self.exposure = exposure
+        self.lut = lut
     }
 
     func frameIndex(at time: CMTime) -> Int {
@@ -216,15 +218,18 @@ final class SequenceFrameSource: @unchecked Sendable {
         }
     }
 
-    /// Draws frame `index` into `buffer`: the still scaled to the render size, exposure applied, or a dark red
+    /// Draws frame `index` into `buffer`: the still scaled to the render size, LUT and exposure applied, or a dark red
     /// "MISSING FRAME" card where the numbering has a gap.
     func render(_ index: Int, into buffer: CVPixelBuffer) {
         let image = image(at: index)
         let ev = exposure()
-        if let image, abs(ev) >= 0.001 {
-            let scaled = CIImage(cgImage: image).transformed(by: CGAffineTransform(scaleX: renderSize.width / CGFloat(image.width),
-                                                                                   y: renderSize.height / CGFloat(image.height)))
-            ciContext.render(scaled.applyingFilter("CIExposureAdjust", parameters: [kCIInputEVKey: ev]), to: buffer)
+        let cube = lut.value
+        if let image, abs(ev) >= 0.001 || cube != nil {
+            var picture = CIImage(cgImage: image)
+            if let cube { picture = picture.applyingLUT(cube) }
+            if abs(ev) >= 0.001 { picture = picture.applyingFilter("CIExposureAdjust", parameters: [kCIInputEVKey: ev]) }
+            ciContext.render(picture.transformed(by: CGAffineTransform(scaleX: renderSize.width / CGFloat(image.width),
+                                                                       y: renderSize.height / CGFloat(image.height))), to: buffer)
             return
         }
         CVPixelBufferLockBaseAddress(buffer, [])
@@ -243,7 +248,7 @@ final class SequenceFrameSource: @unchecked Sendable {
         drawMissingCard(index, in: context)
     }
     
-    /// The frame as shown while paused (decoded still, or the missing-frame card); exposure is applied by the caller.
+    /// The frame as shown while paused (decoded still, or the missing-frame card); LUT and exposure are applied by the caller.
     func displayImage(at index: Int) -> CGImage? {
         if let image = image(at: index) { return image }
         guard let context = CGContext(data: nil, width: Int(renderSize.width), height: Int(renderSize.height), bitsPerComponent: 8, bytesPerRow: 0,

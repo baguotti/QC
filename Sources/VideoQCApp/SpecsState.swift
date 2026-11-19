@@ -254,11 +254,6 @@ public final class SpecsState: ObservableObject {
     @Published public var liveDraggingWidth: Double = 0.0
     private var dragStartWidth: Double? = nil
     
-    // Backwards-compatible legacy properties for fileName column
-    public var specsFileNameColumnWidth: Double {
-        get { columnWidths[.name] ?? SpecsSortColumn.name.defaultWidth }
-        set { setColumnWidth(newValue, for: .name) }
-    }
     
     // Sorting
     @Published public var specsSortColumnRaw: String {

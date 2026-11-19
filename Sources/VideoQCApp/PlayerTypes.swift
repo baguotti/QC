@@ -204,6 +204,13 @@ public final class PlayerSlot: ObservableObject {
     /// The video track has a rotation / flip (portrait phone clips). Its frames only reach the video output upright
     /// through a video composition, so one stays installed at EV 0 too (pass-through).
     var isRotated = false
+    /// The LUT shown on this slot (nil when none is assigned or LUTs are switched off), read by the video composition
+    /// at render time like the exposure, so a change never replaces the composition.
+    let lut = LUTBox()
+    /// The LUT assigned to the loaded file, shown or not (the viewport badge). Set on load and on assignment only.
+    @Published public internal(set) var lutName: String? = nil
+    /// The assigned LUT couldn't be read (moved, deleted, damaged): nothing is applied, and the LUT button says so.
+    @Published public internal(set) var lutMissing = false
     
     public let frameExtractor = FrameExtractor()
     public let player = AVPlayer()
@@ -351,6 +358,11 @@ public struct TransportState: Equatable, Sendable {
     public let hasTimeline: Bool
     /// Slot A is a video (exposure applies).
     public let hasVideo: Bool
+    /// The LUT on slot A's clip (else slot B's), shown or not; nil when neither has one.
+    public let lutName: String?
+    public let showLUTs: Bool
+    /// Draw mode for a note (pencil, D).
+    public let isDrawingNote: Bool
     
     public init(
         isPlaying: Bool,
@@ -370,7 +382,10 @@ public struct TransportState: Equatable, Sendable {
         hasSubtitles: Bool,
         showSubtitles: Bool,
         hasTimeline: Bool,
-        hasVideo: Bool
+        hasVideo: Bool,
+        lutName: String? = nil,
+        showLUTs: Bool = true,
+        isDrawingNote: Bool = false
     ) {
         self.isPlaying = isPlaying
         self.rate = rate
@@ -390,6 +405,9 @@ public struct TransportState: Equatable, Sendable {
         self.showSubtitles = showSubtitles
         self.hasTimeline = hasTimeline
         self.hasVideo = hasVideo
+        self.lutName = lutName
+        self.showLUTs = showLUTs
+        self.isDrawingNote = isDrawingNote
     }
 }
 
@@ -413,6 +431,12 @@ public final class PlaybackClock: ObservableObject {
 
 /// Exposure read by the video composition handler at render time, so EV changes never replace
 /// `AVPlayerItem.videoComposition` (a replacement rebuilds the render pipeline and drops frames).
+final class LUTBox: Sendable {
+    private let state = OSAllocatedUnfairLock<CubeLUT?>(initialState: nil)
+    var value: CubeLUT? { state.withLock { $0 } }
+    func set(_ newValue: CubeLUT?) { state.withLock { $0 = newValue } }
+}
+
 final class ExposureValueBox: Sendable {
     private let state = OSAllocatedUnfairLock(initialState: 0.0)
     var value: Double { state.withLock { $0 } }

@@ -345,9 +345,8 @@ actor FrameIO {
 
         var expirationDate: Date? {
             guard let expiration else { return nil }
-            let formatter = ISO8601DateFormatter()
-            formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-            return formatter.date(from: expiration) ?? ISO8601DateFormatter().date(from: expiration)
+            return (try? Date.ISO8601FormatStyle(includingFractionalSeconds: true).parse(expiration))
+                ?? (try? Date.ISO8601FormatStyle().parse(expiration))
         }
     }
 

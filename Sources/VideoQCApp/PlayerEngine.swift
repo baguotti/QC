@@ -156,6 +156,8 @@ public final class PlayerEngine: ObservableObject {
             guard isPlaying != oldValue else { return }
             updateDisplaySleepAssertion()
             PlaybackActivity.setPlaying(isPlaying)
+            // Drawings are on paused frames: playing ends draw mode (a click on the picture pauses again).
+            if isPlaying, isDrawingNote { endDrawing(offerText: false) }
         }
     }
     /// Held while playing so the display doesn't sleep mid-review (released on pause).
@@ -236,7 +238,10 @@ public final class PlayerEngine: ObservableObject {
             hasSubtitles: !subtitleCues.isEmpty || (slotB.url != nil && !subtitleCuesB.isEmpty),
             showSubtitles: showSubtitles,
             hasTimeline: hasTimeline,
-            hasVideo: slotA.mediaKind == .video
+            hasVideo: slotA.mediaKind == .video,
+            lutName: lutLabel,
+            showLUTs: showLUTs,
+            isDrawingNote: isDrawingNote
         )
     }
     
@@ -530,41 +535,111 @@ public final class PlayerEngine: ObservableObject {
             installExposureComposition(for: slotB)
             return
         }
-        // A sequence's composition is its compositor (it applies EV itself): never remove it.
-        // Nor a rotated clip's (it keeps the frames upright).
-        let tearA = slotA.sequence == nil && !slotA.isRotated ? slotA.player.currentItem : nil
-        let tearB = slotB.sequence == nil && !slotB.isRotated ? slotB.player.currentItem : nil
-        guard tearA?.videoComposition != nil || tearB?.videoComposition != nil else { return }
+        // A sequence's composition is its compositor (it applies EV and the LUT itself): never remove it.
+        // Nor a rotated clip's (it keeps the frames upright), nor one showing a LUT.
+        func removable(_ slot: PlayerSlot) -> AVPlayerItem? {
+            slot.sequence == nil && !slot.isRotated && slot.lut.value == nil ? slot.player.currentItem : nil
+        }
+        guard removable(slotA)?.videoComposition != nil || removable(slotB)?.videoComposition != nil else { return }
         // Debounced so dragging EV through 0 doesn't rebuild the render pipeline twice.
         exposureTeardownTask = Task { @MainActor [weak self] in
             try? await Task.sleep(for: .milliseconds(400))
             guard let self, !Task.isCancelled, abs(self.exposureEV) < 0.001 else { return }
-            if self.slotA.sequence == nil && !self.slotA.isRotated { self.slotA.player.currentItem?.videoComposition = nil }
-            if self.slotB.sequence == nil && !self.slotB.isRotated { self.slotB.player.currentItem?.videoComposition = nil }
+            removable(self.slotA)?.videoComposition = nil
+            removable(self.slotB)?.videoComposition = nil
         }
+    }
+    
+    /// EV off 0, a rotation or a LUT: the frames go through the composition.
+    private func needsComposition(_ slot: PlayerSlot) -> Bool {
+        abs(exposureEV) >= 0.001 || slot.isRotated || slot.lut.value != nil
     }
     
     /// Built asynchronously: the synchronous initializer loads the asset's tracks on the main thread (a clip on a slow
     /// share stalled the window when it loaded with EV ≠ 0 or a rotation). The paused frame is re-rendered once installed.
     func installExposureComposition(for slot: PlayerSlot) {
-        guard abs(exposureEV) >= 0.001 || slot.isRotated, slot.mediaKind == .video, slot.sequence == nil,
+        guard needsComposition(slot), slot.mediaKind == .video, slot.sequence == nil,
               let item = slot.player.currentItem, item.videoComposition == nil else { return }
         let box = exposureBox
+        let lutBox = slot.lut
         let asset = item.asset
         Task { [weak self] in
             guard let composition = try? await AVVideoComposition.videoComposition(with: asset, applyingCIFiltersWithHandler: { @Sendable request in
                 let ev = box.value
-                guard abs(ev) >= 0.001 else {
-                    request.finish(with: request.sourceImage, context: nil)
-                    return
-                }
-                request.finish(with: request.sourceImage.applyingFilter("CIExposureAdjust", parameters: [kCIInputEVKey: ev]), context: nil)
+                var image = request.sourceImage
+                if let lut = lutBox.value { image = image.applyingLUT(lut) }
+                if abs(ev) >= 0.001 { image = image.applyingFilter("CIExposureAdjust", parameters: [kCIInputEVKey: ev]) }
+                request.finish(with: image, context: nil)
             }) else { return }
             // Still wanted on the same item (EV back at 0, another clip, or another install got there first: nothing).
             guard let self, slot.player.currentItem === item, item.videoComposition == nil,
-                  abs(self.exposureEV) >= 0.001 || slot.isRotated, slot.sequence == nil else { return }
+                  self.needsComposition(slot), slot.sequence == nil else { return }
             item.videoComposition = composition
             self.refreshPausedFramesForExposure()
+        }
+    }
+    
+    // MARK: - LUTs
+    
+    /// The LUT button's label: slot A's LUT, else slot B's, marked when it can't be read.
+    private var lutLabel: String? {
+        let slot = slotA.lutName != nil ? slotA : (slotB.url != nil && slotB.lutName != nil ? slotB : nil)
+        guard let slot, let name = slot.lutName else { return nil }
+        return LUTLibrary.displayName(name) + (slot.lutMissing ? " · can't be read" : "")
+    }
+    
+    /// Shows or hides every assigned LUT (the viewport's LUT button, ⇧E); assignments stay.
+    @Published public var showLUTs: Bool = UserDefaults.standard.object(forKey: "playerShowLUTs") as? Bool ?? true {
+        didSet {
+            guard showLUTs != oldValue else { return }
+            UserDefaults.standard.set(showLUTs, forKey: "playerShowLUTs")
+            refreshLUT(for: slotA)
+            refreshLUT(for: slotB)
+        }
+    }
+    
+    /// Shows the LUT assigned to the slot's file. Called on every load (in place of installing the composition) and
+    /// when assignments or the LUT switch change. A LUT read for the first time loads off the main thread; the previous
+    /// file's LUT is never shown on the new one meanwhile.
+    func refreshLUT(for slot: PlayerSlot) {
+        let url = slot.url
+        let name = url.flatMap { slot.mediaKind == .video ? LUTLibrary.shared.lutName(for: $0) : nil }
+        if slot.lutName != name { slot.lutName = name }
+        if slot.lutMissing { slot.lutMissing = false }
+        guard let url, let wanted = showLUTs ? name : nil else { showLUT(nil, on: slot); return }
+        if let cube = LUTLibrary.shared.cachedLUT(named: wanted) { showLUT(cube, on: slot); return }
+        showLUT(nil, on: slot)
+        Task { [weak self] in
+            let cube = await LUTLibrary.shared.lut(named: wanted)
+            guard let self, slot.url == url, self.showLUTs, LUTLibrary.shared.lutName(for: url) == wanted else { return }
+            if cube == nil { slot.lutMissing = true }
+            self.showLUT(cube, on: slot)
+        }
+    }
+    
+    /// The composition reads the box per frame: a change only installs one when none is there, or removes it at EV 0.
+    private func showLUT(_ cube: CubeLUT?, on slot: PlayerSlot) {
+        let changed = slot.lut.value != cube
+        if changed {
+            slot.lut.set(cube)
+            // A paused sequence still is re-read when the viewport next checks it (its LUT is part of the check);
+            // a LUT that finished loading after the load's own redraw needs one more.
+            if slot.sequence != nil { objectWillChange.send() }
+        }
+        if slot.player.currentItem?.videoComposition == nil {
+            installExposureComposition(for: slot)   // only when needed; refreshes the paused frame once installed
+            return
+        }
+        guard changed else { return }
+        if cube == nil { updateVideoCompositions() }
+        refreshPausedFramesForExposure()
+    }
+    
+    /// After the user assigns LUTs to files: the slots showing any of them.
+    public func lutAssignmentsChanged(_ urls: [URL]) {
+        let changed = Set(urls.map(\.standardizedFileURL))
+        for slot in [slotA, slotB] where slot.url.map({ changed.contains($0.standardizedFileURL) }) == true {
+            refreshLUT(for: slot)
         }
     }
     
@@ -599,7 +674,60 @@ public final class PlayerEngine: ObservableObject {
     
     // Review Notes from Companion Sidecar (.qcnotes)
     @Published public var activeNotes: [QCFileNote] = []
-    @Published public var activeNotesURL: URL? = nil
+    @Published public var activeNotesURL: URL? = nil {
+        didSet { if activeNotesURL != oldValue, isDrawingNote { endDrawing() } }   // another clip: another note list
+    }
+    
+    // MARK: - Drawing on notes (Frame.io style)
+    
+    /// Draw mode (pencil, D): each stroke drawn on the paused picture goes into a note on that frame (the first one
+    /// creates it). Set on entering and leaving only.
+    @Published public private(set) var isDrawingNote = false
+    /// The note this draw session's strokes go into, per frame (notes' own clock): coming back to a frame adds to
+    /// its note instead of starting another.
+    var drawingNotes: [Int: UUID] = [:]
+    /// The note drawn on last (offered for its text when drawing ends).
+    var lastDrawnNoteID: UUID? = nil
+    /// Set by ContentView, which owns adding and saving notes: a finished stroke (x0, y0, x1, y1… in 0–1 of the
+    /// picture, top-left).
+    var onStrokeFinished: (([Double]) -> Void)? = nil
+    /// Set by ContentView: draw mode ended, with the note last drawn on (to offer its text for editing).
+    var onDrawingEnded: ((UUID?) -> Void)? = nil
+    
+    /// The notes clip is on screen, so there is a picture to draw on (in single view only slot A's or, while blinking,
+    /// slot B's is).
+    var notesPictureIsShown: Bool {
+        let notesInB = notesTargetIsSlotB
+        let slot = notesInB ? slotB : slotA
+        guard slot.mediaKind == .video, slot.url != nil else { return false }
+        // Difference and overlay blend the two pictures: strokes would be blended too (the line marks skip them as well).
+        if compareMode == .difference || compareMode == .overlay { return false }
+        if compareMode == .single { return notesInB == isBlinkCompareB }
+        return true
+    }
+    
+    /// false when there is no picture to draw on (the caller says why).
+    @discardableResult
+    public func toggleDrawMode() -> Bool {
+        if isDrawingNote { endDrawing(); return true }
+        guard notesPictureIsShown else { return false }
+        pause()
+        drawingNotes = [:]
+        lastDrawnNoteID = nil
+        isDrawingNote = true
+        return true
+    }
+    
+    /// Done, Esc or D. Nothing is lost: every stroke was saved with its note when drawn.
+    /// `offerText`: the drawer opens the last note for its text (not when playback ended drawing).
+    public func endDrawing(offerText: Bool = true) {
+        guard isDrawingNote else { return }
+        let last = lastDrawnNoteID
+        drawingNotes = [:]
+        lastDrawnNoteID = nil
+        isDrawingNote = false
+        if offerText { onDrawingEnded?(last) }
+    }
     var pendingInitialSeekFrame: Int? = nil
     var pendingAutoplay: Bool = false
     var pendingAutoplayB: Bool = false

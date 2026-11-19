@@ -308,7 +308,7 @@ struct MediaInfoPanel: View {
                     
                     drawerInfoRow(label: "Container:", value: ExtendedMediaInfo.containerType(for: url))
                     if let asset = effectiveAsset {
-                        drawerInfoRow(label: "File Size:", value: "\(asset.formattedFileSize) (\(ExtendedMediaInfo.formattedByteString(asset.fileSizeBytes)))")
+                        drawerInfoRow(label: "File Size:", value: "\(asset.formattedFileSize) (\(QCUtilities.exactBytes(asset.fileSizeBytes)))")
                         drawerInfoRow(label: "Created:", value: asset.formattedCreationDate)
                     }
                     drawerInfoRow(label: "Modified:", value: info.fileModifiedDate)

@@ -287,15 +287,17 @@ struct CropMatchReport: View, Equatable {
                                                             color: Self.color(version.shot.verdict, palette))
                                      })
         let values = versionValues(versions, masterFrame: masterFrame, labels: labels)
+        // Long side 360 pt whatever the shape (a 9:16 master at 360 wide stood 640 tall).
+        let previewSize = aspect >= 1 ? CGSize(width: 360, height: 360 / aspect) : CGSize(width: 360 * aspect, height: 360)
         return VStack(alignment: .leading, spacing: 10) {
             // Side by side when the values fit beside the picture (they never wrap); otherwise below it.
             ViewThatFits(in: .horizontal) {
                 HStack(alignment: .top, spacing: 16) {
-                    preview.frame(width: 360)
+                    preview.frame(width: previewSize.width, height: previewSize.height)
                     values
                 }
                 VStack(alignment: .leading, spacing: 12) {
-                    preview.frame(maxWidth: 360)
+                    preview.frame(width: previewSize.width, height: previewSize.height)
                     values
                 }
             }
@@ -441,9 +443,19 @@ private struct CropVersionMap: View {
     private let rulerHeight: CGFloat = 18
     private var rowStep: CGFloat { barHeight + rowGap }
 
-    private var seconds: Double {
-        max(Double(run.masterFrames) / max(1, run.masterFps),
-            compared.map { Double($0.totalFrames) / max(1, $0.fps) }.max() ?? 0, 0.001)
+    /// The time scale, worked out once (every coordinate uses it: a redraw does hundreds).
+    private let seconds: Double
+
+    init(run: CropMatchRun, compared: [CropMatchResult], labels: [URL: String], expanded: Set<CropShotKey>, isLightMode: Bool,
+         onSelect: @escaping (CropShotKey) -> Void) {
+        self.run = run
+        self.compared = compared
+        self.labels = labels
+        self.expanded = expanded
+        self.isLightMode = isLightMode
+        self.onSelect = onSelect
+        seconds = max(Double(run.masterFrames) / max(1, run.masterFps),
+                      compared.map { Double($0.totalFrames) / max(1, $0.fps) }.max() ?? 0, 0.001)
     }
 
     private var rows: [URL] { [run.master] + compared.map(\.fileURL) }
@@ -501,6 +513,19 @@ private struct CropVersionMap: View {
         .padding(14)
         .studioBox(background: palette.bgPanel, border: palette.borderLine)
         .explain("Each bar is a version on one time scale; on the master, the parts the cutdowns use. Hover a shot to see where it comes from; click it to see its crop.")
+        #if DEBUG
+        // Screenshot mode: the opened shot in focus, as if hovered.
+        .onChange(of: expanded) {
+            guard UIShots.cropMatch, hovered == nil else { return }
+            // QCPIE_FOCUS_ROW=n: the first flagged shot of cutdown n instead (a link crossing other rows).
+            if let row = ProcessInfo.processInfo.environment["QCPIE_FOCUS_ROW"].flatMap(Int.init), row < compared.count,
+               let shot = compared[row].shots.first(where: { $0.verdict != .same }) {
+                hovered = CropShotKey(file: compared[row].fileURL, shot: shot.id)
+            } else {
+                hovered = expanded.first
+            }
+        }
+        #endif
     }
 
     private var captionText: some View {
@@ -543,8 +568,15 @@ private struct CropVersionMap: View {
 
     // MARK: Geometry
 
+    /// Room either side of the bars, so an outline round the first or last shot isn't cut off.
+    private let edge: CGFloat = 4
+
     private func x(_ frame: Int, fps: Double, width: CGFloat) -> CGFloat {
-        CGFloat(Double(frame) / max(1, fps) / seconds) * width
+        x(seconds: Double(frame) / max(1, fps), width: width)
+    }
+
+    private func x(seconds time: Double, width: CGFloat) -> CGFloat {
+        edge + CGFloat(time / seconds) * (width - 2 * edge)
     }
 
     private func rowY(_ row: Int) -> CGFloat { rulerHeight + CGFloat(row) * rowStep }
@@ -587,23 +619,21 @@ private struct CropVersionMap: View {
     private func draw(_ context: inout GraphicsContext, size: CGSize) {
         let width = size.width
         drawRuler(&context, width: width)
-        // The hovered shot's link first, so the bars draw over it.
-        if let key = hovered, let row = compared.firstIndex(where: { $0.fileURL == key.file }),
-           let shot = compared[row].shots.first(where: { $0.id == key.shot }), let a = shot.masterStart, let b = shot.masterEnd {
-            let top = span(a, b, fps: run.masterFps, row: 0, width: width)
-            let bottom = span(shot.start, shot.end, fps: compared[row].fps, row: row + 1, width: width)
-            var link = Path()
-            link.move(to: CGPoint(x: top.minX, y: top.maxY))
-            link.addLine(to: CGPoint(x: top.maxX, y: top.maxY))
-            link.addLine(to: CGPoint(x: bottom.maxX, y: bottom.minY))
-            link.addLine(to: CGPoint(x: bottom.minX, y: bottom.minY))
-            link.closeSubpath()
-            context.fill(link, with: .color((shot.verdict == .same ? palette.textMuted : CropMatchReport.color(shot.verdict, palette)).opacity(0.16)))
+        // The hovered shot and its master stretch, if any: everything else dims while it's in focus.
+        var focus: (shot: CropMatchShot, row: Int, rect: CGRect, master: CGRect?)?
+        if let key = hovered, let index = compared.firstIndex(where: { $0.fileURL == key.file }),
+           let shot = compared[index].shots.first(where: { $0.id == key.shot }) {
+            let rect = span(shot.start, shot.end, fps: compared[index].fps, row: index + 1, width: width)
+            let master = shot.masterStart.flatMap { a in shot.masterEnd.map { b in span(a, b, fps: run.masterFps, row: 0, width: width) } }
+            focus = (shot, index + 1, rect, master)
         }
-        // Master: its length, then the stretches the cutdowns use (problems drawn last, on top).
-        let masterLength = CGRect(x: 0, y: rowY(0), width: x(run.masterFrames, fps: run.masterFps, width: width), height: barHeight)
+        // The link behind the timelines: it shows only between the bars.
+        if let focus, let master = focus.master { drawLink(&context, from: master, to: focus.rect, verdict: focus.shot.verdict) }
+        var rowBars: [CGRect] = []
+        // Master: its length, then the stretches the cutdowns use (one fill per verdict: shared stretches don't stack).
+        let masterLength = CGRect(x: edge, y: rowY(0), width: x(run.masterFrames, fps: run.masterFps, width: width) - edge, height: barHeight)
         context.fill(block(masterLength), with: .color(palette.bgSubtle))
-        // One fill per verdict: stretches used by several cutdowns don't stack their translucent grey.
+        rowBars.append(masterLength)
         let all: [CropMatchShot] = compared.flatMap(\.shots)
         for verdict in [CropMatchShot.Verdict.same, .uncertain(""), .reframed] {
             var stretches = Path()
@@ -616,29 +646,51 @@ private struct CropVersionMap: View {
         // Cutdowns.
         for (index, result) in compared.enumerated() {
             let row = index + 1
-            let length = CGRect(x: 0, y: rowY(row), width: x(result.totalFrames, fps: result.fps, width: width), height: barHeight)
+            let length = CGRect(x: edge, y: rowY(row), width: x(result.totalFrames, fps: result.fps, width: width) - edge, height: barHeight)
             context.fill(block(length), with: .color(palette.bgSubtle))
+            rowBars.append(length)
             for shot in result.shots {
                 let rect = span(shot.start, shot.end, fps: result.fps, row: row, width: width)
                 context.fill(block(rect), with: .color(fill(shot.verdict)))
                 if shot.verdict == .notInMaster { hatch(&context, rect) }
             }
         }
-        // Outlines: opened shots in the accent (selection), the hovered one and its master stretch in the text colour.
+        // In focus: a veil over the bars (dimming by opacity let overlapping stretches blend), then the pair redrawn on
+        // top at full colour. The link was drawn first, behind everything.
+        if let focus {
+            // The veil covers the bars only, so the link between them stays clear.
+            var veil = Path()
+            for bar in rowBars { veil.addPath(block(bar)) }
+            context.fill(veil, with: .color(palette.bgPanel.opacity(0.6)))
+            if let master = focus.master { context.fill(block(master), with: .color(fill(focus.shot.verdict))) }
+            context.fill(block(focus.rect), with: .color(fill(focus.shot.verdict)))
+            if focus.shot.verdict == .notInMaster { hatch(&context, focus.rect) }
+        }
+        // Opened shots: the accent outline (selection). The focused pair: a thin outline in the text colour.
         for (index, result) in compared.enumerated() {
-            for shot in result.shots {
-                let key = CropShotKey(file: result.fileURL, shot: shot.id)
-                let isHovered = key == hovered
-                guard isHovered || expanded.contains(key) else { continue }
-                let colour = isHovered ? palette.textMain : palette.accentBlue
+            for shot in result.shots where expanded.contains(CropShotKey(file: result.fileURL, shot: shot.id)) {
                 context.stroke(block(span(shot.start, shot.end, fps: result.fps, row: index + 1, width: width).insetBy(dx: -1.5, dy: -1.5)),
-                               with: .color(colour), lineWidth: 1.5)
-                if isHovered, let a = shot.masterStart, let b = shot.masterEnd {
-                    context.stroke(block(span(a, b, fps: run.masterFps, row: 0, width: width).insetBy(dx: -1.5, dy: -1.5)),
-                                   with: .color(colour), lineWidth: 1.5)
-                }
+                               with: .color(palette.accentBlue), lineWidth: 1.5)
             }
         }
+        if let focus {
+            context.stroke(block(focus.rect.insetBy(dx: -1, dy: -1)), with: .color(palette.textMain.opacity(0.9)), lineWidth: 1)
+            if let master = focus.master {
+                context.stroke(block(master.insetBy(dx: -1, dy: -1)), with: .color(palette.textMain.opacity(0.9)), lineWidth: 1)
+            }
+        }
+    }
+
+    /// The link between a master stretch and a cutdown shot: two dotted lines from its edges, drawn behind the
+    /// timelines (they show only between the bars).
+    private func drawLink(_ context: inout GraphicsContext, from top: CGRect, to bottom: CGRect, verdict: CropMatchShot.Verdict) {
+        let colour = verdict == .same ? palette.textMuted : CropMatchReport.color(verdict, palette)
+        var edges = Path()
+        edges.move(to: CGPoint(x: top.minX, y: top.maxY))
+        edges.addLine(to: CGPoint(x: bottom.minX, y: bottom.minY))
+        edges.move(to: CGPoint(x: top.maxX, y: top.maxY))
+        edges.addLine(to: CGPoint(x: bottom.maxX, y: bottom.minY))
+        context.stroke(edges, with: .color(colour.opacity(0.8)), style: StrokeStyle(lineWidth: 1, lineCap: .round, dash: [1.5, 3]))
     }
 
     /// Seconds along the top: a tick per second (taller every 5), numbers every 5 s (every second under 6 s).
@@ -646,7 +698,7 @@ private struct CropVersionMap: View {
         let total = Int(seconds.rounded(.down))
         let every = seconds < 6 ? 1 : 5
         for second in 0...max(0, total) {
-            let px = CGFloat(Double(second) / seconds) * width
+            let px = x(seconds: Double(second), width: width)
             let major = second % every == 0
             var tick = Path()
             tick.move(to: CGPoint(x: px, y: rulerHeight - (major ? 6 : 3)))
@@ -737,7 +789,8 @@ struct CropBoxPreview: View {
         .clipShape(RoundedRectangle(cornerRadius: Radius.control))
         .task(id: frame) {
             image = await GlitchThumbnailProvider.shared.getThumbnail(for: master, frameIndex: frame, fps: fps,
-                                                                       targetSize: CGSize(width: 720, height: 720 / max(0.1, aspect)))
+                                                                       targetSize: aspect >= 1 ? CGSize(width: 720, height: 720 / aspect)
+                                                                                               : CGSize(width: 720 * aspect, height: 720))
         }
     }
 }

@@ -1190,10 +1190,11 @@ enum SettingsTransfer {
         "frameioThumbnailWidth", "hasSetDefaultListViewV2", "imageSequenceIndividual", "inspectPlanOpen", "inspectPlanSort",
         "inspectPreviewCollapsed", "inspectPreviewMuted", "inspectPreviewPoppedOut", "lastQueueInputs",
         "notesSyncDefaultProject", "notesSyncPassword", "notesSyncProjects", "planDrawerHeight", "playerQueueWidth",
-        "playerThumbnailSize", "resumePositions", "scanPanelWidth", "specsSortAscending", "specsSortColumn",
+        "playerThumbnailSize", "resumePositions", "scanPanelOpen", "scanPanelWidth", "specsSortAscending", "specsSortColumn",
         "specsThumbnailSize", "subtitleAttachments", "subtitlePositionX", "subtitlePositionY", "transferCardExpanded",
         "transferLogFilter", "uploadDrawerTab", "uploadDrawerWidth", "uploadLogOpen", "uploadPanelWidth", "uploadQueueOpen",
-        "userSettingsPane", "userSettingsSection", "waveformLaneHeight", "lineCheckDismissed"
+        "userSettingsPane", "userSettingsSection", "waveformLaneHeight", "lineCheckDismissed", "lutAssignments", "lutSeeded", "noteColor",
+        "playerShowLUTs"
     ]
 
     static func isSetting(_ key: String) -> Bool {

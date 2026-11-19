@@ -148,6 +148,7 @@ extension ContentView {
             onSetSequenceFPS: { url, fps in
                 setSequenceFPS(fps, for: url)
             },
+            onLUTAssigned: { [playerEngine] urls in playerEngine.lutAssignmentsChanged(urls) },
             onToggleTag: { tag, url in
                 toggleFinderTag(tag, for: url)
             },
@@ -181,6 +182,9 @@ extension ContentView {
                         if playerEngine.slotA.url != nil || playerEngine.slotB.url != nil {
                             VideoViewportView(engine: playerEngine, isLightMode: isLightMode, isSuspended: fullscreenMode != .none)
                                 .frame(maxWidth: .infinity, maxHeight: .infinity)
+                                .overlay(alignment: .top) {
+                                    if playerEngine.isDrawingNote { drawingHint.padding(.top, 10) }
+                                }
                         } else {
                             VStack(spacing: 12) {
                                 Image(systemName: "play.rectangle.fill")
@@ -267,6 +271,10 @@ extension ContentView {
             onSaveNote: { note in
                 addNote(note)
             },
+            isDrawing: playerEngine.isDrawingNote,
+            onToggleDraw: { toggleDrawing() },
+            onColorChange: { tag in drawColorChanged(tag) },
+            editNoteRequest: $drawnNoteToEdit,
             onToggleResolved: { id in
                 toggleNoteResolved(id: id)
             },
@@ -391,6 +399,44 @@ extension ContentView {
         }
     }
     
+    /// Over the viewport while drawing on a note: Undo, Clear and Cancel, and what adds the note. Small, so it hardly
+    /// covers the picture you draw on.
+    private var drawingHint: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "pencil.and.scribble")
+                .font(.system(size: StudioTheme.scaleFont(10), weight: .semibold))
+                .foregroundColor(accentBlue)
+            // Named, like a note's marker: the strokes show only on this frame.
+            Text("Drawing · each stroke is saved to a note on this frame")
+                .font(.ui(size: 10, weight: .semibold))
+                .foregroundColor(textMain)
+                .lineLimit(1)
+            Rectangle().fill(borderLine).frame(width: 1, height: StudioTheme.scale(12))
+            drawingHintButton("Undo", icon: "arrow.uturn.backward", help: "Undo the last stroke on this frame's note (⌘Z)") { _ = undoStroke() }
+            drawingHintButton("Clear", icon: "trash", help: "Remove this frame's note drawing and keep drawing") { clearDrawing() }
+            drawingHintButton("Done", icon: "checkmark", help: "Stop drawing (Esc or D): every stroke is already saved") { playerEngine.endDrawing() }
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 4)
+        .studioBox(background: bgPanel.opacity(0.92), border: borderLine)
+        .transition(.opacity)
+    }
+    
+    private func drawingHintButton(_ title: String, icon: String, help: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack(spacing: 3) {
+                Image(systemName: icon).font(.system(size: StudioTheme.scaleFont(9), weight: .semibold))
+                Text(title).font(.ui(size: 10, weight: .semibold))
+            }
+            .foregroundColor(textMain)
+            .padding(.horizontal, 4)
+            .frame(height: StudioTheme.scale(20))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(TransportIconButtonStyle())
+        .help(help)
+    }
+    
     // MARK: - Viewport Drop Zone Handler
     
     func handleViewportDrop(providers: [NSItemProvider], location: CGPoint, viewportWidth: CGFloat) -> Bool {
@@ -423,6 +469,7 @@ extension ContentView {
             .buttonStyle(TransportIconButtonStyle())
             .disabled(playerEngine.activeURL == nil)
             .explain("Add review note at playhead (N).")
+
             
             let notesCount = playerEngine.activeNotes.count
             let hasNotes = notesCount > 0
@@ -1005,25 +1052,7 @@ extension ContentView {
             prepareSound()
         }
         
-        private func locateSoundURL() -> URL? {
-            if let url = Bundle.main.url(forResource: "Click", withExtension: "aac") {
-                return url
-            }
-            let appBundleResourceURL = Bundle.main.bundleURL.appendingPathComponent("Contents/Resources/Click.aac")
-            if FileManager.default.fileExists(atPath: appBundleResourceURL.path) {
-                return appBundleResourceURL
-            }
-            let devPaths = [
-                URL(fileURLWithPath: FileManager.default.currentDirectoryPath).appendingPathComponent("Resources/Click.aac"),
-                URL(fileURLWithPath: FileManager.default.currentDirectoryPath).appendingPathComponent("_icon/Click.aac")
-            ]
-            for url in devPaths {
-                if FileManager.default.fileExists(atPath: url.path) {
-                    return url
-                }
-            }
-            return nil
-        }
+        private func locateSoundURL() -> URL? { AppResource.url("Click", "aac") }
         
         private func prepareSound() {
             if let url = locateSoundURL() {

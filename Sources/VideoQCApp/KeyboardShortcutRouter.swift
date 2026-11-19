@@ -90,6 +90,8 @@ final class KeyboardShortcutRouter {
         case playerOrUpload
         /// The tabs with a left sleeve: Play, Inspect and Upload.
         case playerSpecsOrUpload
+        /// Every tab with a left panel (the Scan tab has no right one).
+        case leftPanelTabs
         case uploadOnly
         case specsOnly
     }
@@ -191,6 +193,8 @@ final class KeyboardShortcutRouter {
                 isScopeActive = (currentTab == .player || currentTab == .upload)
             case .playerSpecsOrUpload:
                 isScopeActive = (currentTab == .player || currentTab == .specs || currentTab == .upload)
+            case .leftPanelTabs:
+                isScopeActive = (currentTab == .player || currentTab == .specs || currentTab == .upload || currentTab == .lineFinder)
             case .uploadOnly:
                 isScopeActive = (currentTab == .upload)
             case .specsOnly:
@@ -327,6 +331,11 @@ struct KeyboardShortcutActions {
     var onToggleUserGuide: () -> Void
     var onToggleShortcutSheet: () -> Bool
     var onCycleClipInfo: () -> Void
+    /// false when no loaded clip has a LUT (the key goes on).
+    var onToggleLUTs: () -> Bool
+    var onToggleDrawNote: () -> Void
+    /// ⌘Z while drawing on a note; false otherwise (the key goes on).
+    var onUndoStroke: () -> Bool
     var onToggleProperties: () -> Void
     var onToggleLeftSleeve: () -> Void
     var onToggleRightSleeve: () -> Void
@@ -381,6 +390,9 @@ struct KeyboardShortcutActions {
         onToggleUserGuide: @escaping () -> Void = {},
         onToggleShortcutSheet: @escaping () -> Bool = { false },
         onCycleClipInfo: @escaping () -> Void = {},
+        onToggleLUTs: @escaping () -> Bool = { false },
+        onToggleDrawNote: @escaping () -> Void = {},
+        onUndoStroke: @escaping () -> Bool = { false },
         onToggleProperties: @escaping () -> Void = {},
         onToggleLeftSleeve: @escaping () -> Void = {},
         onToggleRightSleeve: @escaping () -> Void = {}
@@ -434,6 +446,9 @@ struct KeyboardShortcutActions {
         self.onToggleUserGuide = onToggleUserGuide
         self.onToggleShortcutSheet = onToggleShortcutSheet
         self.onCycleClipInfo = onCycleClipInfo
+        self.onToggleLUTs = onToggleLUTs
+        self.onToggleDrawNote = onToggleDrawNote
+        self.onUndoStroke = onUndoStroke
         self.onToggleProperties = onToggleProperties
         self.onToggleLeftSleeve = onToggleLeftSleeve
         self.onToggleRightSleeve = onToggleRightSleeve
@@ -743,6 +758,21 @@ extension KeyboardShortcutRouter {
                 actions.onOpenAddNote()
             },
             Rule(
+                id: "drawNote",
+                trigger: ShortcutTrigger(characters: ["d"], modifiers: []),
+                scope: .playerOnly
+            ) {
+                actions.onToggleDrawNote()
+                return true
+            },
+            Rule(
+                id: "undoStroke",
+                trigger: ShortcutTrigger(characters: ["z"], modifiers: [.command]),
+                scope: .playerOnly
+            ) {
+                actions.onUndoStroke()
+            },
+            Rule(
                 id: "nextNoteBracket",
                 trigger: ShortcutTrigger(keyCodes: [30], characters: ["]"], modifiers: []),
                 scope: .playerOnly
@@ -791,6 +821,14 @@ extension KeyboardShortcutRouter {
             ) {
                 actions.onJumpToNextFinding()
                 return true
+            },
+            
+            Rule(
+                id: "toggleLUTs",
+                trigger: ShortcutTrigger(characters: ["e"], modifiers: [.shift]),
+                scope: .playerOnly
+            ) {
+                actions.onToggleLUTs()
             },
             
             // Player: Compare Modes & Slots
@@ -906,7 +944,7 @@ extension KeyboardShortcutRouter {
             Rule(
                 id: "toggleLeftSleeve",
                 trigger: ShortcutTrigger(keyCodes: [123], modifiers: [.command, .shift]),
-                scope: .playerSpecsOrUpload
+                scope: .leftPanelTabs
             ) {
                 actions.onToggleLeftSleeve()
                 return true
