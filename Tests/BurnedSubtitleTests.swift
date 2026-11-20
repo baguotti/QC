@@ -103,7 +103,7 @@ struct BurnedSubtitleTests {
     }
 
     static func makeClip(_ subtitles: [(from: Int, to: Int, text: String)], frames: Int, size: CGSize = CGSize(width: 960, height: 540),
-                         fps: Int32 = 25, frameDuration: Int64 = 1, style: Style = Style()) throws -> URL {
+                         fps: Int32 = 25, frameDuration: Int64 = 1, style: Style = Style()) async throws -> URL {
         let url = FileManager.default.temporaryDirectory.appendingPathComponent("burned-\(UUID().uuidString).mov")
         let writer = try AVAssetWriter(outputURL: url, fileType: .mov)
         let input = AVAssetWriterInput(mediaType: .video, outputSettings: [
@@ -118,7 +118,7 @@ struct BurnedSubtitleTests {
         writer.startWriting()
         writer.startSession(atSourceTime: .zero)
         for frame in 0..<frames {
-            while !input.isReadyForMoreMediaData { Thread.sleep(forTimeInterval: 0.002) }
+            while !input.isReadyForMoreMediaData { try await Task.sleep(for: .milliseconds(2)) }
             var buffer: CVPixelBuffer?
             CVPixelBufferPoolCreatePixelBuffer(nil, adaptor.pixelBufferPool!, &buffer)
             guard let buffer else { continue }
@@ -162,9 +162,9 @@ struct BurnedSubtitleTests {
             adaptor.append(buffer, withPresentationTime: CMTime(value: CMTimeValue(Int64(frame) * frameDuration), timescale: fps))
         }
         input.markAsFinished()
-        let done = DispatchSemaphore(value: 0)
-        writer.finishWriting { done.signal() }
-        done.wait()
+        // Awaited, never waited on with a semaphore: tests run on Swift's shared pool, which has only ~3 threads on
+        // GitHub's runner; three tests blocked here at once left none to deliver the callback, and CI hung.
+        await writer.finishWriting()
         return url
     }
 
@@ -173,7 +173,7 @@ struct BurnedSubtitleTests {
         let subtitles = [(from: 13, to: 61, text: "The first subtitle appears here"),
                          (from: 61, to: 107, text: "and the second follows straight on"),
                          (from: 140, to: 199, text: "A third one after a gap\nwith two lines")]
-        let url = try Self.makeClip(subtitles, frames: 250)
+        let url = try await Self.makeClip(subtitles, frames: 250)
         defer { try? FileManager.default.removeItem(at: url) }
         let result = try await BurnedSubtitleReader().read(url, options: .init(languages: ["en-US"])) { _ in }
         #expect(result.cues.map(\.text) == subtitles.map(\.text))
@@ -185,11 +185,11 @@ struct BurnedSubtitleTests {
 
     @Test("Generated clip: nothing in the region gives a note, not a crash; top region reads nothing at the bottom")
     func emptyAndTop() async throws {
-        let url = try Self.makeClip([(from: 0, to: 60, text: "Bottom text only")], frames: 80)
+        let url = try await Self.makeClip([(from: 0, to: 60, text: "Bottom text only")], frames: 80)
         defer { try? FileManager.default.removeItem(at: url) }
         let top = try await BurnedSubtitleReader().read(url, options: .init(region: .top, languages: ["en-US"])) { _ in }
         #expect(top.cues.isEmpty && top.note != nil)
-        let blank = try Self.makeClip([], frames: 30)
+        let blank = try await Self.makeClip([], frames: 30)
         defer { try? FileManager.default.removeItem(at: blank) }
         let none = try await BurnedSubtitleReader().read(blank) { _ in }
         #expect(none.cues.isEmpty)
@@ -197,7 +197,7 @@ struct BurnedSubtitleTests {
 
     @Test("Cancelling stops the read with .cancelled")
     func cancel() async throws {
-        let url = try Self.makeClip([(from: 0, to: 400, text: "Long subtitle")], frames: 400)
+        let url = try await Self.makeClip([(from: 0, to: 400, text: "Long subtitle")], frames: 400)
         defer { try? FileManager.default.removeItem(at: url) }
         let reader = BurnedSubtitleReader()
         reader.cancel()
@@ -330,7 +330,7 @@ struct BurnedSubtitleRealLifeTests {
     @Test("One-word lines (No. / Yes.) are read, not filtered as specks")
     func oneWord() async throws {
         let subs = [(from: 10, to: 40, text: "No."), (from: 50, to: 80, text: "Yes.")]
-        let url = try T.makeClip(subs, frames: 100)
+        let url = try await T.makeClip(subs, frames: 100)
         defer { try? FileManager.default.removeItem(at: url) }
         expectFrames(try await read(url).cues, subs, fps: 25)
     }
@@ -338,7 +338,7 @@ struct BurnedSubtitleRealLifeTests {
     @Test("Portrait 9x16 with small captions")
     func portrait() async throws {
         let subs = [(from: 5, to: 50, text: "Shop the new collection"), (from: 50, to: 95, text: "Link in bio")]
-        let url = try T.makeClip(subs, frames: 110, size: CGSize(width: 540, height: 960), style: .init(fontSize: 20))
+        let url = try await T.makeClip(subs, frames: 110, size: CGSize(width: 540, height: 960), style: .init(fontSize: 20))
         defer { try? FileManager.default.removeItem(at: url) }
         expectFrames(try await read(url).cues, subs, fps: 25)
     }
@@ -350,7 +350,7 @@ struct BurnedSubtitleRealLifeTests {
         let subs = [(from: 5, to: 60, text: "Upside down storage")]
         let flip = CGAffineTransform(a: -1, b: 0, c: 0, d: -1, tx: 960, ty: 540)
         var style = T.Style(); style.transform = flip; style.top = true   // drawn at the top: upright, it's the bottom
-        let url = try T.makeClip(subs, frames: 80, style: style)
+        let url = try await T.makeClip(subs, frames: 80, style: style)
         defer { try? FileManager.default.removeItem(at: url) }
         #expect(BurnedSubtitleReader.orientation(of: flip) == .down)
         #expect(try await read(url).cues.map(\.text) == ["Upside down storage"])
@@ -359,7 +359,7 @@ struct BurnedSubtitleRealLifeTests {
     @Test("29.97 fps: boundaries land on frames despite the 1001/30000 timebase")
     func ntsc() async throws {
         let subs = [(from: 17, to: 77, text: "Drop frame timing"), (from: 77, to: 140, text: "Second subtitle here")]
-        let url = try T.makeClip(subs, frames: 160, fps: 30000, frameDuration: 1001)
+        let url = try await T.makeClip(subs, frames: 160, fps: 30000, frameDuration: 1001)
         defer { try? FileManager.default.removeItem(at: url) }
         expectFrames(try await read(url).cues, subs, fps: 30000.0 / 1001.0)
     }
@@ -367,8 +367,8 @@ struct BurnedSubtitleRealLifeTests {
     @Test("Yellow text on a black box; top-of-picture subtitles")
     func styled() async throws {
         let subs = [(from: 10, to: 60, text: "Yellow captions on a box")]
-        let boxed = try T.makeClip(subs, frames: 80, style: .init(color: .systemYellow, box: .black))
-        let top = try T.makeClip(subs, frames: 80, style: .init(top: true))
+        let boxed = try await T.makeClip(subs, frames: 80, style: .init(color: .systemYellow, box: .black))
+        let top = try await T.makeClip(subs, frames: 80, style: .init(top: true))
         defer { try? FileManager.default.removeItem(at: boxed); try? FileManager.default.removeItem(at: top) }
         expectFrames(try await read(boxed).cues, subs, fps: 25)
         expectFrames(try await read(top, .init(region: .top, languages: ["en-US"])).cues, subs, fps: 25)
@@ -378,7 +378,7 @@ struct BurnedSubtitleRealLifeTests {
     @Test("French with accents, language detected")
     func french() async throws {
         let subs = [(from: 10, to: 70, text: "Où est la gare, s'il vous plaît ?")]
-        let url = try T.makeClip(subs, frames: 90)
+        let url = try await T.makeClip(subs, frames: 90)
         defer { try? FileManager.default.removeItem(at: url) }
         let r = try await read(url, .init(languages: []))
         #expect(r.cues.count == 1)
@@ -388,7 +388,7 @@ struct BurnedSubtitleRealLifeTests {
     @Test("A logo in the subtitle area all through a long clip is dropped; the subtitles stay")
     func logo() async throws {
         let subs = [(from: 100, to: 200, text: "A subtitle between logo frames"), (from: 600, to: 700, text: "Another subtitle later on")]
-        let url = try T.makeClip(subs, frames: 25 * 35, size: CGSize(width: 640, height: 360), style: .init(fontSize: 22, logo: "BRAND"))
+        let url = try await T.makeClip(subs, frames: 25 * 35, size: CGSize(width: 640, height: 360), style: .init(fontSize: 22, logo: "BRAND"))
         defer { try? FileManager.default.removeItem(at: url) }
         let r = try await read(url)
         #expect(!r.cues.contains { $0.text == "BRAND" }, "\(r.cues.map(\.text))")
@@ -399,7 +399,7 @@ struct BurnedSubtitleRealLifeTests {
     func fades() async throws {
         let subs = [(from: 20, to: 80, text: "Fading subtitle in and out"), (from: 100, to: 160, text: "Another fading line")]
         var style = T.Style(); style.fade = 6
-        let url = try T.makeClip(subs, frames: 180, style: style)
+        let url = try await T.makeClip(subs, frames: 180, style: style)
         defer { try? FileManager.default.removeItem(at: url) }
         let cues = try await read(url).cues
         #expect(cues.map(\.text) == subs.map(\.text))
@@ -411,7 +411,7 @@ struct BurnedSubtitleRealLifeTests {
 
     @Test("Stopping mid-read returns promptly")
     func cancelMidway() async throws {
-        let url = try T.makeClip([(from: 0, to: 600, text: "A long subtitle for a long time")], frames: 600)
+        let url = try await T.makeClip([(from: 0, to: 600, text: "A long subtitle for a long time")], frames: 600)
         defer { try? FileManager.default.removeItem(at: url) }
         let reader = BurnedSubtitleReader()
         let started = Date()

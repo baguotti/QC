@@ -75,12 +75,12 @@ struct PictureTextTests {
 
     @Test("Generated clips: subtitles, a centre title, a clean picture, an unreadable file")
     func endToEnd() async throws {
-        let subs = try BurnedSubtitleTests.makeClip([(from: 0, to: 30, text: "The first line of dialogue"),
+        let subs = try await BurnedSubtitleTests.makeClip([(from: 0, to: 30, text: "The first line of dialogue"),
                                                      (from: 30, to: 60, text: "and then another one follows"),
                                                      (from: 60, to: 90, text: "and a third to be sure")], frames: 100)
         var style = BurnedSubtitleTests.Style(); style.fontSize = 60; style.top = true
-        let titled = try BurnedSubtitleTests.makeClip([(from: 20, to: 80, text: "BIG TITLE")], frames: 100, style: style)
-        let clean = try BurnedSubtitleTests.makeClip([], frames: 60)
+        let titled = try await BurnedSubtitleTests.makeClip([(from: 20, to: 80, text: "BIG TITLE")], frames: 100, style: style)
+        let clean = try await BurnedSubtitleTests.makeClip([], frames: 60)
         defer { [subs, titled, clean].forEach { try? FileManager.default.removeItem(at: $0) } }
         let s = await PictureTextScanner.check(subs)
         #expect(s.subtitlesLikely && s.graphics.isEmpty)
@@ -96,8 +96,8 @@ struct PictureTextTests {
 
     @Test("A batch reports every file once and stops when cancelled")
     func batch() async throws {
-        let a = try BurnedSubtitleTests.makeClip([], frames: 30), b = try BurnedSubtitleTests.makeClip([], frames: 30)
-        let c = try BurnedSubtitleTests.makeClip([], frames: 30)
+        let a = try await BurnedSubtitleTests.makeClip([], frames: 30), b = try await BurnedSubtitleTests.makeClip([], frames: 30)
+        let c = try await BurnedSubtitleTests.makeClip([], frames: 30)
         defer { [a, b, c].forEach { try? FileManager.default.removeItem(at: $0) } }
         let seen = Seen()
         await PictureTextScanner.checkBatch(urls: [a, b, c], isCancelled: { false }) { url, _, done in seen.add(url, done) }
@@ -149,7 +149,7 @@ extension PictureTextTests {
 
     @Test("Generated: audio-only, a still, a folder are unavailable; a cut-short video is unreadable")
     func unavailableAndCutShort() async throws {
-        let clip = try BurnedSubtitleTests.makeClip([(from: 0, to: 250, text: "Long subtitle")], frames: 250)
+        let clip = try await BurnedSubtitleTests.makeClip([(from: 0, to: 250, text: "Long subtitle")], frames: 250)
         defer { try? FileManager.default.removeItem(at: clip) }
         let data = try Data(contentsOf: clip)
         let cut = FileManager.default.temporaryDirectory.appendingPathComponent("cut-\(UUID().uuidString).mov")
@@ -484,7 +484,7 @@ extension PictureTextTests {
 
     @Test("Helper protocol: a paused helper holds its file, resumes, and stops when its input closes", .timeLimit(.minutes(1)))
     func helperProtocol() async throws {
-        let clip = try BurnedSubtitleTests.makeClip([(from: 0, to: 30, text: "The first line of dialogue")], frames: 60)
+        let clip = try await BurnedSubtitleTests.makeClip([(from: 0, to: 30, text: "The first line of dialogue")], frames: 60)
         defer { try? FileManager.default.removeItem(at: clip) }
         let toWorker = Pipe(), fromWorker = Pipe()
         let served = Task { await PictureTextWorkers.serve(input: toWorker.fileHandleForReading, output: fromWorker.fileHandleForWriting) }
@@ -518,12 +518,12 @@ extension PictureTextTests {
     func helperProcesses() async throws {
         let binary = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
             .appendingPathComponent(".build/debug/QCpie")
-        let subs = try BurnedSubtitleTests.makeClip([(from: 0, to: 30, text: "The first line of dialogue"),
+        let subs = try await BurnedSubtitleTests.makeClip([(from: 0, to: 30, text: "The first line of dialogue"),
                                                      (from: 30, to: 60, text: "and then another one follows"),
                                                      (from: 60, to: 90, text: "and a third to be sure")], frames: 100)
         var style = BurnedSubtitleTests.Style(); style.fontSize = 60; style.top = true
-        let titled = try BurnedSubtitleTests.makeClip([(from: 20, to: 80, text: "BIG TITLE")], frames: 100, style: style)
-        let clean = try BurnedSubtitleTests.makeClip([], frames: 60), clean2 = try BurnedSubtitleTests.makeClip([], frames: 40)
+        let titled = try await BurnedSubtitleTests.makeClip([(from: 20, to: 80, text: "BIG TITLE")], frames: 100, style: style)
+        let clean = try await BurnedSubtitleTests.makeClip([], frames: 60), clean2 = try await BurnedSubtitleTests.makeClip([], frames: 40)
         let bogus = FileManager.default.temporaryDirectory.appendingPathComponent("not-a-video-\(UUID().uuidString).mov")
         try Data("nope".utf8).write(to: bogus)
         let urls = [subs, titled, clean, clean2, bogus, subs, titled]
