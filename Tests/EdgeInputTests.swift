@@ -241,13 +241,16 @@ struct SubtitleRoundTripTests {
                 return SubtitleCue(start: start, end: t, text: lines.joined(separator: "\n"))
             }
             let read = SubtitleParser.parseSRT(SubtitleParser.serializeSRT(cues))
-            let expected = cues.map { cue in
-                cue.text.components(separatedBy: "\n").filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty }.joined(separator: "\n")
+            // Cues left without text aren't written (Premiere shows them as empty boxes); the rest come back.
+            let kept = cues.compactMap { cue -> SubtitleCue? in
+                let text = cue.text.components(separatedBy: "\n").filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty }.joined(separator: "\n")
+                return SubtitleParser.stripTags(text).trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                    ? nil : SubtitleCue(start: cue.start, end: cue.end, text: text)
             }
-            #expect(read.count == cues.count)
-            #expect(read.map(\.text) == expected)
-            #expect(zip(read, cues).allSatisfy { abs($0.start - $1.start) < 0.0011 && abs($0.end - $1.end) < 0.0011 })
-            if read.count != cues.count || read.map(\.text) != expected { break }
+            #expect(read.count == kept.count)
+            #expect(read.map(\.text) == kept.map(\.text))
+            #expect(zip(read, kept).allSatisfy { abs($0.start - $1.start) < 0.0011 && abs($0.end - $1.end) < 0.0011 })
+            if read.count != kept.count || read.map(\.text) != kept.map(\.text) { break }
         }
     }
 }

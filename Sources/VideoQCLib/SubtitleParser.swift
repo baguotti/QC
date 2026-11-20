@@ -77,12 +77,15 @@ public enum SubtitleParser {
 
     public static func serializeSRT(_ cues: [SubtitleCue]) -> String {
         var blocks: [String] = []
-        for (index, cue) in cues.enumerated() {
+        for cue in cues {
             // A blank line ends a cue in SubRip: one inside the text (Return pressed twice while editing) cut the cue
             // there on the next load and lost the lines after it. Whitespace-only lines are dropped when writing.
             let text = cue.text.components(separatedBy: .newlines)
                 .filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty }.joined(separator: "\n")
-            blocks.append("\(index + 1)\n\(timestamp(cue.start)) --> \(timestamp(cue.end))\n\(text)")
+            // A cue left without text (its words deleted in the Subtitles drawer, or one with none in the file) shows
+            // nothing anywhere, and Premiere Pro imports it as an empty caption box: it isn't written.
+            guard !stripTags(text).trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { continue }
+            blocks.append("\(blocks.count + 1)\n\(timestamp(cue.start)) --> \(timestamp(cue.end))\n\(text)")
         }
         return blocks.joined(separator: "\n\n") + "\n"
     }
@@ -110,8 +113,8 @@ public enum SubtitleParser {
                 textLines.append(next)
                 lines = lines.dropFirst()
             }
-            // Every timed cue is kept, blank or zero-length ones too: saving writes back what was loaded, so dropping
-            // them here deleted them from the file on the next save. Only the overlay skips them.
+            // Every timed cue is kept, zero-length ones too (dropping them here deleted them from the file on the next
+            // save). Blank ones are kept while editing (line numbers stay as in the file) but not written back.
             cues.append(SubtitleCue(start: start, end: end, text: textLines.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)))
         }
         return cues.sorted { $0.start < $1.start }

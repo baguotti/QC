@@ -262,6 +262,12 @@ struct ContentView: View {
             .onChange(of: showUserGuide) { _, newValue in if !newValue { dismissFocusReset() } }
             .onChange(of: showFeedbackModal) { _, newValue in if !newValue { dismissFocusReset() } }
             .onChange(of: updateManager.showModal) { _, newValue in if !newValue { dismissFocusReset() } }
+    }
+
+    /// Split from `contentWithChangeHandlers`: one chain of every handler took GitHub's runners over the type-checker's
+    /// time limit ("unable to type-check this expression in reasonable time") though it built here.
+    private var contentWithQueueHandlers: some View {
+        contentWithChangeHandlers
             .onChange(of: scannerState.hexCode) { _, newHex in
                 if NSColorPanel.shared.isVisible, let rgb = RGBColor(hex: newHex) {
                     let newColor = NSColor(srgbRed: CGFloat(rgb.r) / 255.0, green: CGFloat(rgb.g) / 255.0, blue: CGFloat(rgb.b) / 255.0, alpha: 1.0)
@@ -287,7 +293,7 @@ struct ContentView: View {
     }
 
     var body: some View {
-        contentWithChangeHandlers
+        contentWithQueueHandlers
             .onReceive(NotificationCenter.default.publisher(for: NSWindow.didExitFullScreenNotification)) { _ in
                 if fullscreenMode != .none {
                     fullscreenMode = .none

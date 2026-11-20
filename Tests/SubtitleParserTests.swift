@@ -35,12 +35,16 @@ struct SubtitleParserTests {
         #expect(SubtitleParser.cueIndex(at: 61, in: cues) == nil)
     }
 
-    @Test("Saving keeps blank and zero-length cues (they were dropped on load, so a save deleted them)")
+    @Test("Saving keeps zero-length cues; a cue without text isn't written (Premiere showed it as an empty box)")
     func roundTripKeepsEveryCue() {
         let srt = "1\n00:00:01,000 --> 00:00:02,000\nHello\n\n2\n00:00:03,000 --> 00:00:03,000\nZero\n\n3\n00:00:04,000 --> 00:00:05,000\n\n4\n00:00:06,000 --> 00:00:07,000\nWorld\n"
         let cues = SubtitleParser.parseSRT(srt)
         #expect(cues.count == 4)
-        #expect(SubtitleParser.parseSRT(SubtitleParser.serializeSRT(cues)).count == 4)
+        let saved = SubtitleParser.serializeSRT(cues)
+        #expect(SubtitleParser.parseSRT(saved).map(\.text) == ["Hello", "Zero", "World"])
+        #expect(!saved.contains("\n\n\n") && saved.contains("3\n00:00:06,000 --> 00:00:07,000\nWorld"))
+        // A line whose words were all deleted (tags left) goes too.
+        #expect(!SubtitleParser.serializeSRT([SubtitleCue(start: 1, end: 2, text: "<i></i>")]).contains("-->"))
         // The blank cue is never what's on screen.
         #expect(SubtitleParser.cueIndex(at: 4.5, in: cues) == nil)
     }
