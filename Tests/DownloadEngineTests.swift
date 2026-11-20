@@ -14,17 +14,21 @@ final class StubCDN: URLProtocol, @unchecked Sendable {
     nonisolated(unsafe) private static var minimumVersion: [String: Int] = [:]
     nonisolated(unsafe) private static var failures: [String: [Failure]] = [:]
     nonisolated(unsafe) private static var requests = 0
+    /// Each request's range start, in the order asked.
+    nonisolated(unsafe) private static var offsets: [Int64] = []
     nonisolated(unsafe) static var delay: TimeInterval = 0
     /// ETags answered for a path, one per request (the last one repeats).
     nonisolated(unsafe) private static var etags: [String: [String]] = [:]
 
-    static func reset() { lock.withLock { files = [:]; minimumVersion = [:]; failures = [:]; requests = 0; delay = 0; etags = [:] } }
+    static func reset() { lock.withLock { files = [:]; minimumVersion = [:]; failures = [:]; requests = 0; offsets = []; delay = 0; etags = [:] } }
     static func tag(_ path: String, _ list: [String]) { lock.withLock { etags[path] = list } }
     static func serve(_ path: String, _ data: Data) { lock.withLock { files[path] = data } }
     static func expireBefore(_ path: String, version: Int) { lock.withLock { minimumVersion[path] = version } }
     /// Failures for the range starting at `offset` of `path`.
     static func fail(_ path: String, at offset: Int64, with list: [Failure]) { lock.withLock { failures["\(path)@\(offset)"] = list } }
     static var requestCount: Int { lock.withLock { requests } }
+    /// Range starts asked for since the `requestCount` was `mark`.
+    static func offsets(since mark: Int) -> [Int64] { lock.withLock { Array(offsets.dropFirst(mark)) } }
 
     override class func canInit(with request: URLRequest) -> Bool { request.url?.host == "cdn.test" }
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
@@ -37,7 +41,7 @@ final class StubCDN: URLProtocol, @unchecked Sendable {
         let bounds = header.replacingOccurrences(of: "bytes=", with: "").split(separator: "-").compactMap { Int64($0) }
         // Counted when asked, not when answered: a request cancelled by a pause would otherwise be counted later,
         // among the resume's.
-        let delay = Self.lock.withLock { Self.requests += 1; return Self.delay }
+        let delay = Self.lock.withLock { Self.requests += 1; Self.offsets.append(bounds.first ?? 0); return Self.delay }
         DispatchQueue.global().asyncAfter(deadline: .now() + delay) { [self] in
             let etag: String? = Self.lock.withLock {
                 guard var list = Self.etags[path], let first = list.first else { return nil }
@@ -201,7 +205,13 @@ struct DownloadEngineTests {
         let before = StubCDN.requestCount
         #expect(await download(engine, [item], to: destination)[item.jobID] == .downloaded(destination.appendingPathComponent("clip.mov")))
         #expect(try Data(contentsOf: destination.appendingPathComponent("clip.mov")) == body)
-        #expect(StubCDN.requestCount - before == chunks - saved.done.count, "resumed with \(StubCDN.requestCount - before) requests, expected \(chunks - saved.done.count) (done at pause \(saved.done.count))")
+        // What the resume asked for: never a chunk finished before the pause, every one that wasn't. (Not a count: on a
+        // slow machine a request of the paused attempt can reach the server after the resume began, and was counted.)
+        let asked = Set(StubCDN.offsets(since: before))
+        let finished = Set(saved.done.map { Int64($0) * Self.chunk })
+        let missing = Set((0..<chunks).filter { !saved.done.contains($0) }.map { Int64($0) * Self.chunk })
+        #expect(asked.isDisjoint(with: finished), "re-fetched finished chunks at \(asked.intersection(finished).sorted())")
+        #expect(missing.isSubset(of: asked))
         #expect(try FileManager.default.contentsOfDirectory(atPath: destination.path) == ["clip.mov"])
         #expect(resume.saved(item.jobID) == nil)
     }
