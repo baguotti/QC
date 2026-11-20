@@ -56,6 +56,7 @@ struct UserGuideView: View {
         GuideTopic(title: "Queue", body: "", shortcuts: [
             GuideShortcut(["↑", "↓"], "Previous / next file in slot A"),
             GuideShortcut(["⌥↑", "⌥↓"], "Previous / next file in slot B"),
+            GuideShortcut(["⌘A"], "Select every file shown (to set a LUT on all of them)"),
             GuideShortcut(["A"], "Autoplay on / off"),
             GuideShortcut(["W"], "Audio waveform on / off"),
             GuideShortcut(["+", "−"], "Thumbnail size"),

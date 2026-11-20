@@ -1179,7 +1179,7 @@ enum SettingsTransfer {
         "userSettingsSize", Notifier.enabledKey, Notifier.whileActiveKey, Notifier.soundKey, Notifier.problemsOnlyKey,
         "QCpie_ActiveThemeID", "QCpie_CurrentThemeData", "QCpie_UserThemePresets", "QCpie_UIButtonZoomLevel",
         "tagInFinder", "specsHiddenColumns", "planCheckKinds", "planLinkFilters", "subtitleSpellLanguage",
-        "frameioThumbnails", "inspectGroupBy", "inspectHidePlanTags"
+        "frameioThumbnails", "inspectGroupBy", "inspectHidePlanTags", "cropMatchThumbnails"
     ]
     /// Exported (things the user built, useful on another Mac) but never reset.
     static let favouriteKeys: Set<String> = ["frameioFavourites", "frameioFavouritePages", "specsColumnTemplates"]

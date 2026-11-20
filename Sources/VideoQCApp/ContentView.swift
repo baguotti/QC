@@ -104,6 +104,7 @@ struct ContentView: View {
     @State private var hasSetupKeyboardMonitor: Bool = false
     @State private var eventMonitors = EventMonitorCoordinator()
     @State private var assetLoadQueue = AssetLoadQueue()
+    @State private var queueWatcher = QueueFileWatcher()
     
     // MARK: - Tab 2: Specs State
     @StateObject var specsState = SpecsState()
@@ -269,8 +270,12 @@ struct ContentView: View {
                     }
                 }
             }
-            .onChange(of: videoFiles) { _, _ in
+            .onChange(of: videoFiles) { _, files in
                 updatePlayerTreeNodes()
+                queueWatcher.watch(files) { gone in removeFromQueue(gone) }
+            }
+            .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+                queueWatcher.verifyFolders()
             }
             .onChange(of: folderURL) { _, _ in
                 updatePlayerTreeNodes()
@@ -922,13 +927,7 @@ struct ContentView: View {
     }
     
     func clearFolder(node: FileSystemTreeNode) {
-        let urlsToRemove = Set(node.videoURLs.map { $0.standardizedFileURL.path })
         withAnimation(Motion.list) {
-            videoFiles.removeAll { urlsToRemove.contains($0.standardizedFileURL.path) }
-            specsState.deliverableAssets.removeAll { urlsToRemove.contains($0.fileURL.standardizedFileURL.path) }
-            scannerState.scanResults.removeAll { urlsToRemove.contains($0.fileURL.standardizedFileURL.path) }
-            scannerState.frameCheckResults.removeAll { urlsToRemove.contains($0.fileURL.standardizedFileURL.path) }
-            
             func collectFolderIDs(_ n: FileSystemTreeNode) -> [String] {
                 var ids = [n.id]
                 for child in n.children where child.isDirectory {
@@ -940,27 +939,39 @@ struct ContentView: View {
             playerCollapsedFolderIDs.subtract(allFolderIDs)
             specsState.deliverablesCollapsedFolderIDs.subtract(allFolderIDs)
             hiddenFolderIDs.subtract(allFolderIDs)
-            
-            if videoFiles.isEmpty {
-                folderURL = nil
-            } else {
-                folderURL = determineFolderURL(for: videoFiles, detectedFolder: folderURL)
-            }
-            
+            removeFromQueue(node.videoURLs, animated: false)
+        }
+    }
+
+    /// Drops `urls` from the queue and every tab's results (a cleared folder, or files deleted or moved on disk). A
+    /// removed clip on screen is replaced by the next one still queued; slot B is closed.
+    func removeFromQueue(_ urls: [URL], animated: Bool = true) {
+        let paths = Set(urls.map { $0.standardizedFileURL.path })
+        let isGone = { (url: URL) in paths.contains(url.standardizedFileURL.path) }
+        guard videoFiles.contains(where: isGone) else { return }
+        let before = videoFiles
+        let apply = {
+            videoFiles.removeAll(where: isGone)
+            specsState.deliverableAssets.removeAll { isGone($0.fileURL) }
+            scannerState.scanResults.removeAll { isGone($0.fileURL) }
+            scannerState.frameCheckResults.removeAll { isGone($0.fileURL) }
+            folderURL = videoFiles.isEmpty ? nil : determineFolderURL(for: videoFiles, detectedFolder: folderURL)
             FileSystemTreeBuilder.clearCache()
             updatePlayerTreeNodes()
-            
-            if let active = playerEngine.activeURL, urlsToRemove.contains(active.standardizedFileURL.path) {
-                if let next = videoFiles.first {
+
+            if let active = playerEngine.activeURL, isGone(active) {
+                let after = before.drop { $0 != active }.dropFirst().first { !isGone($0) }
+                if let next = after ?? videoFiles.first {
                     playerEngine.loadVideo(url: next)
                 } else {
                     playerEngine.unload()
                 }
             }
-            if let slotB = playerEngine.slotB.url, urlsToRemove.contains(slotB.standardizedFileURL.path) {
+            if let slotB = playerEngine.slotB.url, isGone(slotB) {
                 playerEngine.clearSlotB()
             }
         }
+        if animated { withAnimation(Motion.list, apply) } else { apply() }
     }
     
     // MARK: - Asset Selection & Drop Handlers
@@ -1626,6 +1637,11 @@ struct ContentView: View {
             onToggleAutoplay: { self.playerEngine.isAutoplayEnabled.toggle() },
             onToggleWaveforms: { self.playerEngine.drawsWaveforms.toggle() },
             onSelectAllUploads: { UploadQueue.selectAllInFocus() },
+            onSelectAllQueue: {
+                guard showPlayerQueue, !videoFiles.isEmpty else { return false }
+                NotificationCenter.default.post(name: PlayerQueuePanelView.selectAll, object: nil)
+                return true
+            },
             onUndoFrameIO: { FrameIOBrowser.shared.performUndo() },
             onDeleteFrameIO: { FrameIOBrowser.shared.deleteSelection() },
             onInspectNav: { self.handleInspectNav($0) },

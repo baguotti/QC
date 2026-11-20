@@ -4,6 +4,8 @@ import UniformTypeIdentifiers
 import VideoQCLib
 
 public struct PlayerQueuePanelView: View, Equatable {
+    /// ⌘A on the Play tab (posted by `KeyboardShortcutRouter`): select every file the queue shows.
+    static let selectAll = Notification.Name("PlayerQueueSelectAll")
     public var isLightMode: Bool
     public var themeId: String
     public var buttonZoom: UIButtonZoomLevel = ThemeManager.shared.buttonZoom
@@ -269,6 +271,12 @@ public struct PlayerQueuePanelView: View, Equatable {
                             selectionAnchor = nil
                             selectionBox.urls = []
                         }
+                        // ⌘A: every file shown (a filter or a collapsed folder leaves its files out, as in Finder).
+                        .onReceive(NotificationCenter.default.publisher(for: Self.selectAll)) { _ in
+                            let all = Set(queueRows.filter { !$0.isDirectory }.map(\.url))
+                            if all != selection { selection = all }
+                            selectionBox.urls = all
+                        }
                         .onChange(of: queueScrollTarget) { _, targetURL in
                             if let targetURL = targetURL {
                                 withAnimation(Motion.fade) {
@@ -470,6 +478,11 @@ public struct PlayerQueuePanelView: View, Equatable {
             }
             Button("Clear Folder") {
                 onClearFolder(node)
+            }
+            // Every clip in the folder and its subfolders (videos and sequences: stills and audio play without a LUT).
+            let takesLUT = { (url: URL) in QueueSequenceInfo.lookup(url)?.isReadAsSequence == true || QCUtilities.mediaKind(of: url) == .video }
+            if node.videoURLs.contains(where: takesLUT) {
+                LUTMenu(title: "LUT (All Clips in Folder)", files: { node.videoURLs.filter(takesLUT) }, onAssigned: onLUTAssigned)
             }
             Divider()
             Button("Copy Path") {

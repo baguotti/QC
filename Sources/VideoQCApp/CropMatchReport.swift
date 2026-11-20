@@ -426,7 +426,8 @@ struct CropMatchReport: View, Equatable {
 /// a bar per cutdown (its shots). Only problems carry colour (red reframed, amber check); shots framed as the master
 /// are a quiet grey, shots not in the master hatched. Opened shots carry the accent outline; the hovered one is linked
 /// to its master stretch (drawn under the bars) and named below. Clicking opens its row. One Canvas; only hover state
-/// lives here.
+/// lives here. Thumbnails mode (remembered) draws each shot's head frame on taller bars, Premiere-style, with the
+/// verdict as a strip along the bottom; the frames come from the shared thumbnail cache, read in the background.
 private struct CropVersionMap: View {
     let run: CropMatchRun
     let compared: [CropMatchResult]
@@ -436,9 +437,16 @@ private struct CropVersionMap: View {
     let onSelect: (CropShotKey) -> Void
 
     @State private var hovered: CropShotKey?
+    @AppStorage("cropMatchThumbnails") private var showThumbnails = false
+    /// Head frames by `thumbKey`, filled in as they're read, for the run `thumbnailsRun` (a new run starts empty: a
+    /// file re-exported at the same path has new frames).
+    @State private var thumbnails: [String: CGImage] = [:]
+    @State private var thumbnailsRun: UUID?
 
     private var palette: StudioPalette { StudioPalette(isLightMode) }
-    private let barHeight: CGFloat = 16
+    private var barHeight: CGFloat { showThumbnails ? 36 : 16 }
+    /// The verdict strip under a thumbnail.
+    private let stripHeight: CGFloat = 3
     private let rowGap: CGFloat = 14
     private let rulerHeight: CGFloat = 18
     private var rowStep: CGFloat { barHeight + rowGap }
@@ -484,8 +492,12 @@ private struct CropVersionMap: View {
                         .contentShape(Rectangle())
                         .onContinuousHover(coordinateSpace: .local) { phase in
                             switch phase {
-                            case .active(let point): hovered = hit(point, width: geometry.size.width)
-                            case .ended: hovered = nil
+                            // Written only when the shot under the pointer changes: each write redraws the whole map
+                            // (in Thumbnails mode, every head frame).
+                            case .active(let point):
+                                let key = hit(point, width: geometry.size.width)
+                                if key != hovered { hovered = key }
+                            case .ended: if hovered != nil { hovered = nil }
                             }
                         }
                         .onTapGesture(coordinateSpace: .local) { point in
@@ -503,16 +515,25 @@ private struct CropVersionMap: View {
                     captionText.fixedSize()
                     Spacer(minLength: 8)
                     legend
+                    viewToggle
                 }
                 VStack(alignment: .leading, spacing: 6) {
                     captionText.lineLimit(2).fixedSize(horizontal: false, vertical: true)
-                    legend
+                    HStack(spacing: 14) {
+                        legend
+                        Spacer(minLength: 8)
+                        viewToggle
+                    }
                 }
             }
         }
         .padding(14)
         .studioBox(background: palette.bgPanel, border: palette.borderLine)
         .explain("Each bar is a version on one time scale; on the master, the parts the cutdowns use. Hover a shot to see where it comes from; click it to see its crop.")
+        .task(id: ThumbnailsLoad(run: run.id, on: showThumbnails)) {
+            guard showThumbnails else { return }
+            await loadThumbnails()
+        }
         #if DEBUG
         // Screenshot mode: the opened shot in focus, as if hovered.
         .onChange(of: expanded) {
@@ -551,6 +572,77 @@ private struct CropVersionMap: View {
             }
         }
         .fixedSize()
+    }
+
+    /// Shots (coloured blocks) or Thumbnails (head frames): a two-segment pill like the drawer tabs, compact.
+    private var viewToggle: some View {
+        HStack(spacing: 2) {
+            ForEach([false, true], id: \.self) { thumbs in
+                let selected = showThumbnails == thumbs
+                Button {
+                    withAnimation(Motion.list) { showThumbnails = thumbs }
+                } label: {
+                    Image(systemName: thumbs ? "photo.on.rectangle" : "rectangle.split.3x1")
+                        .font(.system(size: StudioTheme.scaleFont(10), weight: .semibold))
+                        .foregroundColor(selected ? palette.textMain : palette.textMuted)
+                        .frame(width: StudioTheme.scale(26), height: StudioTheme.scale(18))
+                        .background(RoundedRectangle(cornerRadius: Radius.segment)
+                            .fill(selected ? palette.bgPanel : Color.clear))
+                        .overlay(RoundedRectangle(cornerRadius: Radius.segment)
+                            .stroke(selected ? palette.borderStrong : Color.clear, lineWidth: 1))
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .tip(thumbs ? "Thumbnails: each shot's first frame." : "Shots: coloured blocks.")
+            }
+        }
+        .padding(2)
+        .background(RoundedRectangle(cornerRadius: Radius.container).fill(palette.bgSubtle))
+        .fixedSize()
+    }
+
+    private struct ThumbnailsLoad: Equatable {
+        let run: UUID
+        let on: Bool
+    }
+
+    private func thumbKey(_ url: URL, _ frame: Int) -> String { "\(url.path)#\(frame)" }
+
+    /// The master stretches' and cutdown shots' head frames. Asked for all at once (the provider decodes a few at a
+    /// time, off the main thread) and shown in batches, so the map isn't redrawn per frame.
+    private func loadThumbnails() async {
+        if thumbnailsRun != run.id {
+            thumbnails = [:]
+            thumbnailsRun = run.id
+        }
+        var wanted: [String: (url: URL, frame: Int, fps: Double)] = [:]
+        for result in compared {
+            for shot in result.shots {
+                wanted[thumbKey(result.fileURL, shot.start)] = (result.fileURL, shot.start, result.fps)
+                if let m = shot.masterStart { wanted[thumbKey(run.master, m)] = (run.master, m, run.masterFps) }
+            }
+        }
+        for key in thumbnails.keys { wanted[key] = nil }
+        guard !wanted.isEmpty else { return }
+        await withTaskGroup(of: (String, CGImage?).self) { group in
+            for (key, item) in wanted {
+                group.addTask {
+                    (key, await GlitchThumbnailProvider.shared.getThumbnail(for: item.url, frameIndex: item.frame, fps: item.fps,
+                                                                            targetSize: CGSize(width: 144, height: 80)))
+                }
+            }
+            var pending: [String: CGImage] = [:]
+            var lastShown = Date()
+            for await (key, image) in group {
+                if let image { pending[key] = image }
+                if Date().timeIntervalSince(lastShown) > 0.15, !pending.isEmpty {
+                    thumbnails.merge(pending) { $1 }
+                    pending = [:]
+                    lastShown = Date()
+                }
+            }
+            if !pending.isEmpty, !Task.isCancelled { thumbnails.merge(pending) { $1 } }
+        }
     }
 
     private var caption: String {
@@ -635,13 +727,21 @@ private struct CropVersionMap: View {
         context.fill(block(masterLength), with: .color(palette.bgSubtle))
         rowBars.append(masterLength)
         let all: [CropMatchShot] = compared.flatMap(\.shots)
-        for verdict in [CropMatchShot.Verdict.same, .uncertain(""), .reframed] {
-            var stretches = Path()
-            for shot in all where shot.verdict.legendTitle == verdict.legendTitle {
+        if showThumbnails {
+            for shot in all {
                 guard let a = shot.masterStart, let b = shot.masterEnd else { continue }
-                stretches.addPath(block(span(a, b, fps: run.masterFps, row: 0, width: width)))
+                drawThumbnail(&context, span(a, b, fps: run.masterFps, row: 0, width: width), verdict: shot.verdict,
+                              image: thumbnails[thumbKey(run.master, a)])
             }
-            context.fill(stretches, with: .color(fill(verdict)))
+        } else {
+            for verdict in [CropMatchShot.Verdict.same, .uncertain(""), .reframed] {
+                var stretches = Path()
+                for shot in all where shot.verdict.legendTitle == verdict.legendTitle {
+                    guard let a = shot.masterStart, let b = shot.masterEnd else { continue }
+                    stretches.addPath(block(span(a, b, fps: run.masterFps, row: 0, width: width)))
+                }
+                context.fill(stretches, with: .color(fill(verdict)))
+            }
         }
         // Cutdowns.
         for (index, result) in compared.enumerated() {
@@ -650,9 +750,8 @@ private struct CropVersionMap: View {
             context.fill(block(length), with: .color(palette.bgSubtle))
             rowBars.append(length)
             for shot in result.shots {
-                let rect = span(shot.start, shot.end, fps: result.fps, row: row, width: width)
-                context.fill(block(rect), with: .color(fill(shot.verdict)))
-                if shot.verdict == .notInMaster { hatch(&context, rect) }
+                drawShot(&context, span(shot.start, shot.end, fps: result.fps, row: row, width: width), verdict: shot.verdict,
+                         image: thumbnails[thumbKey(result.fileURL, shot.start)])
             }
         }
         // In focus: a veil over the bars (dimming by opacity let overlapping stretches blend), then the pair redrawn on
@@ -662,9 +761,11 @@ private struct CropVersionMap: View {
             var veil = Path()
             for bar in rowBars { veil.addPath(block(bar)) }
             context.fill(veil, with: .color(palette.bgPanel.opacity(0.6)))
-            if let master = focus.master { context.fill(block(master), with: .color(fill(focus.shot.verdict))) }
-            context.fill(block(focus.rect), with: .color(fill(focus.shot.verdict)))
-            if focus.shot.verdict == .notInMaster { hatch(&context, focus.rect) }
+            if let master = focus.master, let start = focus.shot.masterStart {
+                drawShot(&context, master, verdict: focus.shot.verdict, image: thumbnails[thumbKey(run.master, start)])
+            }
+            drawShot(&context, focus.rect, verdict: focus.shot.verdict,
+                     image: thumbnails[thumbKey(compared[focus.row - 1].fileURL, focus.shot.start)])
         }
         // Opened shots: the accent outline (selection). The focused pair: a thin outline in the text colour.
         for (index, result) in compared.enumerated() {
@@ -679,6 +780,31 @@ private struct CropVersionMap: View {
                 context.stroke(block(master.insetBy(dx: -1, dy: -1)), with: .color(palette.textMain.opacity(0.9)), lineWidth: 1)
             }
         }
+    }
+
+    /// A shot as a coloured block, or in Thumbnails mode as its head frame with the verdict strip.
+    private func drawShot(_ context: inout GraphicsContext, _ rect: CGRect, verdict: CropMatchShot.Verdict, image: CGImage?) {
+        if showThumbnails {
+            drawThumbnail(&context, rect, verdict: verdict, image: image)
+        } else {
+            context.fill(block(rect), with: .color(fill(verdict)))
+            if verdict == .notInMaster { hatch(&context, rect) }
+        }
+    }
+
+    /// The head frame at the shot's left, its height filling the bar, cut off where the shot ends (too narrow to read:
+    /// none), on the bar's well; the verdict strip along the bottom.
+    private func drawThumbnail(_ context: inout GraphicsContext, _ rect: CGRect, verdict: CropMatchShot.Verdict, image: CGImage?) {
+        var clipped = context
+        clipped.clip(to: block(rect))
+        clipped.fill(Path(rect), with: .color(palette.bgSubtle))
+        if let image, rect.width >= 10, image.height > 0 {
+            let aspect = CGFloat(image.width) / CGFloat(image.height)
+            clipped.draw(Image(decorative: image, scale: 1), in: CGRect(x: rect.minX, y: rect.minY, width: rect.height * aspect, height: rect.height))
+        }
+        let strip = CGRect(x: rect.minX, y: rect.maxY - stripHeight, width: rect.width, height: stripHeight)
+        clipped.fill(Path(strip), with: .color(verdict == .same ? palette.textMuted.opacity(0.5) : fill(verdict)))
+        if verdict == .notInMaster { hatch(&clipped, strip) }
     }
 
     /// The link between a master stretch and a cutdown shot: two dotted lines from its edges, drawn behind the

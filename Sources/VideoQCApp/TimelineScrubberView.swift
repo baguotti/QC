@@ -253,6 +253,12 @@ struct TimelineWaveform: View, Equatable {
 
 // MARK: - Main Modern Minimal Timeline Scrubber View
 
+/// The pointer's x over the timeline track (nil when it isn't), read only by the ghost needle.
+@MainActor
+final class TimelineHover: ObservableObject {
+    @Published var x: CGFloat?
+}
+
 public struct TimelineScrubberView: View {
     @ObservedObject private var themeManager = ThemeManager.shared   // accent changes redraw
     @ObservedObject var engine: PlayerEngine
@@ -260,8 +266,9 @@ public struct TimelineScrubberView: View {
     
     @State private var isDragging: Bool = false
     @State private var dragProgress: Double? = nil
-    @State private var hoverX: CGFloat? = nil
-    @State private var isHovering: Bool = false
+    /// The pointer over the track, for the ghost needle. In an object of its own: as `@State` here, every mouse move
+    /// re-ran this whole view (during playback too); now only the needle redraws.
+    @State private var hover = TimelineHover()
     @State private var dragInitialProgress: Double = 0.0
     @State private var isGrabbingPlayhead: Bool = false
     /// Waveform lane under the scrub track; Shift + scroll over the timeline resizes it.
@@ -400,16 +407,18 @@ public struct TimelineScrubberView: View {
                     .equatable()
 
                 // MARK: - Hover Ghost Needle
-                if let hX = hoverX, isHovering && !isDragging && durSecs > 0 {
-                    let clampedHX = max(trackInset, min(hX, width - trackInset))
-                    
-                    // Subtle Ghost Needle (hairline guide)
-                    Rectangle()
-                        .fill(isLightMode ? Color.black.opacity(0.18) : Color.white.opacity(0.18))
-                        .frame(width: 1, height: 42 + (hasWaveform ? waveformLaneHeight + 4 : 0))
-                        .offset(x: clampedHX - 0.5, y: 2)
-                        .allowsHitTesting(false)
+                ObservingView(model: hover) { hover in
+                    if let hX = hover.x, !isDragging && durSecs > 0 {
+                        let clampedHX = max(trackInset, min(hX, width - trackInset))
+
+                        // Subtle Ghost Needle (hairline guide)
+                        Rectangle()
+                            .fill(isLightMode ? Color.black.opacity(0.18) : Color.white.opacity(0.18))
+                            .frame(width: 1, height: 42 + (hasWaveform ? waveformLaneHeight + 4 : 0))
+                            .offset(x: clampedHX - 0.5, y: 2)
+                    }
                 }
+                .allowsHitTesting(false)
                 
                 // MARK: - Modern Tactile Playhead (CTI; moved per frame by Core Animation, see PlaybackClockViews)
                 TimelinePlayhead(
@@ -470,11 +479,9 @@ public struct TimelineScrubberView: View {
             .onContinuousHover { phase in
                 switch phase {
                 case .active(let location):
-                    hoverX = location.x
-                    isHovering = true
+                    hover.x = location.x
                 case .ended:
-                    hoverX = nil
-                    isHovering = false
+                    hover.x = nil
                 }
             }
             // Instantaneous 120 FPS Drag Scrubbing

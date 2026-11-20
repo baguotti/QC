@@ -293,6 +293,8 @@ struct KeyboardShortcutActions {
     var onToggleAutoplay: () -> Void
     var onToggleWaveforms: () -> Void
     var onSelectAllUploads: () -> Void
+    /// ⌘A in the Player: every file the queue shows; false when it isn't shown (the key goes on).
+    var onSelectAllQueue: () -> Bool
     var onUndoFrameIO: () -> Void
     var onDeleteFrameIO: () -> Void
     /// Inspect's keyboard navigation; false when there's nothing to do (the key goes on).
@@ -362,6 +364,7 @@ struct KeyboardShortcutActions {
         onToggleAutoplay: @escaping () -> Void = {},
         onToggleWaveforms: @escaping () -> Void = {},
         onSelectAllUploads: @escaping () -> Void = {},
+        onSelectAllQueue: @escaping () -> Bool = { false },
         onUndoFrameIO: @escaping () -> Void = {},
         onDeleteFrameIO: @escaping () -> Void = {},
         onInspectNav: @escaping (InspectNav) -> Bool = { _ in false },
@@ -418,6 +421,7 @@ struct KeyboardShortcutActions {
         self.onToggleAutoplay = onToggleAutoplay
         self.onToggleWaveforms = onToggleWaveforms
         self.onSelectAllUploads = onSelectAllUploads
+        self.onSelectAllQueue = onSelectAllQueue
         self.onUndoFrameIO = onUndoFrameIO
         self.onDeleteFrameIO = onDeleteFrameIO
         self.onInspectNav = onInspectNav
@@ -605,6 +609,9 @@ extension KeyboardShortcutRouter {
             ) {
                 actions.onPressL()
                 return true
+            },
+            Rule(id: "queueSelectAll", trigger: ShortcutTrigger(characters: ["a"], modifiers: [.command]), scope: .playerOnly) {
+                actions.onSelectAllQueue()
             },
             Rule(
                 id: "uploadSelectAll",
