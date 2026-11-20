@@ -444,7 +444,14 @@ private struct CropVersionMap: View {
     @State private var thumbnailsRun: UUID?
 
     private var palette: StudioPalette { StudioPalette(isLightMode) }
-    private var barHeight: CGFloat { showThumbnails ? 36 : 16 }
+    private var barHeight: CGFloat { showThumbnails ? thumbnailBarHeight : 16 }
+    /// Tall enough that a head frame is about 44 pt wide: 36 for landscape sets, up to 76 for 9:16 (at 36 pt a portrait
+    /// frame was 20 pt wide, too small to tell shots apart).
+    private var thumbnailBarHeight: CGFloat {
+        let size = run.masterSize
+        guard size.width > 0, size.height > 0 else { return 36 }
+        return min(76, max(36, 44 * size.height / size.width))
+    }
     /// The verdict strip under a thumbnail.
     private let stripHeight: CGFloat = 3
     private let rowGap: CGFloat = 14
@@ -628,7 +635,7 @@ private struct CropVersionMap: View {
             for (key, item) in wanted {
                 group.addTask {
                     (key, await GlitchThumbnailProvider.shared.getThumbnail(for: item.url, frameIndex: item.frame, fps: item.fps,
-                                                                            targetSize: CGSize(width: 144, height: 80)))
+                                                                            targetSize: CGSize(width: 160, height: 160)))
                 }
             }
             var pending: [String: CGImage] = [:]

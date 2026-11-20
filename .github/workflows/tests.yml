@@ -15,7 +15,23 @@ jobs:
         run: sudo xcode-select -s "$(ls -d /Applications/Xcode*.app | sort -V | tail -1)"
       - name: Build
         run: swift build
+      # Runs here stalled (every test waiting on the main thread) and were cancelled at 30 min; locally the suite takes
+      # ~25 s. If it's still running after 12 minutes, the test process's threads are sampled into the log (what holds
+      # the main thread) and the step fails.
       - name: Test
-        run: swift test
+        run: |
+          swift test &
+          tests=$!
+          for _ in $(seq 1 144); do
+            sleep 5
+            kill -0 "$tests" 2>/dev/null || { wait "$tests"; exit $?; }
+          done
+          echo "::error::Tests still running after 12 minutes: sampling the test process"
+          for pid in $(pgrep -f "QCpiePackageTests|swiftpm-testing-helper|xctest"); do
+            echo "=== $(ps -o command= -p "$pid" | cut -c1-200)"
+            /usr/bin/sample "$pid" 3 -mayDie 2>/dev/null | head -400
+          done
+          kill "$tests" 2>/dev/null
+          exit 1
       - name: Design lint
         run: python3 scripts/design_lint.py
