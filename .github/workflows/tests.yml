@@ -19,8 +19,11 @@ jobs:
       # ~25 s. If it's still running after 12 minutes, the test process's threads are sampled into the log (what holds
       # the main thread) and the step fails.
       - name: Test
+        # Suites that decode real video or run Vision text recognition are skipped here (the user's choice): GitHub's
+        # macOS VM has no hardware decoder, GPU or Neural Engine, so they take minutes each (seconds on a Mac).
+        # `Release.sh build` runs the whole suite locally before every release.
         run: |
-          swift test &
+          swift test --skip 'BurnedSubtitleTests|PictureSubtitleDraftTests|PictureTextTests|CropMatchTests|CropMatchReportTests|CropMatchSamples|SplitMonoLoudnessTests|ScannerFileTests|DeliveryPlanContentTests|CutOffFileTests|InspectCacheTests|LineFinderFolderComparison' &
           tests=$!
           for _ in $(seq 1 144); do
             sleep 5
