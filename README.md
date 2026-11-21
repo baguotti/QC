@@ -42,3 +42,7 @@ swift build --sdk /Library/Developer/CommandLineTools/SDKs/MacOSX26.5.sdk
 ```
 
 Architecture notes for contributors: [AGENTS.md](AGENTS.md).
+
+## License
+
+GPL-3.0: see [LICENSE](LICENSE). You may use, change and share QCpie; distributed changes must stay open source under the same license.
