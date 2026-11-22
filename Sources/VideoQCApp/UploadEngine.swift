@@ -450,7 +450,7 @@ final class UploadEngine: Sendable {
         let status = http?.statusCode ?? 0
         guard (200..<300).contains(status) else {
             throw PartFailure(status: status, body: String(data: data.prefix(600), encoding: .utf8) ?? "",
-                              retryAfter: http?.value(forHTTPHeaderField: "Retry-After").flatMap(Double.init))
+                              retryAfter: http?.value(forHTTPHeaderField: "Retry-After").flatMap(Double.init).flatMap { $0.isFinite && $0 >= 0 ? $0 : nil })
         }
         // S3 answers a part with its MD5 as the ETag: a different one means the bytes stored aren't the bytes read.
         guard let sent = body.digest, let etag = TransferChecksum.normalizedETag(http?.value(forHTTPHeaderField: "ETag")),

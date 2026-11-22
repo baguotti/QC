@@ -36,6 +36,25 @@ struct QueueFileWatcherTests {
         #expect(reported == ["deleted.mov", "moved.mov"])
     }
 
+    // Queued through a symlink (~/Dropbox → ~/Library/CloudStorage/…): FSEvents reports the real folder.
+    @Test @MainActor func filesQueuedThroughASymlinkAreReported() async throws {
+        let base = FileManager.default.temporaryDirectory.appendingPathComponent("QueueWatch-\(UUID().uuidString)")
+        let real = base.appendingPathComponent("CloudStorage/Dropbox")
+        try FileManager.default.createDirectory(at: real, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: base) }
+        let link = base.appendingPathComponent("Dropbox")
+        try FileManager.default.createSymbolicLink(at: link, withDestinationURL: real)
+        try Data([0]).write(to: real.appendingPathComponent("spot.mov"))
+        let watcher = QueueFileWatcher(grace: 0.2)
+        var reported: [String] = []
+        watcher.watch([link.appendingPathComponent("spot.mov")]) { reported += $0.map(\.lastPathComponent) }
+        try await Task.sleep(for: .milliseconds(300))
+        try FileManager.default.removeItem(at: real.appendingPathComponent("spot.mov"))
+        let deadline = Date().addingTimeInterval(5)
+        while reported.isEmpty, Date() < deadline { try await Task.sleep(for: .milliseconds(100)) }
+        #expect(reported == ["spot.mov"])
+    }
+
     @Test @MainActor func aFileRewrittenAtTheSamePathStays() async throws {
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent("QueueWatch-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)

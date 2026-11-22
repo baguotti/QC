@@ -111,7 +111,12 @@ public struct FinderTagManager: Sendable {
         nsURL.removeAllCachedResourceValues()
         var val: AnyObject?
         try? nsURL.getResourceValue(&val, forKey: .tagNamesKey)
-        let kept = ((val as? [String]) ?? []).filter { FinderTagColor(rawValue: $0.components(separatedBy: "\n").first ?? $0) == nil }
+        // Colour tags by name, or by the label number Finder stores with them: on a Mac in another language the red tag
+        // is "Rosso" or "Rouge", which was kept beside the new one (and clearing left the file red).
+        let numbered = colourTagNames(url)
+        let kept = ((val as? [String]) ?? []).filter {
+            FinderTagColor(rawValue: $0.components(separatedBy: "\n").first ?? $0) == nil && !numbered.contains($0)
+        }
         if let tag = tag {
             let tagString = "\(tag.rawValue)\n\(tag.labelNumber)"
             guard (try? nsURL.setResourceValue((kept + [tagString]) as NSArray, forKey: .tagNamesKey)) != nil else { return false }
@@ -127,5 +132,22 @@ public struct FinderTagManager: Sendable {
             try? mut.setResourceValues(res)
         }
         return true
+    }
+
+    /// Names of the file's tags stored with a colour label number (1–7), in any language. Read from the tags' extended
+    /// attribute: the resource value drops the numbers.
+    static func colourTagNames(_ url: URL) -> Set<String> {
+        let name = "com.apple.metadata:_kMDItemUserTags"
+        let size = getxattr(url.path, name, nil, 0, 0, 0)
+        guard size > 0, size < 1 << 20 else { return [] }
+        var data = Data(count: size)
+        let read = data.withUnsafeMutableBytes { getxattr(url.path, name, $0.baseAddress, size, 0, 0) }
+        guard read == size,
+              let tags = try? PropertyListSerialization.propertyList(from: data, format: nil) as? [String] else { return [] }
+        return Set(tags.compactMap { tag in
+            let parts = tag.components(separatedBy: "\n")
+            guard parts.count >= 2, let number = Int(parts[1]), (1...7).contains(number) else { return nil }
+            return parts[0]
+        })
     }
 }

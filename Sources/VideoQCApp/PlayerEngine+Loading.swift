@@ -130,7 +130,8 @@ extension PlayerEngine {
         // The bundled ffprobe tells a format macOS can't decode (VP9 in WebM) from a damaged file (~20 ms, off the main thread).
         Task { [weak self] in
             let probed = await DeliverablesInspector.probedAsset(url)
-            guard let self else { return }
+            // Moved on to another clip while ffprobe read this one: its message would show over the new clip.
+            guard let self, isSameURL(self.slotA.url, url) || isSameURL(self.slotB.url, url) else { return }
             let reason = probed?.specsOnlyReason.map { "\($0) (Inspect shows its specs)" } ?? fallback
             self.loadFailure = LoadFailure(message: "Can't play \(url.lastPathComponent): \(reason)")
         }

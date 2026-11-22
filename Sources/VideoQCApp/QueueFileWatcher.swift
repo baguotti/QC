@@ -18,6 +18,9 @@ final class QueueFileWatcher: @unchecked Sendable {
     private var stream: FSEventStreamRef?
     private var roots: [String] = []
     private var filesByFolder: [String: [String]] = [:]
+    /// Queued folders reached through a symlink (`~/Dropbox` → `~/Library/CloudStorage/…`, `/var` → `/private/var`):
+    /// their real path, which is what FSEvents watches and reports.
+    private var aliases: [(real: String, queued: String)] = []
     private var onMissing: (@MainActor ([URL]) -> Void)?
 
     init(grace: TimeInterval = 1.5) {
@@ -34,7 +37,11 @@ final class QueueFileWatcher: @unchecked Sendable {
         queue.async { [self] in
             self.onMissing = onMissing
             filesByFolder = Dictionary(grouping: paths) { ($0 as NSString).deletingLastPathComponent }
-            let newRoots = Self.topFolders(of: Array(filesByFolder.keys))
+            aliases = filesByFolder.keys.compactMap { folder in
+                let real = Self.realPath(folder)
+                return real == folder ? nil : (real, folder)
+            }
+            let newRoots = Self.topFolders(of: filesByFolder.keys.map(Self.realPath))
             guard newRoots != roots else { return }
             roots = newRoots
             if let stream { Self.close(stream); self.stream = nil }
@@ -59,9 +66,8 @@ final class QueueFileWatcher: @unchecked Sendable {
         let callback: FSEventStreamCallback = { _, info, _, eventPaths, _, _ in
             guard let info else { return }
             let paths = Unmanaged<CFArray>.fromOpaque(eventPaths).takeUnretainedValue() as? [String] ?? []
-            // FSEvents reports real paths: /var and /tmp come back as /private/var and /private/tmp.
-            let folders = paths.map { $0.hasPrefix("/private/") ? [$0, String($0.dropFirst(8))] : [$0] }.joined()
-            Unmanaged<QueueFileWatcher>.fromOpaque(info).takeUnretainedValue().check(folders: Array(folders))
+            let watcher = Unmanaged<QueueFileWatcher>.fromOpaque(info).takeUnretainedValue()
+            watcher.check(folders: watcher.queuedPaths(paths))
         }
         let flags = FSEventStreamCreateFlags(kFSEventStreamCreateFlagUseCFTypes)
         guard let stream = FSEventStreamCreate(nil, callback, &context, paths as CFArray,
@@ -79,6 +85,20 @@ final class QueueFileWatcher: @unchecked Sendable {
         return stream
     }
 
+    /// FSEvents reports real paths: each also as the queued path it stands for (on `queue`).
+    private func queuedPaths(_ events: [String]) -> [String] {
+        events.flatMap { path in
+            [path] + aliases.compactMap { QCUtilities.isPath(path, inside: $0.real) ? $0.queued + path.dropFirst($0.real.count) : nil }
+        }
+    }
+
+    /// The folder with every symlink resolved (itself when it can't be resolved: gone, or no access).
+    static func realPath(_ folder: String) -> String {
+        guard let resolved = realpath(folder, nil) else { return folder }
+        defer { free(resolved) }
+        return String(cString: resolved)
+    }
+
     private static func close(_ stream: FSEventStreamRef) {
         FSEventStreamStop(stream)
         FSEventStreamInvalidate(stream)
@@ -91,7 +111,10 @@ final class QueueFileWatcher: @unchecked Sendable {
         guard !candidates.isEmpty else { return }
         queue.asyncAfter(deadline: .now() + grace) { [self] in
             let queued = Set(filesByFolder.values.joined())
-            let missing = candidates.filter { queued.contains($0) && !FileManager.default.fileExists(atPath: $0) }
+            // The volume checked again: an eject in progress at the first check has finished by now.
+            let missing = candidates.filter {
+                queued.contains($0) && Self.volumeIsMounted($0) && !FileManager.default.fileExists(atPath: $0)
+            }
             guard !missing.isEmpty, let onMissing else { return }
             let gone = Set(missing)
             for folder in Set(missing.map { ($0 as NSString).deletingLastPathComponent }) {

@@ -18,6 +18,7 @@ struct NotificationTextTests {
         #expect(NotificationText.scan(check: "Line Check", flagged: 0, total: 26)
                 == .init(title: "Line Check finished", subtitle: "26 clips", body: "No issues found"))
         #expect(NotificationText.scan(check: "Full Check", flagged: 3, total: 26).body == "3 of 26 clips flagged")
+        #expect(NotificationText.scan(check: "Crop Match", flagged: 0, total: 0).body.hasPrefix("No sets found"))
     }
 
     @Test("Comments: one is quoted, several are counted, a mention leads")
@@ -32,6 +33,10 @@ struct NotificationTextTests {
         #expect(mention?.title == "Tom mentioned you")
         #expect(mention?.body == "Tom: @ric can you check the grade?")
         #expect(NotificationText.comments(clip: "c", comments: [], replies: [], me: "Ric") == nil)
+        let rick = NotificationText.Remark(author: "Tom", text: "@Rick have a look")
+        #expect(NotificationText.comments(clip: "c", comments: [], replies: [rick], me: "Ric")?.title == "Tom replied")
+        let full = NotificationText.Remark(author: "Tom", text: "thanks @Ric Fusetti.")
+        #expect(NotificationText.comments(clip: "c", comments: [], replies: [full], me: "Ric Fusetti")?.title == "Tom mentioned you")
     }
 
     @Test("Versions: one is named, several are counted")

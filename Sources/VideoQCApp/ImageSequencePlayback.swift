@@ -79,13 +79,18 @@ private enum PlaceholderClip {
         if let cached { return cached }
         guard let caches = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first else { return nil }
         let dir = caches.appendingPathComponent("QCpie", isDirectory: true)
-        let url = dir.appendingPathComponent("sequence-placeholder-v1.mov")
+        let url = dir.appendingPathComponent("sequence-placeholder-v2.mov")   // v2: v1 may be a broken earlier write
         if FileManager.default.fileExists(atPath: url.path) {
             cached = url
             return url
         }
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        guard write(to: url) else { return nil }
+        // Written beside it and moved into place once complete: a write that failed (or a quit mid-write) left a broken
+        // clip under the final name, used as it was on every later launch, and no sequence played again.
+        let partial = dir.appendingPathComponent(".sequence-placeholder-\(UUID().uuidString).mov")
+        defer { try? FileManager.default.removeItem(at: partial) }
+        guard write(to: partial), (try? FileManager.default.moveItem(at: partial, to: url)) != nil
+                || FileManager.default.fileExists(atPath: url.path) else { return nil }
         cached = url
         return url
     }

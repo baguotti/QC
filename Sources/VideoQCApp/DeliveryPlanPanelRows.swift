@@ -125,7 +125,7 @@ extension DeliveryPlanPanel {
         menu.addItem(batch)
         menu.addItem(.separator())
         let link = store.frameioLink(row)
-        if let url = URL(string: link), !link.isEmpty {
+        if let url = FrameIOLink.webURL(link) {
             menu.addItem("Open in Frame.io") { NSWorkspace.shared.open(url) }
             menu.addItem("Copy Frame.io Link") {
                 NSPasteboard.general.clearContents()
@@ -259,7 +259,7 @@ extension DeliveryPlanPanel {
         PlanBatchMenu(title: targets.count > 1 ? "Set Batch (\(targets.count) Rows)" : "Set Batch", rowIDs: { targets })
         Divider()
         let link = store.frameioLink(row)
-        if let url = URL(string: link), !link.isEmpty {
+        if let url = FrameIOLink.webURL(link) {
             Button("Open in Frame.io") { NSWorkspace.shared.open(url) }
             Button("Copy Frame.io Link") {
                 NSPasteboard.general.clearContents()
@@ -341,7 +341,7 @@ extension DeliveryPlanPanel {
                             .fixedSize(horizontal: false, vertical: true)
                     }
                     Spacer(minLength: 4)
-                    if let url = URL(string: file.url) {
+                    if let url = FrameIOLink.webURL(file.url) {
                         Button { NSWorkspace.shared.open(url) } label: {
                             Image(systemName: "arrow.up.forward.square")
                                 .font(.system(size: StudioTheme.scaleFont(10)))
@@ -353,9 +353,9 @@ extension DeliveryPlanPanel {
                     DismissButton(isLightMode: isLightMode) { store.dismissFrameIOExtras([file.url]) }
                 }
                 .contentShape(Rectangle())
-                .onTapGesture(count: 2) { if let url = URL(string: file.url) { NSWorkspace.shared.open(url) } }
+                .onTapGesture(count: 2) { if let url = FrameIOLink.webURL(file.url) { NSWorkspace.shared.open(url) } }
                 .contextMenu {
-                    if let url = URL(string: file.url) { Button("Open in Frame.io") { NSWorkspace.shared.open(url) } }
+                    if let url = FrameIOLink.webURL(file.url) { Button("Open in Frame.io") { NSWorkspace.shared.open(url) } }
                     Button("Copy Frame.io Link") {
                         NSPasteboard.general.clearContents()
                         NSPasteboard.general.setString(file.url, forType: .string)

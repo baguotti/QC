@@ -32,6 +32,14 @@ struct FrameIOLink: Equatable, Sendable {
         return trimmed.contains("://") ? trimmed : "https://" + trimmed
     }
 
+    /// `text` as a Frame.io web page to open, nil for anything else: plan cells can hold any text, and "Open in
+    /// Frame.io" on a `file:` or custom-scheme link launched whatever it named.
+    static func webURL(_ text: String) -> URL? {
+        guard let url = URL(string: text.trimmingCharacters(in: .whitespacesAndNewlines)), url.scheme?.lowercased() == "https",
+              let host = url.host?.lowercased(), host == "f.io" || host == "frame.io" || host.hasSuffix(".frame.io") else { return nil }
+        return url
+    }
+
     static func looksLikeLink(_ text: String) -> Bool {
         guard text.rangeOfCharacter(from: .newlines) == nil, let host = URL(string: cleaned(text))?.host?.lowercased() else { return false }
         return host == "f.io" || host == "frame.io" || host.hasSuffix(".frame.io")

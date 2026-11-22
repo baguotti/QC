@@ -47,6 +47,8 @@ actor GoogleAuth {
     private var tokens: Tokens?
     /// Bumped on sign-in and sign-out: a refresh that started before either is thrown away.
     private var generation = 0
+    /// The sign-in `refreshing` belongs to.
+    private var refreshGeneration = 0
     private var loaded = false
     private var refreshing: Task<Tokens, Error>?
     private let session: URLSession
@@ -116,10 +118,12 @@ actor GoogleAuth {
         guard let current = tokens else { throw Self.isConfigured ? Failure.signedOut : Failure.notConfigured }
         if !forceRefresh, current.expires.timeIntervalSinceNow > 60 { return current.access }
         if let refreshing {
-            do { _ = try await refreshing.value } catch Failure.denied { throw Failure.signedOut }
-            // The shared refresh may have been for a sign-in that ended meanwhile: use what's current.
-            guard let current = tokens else { throw Failure.signedOut }
-            return current.access
+            let fresh: Tokens
+            do { fresh = try await refreshing.value } catch Failure.denied { throw Failure.signedOut }
+            // The shared refresh may have been for a sign-in that ended meanwhile. Its own result, not `tokens`: this
+            // caller can resume before the refresh's owner stores it, and got the expired token.
+            guard tokens != nil, generation == refreshGeneration else { throw Failure.signedOut }
+            return fresh.access
         }
         guard let refresh = current.refresh else {
             tokens = nil
@@ -127,6 +131,7 @@ actor GoogleAuth {
             throw Failure.signedOut
         }
         let started = generation
+        refreshGeneration = started
         let task = Task { try await self.requestTokens(["grant_type": "refresh_token", "client_id": Self.clientID, "refresh_token": refresh], keeping: current) }
         refreshing = task
         do {

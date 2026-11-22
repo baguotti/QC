@@ -200,6 +200,8 @@ extension DeliveryPlanTests {
         let newer = r(.delivered, qc: "QC Passed", updated: "2026-11-04 14:00:00 · Ric", dates: [set.addingTimeInterval(600)])
         #expect(newer.state == .toQC && newer.flags.first?.contains("New file since") == true)
         #expect(r(.delivered, qc: "Needs Fix", updated: "2026-11-04 14:00:00", dates: [set.addingTimeInterval(600)]).state == .toQC)
+        // An unsure match (by order, two files) with a newer file is Check, as it is without a status.
+        #expect(r(.check, qc: "QC Passed", updated: "2026-11-04 14:00:00 · Ric", dates: [set.addingTimeInterval(600)]).state == .check)
         #expect(r(.missing, files: false, qc: "Delivered").flags.first?.contains("No file") == true)
         #expect(r(.missing, files: false, qc: "Dropped").state == .dropped)
         #expect(PlanQCStatus.parse("qc passed ✓") == .passed && PlanQCStatus.parse("Approved") == .approved && PlanQCStatus.parse("x") == nil)

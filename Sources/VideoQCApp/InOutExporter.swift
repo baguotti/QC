@@ -11,11 +11,17 @@ enum InOutExporter {
         let errorDescription: String?
     }
 
-    static func export(source: URL, range: CMTimeRange, to target: URL) async throws {
+    /// Audio containers written as they are (passthrough only: no preset encodes into them).
+    static let pcmContainers: [String: AVFileType] = ["wav": .wav, "aif": .aiff, "aiff": .aiff, "caf": .caf]
+
+    /// Returns whether the range was re-encoded (the original samples couldn't be copied into the target's container).
+    @discardableResult
+    static func export(source: URL, range: CMTimeRange, to target: URL) async throws -> Bool {
         let asset = AVURLAsset(url: source)
         let ext = target.pathExtension.lowercased()
-        let type: AVFileType = ext == "m4a" ? .m4a : ext == "mp4" ? .mp4 : .mov
-        let presets = type == .m4a ? [AVAssetExportPresetPassthrough, AVAssetExportPresetAppleM4A]
+        let type: AVFileType = pcmContainers[ext] ?? (ext == "m4a" ? .m4a : ext == "mp4" ? .mp4 : .mov)
+        let presets = pcmContainers[ext] != nil ? [AVAssetExportPresetPassthrough]
+            : type == .m4a ? [AVAssetExportPresetPassthrough, AVAssetExportPresetAppleM4A]
             : [AVAssetExportPresetPassthrough, AVAssetExportPresetHighestQuality]
         // Written beside the target and moved over it only once complete: a failed export used to leave nothing where
         // the file being replaced had been.
@@ -36,7 +42,7 @@ enum InOutExporter {
                 } else {
                     try FileManager.default.moveItem(at: temp, to: target)
                 }
-                return
+                return preset != AVAssetExportPresetPassthrough
             }
             lastError = session.error
         }

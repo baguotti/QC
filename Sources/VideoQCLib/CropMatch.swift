@@ -228,11 +228,11 @@ public enum CropMatchSets {
     static func labels(_ urls: [URL]) -> [URL: String] {
         func pick(_ url: URL, _ kind: Kind) -> String? { tokens(url).first { Self.kind(of: $0) == kind } }
         let versions = Swift.Set(urls.map { pick($0, .version) ?? "" })
-        var labels = Dictionary(uniqueKeysWithValues: urls.map { url -> (URL, String) in
+        var labels = Dictionary(urls.map { url -> (URL, String) in
             var parts = [pick(url, .length)?.uppercased() == "GIF" ? "GIF" : pick(url, .length) ?? url.deletingPathExtension().lastPathComponent]
             if versions.count > 1, let version = pick(url, .version) { parts.append(version) }
             return (url, parts.joined(separator: " "))
-        })
+        }, uniquingKeysWith: { a, _ in a })   // the same file twice in a batch trapped here
         for (_, same) in Dictionary(grouping: urls, by: { labels[$0] ?? "" }) where same.count > 1 {
             for url in same { labels[url] = "\(labels[url] ?? "") (\(url.deletingLastPathComponent().lastPathComponent))" }
         }

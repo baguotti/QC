@@ -24,6 +24,8 @@ struct ContentView: View {
     @State var drawnNoteToEdit: UUID? = nil
     /// Strokes are saved together once drawing pauses (`ContentView+NoteDrawing`).
     @State var drawingSaveTask: Task<Void, Never>? = nil
+    /// The clip `drawingSaveTask` saves.
+    @State var drawingSaveURL: URL? = nil
     @State var showNotesDrawer: Bool = false
     @State var playerDrawerTab: PlayerDrawerTab = .mediaInfo
     /// Notes another Mac added to the shown clip that haven't been seen in the Notes tab yet.

@@ -83,7 +83,10 @@ extension ContentView {
               let index = playerEngine.activeNotes.firstIndex(where: { $0.id == note.id }) else { return }
         playerEngine.activeNotes[index] = note
         let snapshot = playerEngine.activeNotes
-        drawingSaveTask?.cancel()
+        // Only a save of this clip's notes is replaced: drawing on the next clip within half a second cancelled the
+        // last clip's save, and its last strokes were lost.
+        if let pending = drawingSaveURL, isSameURL(pending, url) { drawingSaveTask?.cancel() }
+        drawingSaveURL = url
         drawingSaveTask = Task {
             try? await Task.sleep(for: .milliseconds(500))
             guard !Task.isCancelled else { return }

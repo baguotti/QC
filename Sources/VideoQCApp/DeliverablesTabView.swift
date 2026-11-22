@@ -835,7 +835,7 @@ extension ContentView {
                                     // sorted list + folder tree for its menus and indent, on every selection change).
                                     let displayOrder = rows.filter { !$0.isDirectory }.map(\.url)
                                     let isTreeLayout = inspectGrouping == .folder ? hasDeliverablesSubfolders && !hideAllFolders : inspectGrouping.needsPlan
-                                    let assetIndexMap = Dictionary(uniqueKeysWithValues: displayOrder.enumerated().map { ($0.element, $0.offset) })
+                                    let assetIndexMap = Dictionary(displayOrder.enumerated().map { ($0.element, $0.offset) }, uniquingKeysWith: { a, _ in a })
                                     let _ = { specsState.currentDisplayOrder = displayOrder }()
                                     // Rows re-render only when something they show changes (like the Player queue):
                                     // a click then updates the 1–2 rows whose selection flipped, not the whole table.
@@ -1219,7 +1219,7 @@ extension ContentView {
     }
     
     var deliverableAssetsMap: [URL: DeliverableAsset] {
-        Dictionary(uniqueKeysWithValues: filteredDeliverableAssets.map { ($0.fileURL, $0) })
+        Dictionary(filteredDeliverableAssets.map { ($0.fileURL, $0) }, uniquingKeysWith: { a, _ in a })
     }
     
     private func toggleAllDeliverablesFolders() {
@@ -1730,7 +1730,7 @@ extension ContentView {
                         DeliveryPlanStore.shared.dismissMismatches(rowIDs: DeliveryPlanStore.shared.rowIDs(forFiles: targetFiles()))
                     }
                 }
-                if let link = planFiles[asset.fileURL]?.frameio, let web = URL(string: link), !link.isEmpty {
+                if let link = planFiles[asset.fileURL]?.frameio, let web = FrameIOLink.webURL(link) {
                     Button("Open in Frame.io") { NSWorkspace.shared.open(web) }
                 } else {
                     Button("Link Frame.io File…") {
@@ -1858,7 +1858,7 @@ extension ContentView {
             showToast("Need at least 2 files with subtitles to cross-check")
             return
         }
-        let fps = Dictionary(uniqueKeysWithValues: specsState.deliverableAssets.map { ($0.fileURL, $0.fps) })
+        let fps = Dictionary(specsState.deliverableAssets.map { ($0.fileURL, $0.fps) }, uniquingKeysWith: { a, _ in a })
         specsState.runSubtitleCrossCheck(videos: withSubs, fpsByVideo: fps)
     }
     

@@ -28,7 +28,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
     
+    /// Set once the quit questions were answered for an update's relaunch: quitting then asks nothing again.
+    @MainActor static var quitConfirmed = false
+
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        if Self.quitConfirmed { return .terminateNow }
+        guard let stopTransfers = Self.askToQuit() else { return .terminateCancel }
+        guard stopTransfers else { return .terminateNow }
+        Self.stopTransfers { sender.reply(toApplicationShouldTerminate: true) }
+        return .terminateLater
+    }
+
+    /// The quit questions: unsaved subtitle edits, a running check, transfers. Nil when the user chose to stay; true
+    /// when uploads or downloads must stop first (`stopTransfers`). Also asked before an update quits QCpie.
+    @MainActor static func askToQuit() -> Bool? {
         // Subtitle edits live in memory until saved: quitting dropped them without a word.
         let unsaved = PlayerEngine.unsavedSubtitleFileNames
         if !unsaved.isEmpty {
@@ -38,7 +51,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             alert.informativeText = "Quitting now loses them. Save them from the Player's Subtitles panel first."
             alert.addButton(withTitle: "Cancel")
             alert.addButton(withTitle: "Quit Without Saving")
-            guard alert.runModal() == .alertSecondButtonReturn else { return .terminateCancel }
+            guard alert.runModal() == .alertSecondButtonReturn else { return nil }
         }
         // A running check's results are only in memory: an hour's Line Check went with a stray ⌘Q.
         if let check = ScannerState.main?.runningCheckName {
@@ -47,12 +60,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             alert.informativeText = "Quitting now stops it, and its results so far are lost."
             alert.addButton(withTitle: "Keep Checking")
             alert.addButton(withTitle: "Stop and Quit")
-            guard alert.runModal() == .alertSecondButtonReturn else { return .terminateCancel }
+            guard alert.runModal() == .alertSecondButtonReturn else { return nil }
         }
         let uploading = UploadQueue.shared.isRunning
         // Paused downloads count: their partial files are removed on quit (downloads don't resume across launches).
         let downloading = DownloadQueue.shared.isRunning || DownloadQueue.shared.isPaused
-        guard uploading || downloading else { return .terminateNow }
+        guard uploading || downloading else { return false }
         let alert = NSAlert()
         switch (uploading, downloading) {
         case (true, true):
@@ -67,13 +80,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         alert.addButton(withTitle: uploading ? "Keep Uploading" : "Keep Downloading")
         alert.addButton(withTitle: uploading ? "Pause and Quit" : "Stop and Quit")
-        guard alert.runModal() == .alertSecondButtonReturn else { return .terminateCancel }
-        // Both stop (uploads save their progress, downloads remove their partial files), then the app quits.
+        guard alert.runModal() == .alertSecondButtonReturn else { return nil }
+        return true
+    }
+
+    /// Both stop (uploads save their progress, downloads remove their partial files), then `done`.
+    @MainActor static func stopTransfers(_ done: @escaping () -> Void) {
         var waiting = 2
-        let stopped = { waiting -= 1; if waiting == 0 { sender.reply(toApplicationShouldTerminate: true) } }
+        let stopped = { waiting -= 1; if waiting == 0 { done() } }
         UploadQueue.shared.pauseForQuit(stopped)
         DownloadQueue.shared.stopForQuit(stopped)
-        return .terminateLater
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {

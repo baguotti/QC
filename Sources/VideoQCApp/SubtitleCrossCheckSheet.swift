@@ -144,9 +144,14 @@ struct SubtitleCrossCheckSheet: View {
 
     private func fileSection(_ file: SubtitleCrossCheckReport.File) -> some View {
         let isReference = file.videoURL == report.referenceVideo
-        let hasDifferences = !isReference && !file.differences.isEmpty
+        // An .srt that couldn't be read (or holds no timed lines) isn't "every line missing": said as it is.
+        let unread = file.cues.isEmpty || (!isReference && report.reference?.cues.isEmpty == true)
+        let hasDifferences = !isReference && !unread && !file.differences.isEmpty
         let isOpen = hasDifferences && !collapsed.contains(file.videoURL)
-        let status: (String, Color) = isReference
+        let status: (String, Color) = file.cues.isEmpty
+            ? ("No lines read", palette.alertRed)
+            : unread ? ("Reference has no lines", palette.textMuted)
+            : isReference
             ? ("Reference", palette.accentBlue)
             : hasDifferences
                 ? ("\(file.differences.count) difference\(file.differences.count == 1 ? "" : "s")", palette.alertRed)

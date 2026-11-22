@@ -50,7 +50,8 @@ public enum CodecNames {
              kCMVideoCodecType_DVCPROHD1080i60, kCMVideoCodecType_DVCPROHD1080i50, kCMVideoCodecType_DVCPROHD1080p30,
              kCMVideoCodecType_DVCPROHD1080p25:
             Video(short: "DV", format: "dvvideo", long: "DV / DVCPRO", pixelFormat: "8-bit 4:1:1 / 4:2:0 / 4:2:2")
-        case kCMVideoCodecType_JPEG:
+        // AVI's MJPEG reads as OpenDML ("dmb1"); QuickTime's Motion JPEG A / B as "mjpa" / "mjpb".
+        case kCMVideoCodecType_JPEG, kCMVideoCodecType_JPEG_OpenDML, 0x6D6A_7061, 0x6D6A_7062:
             Video(short: "Motion JPEG", format: "mjpeg", long: "Motion JPEG", pixelFormat: "8-bit 4:2:2")
         default:
             nil

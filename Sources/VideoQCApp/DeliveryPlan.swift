@@ -880,7 +880,9 @@ enum PlanStatusResolver {
         }
         if manual == .onHold || manual == .dropped { return PlanRowState(state: manual.state) }
         if let set = date(fromStamp: updated), let newest = fileDates.max(), newest > set.addingTimeInterval(2) {
-            return PlanRowState(state: match == .wrongSpec ? .check : .toQC,
+            // As without a status: an unsure match (by order, two files) is Check too, not To QC (which Pass All
+            // Clean would mark passed).
+            return PlanRowState(state: match == .wrongSpec || match == .check ? .check : .toQC,
                                 flags: ["New file since “\(manual.title)” (\(updated))."])
         }
         var flags: [String] = []

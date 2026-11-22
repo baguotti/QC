@@ -1,4 +1,5 @@
 import Foundation
+import VideoQCLib
 
 /// Which .srt belongs to a video: one attached by hand (remembered across launches) or else a same-name
 /// sidecar next to it (`clip.srt` for `clip.mov`). Shared by the Specs tab and the player.
@@ -41,7 +42,15 @@ enum SubtitleAttachments {
             ?? srts.first { $0.lowercased() == full + ".srt" }
             ?? srts.first { name in
                 let stem = (name as NSString).deletingPathExtension.lowercased()
-                return stem.hasPrefix(base + ".") && !stem.dropFirst(base.count + 1).contains(".")
+                guard stem.hasPrefix(base + ".") else { return false }
+                // A language or kind ("en", "pt-BR", "forced"), not another clip's name: `Spot.mov` took `Spot.v2.srt`,
+                // the subtitles of `Spot.v2.mov` beside it.
+                let suffix = stem.dropFirst(base.count + 1)
+                return !suffix.isEmpty && suffix.allSatisfy { $0.isLetter || $0 == "-" || $0 == "_" }
+                    && !names.contains { other in
+                        (other as NSString).deletingPathExtension.lowercased() == stem
+                            && QCUtilities.mediaKind(of: URL(fileURLWithPath: other)) != nil
+                    }
             }
             ?? looseMatch(base: base, full: full, in: srts)
         return match.map { folder.appendingPathComponent($0) }

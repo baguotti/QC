@@ -126,7 +126,7 @@ struct PlanRowView: View, Equatable {
                     }
                     .foregroundColor(palette.accentBlue)
                 }
-                if let link = URL(string: frameio), !frameio.isEmpty {
+                if let link = FrameIOLink.webURL(frameio) {
                     Button { NSWorkspace.shared.open(link) } label: {
                         HStack(spacing: 4) {
                             Image(systemName: "arrow.up.forward.square")

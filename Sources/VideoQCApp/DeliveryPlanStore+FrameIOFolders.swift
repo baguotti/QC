@@ -84,6 +84,7 @@ extension DeliveryPlanStore {
         var queue = [root.folder]
         var tree: Set<String> = [root.folder]
         var listed = 0
+        var unreadable = 0
         while !queue.isEmpty, listed < Self.rootScanFolderLimit {
             if Task.isCancelled { return }
             let folder = queue.removeFirst()
@@ -97,6 +98,7 @@ extension DeliveryPlanStore {
                     lastRootScan = Date().addingTimeInterval(120 - Self.rootScanInterval)   // again in two minutes
                     return
                 }
+                unreadable += 1
                 continue   // one unreadable subfolder doesn't stop the scan (its old listing stays)
             }
             guard config?.frameioRoot == root, config?.link == link else { return }
@@ -111,7 +113,9 @@ extension DeliveryPlanStore {
         }
         guard !Task.isCancelled, config?.frameioRoot == root else { return }
         let complete = queue.isEmpty
-        if complete {
+        // Pruned only after reading every folder: the folders inside one that couldn't be read weren't seen, and their
+        // listings (the plan's links there) were dropped as if deleted.
+        if complete && unreadable == 0 {
             rootFolders = tree
             frameioFolders = frameioFolders.filter { tree.contains($0.key) }
             saveFrameIOFolders()

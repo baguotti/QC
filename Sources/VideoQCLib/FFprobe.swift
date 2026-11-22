@@ -12,6 +12,8 @@ public enum FFprobe {
             public var codec = ""           // ffprobe's codec_name: "vp9", "pcm_s24le"
             public var profile = ""
             public var width = 0, height = 0
+            /// Pixel shape (`sample_aspect_ratio` "16:15" for DV PAL), 1 when square or unknown.
+            public var pixelAspect = 1.0
             public var avgFrameRate = 0.0, realFrameRate = 0.0
             public var fieldOrder = ""
             public var rotation = 0.0       // display matrix, degrees counter-clockwise
@@ -48,7 +50,7 @@ public enum FFprobe {
             return URL(fileURLWithPath: path)
         }
         if let bundled = Bundle.main.resourceURL?.appendingPathComponent("Helpers/ffprobe"), fm.isExecutableFile(atPath: bundled.path) {
-            return bundled
+            return clearQuarantine(bundled) ? bundled : userCopy(of: bundled) ?? bundled
         }
         // `swift test` runs in the repository.
         let inRepository = URL(fileURLWithPath: fm.currentDirectoryPath).appendingPathComponent("Resources/Helpers/ffprobe")
@@ -65,6 +67,46 @@ public enum FFprobe {
     }()
 
     public static var isAvailable: Bool { executableURL != nil }
+
+    /// A QCpie copied from the downloaded disk image keeps the download's quarantine on every file in it: macOS then
+    /// kills the unsigned helper on launch (SIGKILL, measured), and every file macOS can't open read as Unreadable.
+    /// Opening QCpie was the user's approval of the app; its own helper is let run too. The signature isn't touched
+    /// (extended attributes aren't sealed). Failing (a read-only volume) is logged and the probe fails as before.
+    /// True when `url` isn't quarantined (any more).
+    @discardableResult
+    static func clearQuarantine(_ url: URL) -> Bool {
+        let name = "com.apple.quarantine"
+        guard getxattr(url.path, name, nil, 0, 0, 0) >= 0 else { return true }
+        return removexattr(url.path, name, 0) == 0
+    }
+
+    /// The app's helper can't be cleared (an admin's copy run by a standard user, a read-only volume): a copy in
+    /// Application Support, which this user owns, is cleared and run instead. Nil (logged) when that fails too.
+    static func userCopy(of bundled: URL) -> URL? {
+        let fm = FileManager.default
+        guard let support = fm.urls(for: .applicationSupportDirectory, in: .userDomainMask).first else { return nil }
+        let copy = support.appendingPathComponent("QCpie/Helpers/ffprobe")
+        // The same build: size and date (a copy keeps the date), so an update's new helper replaces the old copy.
+        func stamp(_ url: URL) -> [String]? {
+            (try? fm.attributesOfItem(atPath: url.path)).map { ["\($0[.size] ?? "")", "\($0[.modificationDate] ?? "")"] }
+        }
+        let same = stamp(copy) != nil && stamp(copy) == stamp(bundled)
+        if !(fm.isExecutableFile(atPath: copy.path) && same) {
+            try? fm.removeItem(at: copy)
+            do {
+                try fm.createDirectory(at: copy.deletingLastPathComponent(), withIntermediateDirectories: true)
+                try fm.copyItem(at: bundled, to: copy)
+            } catch {
+                Log.inspect.error("ffprobe is quarantined and couldn't be copied out: files macOS can't open will read as Unreadable", error)
+                return nil
+            }
+        }
+        guard clearQuarantine(copy) else {
+            Log.inspect.error("ffprobe is quarantined and couldn't be cleared: files macOS can't open will read as Unreadable")
+            return nil
+        }
+        return copy
+    }
 
     /// Probes `url`; nil when ffprobe is missing, fails, times out or finds no audio or video.
     public static func probe(_ url: URL) async -> Probe? {
@@ -219,6 +261,12 @@ public enum FFprobe {
             s.profile = raw["profile"] as? String ?? ""
             s.width = int(raw["width"])
             s.height = int(raw["height"])
+            if let sar = raw["sample_aspect_ratio"] as? String {
+                let parts = sar.split(separator: ":").compactMap { Double($0) }
+                if parts.count == 2, parts[0] > 0, parts[1] > 0, (parts[0] / parts[1]).isFinite, (0.1...10).contains(parts[0] / parts[1]) {
+                    s.pixelAspect = parts[0] / parts[1]
+                }
+            }
             s.avgFrameRate = rate(raw["avg_frame_rate"])
             s.realFrameRate = rate(raw["r_frame_rate"])
             s.fieldOrder = raw["field_order"] as? String ?? ""

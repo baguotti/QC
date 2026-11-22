@@ -421,14 +421,14 @@ enum QueueSortKeys {
 
     static func snapshot() -> [String: Keys] { lock.withLock { keys } }
 
-    /// Reads the missing ones (call off the main thread).
+    /// Reads them (call off the main thread). Every time, not only the missing ones: a file re-exported at the same
+    /// path kept the date and size it had when first queued, and sorted by them after a Refresh.
     nonisolated static func fill(_ urls: [URL]) {
-        let missing = lock.withLock { urls.filter { keys[$0.path] == nil } }
         // Read side by side: the queue waits for these before it shows (sorted by date or size), and each read is
         // mostly waiting on the disk.
         let found = OSAllocatedUnfairLock(initialState: [String: Keys]())
-        DispatchQueue.concurrentPerform(iterations: missing.count) { index in
-            let url = missing[index]
+        DispatchQueue.concurrentPerform(iterations: urls.count) { index in
+            let url = urls[index]
             guard let attributes = try? FileManager.default.attributesOfItem(atPath: url.path) else { return }
             let entry = Keys(date: attributes[.modificationDate] as? Date ?? .distantPast,
                              size: (attributes[.size] as? NSNumber)?.int64Value ?? 0)

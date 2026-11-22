@@ -28,4 +28,15 @@ struct FrameIOLinkTests {
         #expect(!FrameIOLink.looksLikeLink("CK_HOME26"))
         #expect(!FrameIOLink.looksLikeLink("https://notframe.io.example.com/x"))
     }
+
+    // Plan cells hold whatever someone typed: only Frame.io web pages open from them.
+    @Test func onlyFrameIOPagesOpen() {
+        #expect(FrameIOLink.webURL(" https://next.frame.io/project/p/view/f ") != nil)
+        #expect(FrameIOLink.webURL("https://f.io/abc") != nil)
+        #expect(FrameIOLink.webURL("file:///Applications/Calculator.app") == nil)
+        #expect(FrameIOLink.webURL("http://next.frame.io/project/p") == nil)
+        #expect(FrameIOLink.webURL("https://frame.io.evil.com/x") == nil)
+        #expect(FrameIOLink.webURL("zoommtg://join") == nil)
+        #expect(FrameIOLink.webURL("") == nil)
+    }
 }

@@ -347,10 +347,11 @@ public extension DeliverableAsset {
     /// Any mismatch Inspect flags on the row: specs against the name, or the picture's text against it.
     var hasAnyNameMismatch: Bool { validation.hasAnyMismatch || hasPictureTextMismatch }
     /// Export notes: the spec notes, plus any picture-text mismatch.
+    /// A file read by ffprobe says so: its empty check columns weren't passed, they couldn't run.
     var notesWithPictureText: String {
-        let picture = pictureText?.nameMismatches(for: fileName) ?? []
-        guard !picture.isEmpty else { return validation.summaryString }
         let specs = validation.summaryString
-        return (specs == "MATCHED" ? [] : [specs]).joined() + (specs == "MATCHED" ? "" : " • ") + picture.joined(separator: " • ")
+        let parts = (specs == "MATCHED" ? [] : [specs]) + (pictureText?.nameMismatches(for: fileName) ?? [])
+            + (specsOnlyReason.map { ["SPECS ONLY: \($0)"] } ?? [])
+        return parts.isEmpty ? specs : parts.joined(separator: " • ")
     }
 }

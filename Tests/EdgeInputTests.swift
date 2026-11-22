@@ -392,7 +392,7 @@ struct SheetLayoutFuzzTests {
         func n(_ range: ClosedRange<Int>) -> Int { range.lowerBound + Int(rng.next() % UInt64(range.count)) }
         func num() -> Any { [0, 1, -1, 0.5, 2, 1e300, -1e300, 255, "x", NSNull()][n(0...9)] }
         for _ in 0..<800 {
-            let rows = n(0...8), cols = n(0...8)
+            let rows = n(0...8); _ = n(0...8)   // keeps the random sequence as it was
             let rowData: [[String: Any]] = (0..<rows).map { _ in
                 ["values": (0..<n(0...10)).map { _ -> [String: Any] in
                     ["formattedValue": ["", "a", "1", "日本"][n(0...3)],

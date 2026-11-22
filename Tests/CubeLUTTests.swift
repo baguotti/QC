@@ -27,6 +27,11 @@ struct CubeLUTTests {
         #expect(throws: CubeLUT.ReadError.unsupportedDomain) {
             try CubeLUT.parse(Data(("LUT_3D_SIZE 2\nDOMAIN_MAX 2 2 2\n" + String(repeating: "0 0 0\n", count: 8)).utf8), name: "x")
         }
+        // Resolve writes the domain as LUT_3D_INPUT_RANGE: 0–1 reads, a wider range is refused, not applied as 0–1.
+        #expect(throws: CubeLUT.ReadError.unsupportedDomain) {
+            try CubeLUT.parse(Data(("LUT_3D_SIZE 2\nLUT_3D_INPUT_RANGE -0.1 1.2\n" + String(repeating: "0 0 0\n", count: 8)).utf8), name: "x")
+        }
+        #expect((try? CubeLUT.parse(Data(("LUT_3D_SIZE 2\nLUT_3D_INPUT_RANGE 0.0 1.0\n" + String(repeating: "0 0 0\n", count: 8)).utf8), name: "x")) != nil)
     }
 
     /// Files from other tools: a byte-order mark, lower-case keywords; a 1D shaper or no size says why.

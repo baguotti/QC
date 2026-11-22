@@ -799,7 +799,9 @@ extension ContentView {
         playerEngine.pause()
         let panel = NSSavePanel()
         let isAudio = playerEngine.slotA.mediaKind == .audio
-        let ext = isAudio ? "m4a" : url.pathExtension.lowercased() == "mp4" ? "mp4" : "mov"
+        // WAV / AIFF / CAF stay what they are: PCM cut into an .m4a is a file many tools won't read.
+        let source = url.pathExtension.lowercased()
+        let ext = isAudio ? (InOutExporter.pcmContainers[source] != nil ? source : "m4a") : source == "mp4" ? "mp4" : "mov"
         panel.nameFieldStringValue = url.deletingPathExtension().lastPathComponent + "_\(playerEngine.inFrame ?? 0)-\(playerEngine.outFrame ?? playerEngine.totalFrames - 1).\(ext)"
         panel.directoryURL = url.deletingLastPathComponent()
         panel.allowedContentTypes = [UTType(filenameExtension: ext) ?? .movie]
@@ -816,8 +818,9 @@ extension ContentView {
         showToast("Exporting \(target.lastPathComponent)…")
         Task {
             do {
-                try await InOutExporter.export(source: url, range: range, to: target)
-                showToast("Exported \(target.lastPathComponent)")
+                // Said when it happened: a silent re-encode passed for the original's picture and sound.
+                let reencoded = try await InOutExporter.export(source: url, range: range, to: target)
+                showToast("Exported \(target.lastPathComponent)" + (reencoded ? " (re-encoded: the original couldn't be copied as it is)" : ""))
                 NSWorkspace.shared.activateFileViewerSelecting([target])
             } catch {
                 showToast("Export failed: \(error.localizedDescription)")

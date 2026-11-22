@@ -81,7 +81,20 @@ public enum SubtitleCrossCheck {
                 && !(j + 1 < other.count && overlaps(r, other[j + 1]))
                 && !(i + 1 < reference.count && overlaps(reference[i + 1], o))
             if overlaps(r, o) || nearMiss {
-                if comparableText(r.text, options: options) != comparableText(o.text, options: options) {
+                let rText = comparableText(r.text, options: options), oText = comparableText(o.text, options: options)
+                // A line missing on one side whose neighbour touches the next line: [A 0–2][B 2–4] against [B 1.9–4]
+                // paired A with B (a wording difference) and then reported B missing.
+                if rText != oText {
+                    if i + 1 < reference.count, overlaps(reference[i + 1], o),
+                       comparableText(reference[i + 1].text, options: options) == oText {
+                        add(.missing, i, nil); i += 1; continue
+                    }
+                    if j + 1 < other.count, overlaps(r, other[j + 1]),
+                       comparableText(other[j + 1].text, options: options) == rText {
+                        add(.extra, nil, j); j += 1; continue
+                    }
+                }
+                if rText != oText {
                     add(.text, i, j)
                 } else if abs(r.start - o.start) > options.timingTolerance || abs(r.end - o.end) > options.timingTolerance {
                     add(.timing, i, j)

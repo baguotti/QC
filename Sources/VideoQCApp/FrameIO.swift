@@ -689,7 +689,9 @@ actor FrameIO {
             return try await request(method, path, body: body, attempt: 1)
         case 429 where attempt < 4:
             // Creating uploads is limited to 5 calls/s per user.
-            let wait = (response as? HTTPURLResponse)?.value(forHTTPHeaderField: "Retry-After").flatMap(Double.init) ?? Double(attempt + 1)
+            // Only a plain number of seconds: Double() also reads "nan", which traps in Duration.
+            let wait = (response as? HTTPURLResponse)?.value(forHTTPHeaderField: "Retry-After").flatMap(Double.init)
+                .flatMap { $0.isFinite && $0 >= 0 ? $0 : nil } ?? Double(attempt + 1)
             try await Task.sleep(for: .seconds(min(wait, 10)))
             return try await request(method, path, body: body, attempt: attempt + 1)
         default:

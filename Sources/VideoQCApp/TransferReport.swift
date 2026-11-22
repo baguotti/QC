@@ -7,9 +7,6 @@ import VideoQCLib
 /// Hedge read) with each file's MD5 as read back from disk.
 enum TransferReport {
     static func csv(_ run: UploadLogRun) -> String {
-        func field(_ text: String) -> String {
-            text.contains(where: { $0 == "," || $0 == "\"" || $0 == "\n" }) ? "\"" + text.replacingOccurrences(of: "\"", with: "\"\"") + "\"" : text
-        }
         let iso = ISO8601DateFormatter()
         var lines = [["File", "Result", "Verification", "How", "Size (bytes)", "Started", "Finished", "Seconds", "MD5",
                       "Frame.io fingerprint (S3 ETag)", "Destination", "Local path", "Message"].joined(separator: ",")]
@@ -25,7 +22,7 @@ enum TransferReport {
                 .compactMap { $0 }.joined(separator: "; ")
             lines.append([entry.name, result, check?.label ?? "", how, String(entry.bytes), iso.string(from: entry.started),
                           iso.string(from: entry.finished), String(format: "%.1f", entry.duration), check?.md5 ?? "",
-                          check?.etag ?? "", entry.destination, entry.localPath ?? "", entry.message ?? ""].map(field).joined(separator: ","))
+                          check?.etag ?? "", entry.destination, entry.localPath ?? "", entry.message ?? ""].map(QCUtilities.escapeCSV).joined(separator: ","))
         }
         return lines.joined(separator: "\n") + "\n"
     }
@@ -48,6 +45,11 @@ enum TransferReport {
         let utc = ISO8601DateFormatter()
         utc.formatOptions = [.withInternetDateTime]
         let files = hashedFiles(run)
+        // Files whose fingerprint couldn't be reproduced have an MD5 too: the log said every one was compared.
+        let matched = files.filter { $0.entry.verification?.level == .verified }.count
+        let log = "Downloaded from Frame.io; each MD5 read back from disk after download. "
+            + (matched == files.count ? "Each matched Frame.io's stored fingerprint."
+                                      : "\(matched) of \(files.count) matched Frame.io's stored fingerprint; the others were checked by size.")
         var xml = """
         <?xml version="1.0" encoding="UTF-8"?>
         <hashlist version="1.1">
@@ -58,7 +60,7 @@ enum TransferReport {
             <tool>QCpie \(AppVersionInfo.version)</tool>
             <startdate>\(utc.string(from: run.started))</startdate>
             <finishdate>\(utc.string(from: run.finished ?? Date()))</finishdate>
-            <log>\(escape("Downloaded from Frame.io; each MD5 read back from disk after download and compared with Frame.io's stored fingerprint."))</log>
+            <log>\(escape(log))</log>
           </creatorinfo>
 
         """

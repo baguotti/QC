@@ -939,7 +939,7 @@ struct NotesDrawerPanelView: View {
             }
         } else if url.isFileURL {
             DetectedNoteLink.revealInFinder(path: url.path)
-        } else {
+        } else if NoteLinkParser.openableSchemes.contains(url.scheme?.lowercased() ?? "") {
             NSWorkspace.shared.open(url)
         }
     }

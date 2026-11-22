@@ -63,9 +63,11 @@ enum NotificationText {
     }
 
     /// `check`: "Line Check", "Frame Check" or "Full Check".
+    /// Nothing checked (a Crop Match whose files share no names) isn't "No issues found".
     static func scan(check: String, flagged: Int, total: Int) -> Message {
         Message(title: "\(check) finished", subtitle: count(total, "clip"),
-                body: flagged == 0 ? "No issues found" : "\(flagged) of \(count(total, "clip")) flagged", isProblem: flagged > 0)
+                body: total == 0 ? (check == "Crop Match" ? "No sets found: no two videos share a name apart from length and version" : "Nothing was checked")
+                    : flagged == 0 ? "No issues found" : "\(flagged) of \(count(total, "clip")) flagged", isProblem: flagged > 0)
     }
 
     struct Remark: Equatable, Sendable {
@@ -78,7 +80,9 @@ enum NotificationText {
         let all = comments + replies
         guard let first = all.first else { return nil }
         let mention = me.flatMap { name in
-            all.first { $0.text.range(of: "@\(name)", options: .caseInsensitive) != nil }
+            // A whole name: "@Sam" isn't a mention of Samantha.
+            all.first { $0.text.range(of: "@" + NSRegularExpression.escapedPattern(for: name) + #"(?![\p{L}\p{N}])"#,
+                                      options: [.caseInsensitive, .regularExpression]) != nil }
         }
         let lead = mention ?? first
         let title: String

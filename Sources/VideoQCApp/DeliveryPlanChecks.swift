@@ -309,7 +309,7 @@ final class PlanCheckQueue: ObservableObject {
             for key in drop { results[key] = nil }
         }
         saveTask?.cancel()
-        let snapshot = Dictionary(uniqueKeysWithValues: results.map { ($0.key.path, $0.value) })
+        let snapshot = Dictionary(results.map { ($0.key.path, $0.value) }, uniquingKeysWith: { a, _ in a })   // two URLs can share a path
         saveTask = Task {
             try? await Task.sleep(for: .seconds(2))
             guard !Task.isCancelled else { return }

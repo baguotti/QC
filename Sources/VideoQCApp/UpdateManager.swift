@@ -52,6 +52,14 @@ public final class UpdateManager: NSObject, ObservableObject {
     /// Checks the GitHub API for the latest release.
     /// - Parameter userInitiated: If true, opens the modal immediately to show status (checking, up-to-date, or update available). If false, runs silently in background.
     public func checkForUpdates(userInitiated: Bool = false) {
+        // An update already downloading or installing: show it. A check replaced its state, and the finished download
+        // then found the state it expects gone.
+        switch state {
+        case .downloading, .installing, .readyToInstall:
+            if userInitiated { showModal = true }
+            return
+        default: break
+        }
         if userInitiated {
             showModal = true
             state = .checking
@@ -417,6 +425,17 @@ public final class UpdateManager: NSObject, ObservableObject {
             throw AutoUpdateError.scriptCreationFailed(error.localizedDescription)
         }
         
+        // Asked before the relaunch script starts: it force-quits QCpie after 15 s, and the quit 1 s after terminating
+        // went ahead when the user chose to stay (unsaved subtitles, a running check) or uploads were still pausing.
+        let stopTransfers = await MainActor.run { AppDelegate.askToQuit() }
+        guard let stopTransfers else { throw AutoUpdateError.cancelled }
+        if stopTransfers {
+            await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in
+                Task { @MainActor in AppDelegate.stopTransfers { done.resume() } }
+            }
+        }
+        await MainActor.run { AppDelegate.quitConfirmed = true }
+
         let oldPID = ProcessInfo.processInfo.processIdentifier
         let launchProcess = Process()
         launchProcess.executableURL = URL(fileURLWithPath: "/bin/sh")
@@ -436,6 +455,7 @@ public final class UpdateManager: NSObject, ObservableObject {
         launchProcess.waitUntilExit()
         
         if launchProcess.terminationStatus != 0 {
+            await MainActor.run { AppDelegate.quitConfirmed = false }
             let data = launchErrPipe.fileHandleForReading.readDataToEndOfFile()
             let msg = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "exit code \(launchProcess.terminationStatus)"
             throw AutoUpdateError.processLaunchFailed(msg)
@@ -493,6 +513,11 @@ extension UpdateManager: URLSessionDownloadDelegate {
         downloadTask: URLSessionDownloadTask,
         didFinishDownloadingTo location: URL
     ) {
+        // An error page (GitHub down, asset removed) is downloaded like the file: it failed to mount as "the update".
+        if let status = (downloadTask.response as? HTTPURLResponse)?.statusCode, status != 200 {
+            Task { @MainActor in self.state = .failed("Download failed: GitHub returned HTTP status \(status).") }
+            return
+        }
         let tempStagingURL = FileManager.default.temporaryDirectory.appendingPathComponent("qcpie_download_\(UUID().uuidString).dmg")
         do {
             try FileManager.default.moveItem(at: location, to: tempStagingURL)
@@ -530,9 +555,12 @@ private enum AutoUpdateError: LocalizedError {
     case stagingFailed(String)
     case scriptCreationFailed(String)
     case processLaunchFailed(String)
-    
+    case cancelled
+
     var errorDescription: String? {
         switch self {
+        case .cancelled:
+            return "QCpie stayed open, so the update wasn't installed. Install it again when you're ready to quit."
         case .mountFailed(let detail):
             return "Failed to mount installer disk image: \(detail)"
         case .appNotFound:

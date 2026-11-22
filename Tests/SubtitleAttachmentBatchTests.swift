@@ -26,4 +26,18 @@ struct SubtitleAttachmentBatchTests {
         }
         #expect(batch.count == 4 && batch[folder.appendingPathComponent("D.mov").standardizedFileURL] == nil)
     }
+
+    // `Spot.v2.srt` belongs to `Spot.v2.mov`, not `Spot.mov`; `Spot.en.srt` is Spot's English subtitles.
+    @Test func anotherClipsSubtitlesAreNotALanguageSuffix() throws {
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("srt-suffix-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        for name in ["Spot.mov", "Spot.v2.mov", "Spot.v2.srt", "Promo.mov", "Promo.final.mov", "Promo.final.srt", "Cut.mov", "Cut.pt-BR.srt"] {
+            try Data().write(to: folder.appendingPathComponent(name))
+        }
+        #expect(SubtitleAttachments.sidecar(for: folder.appendingPathComponent("Spot.mov")) == nil)
+        #expect(SubtitleAttachments.sidecar(for: folder.appendingPathComponent("Spot.v2.mov"))?.lastPathComponent == "Spot.v2.srt")
+        #expect(SubtitleAttachments.sidecar(for: folder.appendingPathComponent("Promo.mov")) == nil)
+        #expect(SubtitleAttachments.sidecar(for: folder.appendingPathComponent("Cut.mov"))?.lastPathComponent == "Cut.pt-BR.srt")
+    }
 }

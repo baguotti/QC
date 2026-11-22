@@ -5,7 +5,7 @@ import Testing
 // The Delivery Plan through the Sheets API: the Sheet view's layout, the QCpie tab, the outbox and cell writes.
 // Nothing here reaches Google (`StubSheets` answers instead).
 
-@Suite("Delivery Plan · Sheets API")
+@Suite("Delivery Plan · Sheets API", .serialized)
 struct DeliveryPlanSheetsTests {
     // A 3×3 tab: column B hidden, A2:A3 merged, row 1 frozen and bold on grey, C2 right-aligned blue with a border.
     static let layout = #"""
@@ -254,6 +254,19 @@ extension DeliveryPlanSheetsTests {
         // 401 with no refresh token: signed out, after exactly one try.
         StubSheets.respond = { _ in (401, "{}") }
         await #expect(throws: GoogleAuth.Failure.self) { try await api.metadata("sheet") }
+    }
+
+    @Test("Token refresh: every caller waiting on one refresh gets the new token, not the expired one")
+    func sharedRefresh() async throws {
+        StubSheets.reset()
+        StubSheets.respond = { _ in (200, #"{"access_token":"fresh","expires_in":3600}"#) }
+        defer { StubSheets.reset() }
+        let auth = GoogleAuth(session: StubSheets.session, tokens: .init(access: "expired", refresh: "r", expires: .distantPast))
+        let tokens = await withTaskGroup(of: String?.self) { group in
+            for _ in 0..<20 { group.addTask { try? await auth.accessToken() } }
+            return await group.reduce(into: [String?]()) { $0.append($1) }
+        }
+        #expect(tokens.allSatisfy { $0 == "fresh" }, "\(tokens)")
     }
 }
 

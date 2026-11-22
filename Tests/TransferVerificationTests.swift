@@ -86,6 +86,13 @@ struct TransferVerificationTests {
         let mhl = TransferReport.mhl(run)
         #expect(mhl.contains("<file>Sub/a, b.mov</file>"))
         #expect(mhl.contains("<md5>782e7aa4d244511d0156156349e66c56</md5>"))
+        #expect(mhl.contains("Each matched Frame.io"))
+        // A file whose fingerprint couldn't be reproduced: its MD5 is listed, but not as compared.
+        var sizeOnly = entry
+        sizeOnly.verification = TransferVerification(level: .sizeOnly, method: "Downloaded twice", md5: "00", etag: nil)
+        let mixed = UploadLogRun(id: UUID(), kind: .download, started: Date(), finished: Date(), destination: "/tmp/Run",
+                                 keepStructure: false, entries: [entry, sizeOnly])
+        #expect(TransferReport.mhl(mixed).contains("1 of 2 matched"))
     }
 
     @Test("Log entries saved before verification still load")

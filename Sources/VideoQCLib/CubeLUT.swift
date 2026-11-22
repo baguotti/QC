@@ -82,8 +82,12 @@ public struct CubeLUT: Sendable, Equatable {
                         domainOK = domainOK && parts.dropFirst().allSatisfy { Double($0) == 0 }
                     case "DOMAIN_MAX":
                         domainOK = domainOK && parts.dropFirst().allSatisfy { Double($0) == 1 }
+                    case "LUT_3D_INPUT_RANGE":
+                        // Resolve's form of the domain: ignored, a wider range was applied as if it were 0–1.
+                        let range = parts.dropFirst().compactMap { Double($0) }
+                        domainOK = domainOK && range.count == 2 && range[0] == 0 && range[1] == 1
                     default:
-                        break   // TITLE, LUT_3D_INPUT_RANGE and other keywords
+                        break   // TITLE and other keywords
                     }
                     continue
                 }

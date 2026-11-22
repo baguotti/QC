@@ -89,7 +89,11 @@ extension DeliverablesInspector {
             height = turned ? video.width : video.height
         }
         let resolutionString = video == nil ? "--" : "\(width) x \(height)"
-        let aspectRatioString = video == nil ? "--" : calculateAspectRatio(width: width, height: height)
+        // The shape it's shown in: DV PAL is 720 x 576 of 16:15 pixels, 4:3 on screen (5:4 from the stored size).
+        let aspectRatioString = video.map { v in
+            let turned = Int((abs(v.rotation).truncatingRemainder(dividingBy: 180)).rounded()) == 90
+            return displayAspect(width: width, height: height, pixelAspect: turned ? 1 / v.pixelAspect : v.pixelAspect)
+        } ?? "--"
 
         // 2. Rate and duration (audio-only: fps 0, timecode counted at 25), as for files macOS reads.
         let rate = probe.frameRate

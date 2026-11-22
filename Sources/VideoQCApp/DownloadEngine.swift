@@ -286,7 +286,7 @@ final class DownloadEngine: Sendable {
                     let whole = range == nil || (range!.lowerBound == 0 && Int64(data.count) == Int64(range!.count))
                     guard status == 206 || (status == 200 && whole) else {
                         throw PartFailure(status: status, body: String(data: data.prefix(600), encoding: .utf8) ?? "",
-                                          retryAfter: http?.value(forHTTPHeaderField: "Retry-After").flatMap(Double.init))
+                                          retryAfter: http?.value(forHTTPHeaderField: "Retry-After").flatMap(Double.init).flatMap { $0.isFinite && $0 >= 0 ? $0 : nil })
                     }
                     if status == 206, let range, let answered = http?.value(forHTTPHeaderField: "Content-Range") {
                         // A stored file of another size than Frame.io listed: retrying can't help (and a short last

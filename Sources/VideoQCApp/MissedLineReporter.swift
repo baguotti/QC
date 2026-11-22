@@ -82,9 +82,14 @@ enum MissedLineReporter {
     private static func opaqueRGB8(_ image: CGImage) -> CGImage? {
         let isOpaque8 = image.bitsPerComponent == 8 && [.none, .noneSkipFirst, .noneSkipLast].contains(image.alphaInfo)
         if isOpaque8 { return image }
-        guard let context = CGContext(data: nil, width: image.width, height: image.height, bitsPerComponent: 8, bytesPerRow: 0,
-                                      space: image.colorSpace ?? CGColorSpace(name: CGColorSpace.sRGB)!,
-                                      bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue) else { return nil }
+        // The frame's own space when an 8-bit RGB context takes it; sRGB otherwise (grey, HDR / extended spaces).
+        let srgb = CGColorSpace(name: CGColorSpace.sRGB)!
+        let own = image.colorSpace.flatMap { $0.model == .rgb && !CGColorSpaceUsesExtendedRange($0) ? $0 : nil }
+        func context(_ space: CGColorSpace) -> CGContext? {
+            CGContext(data: nil, width: image.width, height: image.height, bitsPerComponent: 8, bytesPerRow: 0,
+                      space: space, bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue)
+        }
+        guard let context = own.flatMap(context) ?? context(srgb) else { return nil }
         context.draw(image, in: CGRect(x: 0, y: 0, width: image.width, height: image.height))
         return context.makeImage()
     }

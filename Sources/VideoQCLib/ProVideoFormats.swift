@@ -26,6 +26,12 @@ public enum ProVideoFormats {
     }
 
     static func openError(for url: URL) -> String {
-        needsInstall(for: url) ? "Needs Apple Pro Video Formats" : "Couldn't open the video"
+        if needsInstall(for: url) { return "Needs Apple Pro Video Formats" }
+        // MKV, WebM, AVI…: not damaged, a format macOS doesn't open (Line and Frame Check said only "Couldn't open").
+        let ext = url.pathExtension.lowercased()
+        if !ext.isEmpty, !extensions.contains(ext), !DeliverablesInspector.nativeContainers.contains(ext) {
+            return "macOS can't open this \(ext.uppercased()) file (Inspect shows its specs)"
+        }
+        return "Couldn't open the video"
     }
 }

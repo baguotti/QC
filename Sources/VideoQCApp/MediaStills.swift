@@ -17,7 +17,8 @@ enum MediaStills {
             kCGImageSourceCreateThumbnailFromImageAlways: true,
             kCGImageSourceCreateThumbnailWithTransform: true,
             kCGImageSourceShouldCacheImmediately: true,
-            kCGImageSourceThumbnailMaxPixelSize: max(width, height)
+            // Full size up to 16K on the long side: a 30,000 px poster decoded whole took several GB.
+            kCGImageSourceThumbnailMaxPixelSize: min(max(width, height), 16_384)
         ]
         guard let image = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary) else { return nil }
         return (image, DeliverablesInspector.imageFormatDescription(source: source, properties: props))

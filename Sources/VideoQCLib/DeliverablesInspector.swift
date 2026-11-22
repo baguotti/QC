@@ -30,6 +30,7 @@ public struct DeliverablesInspector: Sendable {
             // 1. Dimensions & Transform (0 x 0 for audio-only files)
             var width = 0
             var height = 0
+            var pixelAspect = 1.0
             if let videoTrack {
                 let naturalSize = (try? await videoTrack.load(.naturalSize)) ?? .zero
                 let transform = (try? await videoTrack.load(.preferredTransform)) ?? .identity
@@ -40,9 +41,19 @@ public struct DeliverablesInspector: Sendable {
                 let rawHeight = (naturalSize.height.isFinite && naturalSize.height > 0) ? Int(naturalSize.height) : 0
                 width = isTransposed ? rawHeight : rawWidth
                 height = isTransposed ? rawWidth : rawHeight
+                // Non-square pixels (DV, SD MPEG-2): the ratio is the shape on screen, the resolution what's stored. As the
+                // Player shows it: pixel shape and clean aperture (DV PAL's 59:54 pixels are 4:3 over its 702 active ones).
+                if let desc = (try? await videoTrack.load(.formatDescriptions))?.first, rawWidth > 0 {
+                    let stored = CMVideoFormatDescriptionGetPresentationDimensions(desc, usePixelAspectRatio: false, useCleanAperture: true)
+                    let shown = CMVideoFormatDescriptionGetPresentationDimensions(desc, usePixelAspectRatio: true, useCleanAperture: true)
+                    let ratio = (Double(shown.width) / Double(shown.height)) / (Double(rawWidth) / Double(rawHeight))
+                    if abs(shown.width - stored.width) > 0.5, ratio.isFinite, (0.1...10).contains(ratio) {
+                        pixelAspect = isTransposed ? 1 / ratio : ratio
+                    }
+                }
             }
             let resolutionString = videoTrack == nil ? "--" : "\(width) x \(height)"
-            let aspectRatioString = videoTrack == nil ? "--" : calculateAspectRatio(width: width, height: height)
+            let aspectRatioString = videoTrack == nil ? "--" : displayAspect(width: width, height: height, pixelAspect: pixelAspect)
             
             // 2. Framerate & Duration (audio-only: fps 0, timecode counted at 25)
             var fps = 0.0
@@ -67,7 +78,14 @@ public struct DeliverablesInspector: Sendable {
             let videoCodec = videoTrack == nil ? "NONE" : await extractVideoCodec(track: videoTrack!)
             
             // 5. Audio Info (Codec, Bitrate, Sub-Details, Full Config or NONE)
-            let audioInfo = await extractAudioInfo(tracks: audioTracks)
+            // MPEG-TS: AVFoundation estimates the audio rate from the first packets until the file has been read (a
+            // 72 kbps AAC read 9 kbps); the bundled ffprobe reads the stream's own.
+            var tsAudioKbps: Int? = nil
+            if !audioTracks.isEmpty, Self.transportStreams.contains(url.pathExtension.lowercased()),
+               let rate = await FFprobe.probe(url)?.audio.first?.bitRate, rate > 0 {
+                tsAudioKbps = Int((Double(rate) / 1000).rounded())
+            }
+            let audioInfo = await extractAudioInfo(tracks: audioTracks, bitrateKbps: tsAudioKbps)
             let audioLevels: AudioLevels
             if calculateAudioLevels && !audioTracks.isEmpty {
                 audioLevels = await extractAudioLevels(asset: asset, tracks: audioTracks)
@@ -442,6 +460,13 @@ public struct DeliverablesInspector: Sendable {
     
     // MARK: - Format Helpers
     
+    /// The ratio of the picture as shown: `width` widened by the pixel shape (nearly square counts as square).
+    static func displayAspect(width: Int, height: Int, pixelAspect: Double) -> String {
+        guard abs(pixelAspect - 1) > 0.01, width > 0, height > 0 else { return calculateAspectRatio(width: width, height: height) }
+        let shown = (Double(width) * pixelAspect).rounded()
+        return calculateAspectRatio(width: Int(min(shown, 1e6)), height: height)
+    }
+
     public static func calculateAspectRatio(width: Int, height: Int) -> String {
         guard width > 0 && height > 0 else { return "--" }
         
@@ -503,7 +528,10 @@ public struct DeliverablesInspector: Sendable {
     }
     
     /// Extracts audio codec, bitrate, sample rate, and channels. If no audio is present, returns "NONE".
-    public static func extractAudioInfo(tracks: [AVAssetTrack]) async -> (codec: String, bitrate: String, subDetail: String, fullDesc: String) {
+    public static let transportStreams: Set<String> = ["ts", "m2ts", "mts"]
+
+    /// `bitrateKbps`: the rate when known from elsewhere (ffprobe), instead of AVFoundation's estimate.
+    public static func extractAudioInfo(tracks: [AVAssetTrack], bitrateKbps known: Int? = nil) async -> (codec: String, bitrate: String, subDetail: String, fullDesc: String) {
         guard let audioTrack = tracks.first else {
             return (codec: "NONE", bitrate: "--", subDetail: "", fullDesc: "NONE")
         }
@@ -535,10 +563,12 @@ public struct DeliverablesInspector: Sendable {
         
         // 3. Bitrate Calculation / Estimation
         var bitrateKbps: Int = 0
-        let loadedRate = try? await audioTrack.load(.estimatedDataRate)
+        let loadedRate = known == nil ? try? await audioTrack.load(.estimatedDataRate) : nil
         let estimatedRate = Double(loadedRate ?? 0)
-        
-        if estimatedRate > 0, estimatedRate < 1e12 {
+
+        if let known {
+            bitrateKbps = known
+        } else if estimatedRate > 0, estimatedRate < 1e12 {
             bitrateKbps = Int(round(estimatedRate / 1000.0))
         } else if formatID == kAudioFormatLinearPCM && sampleRate > 0 && channels > 0 {
             let bits = bitsPerChannel > 0 ? bitsPerChannel : 16
@@ -745,7 +775,9 @@ public struct DeliverablesInspector: Sendable {
 
     public static func extractAudioLevels(for url: URL) async -> AudioLevels {
         let asset = AVURLAsset(url: url, options: [AVURLAssetPreferPreciseDurationAndTimingKey: false])
-        let audioTracks = (try? await asset.loadTracks(withMediaType: .audio)) ?? []
+        // A file macOS can't open (MKV, WebM) has no tracks to load: that's unread, not "No audio" (which the Delivery
+        // Plan's checks passed).
+        guard let audioTracks = try? await asset.loadTracks(withMediaType: .audio) else { return .unread }
         return await extractAudioLevels(asset: asset, tracks: audioTracks)
     }
 
@@ -1170,7 +1202,7 @@ public struct DeliverablesInspector: Sendable {
                                 <td class="nowrap">\(esc(a.formattedFileSize))</td>
                                 <td class="nowrap dim">\(esc(a.formattedCreationDate))</td>
                                 <td>\(subs)</td>
-                                <td class="nowrap">\(esc(a.videoCodec))</td>
+                                <td class="nowrap">\(esc(a.videoCodec))\(a.specsOnlyReason.map { "<span class=\"note\">Specs only: \(esc($0))</span>" } ?? "")</td>
                                 <td>\(audio)</td>
                                 <td><div class="path" title="\(esc(a.fileURL.path))">\(esc(a.fileURL.path))</div></td>
                             </tr>

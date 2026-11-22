@@ -189,16 +189,17 @@ final class FrameIOPreview: ObservableObject {
         player.play()
         guard kind == .video else { clock.fps = 25; return }
         Task {
-            let (size, rate) = await Self.videoFormat(of: url)
+            // The item's own asset: a second one fetched the proxy's header from Frame.io again.
+            let (size, rate) = await Self.videoFormat(of: asset)
             guard (player.currentItem?.asset as? AVURLAsset)?.url == url else { return }
             proxySize = size
             clock.fps = rate > 0 && rate < 1000 ? rate : 25   // inf from a damaged header made the timecode Int(NaN)
         }
     }
 
-    /// The proxy's frame size and rate (read from its own asset, off the main actor).
-    nonisolated private static func videoFormat(of url: URL) async -> (CGSize?, Double) {
-        guard let track = try? await AVURLAsset(url: url).loadTracks(withMediaType: .video).first else { return (nil, 0) }
+    /// The proxy's frame size and rate.
+    private static func videoFormat(of asset: AVURLAsset) async -> (CGSize?, Double) {
+        guard let track = try? await asset.loadTracks(withMediaType: .video).first else { return (nil, 0) }
         let size = try? await track.load(.naturalSize)
         let rate = (try? await track.load(.nominalFrameRate)).map(Double.init) ?? 0
         return (size, rate)

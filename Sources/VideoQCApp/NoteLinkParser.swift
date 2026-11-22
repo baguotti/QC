@@ -56,7 +56,9 @@ public enum DetectedNoteLink: Identifiable, Equatable {
         if fm.fileExists(atPath: clean) {
             var isDir: ObjCBool = false
             fm.fileExists(atPath: clean, isDirectory: &isDir)
-            if isDir.boolValue {
+            // A package (an app, a project bundle) is a folder too: opening it launched the app a note pointed at,
+            // and notes come from collaborators (sync, Frame.io comments). Packages are only revealed.
+            if isDir.boolValue && !NSWorkspace.shared.isFilePackage(atPath: clean) {
                 NSWorkspace.shared.open(URL(fileURLWithPath: clean))
             } else {
                 NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: clean)])
@@ -64,9 +66,13 @@ public enum DetectedNoteLink: Identifiable, Equatable {
         } else {
             let parent = (clean as NSString).deletingLastPathComponent
             if fm.fileExists(atPath: parent) {
-                NSWorkspace.shared.open(URL(fileURLWithPath: parent))
+                if NSWorkspace.shared.isFilePackage(atPath: parent) {
+                    NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: parent)])
+                } else {
+                    NSWorkspace.shared.open(URL(fileURLWithPath: parent))
+                }
             } else {
-                NSWorkspace.shared.open(URL(fileURLWithPath: clean))
+                NSSound.beep()   // nothing there to show
             }
         }
     }
@@ -75,6 +81,7 @@ public enum DetectedNoteLink: Identifiable, Equatable {
 // MARK: - Note Link Parser & Attributed String Builder
 
 public struct NoteLinkParser {
+    static let openableSchemes: Set<String> = ["http", "https", "mailto"]
     
     private struct MatchItem {
         let range: NSRange
@@ -95,7 +102,9 @@ public struct NoteLinkParser {
                 if let url = m.url {
                     if url.isFileURL {
                         matches.append(MatchItem(range: m.range, link: .filePath(path: url.path, displayString: matchedString)))
-                    } else {
+                    } else if Self.openableSchemes.contains(url.scheme?.lowercased() ?? "") {
+                        // Web and mail only: another scheme hands the link to whichever app claims it (with what
+                        // a note's author put in it).
                         matches.append(MatchItem(range: m.range, link: .webURL(url: url, displayString: matchedString)))
                     }
                 }

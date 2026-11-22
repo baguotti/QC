@@ -1532,7 +1532,8 @@ enum UploadLogFormat {
     static func bytes(_ count: Int64) -> String { QCUtilities.byteCount(count) }
 
     static func speed(_ bytesPerSecond: Double) -> String {
-        "\(bytes(Int64(bytesPerSecond)))/s"
+        // Int64() traps past its range (a resumed file "sent" in microseconds); NaN reads as 0.
+        "\(bytes(bytesPerSecond.isFinite ? Int64(min(max(0, bytesPerSecond), 1e15)) : 0))/s"
     }
 
     static func megabits(_ bytesPerSecond: Double) -> String {

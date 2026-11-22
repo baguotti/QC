@@ -251,7 +251,7 @@ private struct BlendLineModel {
             self.weakAlpha = Self.anyColorMinAlpha
             self.strongAlpha = Self.anyColorMinAlpha
         }
-        self.edgeDepth = config.edgeDepth
+        self.edgeDepth = min(max(1, config.edgeDepth), 512)   // an imported setting can hold anything: seams read out of the frame below 0
         self.minSpanRatio = config.minSpanRatio
         self.reportOffColor = config.reportOffColorLines && !config.anyColor
         let hueless = !config.anyColor && (config.isBlackDetection || config.isWhiteDetection)

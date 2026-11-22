@@ -1,4 +1,5 @@
 import Foundation
+import CoreMedia
 import Testing
 @testable import VideoQCLib
 
@@ -88,6 +89,20 @@ struct FFprobeTests {
         #expect(a.container == "WEBM")
         #expect(a.specsOnlyReason == "macOS can't play VP9 in WEBM")
         #expect(!a.validation.isDurationMismatch)   // named 30s, is 30 s
+        // Reports say the empty check columns couldn't run.
+        #expect(a.notesWithPictureText == "SPECS ONLY: macOS can't play VP9 in WEBM")
+        #expect(DeliverablesInspector.generateManifestHTML(assets: [a], folderName: "d").contains("Specs only: macOS can"))
+    }
+
+    // DV PAL: 720 x 576 of 16:15 pixels is 4:3 on screen; the resolution stays what's stored.
+    @Test func nonSquarePixelsGiveTheShownRatio() {
+        let dv = video(#", "sample_aspect_ratio": "16:15""#, codec: "dvvideo", w: 720, h: 576)
+        let a = DeliverablesInspector.asset(from: probe(json(streams: [dv])), url: url, fileSize: 1)
+        #expect(a.aspectRatioString == "4:3" && a.resolutionString == "720 x 576")
+        let square = video(#", "sample_aspect_ratio": "1:1""#, codec: "mpeg2video", w: 720, h: 576)
+        #expect(DeliverablesInspector.asset(from: probe(json(streams: [square])), url: url, fileSize: 1).aspectRatioString == "5:4")
+        let junk = video(#", "sample_aspect_ratio": "0:1""#, codec: "h264", w: 1920, h: 1080)
+        #expect(DeliverablesInspector.asset(from: probe(json(streams: [junk])), url: url, fileSize: 1).aspectRatioString == "16:9")
     }
 
     @Test func quarterTurnSwapsTheSize() {
@@ -185,6 +200,8 @@ struct FFprobeTests {
         #expect(CodecNames.ffmpegVideo("dnxhd", profile: "DNXHR HQX") == "DNxHR HQX")
         #expect(CodecNames.ffmpegVideo("dnxhd", profile: "DNXHD") == "DNxHD")
         #expect(CodecNames.ffmpegVideo("somethingnew", profile: "") == "SOMETHINGNEW")
+        // AVI's MJPEG as macOS reads it ("dmb1").
+        #expect(CodecNames.video(kCMVideoCodecType_JPEG_OpenDML)?.short == "Motion JPEG")
         #expect(CodecNames.ffmpegAudio("pcm_s16be", bits: 0) == "PCM (16-bit)")
         #expect(CodecNames.ffmpegAudio("pcm_f32le", bits: 32) == "PCM (32-bit float)")
         #expect(CodecNames.ffmpegAudio("eac3", bits: 0) == "E-AC-3")
@@ -237,6 +254,8 @@ struct FFprobeTests {
         #expect(a.videoCodec == "VP9")
         #expect(a.audioCodec == "Opus")
         #expect(abs(a.durationSeconds - 2) < 0.1)
+        // The Delivery Plan's loudness check: unread, not a passed "No audio".
+        #expect(!(await DeliverablesInspector.extractAudioLevels(for: webm)).hasNoAudioTrack)
         // Cut off after its header (a copy still running): the full duration, but the data stops early.
         let long = dir.appendingPathComponent("long.mkv")
         let makeLong = Process()
@@ -251,11 +270,45 @@ struct FFprobeTests {
         let partial = try #require(await DeliverablesInspector.inspectFile(url: cut))
         #expect(partial.isSpecsOnly)
         #expect(partial.validation.isCutOff)
+        // MPEG-TS (macOS opens it): the audio rate is the stream's, not AVFoundation's first-packets estimate.
+        let ts = dir.appendingPathComponent("spot.ts")
+        let makeTS = Process()
+        makeTS.executableURL = URL(fileURLWithPath: ffmpeg)
+        makeTS.arguments = ["-v", "error", "-f", "lavfi", "-i", "testsrc2=s=640x360:r=25:d=3", "-f", "lavfi", "-i", "sine=d=3",
+                            "-c:v", "libx264", "-c:a", "aac", "-b:a", "128k", ts.path]
+        try makeTS.run()
+        makeTS.waitUntilExit()
+        let tsAsset = try #require(await DeliverablesInspector.inspectFile(url: ts))
+        #expect(!tsAsset.isSpecsOnly)
+        let kbps = Int(tsAsset.audioBitrate.prefix { $0.isNumber }) ?? 0
+        #expect((100...140).contains(kbps), "\(tsAsset.audioBitrate)")
+        // DV (macOS opens it): the ratio from its 16:15 pixels.
+        let dv = dir.appendingPathComponent("pal.dv")
+        let makeDV = Process()
+        makeDV.executableURL = URL(fileURLWithPath: ffmpeg)
+        makeDV.arguments = ["-v", "error", "-f", "lavfi", "-i", "testsrc2=s=720x576:r=25:d=1", "-f", "lavfi", "-i", "sine=r=48000:d=1",
+                            "-ac", "2", "-c:v", "dvvideo", "-pix_fmt", "yuv420p", "-c:a", "pcm_s16le", "-f", "dv", dv.path]
+        try makeDV.run()
+        makeDV.waitUntilExit()
+        let dvAsset = try #require(await DeliverablesInspector.inspectFile(url: dv))
+        #expect(dvAsset.aspectRatioString == "4:3" && dvAsset.resolutionString == "720 x 576")
         // A damaged file: neither reader opens it.
         let junk = dir.appendingPathComponent("junk.mkv")
         try Data(repeating: 7, count: 4096).write(to: junk)
         let bad = try #require(await DeliverablesInspector.inspectFile(url: junk))
         #expect(bad.videoCodec == DeliverablesInspector.unreadableCodec)
         #expect(!bad.isSpecsOnly)
+    }
+
+    // Copied from the downloaded disk image, the helper carries the download's quarantine: macOS kills it on launch.
+    @Test func quarantineIsCleared() throws {
+        let file = FileManager.default.temporaryDirectory.appendingPathComponent("ffprobe-q-\(UUID().uuidString)")
+        try Data([0]).write(to: file)
+        defer { try? FileManager.default.removeItem(at: file) }
+        let flag = "0081;6b030cd4;Safari;"
+        #expect(setxattr(file.path, "com.apple.quarantine", flag, flag.utf8.count, 0, 0) == 0)
+        #expect(FFprobe.clearQuarantine(file))
+        #expect(getxattr(file.path, "com.apple.quarantine", nil, 0, 0, 0) < 0)
+        #expect(FFprobe.clearQuarantine(file))   // none left: nothing to do
     }
 }

@@ -1,6 +1,7 @@
 import SwiftUI
 import AppKit
 import AVFoundation
+import VideoToolbox
 import CoreMedia
 import CoreVideo
 import UniformTypeIdentifiers
@@ -160,18 +161,25 @@ public struct ExtendedMediaInfo: Sendable {
             }
             
             // Estimated Video Bitrate
-            let dataRate = (try? await vTrack.load(.estimatedDataRate)) ?? 0
+            // MPEG program and transport streams: AVFoundation gives MPEG-2's header ceiling (104.86 Mbps) or an
+            // estimate from the first packets (0.36 for a 3 Mbps TS), so the file's measured rate is shown instead.
+            let ext = url.pathExtension.lowercased()
+            let mpegStream = DeliverablesInspector.transportStreams.contains(ext) || ["mpg", "mpeg", "vob", "m2v"].contains(ext)
+            let dataRate = mpegStream ? 0 : (try? await vTrack.load(.estimatedDataRate)) ?? 0
             if dataRate > 0 {
                 info.videoBitrate = Self.formatBitrate(Double(dataRate))
             } else if let base = baseAsset, base.durationSeconds > 0 {
+                // The whole file's rate (audio included), said so: it read as the video's.
                 let estMbps = (Double(base.fileSizeBytes) * 8.0) / (base.durationSeconds * 1_000_000.0)
-                info.videoBitrate = Self.formatBitrate(estMbps * 1_000_000)
+                info.videoBitrate = Self.formatBitrate(estMbps * 1_000_000) + " overall"
             }
             
             // Video Format Descriptions
             if let descs = try? await vTrack.load(.formatDescriptions), let desc = descs.first {
                 let subType = CMFormatDescriptionGetMediaSubType(desc)
                 let fourCC = QCUtilities.fourCCToString(subType).lowercased()
+                // As this Mac decodes it: MPEG-2, DV and Motion JPEG read "Apple Silicon HW" too, decoded in software.
+                info.hwDecoder = VTIsHardwareDecodeSupported(subType) ? "VideoToolbox (hardware)" : "VideoToolbox (software)"
                 
                 if let names = CodecNames.video(subType) {
                     info.videoFormat = names.format
@@ -265,7 +273,12 @@ public struct ExtendedMediaInfo: Sendable {
             }
             
             let aDataRate = (try? await aTrack.load(.estimatedDataRate)) ?? 0
-            if aDataRate > 0 {
+            // MPEG-TS: AVFoundation's estimate comes from the first packets (a 72 kbps AAC read 9); Inspect read the
+            // stream's own rate with ffprobe.
+            if DeliverablesInspector.transportStreams.contains(url.pathExtension.lowercased()),
+               let base = baseAsset, base.audioBitrate != "--" {
+                info.audioBitrate = base.audioBitrate
+            } else if aDataRate > 0 {
                 info.audioBitrate = String(format: "%.2f Kbps", Double(aDataRate) / 1000.0)
             } else if let base = baseAsset, base.audioBitrate != "--" {
                 info.audioBitrate = base.audioBitrate
