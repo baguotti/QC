@@ -25,7 +25,7 @@ public struct DeliverablesInspector: Sendable {
             let videoTracks = try await asset.loadTracks(withMediaType: .video)
             let audioTracks = (try? await asset.loadTracks(withMediaType: .audio)) ?? []
             let videoTrack = videoTracks.first
-            guard videoTrack != nil || !audioTracks.isEmpty else { return unreadable(url) }
+            guard videoTrack != nil || !audioTracks.isEmpty else { return await probedAsset(url) ?? unreadable(url) }
             
             // 1. Dimensions & Transform (0 x 0 for audio-only files)
             var width = 0
@@ -141,7 +141,8 @@ public struct DeliverablesInspector: Sendable {
             inspected.loudness = audioLevels.loudness
             return inspected
         } catch {
-            return unreadable(url)
+            // macOS can't open it: the bundled ffprobe may still read its specs (WebM, MKV, AVI…).
+            return await probedAsset(url) ?? unreadable(url)
         }
     }
 
@@ -531,8 +532,29 @@ public struct DeliverablesInspector: Sendable {
         let channels = Int(asbd.mChannelsPerFrame)
         // Damaged headers can hold NaN / inf rates, which Int() traps on.
         let sampleRate = asbd.mSampleRate.isFinite && asbd.mSampleRate > 0 && asbd.mSampleRate < 10_000_000 ? Int(asbd.mSampleRate) : 0
-        let rateStr = sampleRate > 0 ? (sampleRate % 1000 == 0 ? "\(sampleRate / 1000)kHz" : String(format: "%.1fkHz", Double(sampleRate) / 1000.0)) : ""
         
+        // 3. Bitrate Calculation / Estimation
+        var bitrateKbps: Int = 0
+        let loadedRate = try? await audioTrack.load(.estimatedDataRate)
+        let estimatedRate = Double(loadedRate ?? 0)
+        
+        if estimatedRate > 0, estimatedRate < 1e12 {
+            bitrateKbps = Int(round(estimatedRate / 1000.0))
+        } else if formatID == kAudioFormatLinearPCM && sampleRate > 0 && channels > 0 {
+            let bits = bitsPerChannel > 0 ? bitsPerChannel : 16
+            let calcRate = Double(sampleRate * channels * bits)
+            bitrateKbps = Int(round(calcRate / 1000.0))
+        }
+        
+        return audioSummary(codec: codecName, sampleRate: sampleRate, channels: channels, trackCount: tracks.count,
+                            bitrateKbps: bitrateKbps)
+    }
+
+    /// The audio columns' strings from what a reader found (AVFoundation or ffprobe): "AAC", "256 kbps",
+    /// "48kHz • Stereo (2ch)" and all of it for CSV / tooltips.
+    static func audioSummary(codec codecName: String, sampleRate: Int, channels: Int, trackCount: Int,
+                             bitrateKbps: Int) -> (codec: String, bitrate: String, subDetail: String, fullDesc: String) {
+        let rateStr = sampleRate > 0 ? (sampleRate % 1000 == 0 ? "\(sampleRate / 1000)kHz" : String(format: "%.1fkHz", Double(sampleRate) / 1000.0)) : ""
         let channelStr: String
         if channels == 1 {
             channelStr = "Mono (1ch)"
@@ -548,36 +570,17 @@ public struct DeliverablesInspector: Sendable {
             channelStr = ""
         }
         // Split mono (one track per channel) read as "Mono (1ch)" from the first track alone.
-        let tracksStr = tracks.count > 1 ? "\(tracks.count) tracks" : ""
+        let tracksStr = trackCount > 1 ? "\(trackCount) tracks" : ""
+        let bitrateStr = bitrateKbps > 0 ? "\(bitrateKbps) kbps" : "--"
         
-        // 3. Bitrate Calculation / Estimation
-        var bitrateKbps: Int = 0
-        let loadedRate = try? await audioTrack.load(.estimatedDataRate)
-        let estimatedRate = Double(loadedRate ?? 0)
-        
-        if estimatedRate > 0, estimatedRate < 1e12 {
-            bitrateKbps = Int(round(estimatedRate / 1000.0))
-        } else if formatID == kAudioFormatLinearPCM && sampleRate > 0 && channels > 0 {
-            let bits = bitsPerChannel > 0 ? bitsPerChannel : 16
-            let calcRate = Double(sampleRate * channels * bits)
-            bitrateKbps = Int(round(calcRate / 1000.0))
-        }
-        
-        let bitrateStr: String
-        if bitrateKbps > 0 {
-            bitrateStr = "\(bitrateKbps) kbps"
-        } else {
-            bitrateStr = "--"
-        }
-        
-        // 4. Sub-Details (only sample rate & channels, e.g. "48kHz • Stereo")
+        // Sub-Details (only sample rate & channels, e.g. "48kHz • Stereo")
         var subParts: [String] = []
         if !rateStr.isEmpty { subParts.append(rateStr) }
         if !channelStr.isEmpty { subParts.append(channelStr) }
         if !tracksStr.isEmpty { subParts.append(tracksStr) }
         let subDetail = subParts.joined(separator: " • ")
         
-        // 5. Full combined description for CSV / tooltips
+        // Full combined description for CSV / tooltips
         var fullParts: [String] = [codecName]
         if bitrateStr != "--" { fullParts.append(bitrateStr) }
         if !subDetail.isEmpty { fullParts.append(subDetail) }
@@ -896,8 +899,8 @@ public struct DeliverablesInspector: Sendable {
     }
     
     private static func analyzeSingleAssetAudio(asset: DeliverableAsset) async -> DeliverableAsset {
-        // Nothing to measure, and re-validating would drop the "Unreadable" reason.
-        if asset.videoCodec == unreadableCodec { return asset }
+        // Nothing to measure (or macOS can't decode it), and re-validating would drop the "Unreadable" reason.
+        if asset.videoCodec == unreadableCodec || asset.isSpecsOnly { return asset }
         guard asset.hasAudio else {
             let validation = validateFilename(
                 fileName: asset.fileName,
@@ -995,13 +998,13 @@ public struct DeliverablesInspector: Sendable {
     }
 
     /// Creation (else modification) date, read fresh: a re-export is a new file.
-    private static func fileCreationDate(_ url: URL) -> Date? {
+    static func fileCreationDate(_ url: URL) -> Date? {
         guard let attributes = try? FileManager.default.attributesOfItem(atPath: url.path) else { return nil }
         return (attributes[.creationDate] ?? attributes[.modificationDate]) as? Date
     }
 
     /// DateFormatter is thread-safe for formatting (macOS 10.9+); building one per file cost more than the format.
-    private static let creationDateFormatter: DateFormatter = {
+    static let creationDateFormatter: DateFormatter = {
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "en_US_POSIX")   // Gregorian, 24 h on every Mac
         formatter.dateFormat = "yyyy-MM-dd HH:mm"
@@ -1032,7 +1035,7 @@ public struct DeliverablesInspector: Sendable {
 
     private static let manifestHeader = [
         "Folder", "File Name", "Status", "Validation Notes", "Timecode", "Duration", "Total Frames", "Resolution",
-        "Aspect Ratio", "FPS", "File Size", "Created Date", "Subtitles / CC", "Video Codec", "Audio Codec", "Audio Bitrate",
+        "Aspect Ratio", "FPS", "File Size", "Bit Rate", "Created Date", "Subtitles / CC", "Video Codec", "Audio Codec", "Audio Bitrate",
         "Audio Details", "Loudness (LUFS)", "True Peak (dBTP)", "LRA (LU)", "Max Short-Term (LUFS)", "Loudness Verdict",
         "Loudness Notes", "End Frame", "Burned-in Subs", "Text on Screen", "Container", "File Path"
     ]
@@ -1056,7 +1059,7 @@ public struct DeliverablesInspector: Sendable {
             let status = a.hasAnyNameMismatch ? "MISMATCH FLAGGED" : "MATCHED"
             rows.append([
                 folderRel, a.fileName, status, a.notesWithPictureText, a.timecode, a.formattedDuration, "\(a.totalFrames)",
-                a.resolutionString, a.aspectRatioString, String(format: "%.2f", a.fps), a.formattedFileSize,
+                a.resolutionString, a.aspectRatioString, String(format: "%.2f", a.fps), a.formattedFileSize, a.formattedBitrate,
                 a.formattedCreationDate, a.subtitlesInfo, a.videoCodec, a.audioCodec, a.audioBitrate, a.audioConfig
             ] + loudnessColumns(a, target: target) + [
                 a.endFrame?.verdict.rawValue ?? "", a.pictureText?.subsLabel ?? "",

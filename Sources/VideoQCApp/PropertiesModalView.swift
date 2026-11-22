@@ -75,10 +75,52 @@ public struct ExtendedMediaInfo: Sendable {
 
     /// "12.4 Mbps", or kbps below 1 Mbps (a small proxy read "0.0 Mbps").
     static func formatBitrate(_ bitsPerSecond: Double) -> String {
-        bitsPerSecond >= 1_000_000 ? String(format: "%.1f Mbps", bitsPerSecond / 1_000_000)
-            : String(format: "%.0f kbps", max(1, bitsPerSecond / 1_000))
+        DeliverableAsset.formatBitrate(bitsPerSecond)
     }
     
+    /// A file only ffprobe could read: its specs from Inspect; colour and pixel format unknown ("--", not "Untagged",
+    /// which would read as a QC finding).
+    static func specsOnly(_ base: DeliverableAsset, into start: ExtendedMediaInfo) -> ExtendedMediaInfo {
+        var info = start
+        let reason = base.specsOnlyReason ?? ""
+        info.videoFormat = base.videoCodec
+        info.videoCodecLong = base.videoCodec == "NONE" ? "--" : "\(base.videoCodec) (read with FFmpeg)"
+        info.hwDecoder = "None: \(reason)"
+        info.primaries = "--"
+        info.colorspace = "--"
+        info.pixelFormat = "--"
+        info.videoBitrate = base.formattedBitrate == "--" ? "--" : "\(base.formattedBitrate) overall"
+        if base.fps > 0 { info.fpsString = String(format: "%.6f", base.fps) }
+        if base.width > 0 {
+            info.videoSizeString = "\(base.width)×\(base.height) (\(base.aspectRatioString))"
+            info.videoDurationString = "\(base.timecode) (\(base.formattedDuration) / \(base.totalFrames) frames)"
+        }
+        info.hasAudio = base.hasAudio
+        if base.hasAudio {
+            info.audioFormat = base.audioCodec
+            info.audioCodecLong = base.audioCodec
+            info.audioBitrate = base.audioBitrate
+            info.audioChannels = base.audioFormatDetail.isEmpty ? "--" : base.audioFormatDetail
+        }
+        info.audioLevelString = base.audioLevelString
+        var tracks: [MediaTrackItem] = []
+        if base.width > 0 {
+            tracks.append(MediaTrackItem(id: 0, typeName: "VIDEO", format: base.videoCodec, codec: base.videoCodec,
+                                         details: "\(base.resolutionString) • \(QCUtilities.formatFPS(base.fps)) fps",
+                                         bitrate: "--", duration: base.timecode, language: "--"))
+        }
+        if base.hasAudio {
+            tracks.append(MediaTrackItem(id: 1, typeName: "AUDIO", format: base.audioCodec, codec: base.audioCodec,
+                                         details: base.audioFormatDetail, bitrate: base.audioBitrate, duration: base.timecode, language: "--"))
+        }
+        if base.hasSubtitles {
+            tracks.append(MediaTrackItem(id: 2, typeName: "SUBTITLES", format: base.subtitlesInfo, codec: base.subtitlesInfo,
+                                         details: "", bitrate: "--", duration: "--", language: "--"))
+        }
+        info.tracks = tracks
+        return info
+    }
+
     /// Extracts full metadata from AVURLAsset asynchronously
     public static func extract(url: URL, baseAsset: DeliverableAsset?) async -> ExtendedMediaInfo {
         var info = ExtendedMediaInfo()
@@ -100,6 +142,11 @@ public struct ExtendedMediaInfo: Sendable {
             return info
         }
         
+        // Read by the bundled ffprobe (macOS can't open it): show what was read, never this struct's AVFoundation defaults.
+        if let base = baseAsset, base.isSpecsOnly {
+            return specsOnly(base, into: info)
+        }
+
         // 2. Video Tracks
         let videoTracks = (try? await avAsset.loadTracks(withMediaType: .video)) ?? []
         if let vTrack = videoTracks.first {
@@ -372,6 +419,7 @@ public struct ExtendedMediaInfo: Sendable {
         lines.append("File Path: \(asset.fileURL.path)")
         lines.append("Container: \(containerType(for: asset.fileURL))")
         lines.append("File Size: \(asset.formattedFileSize) (\(QCUtilities.exactBytes(asset.fileSizeBytes)))")
+        if asset.overallBitsPerSecond != nil { lines.append("Overall Bit Rate: \(asset.formattedBitrate)") }
         if let info, info.isImage {
             lines += info.imageDetails.map { "\($0.label) \($0.value)" }
             lines.append("Created: \(asset.formattedCreationDate)")
@@ -707,6 +755,9 @@ public struct PropertiesModalView: View {
                     infoRow(label: "File Path:", value: asset.fileURL.path, copyable: true)
                     infoRow(label: "Container Type:", value: containerType)
                     infoRow(label: "File Size:", value: "\(asset.formattedFileSize) (\(QCUtilities.exactBytes(asset.fileSizeBytes)))")
+                    if asset.overallBitsPerSecond != nil {
+                        infoRow(label: "Bit Rate:", value: "\(asset.formattedBitrate) overall")
+                    }
                     infoRow(label: "Created:", value: asset.formattedCreationDate)
                     infoRow(label: "Modified:", value: info.fileModifiedDate)
                 }

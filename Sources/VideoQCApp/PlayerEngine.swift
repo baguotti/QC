@@ -188,6 +188,16 @@ public final class PlayerEngine: ObservableObject {
     // Crosshair & Guides
     @Published public var showCenterCrosshair: Bool = false
     @Published public var safeAreaMode: SafeAreaMode = UserPreferences.safeArea
+    /// Viewer gamma (User Settings): read per frame by the composition through `gammaBox`, like EV.
+    @Published var viewerGamma: ViewerGamma = .current {
+        didSet {
+            guard viewerGamma != oldValue else { return }
+            UserDefaults.standard.set(viewerGamma.rawValue, forKey: UserPreferences.viewerGammaKey)
+            gammaBox.set(viewerGamma.power)
+            updateVideoCompositions()
+            refreshPausedFramesForExposure()
+        }
+    }
     /// Behind the picture (User Settings); the viewport applies it on change only.
     @Published var viewerBackground: ViewerBackground = .current {
         didSet { UserDefaults.standard.set(viewerBackground.rawValue, forKey: UserPreferences.viewerBackgroundKey) }
@@ -525,12 +535,14 @@ public final class PlayerEngine: ObservableObject {
     // never replace the composition. Installed when EV leaves 0, removed once EV settles back at 0.
     
     let exposureBox = ExposureValueBox()
+    /// The viewer gamma's power (0: macOS's own Rec.709 reading).
+    let gammaBox = ExposureValueBox()
     private var exposureTeardownTask: Task<Void, Never>? = nil
     
     public func updateVideoCompositions() {
         exposureTeardownTask?.cancel()
         exposureTeardownTask = nil
-        if abs(exposureEV) >= 0.001 {
+        if abs(exposureEV) >= 0.001 || gammaBox.value > 0 {
             installExposureComposition(for: slotA)
             installExposureComposition(for: slotB)
             return
@@ -544,15 +556,15 @@ public final class PlayerEngine: ObservableObject {
         // Debounced so dragging EV through 0 doesn't rebuild the render pipeline twice.
         exposureTeardownTask = Task { @MainActor [weak self] in
             try? await Task.sleep(for: .milliseconds(400))
-            guard let self, !Task.isCancelled, abs(self.exposureEV) < 0.001 else { return }
+            guard let self, !Task.isCancelled, abs(self.exposureEV) < 0.001, self.gammaBox.value == 0 else { return }
             removable(self.slotA)?.videoComposition = nil
             removable(self.slotB)?.videoComposition = nil
         }
     }
     
-    /// EV off 0, a rotation or a LUT: the frames go through the composition.
+    /// EV off 0, a rotation, a LUT or the broadcast viewer gamma: the frames go through the composition.
     private func needsComposition(_ slot: PlayerSlot) -> Bool {
-        abs(exposureEV) >= 0.001 || slot.isRotated || slot.lut.value != nil
+        abs(exposureEV) >= 0.001 || slot.isRotated || slot.lut.value != nil || gammaBox.value > 0
     }
     
     /// Built asynchronously: the synchronous initializer loads the asset's tracks on the main thread (a clip on a slow
@@ -562,6 +574,7 @@ public final class PlayerEngine: ObservableObject {
               let item = slot.player.currentItem, item.videoComposition == nil else { return }
         let box = exposureBox
         let lutBox = slot.lut
+        let gammaBox = gammaBox
         let asset = item.asset
         Task { [weak self] in
             guard let composition = try? await AVVideoComposition.videoComposition(with: asset, applyingCIFiltersWithHandler: { @Sendable request in
@@ -569,6 +582,9 @@ public final class PlayerEngine: ObservableObject {
                 var image = request.sourceImage
                 if let lut = lutBox.value { image = image.applyingLUT(lut) }
                 if abs(ev) >= 0.001 { image = image.applyingFilter("CIExposureAdjust", parameters: [kCIInputEVKey: ev]) }
+                // Last: how the result is shown (a display transform, after the grade).
+                let gamma = gammaBox.value
+                if gamma > 0 { image = image.applyingDisplayGamma(gamma, source: request.sourceImage.colorSpace) }
                 request.finish(with: image, context: nil)
             }) else { return }
             // Still wanted on the same item (EV back at 0, another clip, or another install got there first: nothing).
@@ -852,6 +868,7 @@ public final class PlayerEngine: ObservableObject {
     }
     
     public init() {
+        gammaBox.set(viewerGamma.power)
         slotA.player.automaticallyWaitsToMinimizeStalling = false
         slotB.player.automaticallyWaitsToMinimizeStalling = false
         slotA.objectWillChange.sink { [weak self] _ in

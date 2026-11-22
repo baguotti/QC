@@ -99,7 +99,12 @@ enum UploadPreflight {
         @Sendable func check(_ row: Row) async -> String? {
             if (row.sizes.first ?? 0) == 0 { return row.path }
             let tracks = (try? await AVURLAsset(url: row.files[0]).load(.tracks)) ?? []
-            if tracks.isEmpty { return row.path }
+            // WebM, MKV, AVI…: macOS can't open them, but they're fine if the bundled ffprobe reads them.
+            // (and not cut off: the copy may still be running).
+            if tracks.isEmpty {
+                guard let probed = await DeliverablesInspector.probedAsset(row.files[0]) else { return row.path }
+                return probed.validation.isCutOff ? row.path : nil
+            }
             // Cut off after its index (a copy that stopped): it opens, but the end of the picture and sound is missing.
             let cutOff = await DeliverablesInspector.presentFraction(tracks: tracks, url: row.files[0], fileSize: row.sizes.first ?? 0)
             return cutOff == nil ? nil : row.path

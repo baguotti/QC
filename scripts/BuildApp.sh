@@ -82,6 +82,18 @@ if [ -d "Resources/LUTs" ]; then
     cp Resources/LUTs/*.cube "${RESOURCES}/LUTs/"
 fi
 
+# ffprobe (scripts/build_ffprobe.sh): Inspect reads the specs of files macOS can't open with it. Releases need it
+# (Release.sh checks the bundle); a local build without it only warns, and those files read as Unreadable.
+if [ -x "Resources/Helpers/ffprobe" ]; then
+    echo "🔎 Bundling ffprobe $(cat Resources/Helpers/FFMPEG_VERSION 2>/dev/null)..."
+    mkdir -p "${RESOURCES}/Helpers"
+    cp Resources/Helpers/ffprobe Resources/Helpers/FFMPEG_LICENSE.txt Resources/Helpers/FFMPEG_VERSION "${RESOURCES}/Helpers/"
+    # Signed on its own: --deep below doesn't treat Resources as code.
+    codesign --force --sign - "${RESOURCES}/Helpers/ffprobe"
+else
+    echo "⚠️  No Resources/Helpers/ffprobe: run scripts/build_ffprobe.sh (needed for releases)."
+fi
+
 # 5. Create Info.plist
 cat << EOF > "${CONTENTS}/Info.plist"
 <?xml version="1.0" encoding="UTF-8"?>

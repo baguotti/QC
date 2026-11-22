@@ -20,7 +20,9 @@ case "${1:-}" in
 build)
     clean; untagged
     swift test
+    scripts/build_ffprobe.sh   # once per machine (skips when built): Inspect reads specs of files macOS can't open
     scripts/BuildApp.sh
+    [ -x build/QCpie.app/Contents/Resources/Helpers/ffprobe ] || { echo "ffprobe missing from the app."; exit 1; }
     clean   # BuildApp.sh rewrites AppVersion.swift: it must already hold this version
     STAGE=$(mktemp -d)
     cp -R build/QCpie.app "$STAGE/"

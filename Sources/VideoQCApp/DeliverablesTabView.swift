@@ -744,6 +744,7 @@ extension ContentView {
             
             if !planFiles.isEmpty && !hidePlanTags { inspectPlanChips.padding(.bottom, 6) }
             if (specsState.pictureTextCounts[.all] ?? 0) > 0 { pictureTextChips.padding(.bottom, 6) }
+            if !specsState.columnTargets.isEmpty { columnTargetChips.padding(.bottom, 6) }
 
             // Table
             GeometryReader { tableGeo in
@@ -773,6 +774,7 @@ extension ContentView {
                             if specsState.isColumnVisible(.ratio) { sortableHeaderCell("Ratio & Size", column: .ratio) }
                             if specsState.isColumnVisible(.fps) { sortableHeaderCell("FPS", column: .fps) }
                             if specsState.isColumnVisible(.size) { sortableHeaderCell("File Size", column: .size) }
+                            if specsState.isColumnVisible(.bitrate) { sortableHeaderCell("Bit Rate", column: .bitrate) }
                             if specsState.isColumnVisible(.date) { sortableHeaderCell("Created", column: .date) }
                             if specsState.isColumnVisible(.videoCodec) { sortableHeaderCell("Video", column: .videoCodec) }
                             if specsState.isColumnVisible(.audioCodec) { sortableHeaderCell("Audio Spec", column: .audioCodec) }
@@ -786,14 +788,7 @@ extension ContentView {
                         .padding(.vertical, specsDisplayMode == "large" ? 10 : (specsDisplayMode == "thumbnail" ? 8 : (specsDisplayMode == "compact" ? 3 : 6)))
                         .frame(width: availableWidth, alignment: .leading)
                         .background(bgCardHeader)
-                        .contextMenu {
-                            columnsMenu
-                            Menu("Sort By") { inspectSortMenuItems }
-                            Divider()
-                            Button(action: { specsState.specsSortAscending.toggle() }) {
-                                Label(specsState.specsSortAscending ? "Ascending" : "Descending", systemImage: specsState.specsSortAscending ? "arrow.up" : "arrow.down")
-                            }
-                        }
+                        .contextMenu { headerContextMenu(for: nil) }
                         
                         Rectangle().fill(borderLine).frame(width: availableWidth, height: 1)
                         
@@ -812,7 +807,7 @@ extension ContentView {
                                             .font(.system(size: StudioTheme.scaleFont(26)))
                                             .foregroundColor(textMuted)
                                         Text(specsState.specsFilterText.isEmpty
-                                             ? "No files match the plan filters (\(specsState.deliverableAssets.count) hidden)"
+                                             ? "No files match the filters (\(specsState.deliverableAssets.count) hidden)"
                                              : "No Assets Matching \"\(specsState.specsFilterText)\"")
                                             .font(.ui(size: 11, weight: .semibold))
                                             .foregroundColor(textMuted)
@@ -821,6 +816,7 @@ extension ContentView {
                                             inspectPlanFilter = -1
                                             inspectPlanBatch = nil
                                             inspectPlanUpload = nil
+                                            specsState.showOffTargetOnly = false
                                         }) {
                                             Text("Clear Filters")
                                                 .font(.ui(size: 11, weight: .semibold))
@@ -871,7 +867,8 @@ extension ContentView {
                                                 thumbnailWidth: specsThumbnailWidth,
                                                 themeKey: themeKey,
                                                 menuContext: isSelected ? multiSelectionKey : 0,
-                                                plan: hidePlanTags ? nil : planFiles[asset.fileURL]
+                                                plan: hidePlanTags ? nil : planFiles[asset.fileURL],
+                                                targets: specsState.targetsVersion
                                             )) {
                                                 deliverablesAssetRow(idx: assetIndexMap[node.url] ?? idx, asset: asset, depth: node.depth, pathWidth: pathColWidth, rowWidth: availableWidth, displayOrder: displayOrder, isTreeLayout: isTreeLayout)
                                             }
@@ -978,6 +975,29 @@ extension ContentView {
         }
     }
     
+    /// The table header's right-click menu; on a column that takes a target, Set Target… comes first.
+    @ViewBuilder
+    func headerContextMenu(for column: SpecsSortColumn?) -> some View {
+        if let column, ColumnTarget.columns.contains(column) {
+            Button(specsState.columnTargets[column] == nil ? "Set Target…" : "Edit Target (\(specsState.columnTargets[column]!.label))…") {
+                targetEditorColumn = column
+            }
+            if specsState.columnTargets[column] != nil {
+                Button("Clear Target") { specsState.setTarget(nil, for: column) }
+            }
+            if specsState.columnTargets.count > 1 {
+                Button("Clear All Targets") { specsState.clearTargets() }
+            }
+            Divider()
+        }
+        columnsMenu
+        Menu("Sort By") { inspectSortMenuItems }
+        Divider()
+        Button(action: { specsState.specsSortAscending.toggle() }) {
+            Label(specsState.specsSortAscending ? "Ascending" : "Descending", systemImage: specsState.specsSortAscending ? "arrow.up" : "arrow.down")
+        }
+    }
+
     private func sortableHeaderCell(
         _ title: String,
         column: SpecsSortColumn,
@@ -988,13 +1008,36 @@ extension ContentView {
         let isCurrent = specsState.specsSortColumn == column && inspectPlanSort == 0   // a plan sort replaces the column sort
         let colWidth = customWidth ?? CGFloat(specsState.columnWidth(for: column))
         let isDraggingThis = specsState.isDragging(column: column)
+        let target = specsState.columnTargets[column]
         
         return HStack(spacing: 0) {
             Button(action: { toggleSpecsSort(column) }) {
                 HStack(spacing: 3) {
-                    Text(title)
-                        .lineLimit(1)
-                        .foregroundColor(isCurrent ? textMain : textMuted)
+                    if let target {
+                        // The target beside the title when it fits, else a mark (the tooltip says what it is).
+                        ViewThatFits(in: .horizontal) {
+                            HStack(spacing: 3) {
+                                Text(title).lineLimit(1).foregroundColor(isCurrent ? textMain : textMuted)
+                                Text(target.label).lineLimit(1).foregroundColor(accentBlue).monospacedDigit()
+                            }
+                            HStack(spacing: 3) {
+                                Text(title).lineLimit(1).foregroundColor(isCurrent ? textMain : textMuted)
+                                Image(systemName: "scope")
+                                    .font(.system(size: StudioTheme.scaleFont(8), weight: .bold))
+                                    .foregroundColor(accentBlue)
+                            }
+                            HStack(spacing: 2) {   // narrowest: the mark first, the title truncated
+                                Image(systemName: "scope")
+                                    .font(.system(size: StudioTheme.scaleFont(8), weight: .bold))
+                                    .foregroundColor(accentBlue)
+                                Text(title).lineLimit(1).foregroundColor(isCurrent ? textMain : textMuted)
+                            }
+                        }
+                    } else {
+                        Text(title)
+                            .lineLimit(1)
+                            .foregroundColor(isCurrent ? textMain : textMuted)
+                    }
                     
                     if isCurrent {
                         Image(systemName: specsState.specsSortAscending ? "chevron.up" : "chevron.down")
@@ -1006,6 +1049,17 @@ extension ContentView {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+            .helpIfAny(target.map { "Target: \(column.displayName) \($0.label). Right-click to change or clear it." })
+            .modifier(ColumnTargetMenu(enabled: ColumnTarget.columns.contains(column)) { headerContextMenu(for: column) })
+            // Closing only clears this column's editor: another column's may have been opened meanwhile. While one is
+            // open the window's shortcuts are off (`isAnyModalActive`), so any way it goes away must clear it.
+            .popover(isPresented: Binding(get: { targetEditorColumn == column },
+                                          set: { if !$0, targetEditorColumn == column { targetEditorColumn = nil } }),
+                     arrowEdge: .bottom) {
+                ColumnTargetEditor(column: column, current: target, isLightMode: isLightMode,
+                                   onSet: { specsState.setTarget($0, for: column) },
+                                   onClose: { if targetEditorColumn == column { targetEditorColumn = nil } })
+            }
             
             if isResizable {
                 // Drag Resize Handle Divider (14px hit target zone)
@@ -1377,6 +1431,7 @@ extension ContentView {
         let isDismissed = specsState.isMismatchDismissed(for: asset.fileURL)
         let hasSubtitleMismatch = specsState.hasSubtitleMismatch(asset.fileURL)
         let hasMismatch = (asset.hasAnyNameMismatch || hasSubtitleMismatch) && !isDismissed
+        let missedTargets = specsState.missedTargets(asset)
         let isSelected = specsState.isSelected(asset.fileURL)
         let srtURL = specsState.subtitleURL(for: asset.fileURL)
         
@@ -1448,9 +1503,11 @@ extension ContentView {
             if specsState.isColumnVisible(.timecode) {
                 // Timecode Cell with Warning
                 VStack(alignment: .center, spacing: 3) {
+                    let missedDuration = missedTargets.first { $0.column == .timecode }
                     Text(asset.timecode)
-                        .foregroundColor((asset.validation.isDurationMismatch && !isDismissed) ? alertRed : textSubtle)
-                        .fontWeight((asset.validation.isDurationMismatch && !isDismissed) ? .bold : .regular)
+                        .foregroundColor(((asset.validation.isDurationMismatch && !isDismissed) || missedDuration != nil) ? alertRed : textSubtle)
+                        .fontWeight(((asset.validation.isDurationMismatch && !isDismissed) || missedDuration != nil) ? .bold : .regular)
+                        .helpIfAny(missedDuration.map { "Duration \(asset.timecode) misses the target \($0.label)" })
                 
                     if let detail = asset.validation.durationMismatchDetail {
                         HStack(spacing: 3) {
@@ -1488,7 +1545,7 @@ extension ContentView {
             }
             
             if specsState.isColumnVisible(.endFrame) {
-                endFrameCell(asset.endFrame)
+                endFrameCell(asset.endFrame, specsOnlyReason: asset.specsOnlyReason)
                     .frame(width: CGFloat(specsState.columnWidth(for: .endFrame)), alignment: .center)
             }
             if specsState.isColumnVisible(.burnedSubs) {
@@ -1554,15 +1611,16 @@ extension ContentView {
             }
             
             if specsState.isColumnVisible(.fps) {
-                Text(asset.fps > 0 ? String(format: "%.2f", asset.fps) : "--")
-                    .frame(width: CGFloat(specsState.columnWidth(for: .fps)), alignment: .center)
-                    .foregroundColor(textSubtle)
+                targetCell(asset.fps > 0 ? String(format: "%.2f", asset.fps) : "--", column: .fps, missed: missedTargets, color: textSubtle)
             }
             
             if specsState.isColumnVisible(.size) {
-                Text(asset.formattedFileSize)
-                    .frame(width: CGFloat(specsState.columnWidth(for: .size)), alignment: .center)
+                targetCell(asset.formattedFileSize, column: .size, missed: missedTargets, color: textMain)
                     .fontWeight(.semibold)
+            }
+            
+            if specsState.isColumnVisible(.bitrate) {
+                targetCell(asset.formattedBitrate, column: .bitrate, missed: missedTargets, color: textSubtle)
             }
             
             if specsState.isColumnVisible(.date) {
@@ -1574,12 +1632,20 @@ extension ContentView {
             }
             
             if specsState.isColumnVisible(.videoCodec) {
-                Text(asset.videoCodec)
-                    .frame(width: CGFloat(specsState.columnWidth(for: .videoCodec)), alignment: .center)
-                    .foregroundColor(textMuted)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.8)
-                    .help(asset.videoCodec)
+                HStack(spacing: 4) {
+                    // Read by the bundled ffprobe: specs only, no playback or checks.
+                    if asset.isSpecsOnly {
+                        Image(systemName: "eye.slash")
+                            .font(.system(size: StudioTheme.scaleFont(8), weight: .semibold))
+                    }
+                    Text(asset.videoCodec)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.8)
+                }
+                .frame(width: CGFloat(specsState.columnWidth(for: .videoCodec)), alignment: .center)
+                .foregroundColor(textMuted)
+                .help(asset.specsOnlyReason.map { "\(asset.videoCodec). Specs read with FFmpeg: \($0), so it can't be previewed or checked." }
+                      ?? asset.videoCodec)
             }
             
             if specsState.isColumnVisible(.audioCodec) {
@@ -1920,6 +1986,8 @@ struct SpecsRowKey: Equatable {
     let menuContext: Int
     /// The file's Delivery Plan code and state (only rows whose plan info changed redraw).
     let plan: PlanFileInfo?
+    /// `SpecsState.targetsVersion`: rows redraw when a column target changes.
+    let targets: Int
 }
 
 /// Renders `content` only when `key` changes (use with `.equatable()`).
@@ -1984,6 +2052,54 @@ extension ContentView {
         }
     }
 
+    /// A value cell, red (with the target in its tooltip) when the file misses the column's target.
+    func targetCell(_ value: String, column: SpecsSortColumn, missed: [ColumnTarget], color: Color) -> some View {
+        let target = missed.first { $0.column == column }
+        return Text(value)
+            .foregroundColor(target == nil ? color : alertRed)
+            .fontWeight(target == nil ? nil : .semibold)
+            .frame(width: CGFloat(specsState.columnWidth(for: column)), alignment: .center)
+            .helpIfAny(target.map { "\(value) misses the target \($0.label)" })
+    }
+
+    /// Column targets: the Off Target filter, then each target (click to edit, × to clear).
+    var columnTargetChips: some View {
+        let palette = StudioPalette(isLightMode)
+        let count = specsState.offTargetCount
+        return FlowChips(spacing: 2) {
+            PlanFilterChip(title: "Off Target", count: count, selected: specsState.showOffTargetOnly,
+                           color: count > 0 ? palette.alertRed : palette.positive, isLightMode: isLightMode) {
+                specsState.showOffTargetOnly.toggle()
+            }
+            .explain("Show only the files that miss a column target (right-click a column header to set one).")
+            PlanBarDivider(isLightMode: isLightMode)
+            ForEach(ColumnTarget.columns.filter { specsState.columnTargets[$0] != nil }, id: \.self) { column in
+                let target = specsState.columnTargets[column]!
+                HStack(spacing: 4) {
+                    Button(action: {
+                        specsState.setColumnVisible(column, true)   // the popover opens under its header
+                        targetEditorColumn = column
+                    }) {
+                        Text("\(column.displayName) \(target.label)")
+                            .font(.ui(size: 10, weight: .semibold))
+                            .foregroundColor(palette.textMain)
+                            .lineLimit(1)
+                    }
+                    .buttonStyle(.plain)
+                    .explain("Edit the \(column.displayName.lowercased()) target.")
+                    Button(action: { specsState.setTarget(nil, for: column) }) {
+                        Image(systemName: "xmark")
+                            .font(.system(size: StudioTheme.scaleFont(8), weight: .semibold))
+                            .foregroundColor(palette.textMuted)
+                    }
+                    .buttonStyle(.plain)
+                    .explain("Clear the \(column.displayName.lowercased()) target.")
+                }
+                .planBarItem(selected: true, palette: palette)
+            }
+        }
+    }
+
     /// The file's plan flags for one Inspect cell (none while plan tags are hidden).
     func planFlags(_ asset: DeliverableAsset, _ area: PlanContentFlag.Area) -> [String] {
         guard !hidePlanTags else { return [] }
@@ -2033,7 +2149,7 @@ extension ContentView {
             Text("—")
                 .font(.ui(size: 10, weight: .semibold))
                 .foregroundColor(textMuted)
-                .help("Not checked yet: use Check Subs & Graphics")
+                .help(asset.specsOnlyReason.map { "Can't check: \($0)" } ?? "Not checked yet: use Check Subs & Graphics")
         }
     }
 
@@ -2068,7 +2184,7 @@ extension ContentView {
             Text("—")
                 .font(.ui(size: 10, weight: .semibold))
                 .foregroundColor(textMuted)
-                .help("Not checked yet: use Check Subs & Graphics")
+                .help(asset.specsOnlyReason.map { "Can't check: \($0)" } ?? "Not checked yet: use Check Subs & Graphics")
         }
     }
 }
@@ -2081,7 +2197,7 @@ extension ContentView {
     }
     
     @ViewBuilder
-    func endFrameCell(_ check: EndFrameCheck?) -> some View {
+    func endFrameCell(_ check: EndFrameCheck?, specsOnlyReason: String? = nil) -> some View {
         if let check {
             // Neutral on purpose: ending on black is a fact, not a pass or fail. A black swatch for BLACK, an empty one otherwise.
             HStack(spacing: 5) {
@@ -2109,7 +2225,7 @@ extension ContentView {
             Text("—")
                 .font(.ui(size: 10, weight: .semibold))
                 .foregroundColor(textMuted)
-                .help("Not checked yet: use CHECK END FRAMES")
+                .help(specsOnlyReason.map { "Can't check: \($0)" } ?? "Not checked yet: use CHECK END FRAMES")
         }
     }
     

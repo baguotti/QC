@@ -133,4 +133,19 @@ extension CIImage {
             "inputColorSpace": colorSpace ?? CubeLUT.fallbackSpace,
         ])
     }
+
+    /// The picture as a display with power-law gamma `gamma` shows it (light = code value ^ 2.4 for broadcast, as Premiere
+    /// Pro and DaVinci Resolve show Rec.709), instead of macOS's Rec.709 reading (~1.96: QuickTime's lighter look). The
+    /// code values are recovered in `source`, the colour space the picture was decoded from (as for the LUT), raised to
+    /// `gamma` and read as linear light with Rec.709 primaries. HDR (PQ / HLG) and wide-gamut pictures are unchanged.
+    /// Measured through an `AVVideoComposition`: the light shown matched code^2.4 within 8-bit rounding.
+    public func applyingDisplayGamma(_ gamma: Double, source: CGColorSpace?) -> CIImage {
+        let space = source ?? CubeLUT.fallbackSpace
+        guard gamma > 0, !CGColorSpaceUsesITUR_2100TF(space), !space.isWideGamutRGB, let linear709 = Self.linear709,
+              let codes = matchedFromWorkingSpace(to: space) else { return self }
+        return codes.applyingFilter("CIGammaAdjust", parameters: ["inputPower": gamma]).matchedToWorkingSpace(from: linear709) ?? self
+    }
+
+    /// Created once: `applyingDisplayGamma` runs per frame on the composition's render thread.
+    private static let linear709 = CGColorSpace(name: CGColorSpace.linearSRGB)
 }

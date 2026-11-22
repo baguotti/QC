@@ -14,14 +14,18 @@ public enum QCUtilities: Sendable {
     }
 
     
+    /// Beyond what macOS plays (mp4, mov, m4v, mxf with Pro Video Formats): containers Inspect reads with the bundled
+    /// ffprobe for their specs (the Player says it can't play them, and why).
     public static let supportedVideoExtensions: Set<String> = [
-        "mp4", "mov", "m4v", "mkv", "avi", "prores", "mxf"
+        "mp4", "mov", "m4v", "mkv", "avi", "prores", "mxf",
+        "webm", "ts", "m2ts", "mts", "mpg", "mpeg", "vob", "flv", "wmv", "ogv", "3gp", "dv"
     ]
     public static let supportedImageExtensions: Set<String> = [
         "png", "jpg", "jpeg", "tif", "tiff", "heic", "heif", "gif", "bmp", "webp", "psd", "exr"
     ]
     public static let supportedAudioExtensions: Set<String> = [
-        "wav", "aif", "aiff", "mp3", "m4a", "aac", "flac", "caf"
+        "wav", "aif", "aiff", "mp3", "m4a", "aac", "flac", "caf",
+        "ogg", "opus", "wma", "ac3", "eac3", "dts", "mka"
     ]
     
     /// nil for files the Player can't open.

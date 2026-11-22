@@ -59,6 +59,7 @@ public enum SpecsSortColumn: String, CaseIterable, Equatable, Sendable {
     case ratio = "ratio"
     case fps = "fps"
     case size = "size"
+    case bitrate = "bitrate"
     case date = "date"
     case videoCodec = "videoCodec"
     case audioCodec = "audioCodec"
@@ -74,6 +75,7 @@ public enum SpecsSortColumn: String, CaseIterable, Equatable, Sendable {
         case .ratio: return "Ratio & Size"
         case .fps: return "Frame Rate (FPS)"
         case .size: return "File Size"
+        case .bitrate: return "Bit Rate"
         case .date: return "Creation Date"
         case .videoCodec: return "Video Codec"
         case .audioCodec: return "Audio Spec"
@@ -91,6 +93,7 @@ public enum SpecsSortColumn: String, CaseIterable, Equatable, Sendable {
         case .ratio: return 152.0
         case .fps: return 60.0
         case .size: return 75.0
+        case .bitrate: return 80.0
         case .date: return 110.0
         case .videoCodec: return 140.0
         case .audioCodec: return 165.0
@@ -108,6 +111,7 @@ public enum SpecsSortColumn: String, CaseIterable, Equatable, Sendable {
         case .ratio: return 90.0
         case .fps: return 45.0
         case .size: return 50.0
+        case .bitrate: return 55.0
         case .date: return 70.0
         case .videoCodec: return 80.0
         case .audioCodec: return 80.0
@@ -125,6 +129,7 @@ public enum SpecsSortColumn: String, CaseIterable, Equatable, Sendable {
         case .ratio: return 350.0
         case .fps: return 150.0
         case .size: return 200.0
+        case .bitrate: return 200.0
         case .date: return 250.0
         case .videoCodec: return 400.0
         case .audioCodec: return 400.0
@@ -164,14 +169,46 @@ public struct DeliverableAsset: Identifiable, Sendable, Equatable {
     public let formattedCreationDate: String
     public let hasSubtitles: Bool
     public let subtitlesInfo: String
-    public let validation: DeliverableValidation
+    public var validation: DeliverableValidation
     /// Result of the on-demand last-frame check (nil until CHECK END FRAMES runs).
     public var endFrame: EndFrameCheck? = nil
     /// Text in the picture (nil until Check Subs & Graphics runs).
     public var pictureText: PictureTextCheck? = nil
+    /// Set when only the specs could be read (by the bundled ffprobe: macOS can't open the file): why it can't be
+    /// played or checked, e.g. "macOS can't play VP9". Nil for files macOS reads.
+    public var specsOnlyReason: String? = nil
+    public var isSpecsOnly: Bool { specsOnlyReason != nil }
     
     public var hasAudio: Bool {
         audioConfig != "NONE" && audioCodec != "NONE"
+    }
+
+    /// Overall bit rate: the whole file (every track and the container) over its duration. Nil for stills and files
+    /// without a duration.
+    public var overallBitsPerSecond: Double? {
+        guard durationSeconds > 0, durationSeconds.isFinite, fileSizeBytes > 0 else { return nil }
+        let rate = Double(fileSizeBytes) * 8 / durationSeconds
+        return rate.isFinite ? rate : nil
+    }
+
+    /// A copy flagged cut off (its data ends before its duration), keeping any name mismatch already found.
+    public func withValidation(cutOff detail: String) -> DeliverableAsset {
+        var copy = self
+        let v = validation
+        copy.validation = DeliverableValidation(
+            isDurationMismatch: true, expectedDurationSeconds: v.expectedDurationSeconds,
+            durationMismatchDetail: [detail, v.durationMismatchDetail].compactMap { $0 }.joined(separator: " • "),
+            isRatioMismatch: v.isRatioMismatch, expectedRatioString: v.expectedRatioString,
+            ratioMismatchDetail: v.ratioMismatchDetail, isAudioMute: v.isAudioMute, audioMuteDetail: v.audioMuteDetail)
+        return copy
+    }
+
+    public var formattedBitrate: String { overallBitsPerSecond.map(Self.formatBitrate) ?? "--" }
+
+    /// "12.4 Mbps" from 1 Mbps up, else "640 kbps".
+    public static func formatBitrate(_ bitsPerSecond: Double) -> String {
+        bitsPerSecond >= 1_000_000 ? String(format: "%.1f Mbps", bitsPerSecond / 1_000_000)
+            : String(format: "%.0f kbps", max(1, bitsPerSecond / 1_000))
     }
     
     /// BS.1770 measurement from Check Loudness (nil until it runs).
@@ -211,6 +248,7 @@ public struct DeliverableAsset: Identifiable, Sendable, Equatable {
         copy.endFrame = endFrame
         copy.pictureText = pictureText
         copy.loudness = levels.loudness
+        copy.specsOnlyReason = specsOnlyReason
         return copy
     }
     

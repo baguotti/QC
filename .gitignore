@@ -22,3 +22,6 @@ _TEST FOOTAGE/
 premiere/_TESTING GROUNDS/
 _assets/Hamster/
 _assets/Hamster_Alpha/
+
+# ffprobe built by scripts/build_ffprobe.sh
+Resources/Helpers/

@@ -1,5 +1,6 @@
 import SwiftUI
 import AVFoundation
+import Combine
 import VideoQCLib
 
 // Inspect's preview: the selected file at a glance, play/pause and fast scrubbing only. In the bottom of Inspect's left
@@ -18,6 +19,8 @@ final class InspectPreview: ObservableObject {
 
     @Published private(set) var url: URL?
     @Published private(set) var kind: MediaKind?
+    /// Why the file shown can't be previewed (read for its specs only: macOS can't decode it); nil otherwise.
+    @Published private(set) var cannotPlay: String?
     /// Sound is on unless the speaker is toggled off (remembered).
     @Published var isMuted = UserDefaults.standard.bool(forKey: "inspectPreviewMuted") {
         didSet {
@@ -27,9 +30,11 @@ final class InspectPreview: ObservableObject {
     }
 
     private var wanted: URL?
+    private var wantedCannotPlay: String?
     private var visible = 0
     private var loadTask: Task<Void, Never>?
     private var timeObserver: Any?
+    private var statusObserver: AnyCancellable?
     private var playWhenLoaded = false
     private var seeking = false
     private var pendingSeek: Double?
@@ -40,8 +45,9 @@ final class InspectPreview: ObservableObject {
     }
 
     /// The selected file changed. Loads after a short rest, and only while a preview is on screen.
-    func select(_ url: URL?) {
+    func select(_ url: URL?, cannotPlay: String? = nil) {
         wanted = url
+        wantedCannotPlay = cannotPlay
         loadTask?.cancel()
         guard visible > 0 else { return }
         guard url != self.url else { return }
@@ -165,12 +171,24 @@ final class InspectPreview: ObservableObject {
         clock.reset()
         self.url = url
         kind = url.flatMap { QCUtilities.mediaKind(of: $0) }
-        guard let url, kind == .video || kind == .audio else {
+        cannotPlay = url == nil ? nil : wantedCannotPlay
+        statusObserver = nil
+        guard let url, kind == .video || kind == .audio, cannotPlay == nil else {
             player.replaceCurrentItem(with: nil)
             playWhenLoaded = false
             return
         }
-        player.replaceCurrentItem(with: AVPlayerItem(asset: AVURLAsset(url: url)))
+        let item = AVPlayerItem(asset: AVURLAsset(url: url))
+        player.replaceCurrentItem(with: item)
+        // A file macOS can't open that Inspect hadn't marked yet (selected before its specs were read): say why.
+        statusObserver = item.publisher(for: \.status).filter { $0 == .failed }.first().receive(on: RunLoop.main).sink { [weak self] _ in
+            Task { @MainActor [weak self] in
+                let reason = await DeliverablesInspector.probedAsset(url)?.specsOnlyReason ?? "it may be damaged or still being written"
+                guard let self, self.url == url else { return }
+                self.cannotPlay = reason
+                self.player.replaceCurrentItem(with: nil)
+            }
+        }
         timeObserver = player.addPeriodicTimeObserver(forInterval: CMTime(value: 1, timescale: 10), queue: .main) { [weak self] time in
             MainActor.assumeIsolated {
                 guard let self else { return }
@@ -248,9 +266,10 @@ struct InspectPreviewPanel: View {
                     .background(Color.black)   // design-ok: the media well
                     .clipShape(RoundedRectangle(cornerRadius: Radius.control))
                     .contextMenu { if let url = preview.url { fileMenu(url) } }
+                let playable = (preview.kind == .video || preview.kind == .audio) && preview.cannotPlay == nil
                 InspectPreviewTransport(isLightMode: isLightMode)
-                    .opacity(preview.kind == .video || preview.kind == .audio ? 1 : 0.4)
-                    .disabled(!(preview.kind == .video || preview.kind == .audio))
+                    .opacity(playable ? 1 : 0.4)
+                    .disabled(!playable)
                 if placement == .window {
                     HStack {
                         Text(preview.url?.lastPathComponent ?? "")
@@ -313,7 +332,18 @@ struct InspectPreviewPanel: View {
     private var picture: some View {
         GeometryReader { geo in
             ZStack {
-                if let url = preview.url {
+                if let reason = preview.cannotPlay {
+                    VStack(spacing: 8) {
+                        Image(systemName: "eye.slash")
+                            .font(.system(size: StudioTheme.scaleFont(22)))
+                            .foregroundColor(Color.white.opacity(0.55))   // design-ok: on the black media well
+                        Text("Can't preview: \(reason)")
+                            .font(.ui(size: 11, weight: .semibold))
+                            .foregroundColor(Color.white.opacity(0.8))   // design-ok: on the black media well
+                            .multilineTextAlignment(.center)
+                    }
+                    .padding(.horizontal, 12)
+                } else if let url = preview.url {
                     switch preview.kind {
                     case .audio:
                         VStack(spacing: 8) {

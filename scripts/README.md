@@ -5,6 +5,7 @@
 | `QuickCheck.command` | Debug build, copied into `build/QCpie.app` (and `/Applications/QCpie.app` if present), then opened. Use this to test settings-dependent UI: the bare `.build/debug/QCpie` has its own UserDefaults domain. |
 | `BuildApp.sh` | Release app bundle in `build/` (runs the design lint). Packaging only. |
 | `Release.sh` | `build`: tests, `BuildApp.sh`, `build/QCpie.dmg`. `publish "notes" [--yes]`: after the DMG launched on the macOS 15 Mac (`--yes` skips the question), pushes, tags and publishes the GitHub release with the plugin files. Only when asked to release. |
+| `build_ffprobe.sh` | Builds the bundled ffprobe (FFmpeg 9.0.2, LGPL, checksum-pinned) into `Resources/Helpers/`: Inspect reads specs of files macOS can't open with it. Once per release machine (`Release.sh build` runs it; skips when built). |
 | `Build.command` | Double-click wrapper: `BuildApp.sh`, then opens `build/`. |
 | `Start_QCpie.command` | Double-click wrapper: opens `build/QCpie.app`, building it first if missing. |
 | `design_lint.py` | UI must use the design tokens (DESIGN.md). `--update` after removing old debt. |

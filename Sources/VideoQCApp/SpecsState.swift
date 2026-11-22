@@ -45,6 +45,13 @@ public final class SpecsState: ObservableObject {
     @Published public var manifestHTMLURL: URL? = nil
     @Published public var deliverablesCollapsedFolderIDs: Set<String> = []
     @Published public var dismissedMismatchURLs: Set<URL> = []
+    /// Limits set on columns from their header (this session only): files that miss one are flagged.
+    @Published public var columnTargets: [SpecsSortColumn: ColumnTarget] = [:] { didSet { targetsVersion += 1 } }
+    /// Bumped on every change to `columnTargets` (cheap key for rows and the display cache).
+    public private(set) var targetsVersion = 0
+    /// The Off Target chip: only files that miss a column target.
+    @Published public var showOffTargetOnly = false
+    private var offTargetCountCache: (assets: Int, targets: Int, count: Int)?
     
     // Audio Level Analysis Tracking
     @Published public var isAnalyzingAudioLevels: Bool = false
@@ -85,12 +92,13 @@ public final class SpecsState: ObservableObject {
         selectedDeliverableURLs.contains(url)
     }
 
-    /// What Inspect's checks (loudness, end frames, subs & graphics) run on: the selected files, else every file.
+    /// What Inspect's checks (loudness, end frames, subs & graphics) run on: the selected files, else every file;
+    /// never files read for their specs only (macOS can't decode them).
     public var checkTargets: [DeliverableAsset] {
         let selected = selectedDeliverableURLs
-        guard !selected.isEmpty else { return deliverableAssets }
+        guard !selected.isEmpty else { return deliverableAssets.filter { !$0.isSpecsOnly } }
         let picked = deliverableAssets.filter { selected.contains($0.fileURL) }
-        return picked.isEmpty ? deliverableAssets : picked
+        return (picked.isEmpty ? deliverableAssets : picked).filter { !$0.isSpecsOnly }
     }
 
     /// Selected files the checks would run on (0 = all files).
@@ -424,10 +432,43 @@ public final class SpecsState: ObservableObject {
         }
     }
     
+    // MARK: - Column targets
+
+    /// The chip is on and there's a target to filter by (clearing the last target turns the filter off).
+    private var offTargetFilterOn: Bool { showOffTargetOnly && !columnTargets.isEmpty }
+
+    public func setTarget(_ target: ColumnTarget?, for column: SpecsSortColumn) {
+        columnTargets[column] = target
+        if columnTargets.isEmpty { showOffTargetOnly = false }
+    }
+
+    public func clearTargets() {
+        columnTargets = [:]
+        showOffTargetOnly = false
+    }
+
+    /// The targets `asset` misses, in column order.
+    public func missedTargets(_ asset: DeliverableAsset) -> [ColumnTarget] {
+        ColumnTarget.columns.compactMap { columnTargets[$0] }.filter { $0.flags(asset) }
+    }
+
+    private static func missesAny(_ targets: [ColumnTarget], _ asset: DeliverableAsset) -> Bool {
+        targets.contains { $0.flags(asset) }
+    }
+
+    /// Files that miss at least one target (memoized per assets / targets change).
+    public var offTargetCount: Int {
+        if let cache = offTargetCountCache, cache.assets == assetsVersion, cache.targets == targetsVersion { return cache.count }
+        let targets = Array(columnTargets.values)
+        let count = targets.isEmpty ? 0 : deliverableAssets.reduce(0) { $0 + (Self.missesAny(targets, $1) ? 1 : 0) }
+        offTargetCountCache = (assetsVersion, targetsVersion, count)
+        return count
+    }
+
     /// Bumped on every change to `deliverableAssets` (cheap key for `displayedAssets`).
     private(set) var assetsVersion = 0
     private struct DisplayKey: Equatable {
-        let version: Int, filter: String, mask: Int, column: String, ascending: Bool, plan: String, text: Int
+        let version: Int, filter: String, mask: Int, column: String, ascending: Bool, plan: String, text: Int, targets: Int
     }
     private var displayCache: (key: DisplayKey, assets: [DeliverableAsset])?
 
@@ -438,18 +479,21 @@ public final class SpecsState: ObservableObject {
     public func displayedAssets(filter: String, mask: Int, planKey: String = "", planAllows: ((URL) -> Bool)? = nil,
                                 planText: ((URL) -> String?)? = nil, planSort: ((URL) -> Int)? = nil) -> [DeliverableAsset] {
         let key = DisplayKey(version: assetsVersion, filter: filter, mask: mask, column: specsSortColumnRaw, ascending: specsSortAscending,
-                             plan: planKey, text: pictureTextFilter.rawValue * 1_000_000 + dismissedMismatchURLs.count)
+                             plan: planKey, text: pictureTextFilter.rawValue * 1_000_000 + dismissedMismatchURLs.count,
+                             targets: offTargetFilterOn ? targetsVersion : -1)
         if let cache = displayCache, cache.key == key { return cache.assets }
         let base: [DeliverableAsset]
         let words = filter.lowercased().split(whereSeparator: { $0.isWhitespace }).map(String.init)
         // With no checked file the chips aren't shown, so a chip left on mustn't hide everything.
         let textFilter = deliverableAssets.contains(where: { $0.pictureText != nil }) ? pictureTextFilter : .all
         let dismissedMismatches = dismissedMismatchURLs
-        if filter.isEmpty && mask == MediaKindFilter.all && planAllows == nil && textFilter == .all {
+        let targets = offTargetFilterOn ? Array(columnTargets.values) : []
+        if filter.isEmpty && mask == MediaKindFilter.all && planAllows == nil && textFilter == .all && targets.isEmpty {
             base = deliverableAssets
         } else {
             base = deliverableAssets.filter {
                 MediaKindFilter.allows($0.fileURL, mask: mask) && (planAllows?($0.fileURL) ?? true) && textFilter.allows($0, mismatchDismissed: dismissedMismatches.contains($0.fileURL)) &&
+                (targets.isEmpty || Self.missesAny(targets, $0)) &&
                 (filter.isEmpty || $0.fileName.localizedCaseInsensitiveContains(filter) || $0.fileURL.path.localizedCaseInsensitiveContains(filter)
                     || Self.allWords(words, in: $0.fileName.lowercased() + " " + (planText?($0.fileURL) ?? "")))
             }
@@ -533,6 +577,14 @@ public final class SpecsState: ObservableObject {
                 } else {
                     order = a.fileSizeBytes < b.fileSizeBytes ? .orderedAscending : .orderedDescending
                 }
+            case .bitrate:
+                let aRate = a.overallBitsPerSecond ?? -1
+                let bRate = b.overallBitsPerSecond ?? -1
+                if aRate == bRate {
+                    order = a.fileName.localizedStandardCompare(b.fileName)
+                } else {
+                    order = aRate < bRate ? .orderedAscending : .orderedDescending
+                }
             case .date:
                 let aDate = a.creationDate ?? .distantPast
                 let bDate = b.creationDate ?? .distantPast
@@ -579,7 +631,7 @@ public final class SpecsState: ObservableObject {
     }
     
     public func analyzeAudioLevels() {
-        guard !deliverableAssets.isEmpty else { return }
+        guard !checkTargets.isEmpty else { return }   // none, or only files macOS can't decode
         cancelAudioAnalysis()
         
         let assetsToAnalyze = checkTargets
@@ -615,7 +667,7 @@ public final class SpecsState: ObservableObject {
     
     /// Classifies the last frame of each `checkTargets` file (BLACK / NEAR BLACK / NOT BLACK).
     public func checkEndFrames() {
-        guard !deliverableAssets.isEmpty else { return }
+        guard !checkTargets.isEmpty else { return }   // none, or only files macOS can't decode
         cancelEndFrameCheck()
         let urls = checkTargets.map(\.fileURL)
         totalEndFrameCount = urls.count
@@ -643,7 +695,7 @@ public final class SpecsState: ObservableObject {
     /// Reads the text in each `checkTargets` video's picture: burned-in subtitles and text graphics (two files at a time,
     /// plus helper processes on Macs with the memory for them).
     public func checkPictureText() {
-        guard !deliverableAssets.isEmpty else { return }
+        guard !checkTargets.isEmpty else { return }   // none, or only files macOS can't decode
         cancelPictureTextCheck()
         let urls = checkTargets.map(\.fileURL)
         totalPictureTextCount = urls.count

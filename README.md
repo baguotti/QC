@@ -32,7 +32,7 @@ Get the latest DMG from [Releases](https://github.com/baguotti/QC/releases), ope
 
 ## Formats
 
-Video, audio, images and image sequences. MXF and other pro formats need Apple's free [Pro Video Formats](https://support.apple.com/101631).
+Video, audio, images and image sequences. MXF and other pro formats need Apple's free [Pro Video Formats](https://support.apple.com/101631). Files macOS can't open (WebM, MKV, AVI, WMV, VP9, AV1…) still show their specs in Inspect, read with FFmpeg's ffprobe; they can't be played or checked.
 
 ## Build from source
 
@@ -46,3 +46,5 @@ Architecture notes for contributors: [AGENTS.md](AGENTS.md).
 ## License
 
 GPL-3.0: see [LICENSE](LICENSE). You may use, change and share QCpie; distributed changes must stay open source under the same license.
+
+QCpie bundles **ffprobe** from [FFmpeg](https://ffmpeg.org) 9.0.2, built as LGPL v2.1 (`scripts/build_ffprobe.sh` downloads the [source](https://ffmpeg.org/releases/ffmpeg-9.0.2.tar.xz) and lists the build flags). Its licence is in the app at `Contents/Resources/Helpers/FFMPEG_LICENSE.txt`. FFmpeg is a trademark of Fabrice Bellard.

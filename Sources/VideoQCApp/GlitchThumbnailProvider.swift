@@ -10,6 +10,9 @@ public actor GlitchThumbnailProvider {
     public static let shared = GlitchThumbnailProvider()
     
     private var cache: [String: CGImage] = [:]
+    /// Keys that couldn't be decoded (files macOS can't open, damaged ones) and when: not retried on every scroll or
+    /// skim for a minute (a network hiccup heals). The modification date is in the key: a file being written retries.
+    private var failed: [String: Date] = [:]
     private var cacheOrder: [String] = []
     private let maxCacheItems = 300
 
@@ -67,6 +70,7 @@ public actor GlitchThumbnailProvider {
         if let cached = cache[key] {
             return cached
         }
+        if let when = failed[key], Date().timeIntervalSince(when) < 60 { return nil }
         switch QCUtilities.mediaKind(of: url) {
         case .audio:
             return nil
@@ -108,6 +112,11 @@ public actor GlitchThumbnailProvider {
                 if cacheResult { storeInCache(key: key, image: image) }
                 return image
             }
+        }
+        // Cancelled mid-decode isn't a failure; past ~2,000 keys the set starts over (bounded memory).
+        if !Task.isCancelled {
+            if failed.count > 2_000 { failed.removeAll() }
+            failed[key] = Date()
         }
         return nil
     }
@@ -182,6 +191,7 @@ public actor GlitchThumbnailProvider {
     
     public func clearCache() {
         cache.removeAll()
+        failed.removeAll()
         cacheOrder.removeAll()
         assets.removeAll()
         generators.removeAll()

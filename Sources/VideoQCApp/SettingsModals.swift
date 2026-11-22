@@ -344,6 +344,19 @@ struct NotesSyncModalView: View {
 
 // MARK: - User Settings
 
+/// How Rec.709 video is shown: as macOS / QuickTime do (~1.96, lighter) or as Premiere Pro and DaVinci Resolve do
+/// (broadcast gamma 2.4). A viewing choice only: screenshots, checks and exports keep the file's pixels.
+enum ViewerGamma: String, CaseIterable {
+    case quickTime = "QuickTime 1.96", broadcast = "Broadcast 2.4"
+
+    static var current: ViewerGamma {
+        UserDefaults.standard.string(forKey: UserPreferences.viewerGammaKey).flatMap(Self.init(rawValue:)) ?? .quickTime
+    }
+
+    /// Power applied in the composition; 0: none (macOS's own reading).
+    var power: Double { self == .broadcast ? 2.4 : 0 }
+}
+
 /// Behind the picture (seen through transparent images and around graphics with alpha).
 enum ViewerBackground: String, CaseIterable {
     case theme = "Theme", black = "Black", grey = "Grey", checkerboard = "Checkerboard"
@@ -448,6 +461,7 @@ enum UserPreferences {
     static let resumePositionsKey = "resumePositions"        // path → frame
     static let safeAreaKey = "prefSafeArea"                  // SafeAreaMode raw value
     static let viewerBackgroundKey = "prefViewerBackground"  // ViewerBackground raw value
+    static let viewerGammaKey = "prefViewerGamma"            // ViewerGamma raw value
     static let includeSubfoldersKey = "prefIncludeSubfolders"
     static let restoreQueueKey = "prefRestoreQueue"
     static let lastQueueKey = "lastQueueInputs"              // the queue's files at quit
@@ -682,6 +696,15 @@ struct UserSettingsModalView: View {
                 row("checkerboard.rectangle", "Viewer background", "Behind the picture: shows through transparent images.") {
                     Picker("", selection: $engine.viewerBackground) {
                         ForEach(ViewerBackground.allCases, id: \.self) { Text($0.rawValue).tag($0) }
+                    }
+                    .labelsHidden()
+                    .pickerStyle(.menu)
+                    .fixedSize()
+                }
+                rowDivider
+                row("circle.lefthalf.filled", "Viewer gamma", "How Rec.709 video looks. QuickTime 1.96: as macOS and QuickTime show it (lighter). Broadcast 2.4: as Premiere Pro and DaVinci Resolve show it. Screenshots and checks keep the file's pixels.") {
+                    Picker("", selection: $engine.viewerGamma) {
+                        ForEach(ViewerGamma.allCases, id: \.self) { Text($0.rawValue).tag($0) }
                     }
                     .labelsHidden()
                     .pickerStyle(.menu)

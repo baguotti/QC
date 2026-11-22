@@ -68,6 +68,8 @@ struct ContentView: View {
     @AppStorage("specsDisplayMode") var specsDisplayMode: String = "inline"
     @AppStorage("specsThumbnailSize") var specsThumbnailSize: Double = 50.0
     @State var showSpecsViewOptionsPopover: Bool = false
+    /// The Inspect column whose target popover is open.
+    @State var targetEditorColumn: SpecsSortColumn? = nil
     @State var propertiesAsset: DeliverableAsset? = nil
     @State var propertiesURL: URL? = nil
     @State var isInspectingProperties: Bool = false
@@ -288,6 +290,7 @@ struct ContentView: View {
             }
             .onChange(of: selectedTab) { _, newTab in
                 if newTab != .upload { FrameIOPreview.shared.close() }
+                targetEditorColumn = nil   // Inspect's target popover (it turns the window's shortcuts off while open)
                 if newTab == .specs { inspectFollowsQueue(.inspectOpened) }
             }
     }
@@ -349,11 +352,16 @@ struct ContentView: View {
                 PlanCheckQueue.shared.isPlayerPlaying = playing || playerEngine.isPlaying
             }
             // The Inspect preview shows the focused file (it loads only after the selection rests).
-            .onChange(of: specsState.selectedDeliverableURL) { _, url in InspectPreview.shared.select(url) }
+            .onChange(of: specsState.selectedDeliverableURL) { _, url in
+                InspectPreview.shared.select(url, cannotPlay: url.flatMap { specsState.listedAsset(for: $0)?.specsOnlyReason })
+            }
             .onReceive(NotificationCenter.default.publisher(for: InspectPreview.showInfo)) { notification in
                 if let url = notification.object as? URL { openProperties(for: url) }
             }
-            .onAppear { InspectPreview.shared.select(specsState.selectedDeliverableURL) }
+            .onAppear {
+                let url = specsState.selectedDeliverableURL
+                InspectPreview.shared.select(url, cannotPlay: url.flatMap { specsState.listedAsset(for: $0)?.specsOnlyReason })
+            }
             // Linked filters (Delivery Plan ⇄ Inspect): Inspect's status chip and search go out, the plan's come in.
             .onChange(of: inspectPlanFilter) { _, state in
                 DeliveryPlanStore.shared.publishFilter(.init(state: state, search: specsState.specsFilterText, batch: inspectPlanBatch, upload: inspectPlanUpload))
@@ -1360,6 +1368,11 @@ struct ContentView: View {
     // MARK: - Deliverables Specs Execution
     
     func playDeliverableInPlayer(url: URL) {
+        // Read for its specs only: say why here instead of switching to a Player that can't open it.
+        if let reason = specsState.listedAsset(for: url)?.specsOnlyReason {
+            showToast("Can't play \(url.lastPathComponent): \(reason)")
+            return
+        }
         withAnimation(Motion.snap) {
             selectedTab = .player
         }
@@ -1508,9 +1521,14 @@ struct ContentView: View {
     
     var isAnyModalActive: Bool {
         showSyncModal || showUserSettingsModal || showUserGuide || showFeedbackModal || updateManager.showModal || showPropertiesModal || showAddNoteModal
+            || targetEditorColumn != nil   // its keys stay in the popover (1–7 mustn't tag the selected file)
     }
     
     func dismissTopmostModalOrFullscreen() -> Bool {
+        if targetEditorColumn != nil {
+            targetEditorColumn = nil
+            return true
+        }
         if showShortcutCheatSheet {
             withAnimation(Motion.fade) { showShortcutCheatSheet = false }
             return true

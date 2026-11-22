@@ -116,17 +116,29 @@ extension PlayerEngine {
         }
     }
     
+    /// The frame on screen, when a screenshot couldn't decode one: not while it shows the viewer gamma (screenshots keep
+    /// the file's look).
+    func screenshotFallback(_ slot: PlayerSlot) -> CGImage? {
+        gammaBox.value > 0 && slot.mediaKind == .video && slot.sequence == nil ? nil : slot.lastDecodedFrame
+    }
+
     // MARK: - Pixel-Perfect Still Frame Capture (For export)
     
     /// Returns the frame as displayed, i.e. with the slot's LUT and the current exposure applied exactly once.
     /// `applyingExposure: false` returns the decoded pixels as they are (missed-line reports: no LUT, no exposure), or
     /// nil when only adjusted pixels are available; the cached `lastDecodedFrame` is only updated for display-ready frames.
-    public func captureCurrentFrame(for slot: SlotTarget = .slotA, at time: CMTime? = nil, applyingExposure: Bool = true) async -> CGImage? {
+    /// `forDisplay`: for the viewport's still layer, so the viewer gamma is applied too (screenshots and reports keep the
+    /// file's pixels, as Premiere's export ignores its viewer gamma).
+    public func captureCurrentFrame(for slot: SlotTarget = .slotA, at time: CMTime? = nil, applyingExposure: Bool = true,
+                                    forDisplay: Bool = false) async -> CGImage? {
         let currentSlot = (slot == .slotA) ? slotA : slotB
-        // The video output and the viewport's cached frame already carry the LUT and exposure: only usable as originals
-        // at EV 0 without a LUT.
+        // The video output and the viewport's cached frame already carry the LUT, exposure and viewer gamma: only usable
+        // as originals at EV 0 without a LUT, at QuickTime gamma.
         let lut = currentSlot.lut.value
-        let exposureFreeFallbacks = applyingExposure || (exposureEV == 0 && lut == nil)
+        // The cache and the video output show the viewer gamma (video only): a screenshot can't use them while it's on.
+        let gammaShown = gammaBox.value > 0 && currentSlot.mediaKind == .video && currentSlot.sequence == nil
+        let looksMatch = forDisplay || !gammaShown
+        let exposureFreeFallbacks = (applyingExposure && looksMatch) || (exposureEV == 0 && lut == nil && !gammaShown)
         func cachedFrame() -> CGImage? { exposureFreeFallbacks ? currentSlot.lastDecodedFrame : nil }
         guard let url = currentSlot.url else { return cachedFrame() }
         guard currentSlot.mediaKind == .video else { return currentSlot.stillImage }
@@ -180,8 +192,8 @@ extension PlayerEngine {
         guard currentSlot.url == url else { return nil }
         if let extracted {
             guard applyingExposure else { return extracted }
-            let image = ExposureAdjuster.shared.applyLook(to: extracted, ev: exposureEV, lut: lut)
-            currentSlot.lastDecodedFrame = image
+            let image = ExposureAdjuster.shared.applyLook(to: extracted, ev: exposureEV, lut: lut, gamma: forDisplay ? gammaBox.value : 0)
+            if looksMatch { currentSlot.lastDecodedFrame = image }   // the cache holds what's on screen
             return image
         }
         
@@ -225,14 +237,14 @@ extension PlayerEngine {
             } else {
                 timeB = (slotB.currentTime.isValid && slotB.currentTime.isNumeric) ? slotB.currentTime : slotB.player.currentTime()
             }
-            guard let rawImage = await captureCurrentFrame(for: .slotB, at: timeB) ?? slotB.lastDecodedFrame else { return nil }
+            guard let rawImage = await captureCurrentFrame(for: .slotB, at: timeB) ?? screenshotFallback(slotB) else { return nil }
             return rawImage
         }
         
         // 2. Single slot capture
         if !isABActive || compareMode == .single {
             let targetSlot: SlotTarget = (activeTarget == .slotB && slotB.url != nil) ? .slotB : .slotA
-            let rawImage = await captureCurrentFrame(for: targetSlot) ?? ((targetSlot == .slotB) ? slotB.lastDecodedFrame : slotA.lastDecodedFrame)
+            let rawImage = await captureCurrentFrame(for: targetSlot) ?? screenshotFallback(targetSlot == .slotB ? slotB : slotA)
             guard let img = rawImage else { return nil }
             return img
         }
@@ -253,8 +265,8 @@ extension PlayerEngine {
         async let frameB = captureCurrentFrame(for: .slotB, at: timeB)
         var (rawA, rawB) = await (frameA, frameB)
         
-        if rawA == nil { rawA = slotA.lastDecodedFrame }
-        if rawB == nil { rawB = slotB.lastDecodedFrame }
+        if rawA == nil { rawA = screenshotFallback(slotA) }
+        if rawB == nil { rawB = screenshotFallback(slotB) }
         
         guard let imgA = rawA else {
             return rawB

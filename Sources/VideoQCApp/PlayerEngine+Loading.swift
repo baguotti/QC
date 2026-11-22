@@ -122,10 +122,18 @@ extension PlayerEngine {
     }
 
     private func reportLoadFailure(_ url: URL, error: Error?) {
-        let reason = ProVideoFormats.needsInstall(for: url)
-            ? "it needs Apple Pro Video Formats"
-            : (error as NSError?)?.localizedFailureReason ?? "it may still be rendering or copying, or be damaged"
-        loadFailure = LoadFailure(message: "Can't play \(url.lastPathComponent): \(reason)")
+        if ProVideoFormats.needsInstall(for: url) {
+            loadFailure = LoadFailure(message: "Can't play \(url.lastPathComponent): it needs Apple Pro Video Formats")
+            return
+        }
+        let fallback = (error as NSError?)?.localizedFailureReason ?? "it may still be rendering or copying, or be damaged"
+        // The bundled ffprobe tells a format macOS can't decode (VP9 in WebM) from a damaged file (~20 ms, off the main thread).
+        Task { [weak self] in
+            let probed = await DeliverablesInspector.probedAsset(url)
+            guard let self else { return }
+            let reason = probed?.specsOnlyReason.map { "\($0) (Inspect shows its specs)" } ?? fallback
+            self.loadFailure = LoadFailure(message: "Can't play \(url.lastPathComponent): \(reason)")
+        }
     }
 
     /// Read from disk each time (URL resource values are cached per URL and would hide a re-export).

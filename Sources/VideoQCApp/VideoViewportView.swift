@@ -2330,7 +2330,7 @@ public final class PlayerContainerNSView: NSView {
             let ev = engine.exposureEV
             let lut = (slot == .slotA ? engine.slotA : engine.slotB).lut.value?.name
             let url = (slot == .slotA ? engine.slotA : engine.slotB).url
-            let image = await engine.captureCurrentFrame(for: slot, at: time)
+            let image = await engine.captureCurrentFrame(for: slot, at: time, forDisplay: true)
             if slot == .slotA { self.stillEVA = ev; self.stillLUTA = lut } else { self.stillEVB = ev; self.stillLUTB = lut }
             if slot == .slotA {
                 self.isCapturingStillA = false

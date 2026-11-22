@@ -144,6 +144,8 @@ final class KeyboardShortcutRouter {
            let textView = firstResponder as? NSTextView {
             // Composing a character (accent menu, Japanese/Chinese input): Return / Esc confirm or cancel it.
             if textView.hasMarkedText() { return event }
+            // Esc in a popover's field reaches the popover (its Cancel closes it in one press, as in macOS).
+            if event.keyCode == 53, window.className.contains("Popover") { return event }
             if event.keyCode == 53 || event.keyCode == 36 { // ESC or Return
                 // Return in a text field submits first (its action → SwiftUI `.onSubmit`), then unfocuses.
                 if event.keyCode == 36, textView.isFieldEditor {
