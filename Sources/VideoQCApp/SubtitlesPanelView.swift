@@ -926,16 +926,18 @@ struct CCBadge: View {
     /// nil = inherit the surrounding foreground colour (e.g. a button's active / inactive tint).
     var color: Color? = nil
     var size: CGFloat = 10
+    /// "CC", or "LUT" for the Queue's LUT badge (same outlined style, wider box).
+    var text = "CC"
 
     var body: some View {
         // Text centres its line box (ascender + descender), not the caps; shift so "CC" sits optically centred.
         let font = NSFont.systemFont(ofSize: size * 0.68, weight: .semibold)
         let capOffset = ((font.ascender + font.descender) - font.capHeight) / 2
-        Text("CC")
+        Text(text)
             .font(.system(size: size * 0.68, weight: .semibold))
             .tracking(-0.3)
             .offset(y: capOffset)
-            .frame(width: size * 1.5, height: size * 1.05)
+            .frame(width: size * (text.count > 2 ? 2.1 : 1.5), height: size * 1.05)
             .overlay(RoundedRectangle(cornerRadius: size * 0.22).strokeBorder(.primary, lineWidth: 1))
             .foregroundStyle(color.map { AnyShapeStyle($0) } ?? AnyShapeStyle(.primary))
     }

@@ -149,6 +149,7 @@ extension ContentView {
                 setSequenceFPS(fps, for: url)
             },
             onLUTAssigned: { [playerEngine] urls in playerEngine.lutAssignmentsChanged(urls) },
+            showsLUTs: playerEngine.showLUTs,
             onToggleTag: { tag, url in
                 toggleFinderTag(tag, for: url)
             },

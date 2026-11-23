@@ -18,6 +18,8 @@ public struct PlayerQueueFileRowView: View, Equatable {
     public let currentTag: FinderTagColor?
     /// An .srt is attached or sits next to the file (CC badge, as in Inspect).
     public var hasSubtitles: Bool = false
+    /// The LUT assigned to the file (badge only when there is one).
+    public var lutName: String? = nil
     public let slotAResolution: String
     public let slotAFps: Double
     public let slotACodec: String
@@ -62,6 +64,7 @@ public struct PlayerQueueFileRowView: View, Equatable {
             lhs.notesCount == rhs.notesCount &&
             lhs.currentTag == rhs.currentTag &&
             lhs.hasSubtitles == rhs.hasSubtitles &&
+            lhs.lutName == rhs.lutName &&
             lhs.slotAResolution == rhs.slotAResolution &&
             lhs.slotAFps == rhs.slotAFps &&
             lhs.slotACodec == rhs.slotACodec &&
@@ -265,6 +268,10 @@ public struct PlayerQueueFileRowView: View, Equatable {
             if hasSubtitles {
                 CCBadge(color: textMuted, size: 9)
                     .help("Has subtitles (.srt)")
+            }
+            if let lutName {
+                CCBadge(color: textMuted, size: 9, text: "LUT")
+                    .help("LUT: \(LUTLibrary.displayName(lutName))")
             }
             Text(sequenceInfo?.label ?? url.lastPathComponent)
                 .font(.ui(size: fontSize, weight: isSelected ? .semibold : .medium))

@@ -62,6 +62,8 @@ public struct PlayerQueuePanelView: View, Equatable {
     public var onSetReadAsSequence: (_ url: URL, _ asSequence: Bool) -> Void = { _, _ in }
     public var onSetSequenceFPS: (_ url: URL, _ fps: Double) -> Void = { _, _ in }
     public var onLUTAssigned: (_ urls: [URL]) -> Void = { _ in }
+    /// The Player's LUT switch (⇧E): off, no clip shows a LUT badge.
+    public var showsLUTs = true
     public var onToggleTag: (_ tag: FinderTagColor, _ url: URL) -> Void
     public var onClearTag: (_ url: URL) -> Void
     public var onDrop: (_ providers: [NSItemProvider]) -> Bool
@@ -82,6 +84,7 @@ public struct PlayerQueuePanelView: View, Equatable {
             lhs.isScanning == rhs.isScanning &&
             lhs.isAutoplayEnabled == rhs.isAutoplayEnabled &&
             lhs.drawsWaveforms == rhs.drawsWaveforms &&
+            lhs.showsLUTs == rhs.showsLUTs &&
             isSameURL(lhs.slotAURL, rhs.slotAURL) &&
             lhs.slotAResolution == rhs.slotAResolution &&
             lhs.slotAFps == rhs.slotAFps &&
@@ -116,6 +119,8 @@ public struct PlayerQueuePanelView: View, Equatable {
     @AppStorage("playerThumbnailSize") private var playerThumbnailSize: Double = 52.0
     /// ⌘-click / ⇧-click selection, for actions on several files (LUT). Kept here so a click redraws the queue only.
     @State private var selection: Set<URL> = []
+    /// Bumped when a LUT is assigned here, so rows re-read their LUT badge (the library isn't observable).
+    @State private var lutVersion = 0
     @State private var selectionAnchor: URL? = nil
     /// The selection as menus read it when an item is chosen: rows are equatable, so a closure they captured
     /// would be stale once the selection changed without changing that row.
@@ -482,7 +487,7 @@ public struct PlayerQueuePanelView: View, Equatable {
             // Every clip in the folder and its subfolders (videos and sequences: stills and audio play without a LUT).
             let takesLUT = { (url: URL) in QueueSequenceInfo.lookup(url)?.isReadAsSequence == true || QCUtilities.mediaKind(of: url) == .video }
             if node.videoURLs.contains(where: takesLUT) {
-                LUTMenu(title: "LUT (All Clips in Folder)", files: { node.videoURLs.filter(takesLUT) }, onAssigned: onLUTAssigned)
+                LUTMenu(title: "LUT (All Clips in Folder)", files: { node.videoURLs.filter(takesLUT) }, onAssigned: lutAssigned)
             }
             Divider()
             Button("Copy Path") {
@@ -534,6 +539,20 @@ public struct PlayerQueuePanelView: View, Equatable {
         return false
     }
     
+    /// Reads `lutVersion` so an assignment made here redraws the rows.
+    private func lutBadge(for url: URL) -> String? {
+        _ = lutVersion
+        return showsLUTs ? LUTLibrary.shared.appliedLUTName(for: url) : nil
+    }
+
+    private var lutAssigned: (_ urls: [URL]) -> Void {
+        let forward = onLUTAssigned, version = $lutVersion
+        return { urls in
+            forward(urls)
+            version.wrappedValue &+= 1
+        }
+    }
+
     private func makeFileRow(url: URL, depth: Int = 0, isSlotA: Bool, isSlotB: Bool, notesCount: Int, isPicked: Bool = false) -> some View {
         let box = selectionBox
         return PlayerQueueFileRowView(
@@ -547,6 +566,7 @@ public struct PlayerQueuePanelView: View, Equatable {
             notesCount: notesCount,
             currentTag: fileTagsMap[url],
             hasSubtitles: subtitleFiles.contains(url.standardizedFileURL),
+            lutName: lutBadge(for: url),
             slotAResolution: slotAResolution,
             slotAFps: slotAFps,
             slotACodec: slotACodec,
@@ -568,7 +588,7 @@ public struct PlayerQueuePanelView: View, Equatable {
             onClearTag: onClearTag,
             onSetReadAsSequence: onSetReadAsSequence,
             onSetSequenceFPS: onSetSequenceFPS,
-            onLUTAssigned: onLUTAssigned,
+            onLUTAssigned: lutAssigned,
             selectedFiles: { box.urls.sorted { $0.path < $1.path } },
             onSelectClick: handleSelectClick
         )

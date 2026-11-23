@@ -37,6 +37,11 @@ final class LUTLibrary {
 
     func lutName(for url: URL) -> String? { assignments[url.standardizedFileURL.path] }
 
+    /// The LUT shown on `url`: its assignment, unless that LUT failed to read (then none is applied).
+    func appliedLUTName(for url: URL) -> String? {
+        lutName(for: url).flatMap { unreadable.contains($0) ? nil : $0 }
+    }
+
     /// A LUT as people read it: a custom LUT kept outside the folder is stored by path.
     nonisolated static func displayName(_ key: String) -> String {
         key.hasPrefix("/") ? URL(fileURLWithPath: key).deletingPathExtension().lastPathComponent : key
