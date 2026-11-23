@@ -15,7 +15,8 @@ struct PlanSheetLink: Codable, Equatable, Sendable {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         let gid = trimmed.range(of: #"[#?&]gid=(\d+)"#, options: .regularExpression)
             .map { String(trimmed[$0].drop { $0 != "=" }.dropFirst()) }
-        if let range = trimmed.range(of: #"/spreadsheets/d/([A-Za-z0-9_-]{20,})"#, options: .regularExpression) {
+        // "/spreadsheets/u/1/d/…": the link Google gives someone signed in to several accounts.
+        if let range = trimmed.range(of: #"/spreadsheets/(?:u/\d+/)?d/([A-Za-z0-9_-]{20,})"#, options: .regularExpression) {
             let id = trimmed[range].components(separatedBy: "/").last ?? ""
             return PlanSheetLink(sheetID: id, gid: gid)
         }
@@ -202,8 +203,10 @@ enum PlanParser {
                 switch c {
                 case "\"": quoted = true
                 case ",": row.append(field); field = ""
-                case "\r": break
-                case "\n": row.append(field); rows.append(row); row = []; field = ""
+                case "\r", "\n":
+                    // CR alone ends a row too (Excel for Mac's "CSV (Macintosh)"): skipping it read the sheet as one row.
+                    if c == "\r", let n = next(), n != "\n" { pending = n }
+                    row.append(field); rows.append(row); row = []; field = ""
                 default: field.unicodeScalars.append(c)
                 }
             }
@@ -389,7 +392,11 @@ enum PlanParser {
         let t = text.lowercased()
         guard let range = t.range(of: #"(\d+(?:[.,]\d+)?)\s*(kb|mb|gb)"#, options: .regularExpression) else { return nil }
         let match = t[range]
-        guard let value = Double(match.prefix { $0.isNumber || $0 == "." || $0 == "," }.replacingOccurrences(of: ",", with: ".")) else { return nil }
+        var number = String(match.prefix { $0.isNumber || $0 == "." || $0 == "," })
+        // "1,000 KB" groups thousands ("1,5 MB" is a comma decimal): read as 1.0 it flagged every file as too big.
+        number = number.range(of: #"^\d{1,3}(,\d{3})+$"#, options: .regularExpression) != nil
+            ? number.replacingOccurrences(of: ",", with: "") : number.replacingOccurrences(of: ",", with: ".")
+        guard let value = Double(number) else { return nil }
         let unit: Double = match.hasSuffix("kb") ? 1e3 : match.hasSuffix("gb") ? 1e9 : 1e6
         let total = value * unit
         return total.isFinite && total < 9e18 ? Int64(total) : nil   // Int64() traps past Int64.max

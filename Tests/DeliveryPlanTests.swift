@@ -55,6 +55,8 @@ struct DeliveryPlanTests {
         #expect(PlanSheetLink.parse("https://docs.google.com/spreadsheets/d/17U4hbVN1_eeFHFoTtTswt6kRfRCz-uKy6-2VyvWKNGM/edit#gid=1810111647")
                 == PlanSheetLink(sheetID: "17U4hbVN1_eeFHFoTtTswt6kRfRCz-uKy6-2VyvWKNGM", gid: "1810111647"))
         #expect(PlanSheetLink.parse("not a link") == nil)
+        #expect(PlanSheetLink.parse("https://docs.google.com/spreadsheets/u/1/d/17U4hbVN1_eeFHFoTtTswt6kRfRCz-uKy6-2VyvWKNGM/edit?gid=5")
+                == PlanSheetLink(sheetID: "17U4hbVN1_eeFHFoTtTswt6kRfRCz-uKy6-2VyvWKNGM", gid: "5"))
     }
 
     private func file(_ name: String, _ w: Int, _ h: Int, seconds: Double = 15, bytes: Int64 = 1_000_000,

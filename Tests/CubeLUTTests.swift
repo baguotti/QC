@@ -24,6 +24,7 @@ struct CubeLUTTests {
         #expect(throws: CubeLUT.ReadError.notThreeD) { try CubeLUT.parse(Data("LUT_1D_SIZE 2\n0 0 0\n1 1 1\n".utf8), name: "x") }
         #expect(throws: CubeLUT.ReadError.wrongCount(expected: 8, found: 1)) { try CubeLUT.parse(Data("LUT_3D_SIZE 2\n0 0 0\n".utf8), name: "x") }
         #expect(throws: CubeLUT.ReadError.badLine(2)) { try CubeLUT.parse(Data("LUT_3D_SIZE 2\n0 0\n".utf8), name: "x") }
+        #expect(throws: CubeLUT.ReadError.badLine(2)) { try CubeLUT.parse(Data("LUT_3D_SIZE 2\n0 nan 0\n".utf8), name: "x") }
         #expect(throws: CubeLUT.ReadError.unsupportedDomain) {
             try CubeLUT.parse(Data(("LUT_3D_SIZE 2\nDOMAIN_MAX 2 2 2\n" + String(repeating: "0 0 0\n", count: 8)).utf8), name: "x")
         }

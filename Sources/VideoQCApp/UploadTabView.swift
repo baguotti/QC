@@ -1151,7 +1151,7 @@ private struct DownloadRow: View, Equatable {
     let isLightMode: Bool
 
     private var palette: StudioPalette { StudioPalette(isLightMode) }
-    private var fraction: Double { Double(job.received) / Double(max(job.size, 1)) }
+    private var fraction: Double { min(1, Double(job.received) / Double(max(job.size, 1))) }
 
     var body: some View {
         HStack(spacing: 8) {

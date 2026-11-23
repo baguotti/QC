@@ -321,7 +321,7 @@ public enum FFprobe {
     static func rate(_ value: Any?) -> Double {
         guard let s = value as? String else { return 0 }
         let parts = s.split(separator: "/")
-        guard parts.count == 2, let n = Double(parts[0]), let d = Double(parts[1]), d > 0 else { return Double(s) ?? 0 }
+        guard parts.count == 2, let n = Double(parts[0]), let d = Double(parts[1]), d > 0 else { return Double(s).flatMap { $0.isFinite ? $0 : nil } ?? 0 }
         let r = n / d
         return r.isFinite ? r : 0
     }

@@ -101,6 +101,7 @@ struct EdgeInputTests {
         _ = PlanParser.frameRate("99999999999999999999999999 fps")
         _ = PlanParser.nameSeconds("clip_99999999999999999999s.mp4")
         _ = PlanParser.csv("\"unterminated, \"quote\n,,,\n\"")
+        #expect(PlanParser.csv("a,b\rc,d\r\ne,f") == [["a", "b"], ["c", "d"], ["e", "f"]])
         _ = PlanParser.parse(table: [], tab: "T")
         _ = PlanParser.parse(table: [[], [""], ["Code"]], tab: "T")
         #expect(PlanMatcher.contains(["a"], ["a", "b"]) == false)
@@ -218,6 +219,7 @@ struct CommaDecimalTests {
         #expect(PlanParser.seconds("1,30") == nil, "ambiguous: maybe 1:30, so no length rather than 1.3 s")
         #expect(PlanParser.frameRate("29,97") == 29.97)
         #expect(PlanParser.bytes("1,5 GB") == 1_500_000_000)
+        #expect(PlanParser.bytes("Max 1,000 KB") == 1_000_000)
         #expect(PlanParser.aspect("1,85:1") == PlanParser.aspect("1.85:1"))
         #expect(PlanParser.aspect("17x20,9x16") == PlanParser.aspect("17x20"))   // a list, not 20.9
         #expect(PlanParser.seconds("30s,15s") == nil || PlanParser.seconds("30s,15s") != 30.15...30.15)

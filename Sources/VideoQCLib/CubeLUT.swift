@@ -99,7 +99,8 @@ public struct CubeLUT: Sendable, Equatable {
                     var q = p
                     while q < end, buf[q] != 0x20, buf[q] != 0x09 { q += 1 }
                     let token = String(decoding: UnsafeBufferPointer(rebasing: buf[p..<q]), as: UTF8.self)
-                    guard let v = Float(token) else { throw ReadError.badLine(lineNumber) }
+                    // Float() also reads "nan" / "inf": one in the cube turned those colours black or garbage on screen.
+                    guard let v = Float(token), v.isFinite else { throw ReadError.badLine(lineNumber) }
                     values.append(v)
                     count += 1
                     p = q

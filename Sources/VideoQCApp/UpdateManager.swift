@@ -473,8 +473,9 @@ public final class UpdateManager: NSObject, ObservableObject {
     
     /// Compares two semantic version strings (e.g. "0.2.3" vs "0.2.2").
     public func isVersion(_ v1: String, newerThan v2: String) -> Bool {
-        let v1Components = v1.split(separator: ".").compactMap { Int($0.filter { $0.isNumber }) }
-        let v2Components = v2.split(separator: ".").compactMap { Int($0.filter { $0.isNumber }) }
+        // Each part's leading digits: "0-beta1" is 0, not 01 (all its digits read 0.20.0-beta1 as 0.20.1).
+        func parts(_ v: String) -> [Int] { v.split(separator: ".").map { Int($0.prefix { $0.isASCII && $0.isNumber }) ?? 0 } }
+        let v1Components = parts(v1), v2Components = parts(v2)
         
         let maxCount = max(v1Components.count, v2Components.count)
         for i in 0..<maxCount {
