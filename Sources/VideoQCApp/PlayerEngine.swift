@@ -663,7 +663,12 @@ public final class PlayerEngine: ObservableObject {
     /// AVFoundation, so nudge within the same frame to re-render it with the new exposure.
     func refreshPausedFramesForExposure() {
         guard !isPlaying, !isScrubbing, slotA.mediaKind == .video, slotA.player.currentItem != nil else { return }
-        seek(toTime: nudgedFrameTime(frame: currentFrame, fps: activeFps, current: slotA.player.currentTime()))
+        // The nudge stays inside the frame, but the playhead would follow it: it's put back on the frame's centre.
+        let frame = currentFrame, fps = max(1.0, activeFps)
+        seek(toTime: nudgedFrameTime(frame: frame, fps: fps, current: slotA.player.currentTime())) { [weak self] in
+            guard let self, self.currentFrame == frame else { return }
+            self.updateCurrentTime(time: CMTime(seconds: (Double(frame) + 0.5) / fps, preferredTimescale: 60000))
+        }
         
         let showsSlotB = slotB.url != nil && slotB.player.currentItem != nil && (compareMode != .single || isBlinkCompareB)
         guard showsSlotB && !isLinked else { return }

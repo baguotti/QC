@@ -47,7 +47,7 @@ struct UpdateModalView: View {
         case .updateAvailable(let version, let dmgURL, _):
             header(title: "QCpie \(version) is available", detail: "You have \(AppVersionInfo.version).", badge: .available)
             Text(dmgURL != nil
-                 ? "Update and Restart downloads it, replaces QCpie in Applications and opens the new version."
+                 ? "Update and Restart downloads it, replaces QCpie in Applications and opens the new version. Otherwise it downloads in the background and installs when you quit."
                  : "This release has no disk image attached. Open it on GitHub to download it.")
                 .font(.ui(size: 11))
                 .foregroundColor(palette.textMuted)
@@ -89,6 +89,17 @@ struct UpdateModalView: View {
                 .font(.ui(size: 11))
                 .foregroundColor(palette.textMuted)
                 .padding(.top, 14)
+        case .staged(let version):
+            header(title: "QCpie \(version) is ready", detail: "You have \(AppVersionInfo.version).", badge: .available)
+            Text("It installs by itself when you quit QCpie. Restart Now installs it and opens the new version.")
+                .font(.ui(size: 11))
+                .foregroundColor(palette.textMuted)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(.top, 14)
+            actions {
+                secondaryButton("Later") { dismissModal() }
+                primaryButton("Restart Now") { updateManager.restartIntoStagedUpdate() }
+            }
         case .readyToInstall(let fileURL):
             header(title: "Almost done", detail: "The disk image is open in Finder.", badge: .available)
             VStack(alignment: .leading, spacing: 8) {

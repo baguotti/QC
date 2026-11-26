@@ -31,6 +31,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Set once the quit questions were answered for an update's relaunch: quitting then asks nothing again.
     @MainActor static var quitConfirmed = false
 
+    func applicationWillTerminate(_ notification: Notification) {
+        MainActor.assumeIsolated { UpdateManager.shared.installStagedUpdateOnQuit() }
+    }
+
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         if Self.quitConfirmed { return .terminateNow }
         guard let stopTransfers = Self.askToQuit() else { return .terminateCancel }

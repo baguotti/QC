@@ -18,6 +18,8 @@ public final class UpdateManager: NSObject, ObservableObject {
         case downloading
         case installing(status: String)
         case readyToInstall(fileURL: URL)
+        /// Downloaded in the background: installs when QCpie quits, or now on Restart.
+        case staged(version: String)
         case failed(String)
     }
     
@@ -38,6 +40,11 @@ public final class UpdateManager: NSObject, ObservableObject {
     
     private var downloadTask: URLSessionDownloadTask?
     private var isManualDownload: Bool = false
+    /// Started by a background check: the update is prepared silently and installed when QCpie quits.
+    private var isBackgroundDownload = false
+    private var stagedUpdate: (app: URL, workDir: URL)?
+    private var swapLaunched = false
+    private var periodicCheck: Timer?
     private lazy var urlSession: URLSession = {
         let config = URLSessionConfiguration.default
         return URLSession(configuration: config, delegate: self, delegateQueue: .main)
@@ -55,7 +62,7 @@ public final class UpdateManager: NSObject, ObservableObject {
         // An update already downloading or installing: show it. A check replaced its state, and the finished download
         // then found the state it expects gone.
         switch state {
-        case .downloading, .installing, .readyToInstall:
+        case .downloading, .installing, .readyToInstall, .staged:
             if userInitiated { showModal = true }
             return
         default: break
@@ -65,6 +72,12 @@ public final class UpdateManager: NSObject, ObservableObject {
             state = .checking
         }
         
+        // QCpie stays open for days: checked again every 4 hours.
+        if periodicCheck == nil {
+            periodicCheck = Timer.scheduledTimer(withTimeInterval: 4 * 3600, repeats: true) { _ in
+                Task { @MainActor in UpdateManager.shared.checkForUpdates(userInitiated: false) }
+            }
+        }
         Task {
             await performCheck(userInitiated: userInitiated)
         }
@@ -137,6 +150,10 @@ public final class UpdateManager: NSObject, ObservableObject {
                 )
                 if userInitiated {
                     self.showModal = true
+                } else if self.remoteDMGURL != nil {
+                    self.isManualDownload = false
+                    self.isBackgroundDownload = true
+                    self.startDownload()
                 }
             } else {
                 self.hasUpdate = false
@@ -162,6 +179,9 @@ public final class UpdateManager: NSObject, ObservableObject {
     
     /// Begins 1-click automatic update: downloads DMG, extracts in background, replaces app in /Applications, and relaunches.
     public func startOneClickUpdate() {
+        isBackgroundDownload = false
+        if stagedUpdate != nil { restartIntoStagedUpdate(); return }
+        if case .downloading = state, !isManualDownload { return }   // the background download installs when it's done
         isManualDownload = false
         startDownload()
     }
@@ -169,6 +189,7 @@ public final class UpdateManager: NSObject, ObservableObject {
     /// Manual DMG download: downloads DMG to ~/Downloads and opens it in Finder for manual handling.
     public func downloadDMGManually() {
         isManualDownload = true
+        isBackgroundDownload = false
         startDownload()
     }
     
@@ -194,6 +215,7 @@ public final class UpdateManager: NSObject, ObservableObject {
         downloadTask?.cancel()
         downloadTask = nil
         isManualDownload = false
+        isBackgroundDownload = false
         if hasUpdate {
             state = .updateAvailable(
                 version: latestVersion,
@@ -234,21 +256,27 @@ public final class UpdateManager: NSObject, ObservableObject {
     
     private func startAutoInstall(dmgURL: URL) {
         let workDir = FileManager.default.temporaryDirectory.appendingPathComponent("qcpie_update_\(UUID().uuidString)", isDirectory: true)
-        Task.detached(priority: .userInitiated) {
+        let background = isBackgroundDownload
+        Task.detached(priority: background ? .background : .userInitiated) {
             do {
                 try FileManager.default.createDirectory(at: workDir, withIntermediateDirectories: true)
                 let localDMG = workDir.appendingPathComponent("update.dmg")
                 try FileManager.default.moveItem(at: dmgURL, to: localDMG)
-                
-                try await Self.performAutoInstallAndRelaunch(
-                    dmgURL: localDMG,
-                    workDir: workDir,
-                    onStatusUpdate: { status in
-                        Task { @MainActor in
-                            UpdateManager.shared.state = .installing(status: status)
-                        }
+                let staged = try Self.stageUpdate(dmgURL: localDMG, workDir: workDir, onStatusUpdate: { status in
+                    guard !background else { return }
+                    Task { @MainActor in UpdateManager.shared.state = .installing(status: status) }
+                })
+                await MainActor.run {
+                    let manager = UpdateManager.shared
+                    manager.stagedUpdate = (staged, workDir)
+                    // "Update and Restart" pressed while the background download ran: install now.
+                    if manager.isBackgroundDownload {
+                        manager.state = .staged(version: manager.latestVersion)
+                        Log.update.notice("QCpie \(manager.latestVersion) is ready: it installs when QCpie quits")
+                    } else {
+                        manager.restartIntoStagedUpdate()
                     }
-                )
+                }
             } catch {
                 await MainActor.run {
                     UpdateManager.shared.state = .failed("Installation failed: \(error.localizedDescription)")
@@ -258,12 +286,52 @@ public final class UpdateManager: NSObject, ObservableObject {
             }
         }
     }
-    
-    nonisolated private static func performAutoInstallAndRelaunch(
+
+    /// Quits and opens the new version now (the quit questions first: staying keeps the update for the next quit).
+    public func restartIntoStagedUpdate() {
+        guard let staged = stagedUpdate else { startOneClickUpdate(); return }
+        state = .installing(status: "Restarting QCpie...")
+        Task {
+            guard let stopTransfers = AppDelegate.askToQuit() else {
+                state = .staged(version: latestVersion)
+                return
+            }
+            if stopTransfers {
+                await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in
+                    AppDelegate.stopTransfers { done.resume() }
+                }
+            }
+            do {
+                try Self.launchSwap(stagedApp: staged.app, workDir: staged.workDir, relaunch: true)
+            } catch {
+                state = .failed("Installation failed: \(error.localizedDescription)")
+                return
+            }
+            swapLaunched = true
+            AppDelegate.quitConfirmed = true
+            NSApplication.shared.terminate(nil)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { exit(0) }
+        }
+    }
+
+    /// Called as QCpie quits: a downloaded update replaces the app once it has exited (not opened again).
+    public func installStagedUpdateOnQuit() {
+        guard let staged = stagedUpdate, !swapLaunched else { return }
+        swapLaunched = true
+        do {
+            try Self.launchSwap(stagedApp: staged.app, workDir: staged.workDir, relaunch: false)
+            Log.update.notice("Installing QCpie \(latestVersion) as QCpie quits")
+        } catch {
+            Log.update.error("Couldn't install the update on quit: \(error.localizedDescription)")
+        }
+    }
+
+    /// Mounts the disk image, copies QCpie out of it and writes the swap scripts: the app to install.
+    nonisolated private static func stageUpdate(
         dmgURL: URL,
         workDir: URL,
         onStatusUpdate: @escaping @Sendable (String) -> Void
-    ) async throws {
+    ) throws -> URL {
         onStatusUpdate("Mounting disk image...")
         
         let mntDir = workDir.appendingPathComponent("mnt", isDirectory: true)
@@ -345,26 +413,13 @@ public final class UpdateManager: NSObject, ObservableObject {
         // Remove downloaded DMG to reclaim disk space immediately
         try? FileManager.default.removeItem(at: dmgURL)
         
-        let currentAppPath = Bundle.main.bundleURL.path
-        let targetAppPath: String
-        if currentAppPath.contains("AppTranslocation") ||
-            currentAppPath.contains("/Downloads/") ||
-            currentAppPath.contains("/.build/") ||
-            !currentAppPath.hasSuffix(".app") {
-            targetAppPath = "/Applications/QCpie.app"
-        } else {
-            targetAppPath = currentAppPath
-        }
-        
-        onStatusUpdate("Restarting QCpie...")
-        
-        let scriptURL = workDir.appendingPathComponent("relaunch.sh")
         let scriptContent = """
         #!/bin/sh
         OLD_PID="$1"
         STAGED_APP="$2"
         TARGET_APP="$3"
         WORK_DIR="$4"
+        RELAUNCH="$5"
 
         # 1. Wait until old QCpie process fully exits (up to 15s)
         COUNT=0
@@ -391,8 +446,9 @@ public final class UpdateManager: NSObject, ObservableObject {
         # 4. Clean up temporary staging
         rm -rf "$WORK_DIR" 2>/dev/null || true
 
-        # 5. Launch the updated application (or the untouched old one when the swap failed)
-        /usr/bin/open "$TARGET_APP"
+        # 5. Launch the updated application (or the untouched old one when the swap failed), unless QCpie was quit
+        [ "$RELAUNCH" = "1" ] && /usr/bin/open "$TARGET_APP"
+        exit 0
         """
         
         // The new copy is complete beside the old app before the old one moves, and the old one is deleted only once the
@@ -419,53 +475,47 @@ public final class UpdateManager: NSObject, ObservableObject {
 
         do {
             try swapContent.write(to: workDir.appendingPathComponent("swap.sh"), atomically: true, encoding: .utf8)
-            try scriptContent.write(to: scriptURL, atomically: true, encoding: .utf8)
-            try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: scriptURL.path)
+            try scriptContent.write(to: workDir.appendingPathComponent("relaunch.sh"), atomically: true, encoding: .utf8)
+            try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: workDir.appendingPathComponent("relaunch.sh").path)
         } catch {
             throw AutoUpdateError.scriptCreationFailed(error.localizedDescription)
         }
-        
-        // Asked before the relaunch script starts: it force-quits QCpie after 15 s, and the quit 1 s after terminating
-        // went ahead when the user chose to stay (unsaved subtitles, a running check) or uploads were still pausing.
-        let stopTransfers = await MainActor.run { AppDelegate.askToQuit() }
-        guard let stopTransfers else { throw AutoUpdateError.cancelled }
-        if stopTransfers {
-            await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in
-                Task { @MainActor in AppDelegate.stopTransfers { done.resume() } }
-            }
-        }
-        await MainActor.run { AppDelegate.quitConfirmed = true }
+        return stagedAppURL
+    }
 
-        let oldPID = ProcessInfo.processInfo.processIdentifier
+    /// Starts the script that waits for QCpie to exit, swaps the new app in and, with `relaunch`, opens it.
+    nonisolated private static func launchSwap(stagedApp: URL, workDir: URL, relaunch: Bool) throws {
+        let currentAppPath = Bundle.main.bundleURL.path
+        let targetAppPath: String
+        if currentAppPath.contains("AppTranslocation") ||
+            currentAppPath.contains("/Downloads/") ||
+            currentAppPath.contains("/.build/") ||
+            !currentAppPath.hasSuffix(".app") {
+            targetAppPath = "/Applications/QCpie.app"
+        } else {
+            targetAppPath = currentAppPath
+        }
         let launchProcess = Process()
         launchProcess.executableURL = URL(fileURLWithPath: "/bin/sh")
         launchProcess.arguments = [
             "-c",
-            "/usr/bin/nohup /bin/sh \"$1\" \"$2\" \"$3\" \"$4\" \"$5\" >/dev/null 2>&1 &",
+            "/usr/bin/nohup /bin/sh \"$1\" \"$2\" \"$3\" \"$4\" \"$5\" \"$6\" >/dev/null 2>&1 &",
             "launcher",
-            scriptURL.path,
-            "\(oldPID)",
-            stagedAppURL.path,
+            workDir.appendingPathComponent("relaunch.sh").path,
+            "\(ProcessInfo.processInfo.processIdentifier)",
+            stagedApp.path,
             targetAppPath,
-            workDir.path
+            workDir.path,
+            relaunch ? "1" : "0"
         ]
         let launchErrPipe = Pipe()
         launchProcess.standardError = launchErrPipe
         try launchProcess.run()
         launchProcess.waitUntilExit()
-        
         if launchProcess.terminationStatus != 0 {
-            await MainActor.run { AppDelegate.quitConfirmed = false }
             let data = launchErrPipe.fileHandleForReading.readDataToEndOfFile()
             let msg = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "exit code \(launchProcess.terminationStatus)"
             throw AutoUpdateError.processLaunchFailed(msg)
-        }
-        
-        await MainActor.run {
-            NSApplication.shared.terminate(nil)
-            DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
-                exit(0)
-            }
         }
     }
     
@@ -556,12 +606,9 @@ private enum AutoUpdateError: LocalizedError {
     case stagingFailed(String)
     case scriptCreationFailed(String)
     case processLaunchFailed(String)
-    case cancelled
 
     var errorDescription: String? {
         switch self {
-        case .cancelled:
-            return "QCpie stayed open, so the update wasn't installed. Install it again when you're ready to quit."
         case .mountFailed(let detail):
             return "Failed to mount installer disk image: \(detail)"
         case .appNotFound:
